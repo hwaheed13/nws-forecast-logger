@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>🌡️ NWS Forecast Logger Dashboard (Live)</title>
+  <style>
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f4f8; margin:0; }
+    .container { max-width: 1100px; background: #fff; margin: 32px auto; border-radius: 12px; box-shadow: 0 4px 16px #0002; padding: 28px 40px 40px 40px;}
+    h1 { color: #175398; margin-top:0; }
+    .controls { display: flex; gap: 18px; align-items: center; margin-bottom: 24px; }
+    .controls label { font-size: 15px; color: #175398; font-weight: 500;}
+    .controls input[type="date"] { font-size:15px; padding: 5px; border-radius: 4px; border:1px solid #bbb;}
+    .stats { display:flex; gap:24px; margin-bottom: 16px;}
+    .stat-box { background:#f5f9ff; border-radius:8px; padding:12px 20px; font-size:17px;}
+    .stat-val { font-size:23px; color: #1976d2; font-weight:bold;}
+    table { width:100%; border-collapse: collapse; font-size: 14px; table-layout: fixed; }
+    th, td { border: 1px solid #e2e7f1; padding: 8px 6px; text-align:center;}
+    th { background: #1976d2; color:white;}
+    tr:nth-child(even) { background: #f5faff;}
+    .forecast-row { background: #fffdf2 !important;}
+    .actual-row { background: #f2f9f2 !important;}
+    .best { background: #e9fbe5 !important;}
+    .btn { background:#1976d2; color:white; border:none; border-radius:5px; padding:7px 17px; cursor:pointer; margin-left:10px;}
+    .note { color:#555; margin-bottom: 14px;}
+    .chart { margin-top:28px; }
+    .correction-box {
+      margin: 18px 0 16px 0; background: #fffbe9;
+      border-left: 7px solid #ffd95b; border-radius: 8px;
+      padding: 22px 30px;
+      font-size: 1.18em;
+      box-shadow: 0 2px 8px #0001;
+      display: inline-block;
+    }
+    .recent-line { color: #1976d2; font-size: 1.07em; margin-bottom: 7px; font-weight: 500; letter-spacing: 0.02em; }
+
+    /* Narrow the Actual High column (5th column after re-order) */
+    #dataTable th:nth-child(5), #dataTable td:nth-child(5) { width: 90px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🌡️ NWS Forecast Logger Dashboard (Live)</h1>
+    <div class="note">
+      As new data is logged, this dashboard refreshes automatically.<br />
+      For best results, keep this file and <b>nws_forecast_log.csv</b> in the same folder.<br />
+      <b>Refresh the page</b> to see new logs. (No upload needed!)
+    </div>
+    <div id="recentForecast" class="recent-line">Last logged forecast: ...</div>
+
+    <!-- Summary boxes -->
+    <div class="stats" style="display: flex; gap: 20px; margin: 12px 0 24px 0;">
+      <div class="stat-box" style="background:#fff5eb; flex:1;">
+        <div style="font-size:14px;">Today’s Forecasted High</div>
+        <div id="box-today-forecast" class="stat-val">–</div>
+      </div>
+      <div class="stat-box" style="background:#f0fff4; flex:1;">
+        <div style="font-size:14px;">Today’s Actual High</div>
+        <div id="box-today-actual" class="stat-val">–</div>
+      </div>
+      <div class="stat-box" style="background:#ebf5ff; flex:1;">
+        <div style="font-size:14px;">Tomorrow’s Forecasted High</div>
+        <div id="box-tomorrow-forecast" class="stat-val">–</div>
+      </div>
+    </div>
+
+    <div id="correctionBox" class="correction-box" style="display:none;"></div>
+
+    <div class="controls">
+      <label for="from">From:</label>
+      <input type="date" id="fromDate" />
+      <label for="to">To:</label>
+      <input type="date" id="toDate" />
+      <button class="btn" onclick="applyDateFilter()">Filter</button>
+      <button class="btn" onclick="resetFilter()">Show All</button>
+      <button class="btn" onclick="reloadCSV()">Reload</button>
+    </div>
+
+    <div class="stats" id="stats">
+      <div class="stat-box">Total Days: <span class="stat-val">0</span></div>
+      <div class="stat-box">Avg Absolute Error (all forecasts): <span class="stat-val">--°F</span></div>
+      <div class="stat-box">Avg Best Error (closest forecast per day): <span class="stat-val">--°F</span></div>
+    </div>
+
+    <div class="chart">
+      <canvas id="dailyChart" width="1000" height="400"></canvas>
+    </div>
+
+    <div style="overflow-x:auto; margin-top:18px;">
+      <table id="dataTable">
+        <thead>
+          <tr>
+            <th>Date Pulled</th>   <!-- timestamp (YYYY-MM-DD) -->
+            <th>Forecast Time</th> <!-- HH:MM only -->
+            <th>For Date</th>      <!-- target date -->
+            <th>Forecasted High</th>
+            <th>Actual High</th>   <!-- narrowed via CSS -->
+            <th>High Time</th>
+            <th>Error (°F)</th>
+            <th>Best?</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    let allRows = [];
+    let filteredRows = [];
+
+    function reloadCSV() {
+     fetch("https://raw.githubusercontent.com/hwaheed13/nws-forecast-logger/main/nws_forecast_log.csv?" + Date.now())
+        .then(resp => resp.text())
+        .then(parseCSV)
+        .then(() => {
+          resetFilter();
+          showMostRecent();
+          showCorrectionBox();
+          updateSummaryBoxes();
+        })
+        .catch(err => {
+          alert("Could not load CSV. Is it in the same folder as this dashboard? " + err);
+        });
+    }
+
+    /* ========== Robust CSV parser (handles commas/quotes) ========== */
+    function csvToRows(text) {
+      const rows = [];
+      let row = [], field = '', inQuotes = false;
+
+      for (let i = 0; i < text.length; i++) {
+        const c = text[i], n = text[i+1];
+        if (c === '"') {
+          if (inQuotes && n === '"') { field += '"'; i++; }  // escaped quote ""
+          else { inQuotes = !inQuotes; }
+        } else if (c === ',' && !inQuotes) {
+          row.push(field); field = '';
+        } else if ((c === '\n' || c === '\r') && !inQuotes) {
+          if (c === '\r' && n === '\n') i++;                 // handle CRLF
+          row.push(field); field = '';
+          if (row.length && row.some(x => x !== '')) rows.push(row);
+          row = [];
+        } else {
+          field += c;
+        }
+      }
+      // last field/row
+      if (field !== '' || inQuotes || row.length) {
+        row.push(field);
+        if (row.length && row.some(x => x !== '')) rows.push(row);
+      }
+      return rows;
+    }
+
+    function parseCSV(text) {
+      const rows = csvToRows(text);
+      if (!rows.length) return;
+      const header = rows[0].map(h => h.trim());
+      allRows = [];
+
+      for (let i = 1; i < rows.length; i++) {
+        const vals = rows[i];
+        const rec = {};
+        for (let j = 0; j < header.length; j++) {
+          let v = (vals[j] ?? '').trim();
+          if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1).replace(/""/g, '"');
+          rec[header[j]] = v;
+        }
+        allRows.push(rec);
+      }
+    }
+    /* =============================================================== */
+
+    function resetFilter() {
+      filteredRows = allRows.slice();
+      document.getElementById('fromDate').value = "";
+      document.getElementById('toDate').value = "";
+      displayTable();
+      showStats();
+      showChart();
+      showMostRecent();
+      showCorrectionBox();
+      updateSummaryBoxes();
+    }
+
+    function applyDateFilter() {
+      const from = document.getElementById('fromDate').value;
+      const to = document.getElementById('toDate').value;
+      filteredRows = allRows.filter(row => {
+        const date = row.forecast_or_actual === "actual" ? row.cli_date : row.target_date;
+        if (!date) return false;
+        if (from && date < from) return false;
+        if (to && date > to) return false;
+        return true;
+      });
+      displayTable();
+      showStats();
+      showChart();
+      showMostRecent();
+      showCorrectionBox();
+      updateSummaryBoxes();
+    }
+
+    function showMostRecent() {
+      const fcRows = allRows.filter(r => r.forecast_or_actual === "forecast" && r.predicted_high && r.target_date);
+      if (!fcRows.length) { document.getElementById("recentForecast").innerHTML = ""; return; }
+      fcRows.sort((a,b) => (b.forecast_time||b.timestamp).localeCompare(a.forecast_time||a.timestamp));
+      const recent = fcRows[0];
+      document.getElementById("recentForecast").innerHTML =
+        `Last logged forecast: <b>${recent.forecast_time || recent.timestamp}</b> — <b>${recent.predicted_high}°F</b> (for <b>${recent.target_date}</b>)`;
+    }
+
+    function showCorrectionBox() {
+      const fcRows = allRows.filter(r => r.forecast_or_actual === "forecast" && r.predicted_high && r.target_date);
+      if (!fcRows.length) { document.getElementById("correctionBox").style.display = "none"; return; }
+      fcRows.sort((a,b) => (b.forecast_time||b.timestamp).localeCompare(a.forecast_time||a.timestamp));
+      const recent = fcRows[0];
+
+      const biasList = [];
+      const lastN = 14;
+      const dayMap = {};
+
+      allRows.forEach(r => {
+        const date = r.forecast_or_actual === "actual" ? r.cli_date : r.target_date;
+        if (!date) return;
+        if (!dayMap[date]) dayMap[date] = [];
+        dayMap[date].push(r);
+      });
+
+      const sortedDates = Object.keys(dayMap).sort().filter(d => d < recent.target_date);
+      sortedDates.slice(-lastN).forEach(d => {
+        const dayRows = dayMap[d];
+        const actual = dayRows.find(r => r.forecast_or_actual === "actual" && r.actual_high);
+        const actualHigh = actual ? Number(actual.actual_high) : null;
+        const highTime = actual ? actual.high_time : "";
+        let bestErr = 999, lastFc = null;
+
+        dayRows.forEach(r => {
+          if (r.forecast_or_actual !== "forecast" || !r.predicted_high) return;
+          if (highTime) {
+            const fcHour = (r.forecast_time||"").substr(11,5);
+            if (fcHour && compareTimes(fcHour, highTime) > 0) return;
+          }
+          const err = Math.abs(Number(r.predicted_high) - actualHigh);
+          if (err < bestErr) { bestErr = err; lastFc = r; }
+        });
+
+        if (lastFc && actualHigh != null) biasList.push(actualHigh - Number(lastFc.predicted_high));
+      });
+
+      const avgBias = biasList.length ? biasList.reduce((a,b)=>a+b,0)/biasList.length : 0;
+      const corrected = Number(recent.predicted_high) + avgBias;
+      const biasTxt = avgBias ? (avgBias > 0 ? "+" : "") + avgBias.toFixed(2) : "+0.00";
+
+      document.getElementById("correctionBox").style.display = "";
+      document.getElementById("correctionBox").innerHTML = `
+        <b>Today's Corrected Prediction:</b><br>
+        <span style="font-size:2em;">${recent.target_date}: <b>${corrected.toFixed(1)}°F</b></span><br>
+        <span style="color:#666;">
+          NWS Forecast: <b>${recent.predicted_high}°F</b>
+          &nbsp;|&nbsp; Correction: <b>${biasTxt}°F</b> (model, last ${biasList.length} days)
+        </span>
+      `;
+    }
+
+    function showStats() {
+      let count=0, absSum=0, bestSum=0, bestCount=0;
+      const dayMap = {};
+      filteredRows.forEach(row => {
+        const date = row.forecast_or_actual === "actual" ? row.cli_date : row.target_date;
+        if (!date) return;
+        if (!dayMap[date]) dayMap[date] = [];
+        dayMap[date].push(row);
+      });
+
+      Object.values(dayMap).forEach(dayRows => {
+        const actual = dayRows.find(r => r.forecast_or_actual==="actual");
+        const actualHigh = actual ? Number(actual.actual_high) : null;
+        if (!Number.isFinite(actualHigh)) return;
+        const highTime = actual ? actual.high_time : "";
+        let bestErr=999;
+
+        dayRows.forEach(r => {
+          if (r.forecast_or_actual!=="forecast" || !r.predicted_high) return;
+          if (highTime) {
+            const fcHour = (r.forecast_time||"").substr(11,5);
+            if (fcHour && compareTimes(fcHour, highTime)>0) return;
+          }
+          const err = Math.abs(Number(r.predicted_high)-actualHigh);
+          absSum += err; count++;
+          if (err<bestErr) bestErr=err;
+        });
+        if (bestErr<999) { bestSum += bestErr; bestCount++; }
+      });
+
+      const avgAbs = count ? (absSum/count).toFixed(2) : "--";
+      const avgBest = bestCount ? (bestSum/bestCount).toFixed(2) : "--";
+      document.getElementById("stats").innerHTML = `
+        <div class="stat-box">Total Days: <span class="stat-val">${Object.keys(dayMap).length}</span></div>
+        <div class="stat-box">Avg Absolute Error (all forecasts): <span class="stat-val">${avgAbs}°F</span></div>
+        <div class="stat-box">Avg Best Error (closest forecast per day): <span class="stat-val">${avgBest}°F</span></div>
+      `;
+    }
+
+    function showChart() {
+      const ctx = document.getElementById('dailyChart').getContext('2d');
+      if (window.mainChart) window.mainChart.destroy();
+
+      const dayMap = {};
+      filteredRows.forEach(row => {
+        const date = row.forecast_or_actual === "actual" ? row.cli_date : row.target_date;
+        if (!date) return;
+        if (!dayMap[date]) dayMap[date] = [];
+        dayMap[date].push(row);
+      });
+
+      const labels=[], actuals=[], bestForecasts=[];
+      Object.keys(dayMap).sort().forEach(date => {
+        const dayRows = dayMap[date];
+        const actual = dayRows.find(r => r.forecast_or_actual==="actual");
+        const actualHigh = actual ? Number(actual.actual_high) : null;
+        const highTime = actual ? actual.high_time : "";
+        let best=null, bestErr=999;
+
+        dayRows.forEach(r => {
+          if (r.forecast_or_actual!=="forecast" || !r.predicted_high) return;
+          if (highTime) {
+            const fcHour=(r.forecast_time||"").substr(11,5);
+            if (fcHour && compareTimes(fcHour, highTime)>0) return;
+          }
+          const err = Math.abs(Number(r.predicted_high)-actualHigh);
+          if (err<bestErr) { bestErr=err; best=r; }
+        });
+
+        if (actualHigh !== null) {
+          labels.push(date);
+          actuals.push(actualHigh);
+          bestForecasts.push(best ? Number(best.predicted_high) : null);
+        }
+      });
+
+      window.mainChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { label: "Actual High", data: actuals, borderColor: "#2ecc71", fill:false, tension:0.2 },
+            { label: "Best Forecast (pre-high)", data: bestForecasts, borderColor: "#1976d2", fill:false, tension:0.2 }
+          ]
+        },
+        options: {
+          plugins: { legend: { display: true, position: "top" }},
+          scales: { x: { title: {display:true,text:"Date"} }, y: { title: {display:true,text:"Temperature (°F)"}} }
+        }
+      });
+    }
+
+    function displayTable() {
+      const tb = document.getElementById("dataTable").getElementsByTagName("tbody")[0];
+      tb.innerHTML = "";
+      const dayMap = {};
+
+      filteredRows.forEach(r => {
+        const date = r.forecast_or_actual === "actual" ? r.cli_date : r.target_date;
+        if (!date) return;
+        if (!dayMap[date]) dayMap[date]=[];
+        dayMap[date].push(r);
+      });
+
+      Object.keys(dayMap).sort().forEach(date => {
+        const dayRows = dayMap[date];
+        const actual = dayRows.find(r => r.forecast_or_actual==="actual");
+        const actualHigh = actual ? rNum(actual.actual_high) : null;
+        const actualHighTxt = actual && actual.actual_high ? actual.actual_high+"°F" : "";
+        const highTime = actual ? actual.high_time : "";
+        let bestIdx=-1, bestErr=999;
+
+        dayRows.forEach((r,i) => {
+          if (r.forecast_or_actual !== "forecast" || !r.predicted_high || actualHigh===null) return;
+          if (highTime) {
+            const fcHour = (r.forecast_time||"").substr(11,5);
+            if (fcHour && compareTimes(fcHour, highTime)>0) return;
+          }
+          const err = Math.abs(Number(r.predicted_high)-actualHigh);
+          if (err<bestErr) { bestErr=err; bestIdx=i; }
+        });
+
+        dayRows.forEach((r,i) => {
+          if (r.forecast_or_actual!=="forecast" && r.forecast_or_actual!=="actual") return;
+          let cls = r.forecast_or_actual==="actual" ? "actual-row" : "forecast-row";
+          if (i===bestIdx && r.forecast_or_actual==="forecast") cls += " best";
+          const pred = r.predicted_high ? r.predicted_high+"°F" : "";
+          const act = r.actual_high ? r.actual_high+"°F" : actualHighTxt;
+          const fTime = r.forecast_time ? r.forecast_time.substr(11,5) : ""; // HH:MM only
+          const errTxt = (r.forecast_or_actual==="forecast" && r.predicted_high && actualHigh!==null)
+            ? (Number(r.predicted_high)-actualHigh).toFixed(1) : "";
+
+          tb.innerHTML += `<tr class="${cls}">
+            <td>${r.timestamp ? r.timestamp.substr(0,10) : ""}</td>  <!-- Date Pulled -->
+            <td>${fTime}</td>                                        <!-- Forecast Time -->
+            <td>${date}</td>                                         <!-- For Date -->
+            <td>${pred}</td>
+            <td>${act}</td>
+            <td>${highTime}</td>
+            <td>${errTxt}</td>
+            <td>${(i===bestIdx && r.forecast_or_actual==="forecast") ? "✔️" : ""}</td>
+          </tr>`;
+        });
+      });
+    }
+
+    function rNum(x){ const n=Number(x); return Number.isFinite(n)?n:null; }
+
+    function compareTimes(t1,t2) {
+      const d1 = toDateObj(t1), d2 = toDateObj(t2);
+      return (d1&&d2) ? d1-d2 : 0;
+    }
+    function toDateObj(t) {
+      if (!t) return null;
+      if (/[AP]M/i.test(t)) {
+        const m = t.match(/(\d{1,2}):(\d{2})\s*([AP]M)/i);
+        if (!m) return null;
+        const [,h,mn,amp] = m;
+        const hour = Number(h)%12 + (amp.toUpperCase()==="PM"?12:0);
+        return new Date(2020,1,1,hour,Number(mn));
+      }
+      if (/^\d{2}:\d{2}$/.test(t)) {
+        const [h,mn]=t.split(":");
+        return new Date(2020,1,1,Number(h),Number(mn));
+      }
+      return null;
+    }
+
+    function updateSummaryBoxes() {
+      const today = new Date().toISOString().slice(0,10);
+      const tomorrow = new Date(Date.now()+86400000).toISOString().slice(0,10);
+
+      const todayForecasts = [], tomorrowForecasts = [];
+      let todayActual = null;
+
+      allRows.forEach(row => {
+        if (row.forecast_or_actual==="forecast" && row.target_date===today && row.predicted_high)
+          todayForecasts.push(Number(row.predicted_high));
+        if (row.forecast_or_actual==="forecast" && row.target_date===tomorrow && row.predicted_high)
+          tomorrowForecasts.push(Number(row.predicted_high));
+        if (row.forecast_or_actual==="actual" && row.cli_date===today && row.actual_high)
+          todayActual = Number(row.actual_high);
+      });
+
+      const avg = arr => arr.length ? (arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1)+"°F" : "–";
+      document.getElementById("box-today-forecast").textContent = avg(todayForecasts);
+      document.getElementById("box-today-actual").textContent = (todayActual || todayActual===0) ? todayActual.toFixed(1)+"°F" : "–";
+      document.getElementById("box-tomorrow-forecast").textContent = avg(tomorrowForecasts);
+    }
+
+    // Initial load
+    reloadCSV();
+  </script>
+</body>
+</html>
