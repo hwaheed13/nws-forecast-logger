@@ -38,6 +38,12 @@ jobs:
       - name: Run logger
         run: python run_once.py
 
+      - name: Sanitize CSV (remove blank/whitespace-only lines)
+        run: |
+          # Remove lines that are only commas/spaces/tabs
+          grep -Ev '^[[:space:]]*(,?[[:space:]]*)*$' nws_forecast_log.csv > /tmp/clean.csv || true
+          mv /tmp/clean.csv nws_forecast_log.csv
+
       - name: Commit and push CSV
         run: |
           git config user.name "github-actions[bot]"
