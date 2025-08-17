@@ -5,6 +5,17 @@ import os
 import time
 from bs4 import BeautifulSoup
 
+import pytz
+
+NYC_TZ = pytz.timezone("America/New_York")
+
+def now_nyc():
+    return datetime.datetime.now(NYC_TZ)
+
+def today_nyc():
+    return now_nyc().date()
+
+
 CSV_FILE = "nws_forecast_log.csv"
 FETCH_TIMES = ["19:30", "21:00", "23:00", "5:00", "06:00", "07:00", "09:00", "10:00", "10:50", "11:00", "12:00", "13:00", "14:00", "15:00"]
 NWS_API_ENDPOINT = "https://api.weather.gov/points/40.7834,-73.965"
@@ -50,36 +61,37 @@ def forecast_already_logged(target_date, predicted_high):
 
 def log_forecast_for_tomorrow():
     print("🔍 Fetching tomorrow’s forecast...")
-    url = "https://api.weather.gov/points/40.7834,-73.965"
-    resp = requests.get(url).json()
+    resp = requests.get(NWS_API_ENDPOINT, headers={"User-Agent": "Mozilla/5.0"}).json()
     forecast_url = resp["properties"]["forecast"]
-    forecast = requests.get(forecast_url).json()
+    forecast = requests.get(forecast_url, headers={"User-Agent": "Mozilla/5.0"}).json()
 
-    tomorrow = datetime.date.today() + datetime.timedelta(days=1)
+    tomorrow = today_nyc() + datetime.timedelta(days=1)  # <— local tomorrow
 
     for period in forecast["properties"]["periods"]:
         start_date = datetime.datetime.fromisoformat(period["startTime"]).date()
         if start_date == tomorrow:
             if not forecast_already_logged(str(tomorrow), str(period["temperature"])):
+                now_local = now_nyc()
                 with open(CSV_FILE, mode="a", newline="") as f:
                     writer = csv.writer(f)
                     writer.writerow([
-                        datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        str(tomorrow),
+                        now_local.strftime("%Y-%m-%d %H:%M:%S"),  # timestamp
+                        str(tomorrow),                            # For Date
                         "forecast",
-                        datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        now_local.strftime("%Y-%m-%d %H:%M:%S"),  # forecast_time in ET
                         str(period["temperature"]),
                         period["detailedForecast"],
                         "",
                         "",
                         ""
                     ])
-                    print(f"✅ Logged forecast for {tomorrow}: {period['temperature']}°F")
+                print(f"✅ Logged forecast for {tomorrow}: {period['temperature']}°F")
             else:
                 print(f"⏭️ Forecast for {tomorrow} with {period['temperature']}°F already logged.")
             break
     else:
         print("⚠️ No forecast found for tomorrow.")
+
 
 def log_forecast():
     print("🔍 Fetching today’s forecast...")
@@ -89,18 +101,19 @@ def log_forecast():
         print("⚠️ No valid forecast found for today.")
         return
 
-    target_date = datetime.date.today().isoformat()
+    target_date = today_nyc().isoformat()  # <— local date
     if forecast_already_logged(target_date, str(period["temperature"])):
         print(f"⏭️ Forecast for today with {period['temperature']}°F already logged.")
         return
 
+    now_local = now_nyc()
     with open(CSV_FILE, mode="a", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
-            datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            target_date,
+            now_local.strftime("%Y-%m-%d %H:%M:%S"),  # timestamp in ET
+            target_date,                              # target_date (For Date)
             "forecast",
-            datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            now_local.strftime("%Y-%m-%d %H:%M:%S"),  # forecast_time in ET
             str(period["temperature"]),
             period["detailedForecast"],
             "",
@@ -108,6 +121,7 @@ def log_forecast():
             ""
         ])
     print(f"✅ Logged forecast for today: {period['temperature']}°F")
+
 
 def log_actual():
 
@@ -124,8 +138,8 @@ def log_actual():
         lines = pre.text.splitlines()
         temp = None
         time_clean = None
-        now = datetime.datetime.now()
-        cli_date = now.date().isoformat()  # always use today's date
+        now = now_nyc()
+        cli_date = now.date().isoformat()
 
         for line in lines:
             if "MAXIMUM" in line and "YESTERDAY" not in line.upper():
@@ -201,7 +215,7 @@ def log_yesterday_actual():
                         else:
                             time_clean = f"{int(time_raw[:2])}:{time_raw[2:]} {am_pm}"
 
-                        now = datetime.datetime.now()
+                        now = now_nyc()
                         target_date = now.date() - datetime.timedelta(days=1)
                         cli_date = target_date.strftime("%Y-%m-%d")
 
@@ -234,6 +248,8 @@ def main_loop():
                 if not already_logged("forecast", now.strftime("%Y-%m-%d %H")):
                     log_forecast()
                 log_forecast_for_tomorrow()
+        now = now_nyc()
+        now_str = now.strftime("%H:%M")
         if now.hour == 18 and not already_logged("actual", now.strftime("%Y-%m-%d")):
             log_actual()
         time.sleep(60)
