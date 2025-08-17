@@ -308,6 +308,28 @@ def log_actual_for_date_via_version(target_date_iso: str, version: int, force: b
     except Exception as e:
         print(f"Error backfilling {target_date_iso} via CLI v{version}: {e}")
 
+import pytz
+
+def log_actual_today_if_after_6pm_local():
+    """Log today's actual high, but only after 6pm ET."""
+    nyc = pytz.timezone("America/New_York")
+    now = datetime.datetime.now(nyc)
+    if now.hour >= 18:
+        print("🕕 After 6pm ET — attempting to log today’s actual high")
+        log_actual()
+    else:
+        print("⏭️ Skipping: it’s before 6pm ET")
+
+def upsert_yesterday_actual_if_morning_local():
+    """Log yesterday’s actual high, but only if it’s morning (midnight–noon ET)."""
+    nyc = pytz.timezone("America/New_York")
+    now = datetime.datetime.now(nyc)
+    if 0 <= now.hour < 12:
+        print("🌅 Morning ET — attempting to log yesterday’s actual high")
+        log_yesterday_actual()
+    else:
+        print("⏭️ Skipping: it’s afternoon/evening ET")
+
 
 # ========== ✅ MANUAL TRIGGERS (uncomment as needed) ==========
 
