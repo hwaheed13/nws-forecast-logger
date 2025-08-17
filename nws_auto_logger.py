@@ -316,7 +316,7 @@ def log_actual_for_date_via_version(target_date_iso: str, version: int, force: b
 # log_actual()                # Log actual high (today or yesterday depending on time)
 # log_yesterday_actual()      # Force actual high for yesterday using CLI v2
 
-main_loop()                 # Auto-logger loop (scheduled mode)
+# main_loop()                 # Auto-logger loop (scheduled mode)
 
 # --- one-time backfills ---
 # log_actual_for_date_via_version("2025-08-02", 27)
