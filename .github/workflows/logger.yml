@@ -2,7 +2,7 @@ name: NWS Auto Logger
 
 on:
   schedule:
-    # Today's forecast — 7am, 9am, 11am, 2pm ET
+    # Today's forecast — 7am, 9am, 11am, 2pm ET (EDT = UTC-4)
     - cron: "0 11 * * *"   # 7am ET
     - cron: "0 13 * * *"   # 9am ET
     - cron: "0 15 * * *"   # 11am ET
@@ -10,20 +10,23 @@ on:
 
     # Tomorrow's forecast — 10am & 8pm ET
     - cron: "0 14 * * *"   # 10am ET
-    - cron: "0 0 * * *"    # 8pm ET (0 UTC = 8pm ET during DST)
+    - cron: "0 0 * * *"    # 8pm ET (0 UTC ≈ 8pm ET during DST)
 
     # Yesterday's actual — 4am ET
     - cron: "0 8 * * *"    # 4am ET
-  workflow_dispatch:       # manual trigger
+  workflow_dispatch: {}
 
-  permissions:
+permissions:
   contents: write
 
 jobs:
   run-logger:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -31,16 +34,15 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4 pytz pandas
+        run: pip install requests beautifulsoup4 pytz
 
       - name: Run logger
         run: python run_once.py
 
-      - name: Commit and push CSV
+      - name: Commit & push CSV
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add nws_forecast_log.csv
           git commit -m "Update forecast log [skip ci]" || echo "No changes to commit"
           git push origin main
-
