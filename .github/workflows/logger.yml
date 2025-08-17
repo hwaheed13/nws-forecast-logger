@@ -27,10 +27,8 @@ jobs:
         with:
           python-version: "3.11"
 
-    - name: Install dependencies
-      run: pip install requests beautifulsoup4
-
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
 
       - name: Run logger
         run: python run_once.py
-
