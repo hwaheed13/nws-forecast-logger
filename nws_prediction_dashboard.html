@@ -110,7 +110,7 @@
     let filteredRows = [];
 
     function reloadCSV() {
-      fetch("nws_forecast_log.csv?" + Date.now())
+     fetch("https://raw.githubusercontent.com/hwaheed13/nws-forecast-logger/main/nws_forecast_log.csv?" + Date.now())
         .then(resp => resp.text())
         .then(parseCSV)
         .then(() => {
