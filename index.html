@@ -319,7 +319,7 @@
   if (todayActualRow) todayActual = Number(todayActualRow.actual_high);
 
   // tomorrow (leave as average unless you want latest too)
-  const tomorrowAvgForecast = avgForDate(tomorrow);
+  const tomorrowAvgForecast = latestForDate(tomorrow);
 
   // write to DOM
   document.getElementById("box-today-forecast").textContent =
