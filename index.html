@@ -343,77 +343,53 @@ function showMostRecent() {
         (tomorrowAvgForecast==null) ? "–" : tomorrowAvgForecast.toFixed(1) + "°F";
     }
 
-    /* ---------------- Bias over ALL available days, using pre-high forecasts only ---------------- */
-    function calcBiases(){
-      const biasList=[], dayMap={};
-      allRows.forEach(r=>{
-        const d=r.forecast_or_actual==="actual"?r.cli_date:r.target_date;
-        if(!d) return;
-        if(!dayMap[d]) dayMap[d]=[];
-        dayMap[d].push(r);
-      });
+  /* ---------------- Corrected predictions (avg of ALL *pre-high* forecasts for the date + global bias) ---------------- */
+function updateCorrectionBoxes(){
+  const biasList=calcBiases();
+  const avgBias=biasList.length? (biasList.reduce((a,b)=>a+b,0)/biasList.length) : 0;
 
-      const dates=Object.keys(dayMap).sort();
-      dates.forEach(d=>{
-        const rows=dayMap[d];
-        const actual=rows.find(r=>r.forecast_or_actual==="actual" && r.actual_high);
-        if(!actual) return;
-        const actualHigh=Number(actual.actual_high);
-        const highTime=actual.high_time||"";
+  const today=new Date().toISOString().slice(0,10);
+  const tomorrow=new Date(Date.now()+86400000).toISOString().slice(0,10);
 
-        // collect forecasts BEFORE the recorded high time (if available)
-        const fcVals=[];
-        rows.forEach(r=>{
-          if(r.forecast_or_actual!=="forecast"||!r.predicted_high) return;
-          if (highTime) {
-            const fcHHMM=(r.forecast_time||"").substr(11,5);
-            if (fcHHMM && compareTimes(fcHHMM, highTime) > 0) return;
-          }
-          fcVals.push(Number(r.predicted_high));
-        });
+  const meanForecastForDate = (date) => {
+    // get actual high time (if known) so we can enforce the same cutoff
+    const actual = allRows.find(r=>r.forecast_or_actual==="actual" && r.cli_date===date && r.actual_high);
+    const highTime = actual ? actual.high_time : "";
 
-        if(fcVals.length){
-          const meanFc=fcVals.reduce((a,b)=>a+b,0)/fcVals.length;
-          biasList.push(actualHigh - meanFc);
+    const vals = allRows
+      .filter(r=>r.forecast_or_actual==="forecast" && r.target_date===date && r.predicted_high)
+      .filter(r=>{
+        if(highTime){
+          const fcHHMM=(r.forecast_time||"").substr(11,5);
+          if(fcHHMM && compareTimes(fcHHMM, highTime) > 0) return false; // drop post-high forecasts
         }
-      });
-      return biasList; // ALL qualifying days
-    }
+        return true;
+      })
+      .map(r=>Number(r.predicted_high));
 
-    /* ---------------- Corrected predictions (avg of ALL forecasts for the date + global bias) ---------------- */
-    function updateCorrectionBoxes(){
-      const biasList=calcBiases();
-      const avgBias=biasList.length? (biasList.reduce((a,b)=>a+b,0)/biasList.length) : 0;
+    if (!vals.length) return null;
+    return vals.reduce((a,b)=>a+b,0)/vals.length;
+  };
 
-      const today=new Date().toISOString().slice(0,10);
-      const tomorrow=new Date(Date.now()+86400000).toISOString().slice(0,10);
+  const todayFcAvg    = meanForecastForDate(today);
+  const tomorrowFcAvg = meanForecastForDate(tomorrow);
 
-      const meanForecastForDate = (date) => {
-        const vals = allRows
-          .filter(r=>r.forecast_or_actual==="forecast" && r.target_date===date && r.predicted_high)
-          .map(r=>Number(r.predicted_high));
-        if (!vals.length) return null;
-        return vals.reduce((a,b)=>a+b,0)/vals.length;
-      };
+  const todayPred    = (todayFcAvg==null) ? null : todayFcAvg + avgBias;
+  const tomorrowPred = (tomorrowFcAvg==null) ? null : tomorrowFcAvg + avgBias;
 
-      const todayFcAvg    = meanForecastForDate(today);
-      const tomorrowFcAvg = meanForecastForDate(tomorrow);
+  const biasTxt = (avgBias>0?"+":"") + avgBias.toFixed(2);
 
-      const todayPred    = (todayFcAvg==null) ? null : todayFcAvg + avgBias;
-      const tomorrowPred = (tomorrowFcAvg==null) ? null : tomorrowFcAvg + avgBias;
+  document.getElementById("correctionBoxToday").innerHTML =
+    `<b>Today's Corrected Prediction:</b><br>
+     <span style="font-size:1.6em;">${today}: <b>${todayPred==null?"–":todayPred.toFixed(1)+"°F"}</b></span><br>
+     <span style="color:#666;">Bias: <b>${biasTxt}°F</b> (avg of ${biasList.length} days)</span>`;
 
-      const biasTxt = (avgBias>0?"+":"") + avgBias.toFixed(2);
+  document.getElementById("correctionBoxTomorrow").innerHTML =
+    `<b>Tomorrow's Corrected Prediction:</b><br>
+     <span style="font-size:1.6em;">${tomorrow}: <b>${tomorrowPred==null?"–":tomorrowPred.toFixed(1)+"°F"}</b></span><br>
+     <span style="color:#666;">Bias: <b>${biasTxt}°F</b> (avg of ${biasList.length} days)</span>`;
+}
 
-      document.getElementById("correctionBoxToday").innerHTML =
-        `<b>Today's Corrected Prediction:</b><br>
-         <span style="font-size:1.6em;">${today}: <b>${todayPred==null?"–":todayPred.toFixed(1)+"°F"}</b></span><br>
-         <span style="color:#666;">Bias: <b>${biasTxt}°F</b> (avg of ${biasList.length} days)</span>`;
-
-      document.getElementById("correctionBoxTomorrow").innerHTML =
-        `<b>Tomorrow's Corrected Prediction:</b><br>
-         <span style="font-size:1.6em;">${tomorrow}: <b>${tomorrowPred==null?"–":tomorrowPred.toFixed(1)+"°F"}</b></span><br>
-         <span style="color:#666;">Bias: <b>${biasTxt}°F</b> (avg of ${biasList.length} days)</span>`;
-    }
 
     /* ---------------- Stats ---------------- */
     function showStats() {
