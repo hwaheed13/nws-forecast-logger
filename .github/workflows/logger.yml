@@ -3,20 +3,30 @@ name: NWS Auto Logger
 on:
   schedule:
     # Today's forecast — 7am, 9am, 11am, 2pm ET
-    - cron: "0 11 * * *"   # 7am ET
-    - cron: "0 13 * * *"   # 9am ET
-    - cron: "0 15 * * *"   # 11am ET
-    - cron: "0 18 * * *"   # 2pm ET
-
+    - cron: "0 11 * * *"
+    - cron: "0 13 * * *"
+    - cron: "0 15 * * *"
+    - cron: "0 18 * * *"
     # Tomorrow's forecast — 10am & 8pm ET
-    - cron: "0 14 * * *"   # 10am ET
-    - cron: "0 0 * * *"    # 8pm ET (0 UTC ~= 8pm ET during DST)
-
-    # Actuals:
+    - cron: "0 14 * * *"
+    - cron: "0 0 * * *"
+    # Actuals
     - cron: "0 22 * * *"   # 6pm ET provisional TODAY
-    - cron: "0 8 * * *"    # 4am ET final YESTERDAY upsert
+    - cron: "0 8 * * *"    # 4am ET finalize YESTERDAY
 
-  workflow_dispatch: {}     # manual run button
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "What do you want to run?"
+        type: choice
+        required: true
+        default: smart_all
+        options:
+          - smart_all
+          - forecast_today
+          - forecast_tomorrow
+          - actual_provisional
+          - actual_finalize
 
 permissions:
   contents: write
@@ -35,8 +45,10 @@ jobs:
       - name: Install dependencies
         run: pip install requests beautifulsoup4 pytz
 
-      - name: Run logger
-        run: python run_once.py
+      - name: Run (scheduled or manual)
+        env:
+          TASK: ${{ github.event.inputs.task || 'smart_all' }}
+        run: python run_smart.py
 
       - name: Remove empty/blank lines
         run: |
