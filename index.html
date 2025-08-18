@@ -333,7 +333,7 @@
 }
 
     /* ---------------- Corrected predictions (today + tomorrow) ---------------- */
-    function calcBiases(lastN=14){
+    function calcBiases(){
       const biasList=[], dayMap={};
       allRows.forEach(r=>{
         const d=r.forecast_or_actual==="actual"?r.cli_date:r.target_date;
@@ -356,7 +356,7 @@
         });
         if(lastFc) biasList.push(actualHigh-Number(lastFc.predicted_high));
       });
-      return biasList.slice(-lastN);
+     return biasList;
     }
 
     function updateCorrectionBoxes(){
@@ -385,12 +385,12 @@
       document.getElementById("correctionBoxToday").innerHTML =
         `<b>Today's Corrected Prediction:</b><br>
          <span style="font-size:1.6em;">${today}: <b>${todayPred==null?"–":todayPred.toFixed(1)+"°F"}</b></span><br>
-         <span style="color:#666;">Bias: <b>${biasTxt}°F</b> (avg of last ${biasList.length} days)</span>`;
+         <span style="color:#666;">Bias: <b>${biasTxt}°F</b> (avg of ${biasList.length} days)</span>`;
 
       document.getElementById("correctionBoxTomorrow").innerHTML =
         `<b>Tomorrow's Corrected Prediction:</b><br>
          <span style="font-size:1.6em;">${tomorrow}: <b>${tomorrowPred==null?"–":tomorrowPred.toFixed(1)+"°F"}</b></span><br>
-         <span style="color:#666;">Bias: <b>${biasTxt}°F</b> (avg of last ${biasList.length} days)</span>`;
+         <span style="color:#666;">Bias: <b>${biasTxt}°F</b> (avg of ${biasList.length} days)</span>`;
     }
 
     /* ---------------- Stats ---------------- */
