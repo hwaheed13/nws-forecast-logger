@@ -71,12 +71,11 @@ def upsert_actual_row(cli_date_iso: str, temp: str, time_clean: str) -> None:
     """
     rows, fns = _read_all_rows()
     now_s = now_nyc().strftime("%Y-%m-%d %H:%M:%S")
-    target_date = cli_date_iso  # stays aligned with cli_date for the 'actual' entries
+    target_date = cli_date_iso  # align with cli_date for actual rows
 
     updated = False
     for r in rows:
         if r.get("forecast_or_actual") == "actual" and r.get("cli_date") == cli_date_iso:
-            # replace in place if anything changed
             if r.get("actual_high") != temp or (r.get("high_time") or "") != time_clean:
                 r["timestamp"]    = now_s
                 r["target_date"]  = target_date
@@ -109,9 +108,7 @@ def upsert_actual_row(cli_date_iso: str, temp: str, time_clean: str) -> None:
 # Forecast helpers
 # =========================
 def already_logged(entry_type: str, identifier: str) -> bool:
-    """
-    Light-weight duplicate check by substring—used only by the old loop mode.
-    """
+    """ Lightweight duplicate check by substring—used only by the old loop mode. """
     if not os.path.exists(CSV_FILE):
         return False
     with open(CSV_FILE, "r") as f:
@@ -124,7 +121,8 @@ def get_forecast_data() -> list:
     return forecast_resp.json()["properties"]["periods"]
 
 def get_best_forecast(periods: list, for_tomorrow: bool = False) -> Tuple[Optional[dict], Optional[str]]:
-    target_date = (datetime.date.today() + datetime.timedelta(days=1 if for_tomorrow else 0)).isoformat()
+    # Use ET-based date (not system UTC)
+    target_date = (today_nyc() + datetime.timedelta(days=1 if for_tomorrow else 0)).isoformat()
     for p in periods:
         if p["startTime"][:10] == target_date and p.get("isDaytime"):
             return p, p.get("name")
@@ -228,8 +226,8 @@ def _parse_cli_sections(cli_text: str) -> Dict[str, Optional[Tuple[str, str]]]:
     """
     Parses the CLI 'pre' text and returns:
       { 'TODAY': (temp, time), 'YESTERDAY': (temp, time) }  (values may be None)
-    Handles the common layout where the section header (TODAY/YESTERDAY)
-    is on its own line and MAXIMUM is on the following line.
+    Handles the layout where the section header (TODAY/YESTERDAY)
+    can be on its own line and MAXIMUM is on a following line.
     """
     current = None
     today: Optional[Tuple[str, str]] = None
@@ -303,7 +301,8 @@ def log_actual_today_if_after_6pm_local() -> None:
         temp, time_clean = today_pair
         cli_date = today_nyc().isoformat()
 
-        # de-dupe: if we already have an 'actual' for today, skip
+        # ensure CSV exists then de-dupe
+        ensure_csv_header()
         with open(CSV_FILE, newline="") as f:
             for row in csv.DictReader(f):
                 if row.get("forecast_or_actual") == "actual" and row.get("cli_date") == cli_date:
@@ -352,7 +351,7 @@ def upsert_yesterday_actual_if_morning_local() -> None:
         temp, time_clean = yday_pair
         yday_iso = (now.date() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
 
-        # This replaces (updates) existing row for yesterday or inserts a new one.
+        # Replace existing row or insert new one.
         upsert_actual_row(yday_iso, temp, time_clean)
         print(f"✅ Upserted YESTERDAY actual: {temp}°F at {time_clean} for {yday_iso}")
 
@@ -364,16 +363,11 @@ def upsert_yesterday_actual_if_morning_local() -> None:
 # =========================
 def main_loop() -> None:
     """
-    Legacy local loop; you likely don't need this when using Actions.
-    Runs once per minute:
-      - logs forecasts at your FETCH_TIMES
-      - tries today's actual after 6pm ET (idempotent)
-      - upserts yesterday's actual between midnight–noon ET (idempotent)
+    Legacy local loop; not used by Actions.
     """
     print("NWS Auto Logger started. Ctrl+C to stop.")
     ensure_csv_header()
     while True:
-        # Forecasts on your chosen clock times (local machine time)
         n = datetime.datetime.now()
         n_str = n.strftime("%H:%M")
         for sched in FETCH_TIMES:
@@ -382,8 +376,8 @@ def main_loop() -> None:
                     log_forecast()
                 log_forecast_for_tomorrow()
 
-        # These functions contain their own ET gating + de-dupe/upsert logic.
-        log_actual_today_if_after_6pm_local()        # only after 6pm ET; no-ops otherwise
-        upsert_yesterday_actual_if_morning_local()   # only midnight–noon ET; no-ops otherwise
+        # These contain their own time windows and de-dupe/upsert logic.
+        log_actual_today_if_after_6pm_local()
+        upsert_yesterday_actual_if_morning_local()
 
         time.sleep(60)
