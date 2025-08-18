@@ -227,55 +227,6 @@ def log_actual():
         print(f"❌ Error logging actual high: {e}")
 
 
-
-
-def log_yesterday_actual():
-    try:
-        url = "https://forecast.weather.gov/product.php?site=NWS&issuedby=NYC&product=CLI&format=CI&version=2&glossary=0"
-        html = requests.get(url).text
-        soup = BeautifulSoup(html, "html.parser")
-        pre = soup.find("pre")
-        if not pre:
-            print("❌ CLI report not found.")
-            return
-
-        lines = pre.text.splitlines()
-        for line in lines:
-            if "MAXIMUM" in line:
-                parts = line.split()
-                if "MAXIMUM" in parts:
-                    idx = parts.index("MAXIMUM")
-                    if idx + 2 < len(parts):
-                        temp = parts[idx + 1]
-                        time_raw = parts[idx + 2]
-                        am_pm = parts[idx + 3] if idx + 3 < len(parts) else ""
-                        if len(time_raw) == 3:
-                            time_clean = f"{int(time_raw[0])}:{time_raw[1:]} {am_pm}"
-                        else:
-                            time_clean = f"{int(time_raw[:2])}:{time_raw[2:]} {am_pm}"
-
-                        now = now_nyc()
-                        target_date = now.date() - datetime.timedelta(days=1)
-                        cli_date = target_date.strftime("%Y-%m-%d")
-
-                        with open(CSV_FILE, mode="a", newline="") as f:
-                            writer = csv.writer(f)
-                            writer.writerow([
-                                now.strftime("%Y-%m-%d %H:%M:%S"),
-                                target_date.strftime("%Y-%m-%d"),
-                                "actual",
-                                "", "", "",
-                                cli_date,
-                                temp,
-                                time_clean
-                            ])
-                        print(f"✅ Logged yesterday's actual high: {temp}°F at {time_clean}")
-                        return
-
-        print("⚠️ MAXIMUM temperature not found in CLI report.")
-    except Exception as e:
-        print(f"❌ Error logging yesterday's actual high: {e}")
-
 def main_loop():
     print("NWS Auto Logger started. Ctrl+C to stop.")
     ensure_csv_header()
@@ -363,7 +314,6 @@ def log_actual_for_date_via_version(target_date_iso: str, version: int, force: b
     except Exception as e:
         print(f"Error backfilling {target_date_iso} via CLI v{version}: {e}")
 
-import pytz
 
 def log_actual_today_if_after_6pm_local():
     """Log today's actual from the latest CLI only after 6pm ET (provisional)."""
@@ -413,33 +363,94 @@ def log_actual_today_if_after_6pm_local():
 def upsert_yesterday_actual_if_morning_local():
     """
     Between midnight–noon ET:
-      - If CLI v1 now shows 'YESTERDAY MAXIMUM', use that (it means the official rollover happened).
+      - If latest CLI (v1) shows 'YESTERDAY MAXIMUM', use that (it means the official rollover happened).
       - Upsert yesterday’s 'actual' row: update if changed, insert if missing.
-      - If v1 still shows 'TODAY MAXIMUM' (no rollover yet), do nothing.
+      - If v1 still shows only 'TODAY MAXIMUM', do nothing (evening capture stands).
     """
     now = now_nyc()
     if not (0 <= now.hour < 12):
         print("⏭️ Skipping: it’s afternoon/evening ET")
         return
 
-    pre = fetch_cli(version=1)
-    if not pre:
-        print("❌ CLI v1 not available")
-        return
+    try:
+        # Always read CLI v1 (latest)
+        url = "https://forecast.weather.gov/product.php?site=NWS&issuedby=NYC&product=CLI&format=CI&version=1&glossary=0"
+        html = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}).text
+        soup = BeautifulSoup(html, "html.parser")
+        pre = soup.find("pre")
+        if not pre:
+            print("❌ CLI v1 not available")
+            return
 
-    # Only proceed if YESTERDAY appears with MAXIMUM in v1
-    if "YESTERDAY" not in pre.upper():
-        print("⏭️ No YESTERDAY MAXIMUM on v1 yet — will check later.")
-        return
+        # Only proceed if YESTERDAY is present
+        if "YESTERDAY" not in pre.text.upper():
+            print("⏭️ No YESTERDAY MAXIMUM on v1 yet — will check later.")
+            return
 
-    temp, time_clean = parse_max_from_cli(pre, target="yesterday")
-    if not temp:
-        print("⚠️ Could not parse YESTERDAY MAXIMUM from v1.")
-        return
+        # Parse YESTERDAY MAXIMUM using the regex helper you already added
+        temp, time_clean = _parse_cli_max_line(pre.text, "YESTERDAY")
+        if not temp or not time_clean:
+            print("⚠️ Could not parse YESTERDAY MAXIMUM from v1.")
+            return
 
-    yday = (today_nyc() - datetime.timedelta(days=1)).isoformat()
-    upsert_actual_row(yday, temp, time_clean)
-    print(f"✅ Upserted yesterday’s actual: {temp}°F at {time_clean} for {yday}")
+        target_date = (now.date() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+
+        # Read all CSV rows (if any)
+        rows = []
+        fieldnames = [
+            "timestamp","target_date","forecast_or_actual","forecast_time",
+            "predicted_high","forecast_detail","cli_date","actual_high","high_time"
+        ]
+        if os.path.exists(CSV_FILE):
+            with open(CSV_FILE, newline="") as f:
+                reader = csv.DictReader(f)
+                if reader.fieldnames:
+                    fieldnames = reader.fieldnames
+                for r in reader:
+                    rows.append(r)
+        else:
+            ensure_csv_header()
+
+        # Upsert: update if a row for that cli_date exists, else append
+        exists = False
+        changed = False
+        for r in rows:
+            if r.get("forecast_or_actual") == "actual" and r.get("cli_date") == target_date:
+                exists = True
+                if r.get("actual_high") != temp or (r.get("high_time") or "") != time_clean:
+                    r["timestamp"]   = now.strftime("%Y-%m-%d %H:%M:%S")
+                    r["target_date"] = target_date
+                    r["cli_date"]    = target_date
+                    r["actual_high"] = temp
+                    r["high_time"]   = time_clean
+                    changed = True
+                break
+
+        if not exists:
+            rows.append({
+                "timestamp":    now.strftime("%Y-%m-%d %H:%M:%S"),
+                "target_date":  target_date,
+                "forecast_or_actual": "actual",
+                "forecast_time": "",
+                "predicted_high": "",
+                "forecast_detail": "",
+                "cli_date":     target_date,
+                "actual_high":  temp,
+                "high_time":    time_clean,
+            })
+            changed = True
+
+        if changed:
+            with open(CSV_FILE, "w", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(rows)
+            print(f"✅ Upserted yesterday's actual: {temp}°F at {time_clean} for {target_date}")
+        else:
+            print(f"⏭️ No change for {target_date}; CSV already matches CLI.")
+
+    except Exception as e:
+        print(f"❌ Error upserting yesterday's actual: {e}")
 
 
 # ========== ✅ MANUAL TRIGGERS (uncomment as needed) ==========
