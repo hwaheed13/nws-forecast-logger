@@ -365,10 +365,15 @@ def upsert_yesterday_actual_if_morning_local() -> None:
 def main_loop() -> None:
     """
     Legacy local loop; you likely don't need this when using Actions.
+    Runs once per minute:
+      - logs forecasts at your FETCH_TIMES
+      - tries today's actual after 6pm ET (idempotent)
+      - upserts yesterday's actual between midnight–noon ET (idempotent)
     """
     print("NWS Auto Logger started. Ctrl+C to stop.")
     ensure_csv_header()
     while True:
+        # Forecasts on your chosen clock times (local machine time)
         n = datetime.datetime.now()
         n_str = n.strftime("%H:%M")
         for sched in FETCH_TIMES:
@@ -376,6 +381,9 @@ def main_loop() -> None:
                 if not already_logged("forecast", n.strftime("%Y-%m-%d %H")):
                     log_forecast()
                 log_forecast_for_tomorrow()
-        # Provisional after 6pm ET
-        n_local = now_nyc()
-        if n_local.hour == 
+
+        # These functions contain their own ET gating + de-dupe/upsert logic.
+        log_actual_today_if_after_6pm_local()        # only after 6pm ET; no-ops otherwise
+        upsert_yesterday_actual_if_morning_local()   # only midnight–noon ET; no-ops otherwise
+
+        time.sleep(60)
