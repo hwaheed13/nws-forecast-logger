@@ -9,6 +9,45 @@ import pytz
 
 NYC_TZ = pytz.timezone("America/New_York")
 
+import re
+
+CLI_TIME_RE = re.compile(
+    r'\b(?P<label>YESTERDAY|TODAY)\s+.*?\bMAXIMUM\s+(?P<temp>\d+)\s+(?P<time>(\d{3,4}|\d{1,2}:\d{2}))\s*(?P<ampm>[AP]M)?',
+    re.IGNORECASE
+)
+
+def _parse_cli_max_line(cli_text: str, want_label: str):
+    """
+    Find MAXIMUM line for 'YESTERDAY' or 'TODAY' and normalize time.
+    Returns (temp_str, 'H:MM AM/PM') or (None, None) if not found.
+    """
+    for line in cli_text.splitlines():
+        m = CLI_TIME_RE.search(line)
+        if not m:
+            continue
+        label = m.group('label').upper()
+        if label != want_label.upper():
+            continue
+
+        temp = m.group('temp')
+        raw = m.group('time')
+        ampm = (m.group('ampm') or '').upper().strip()
+
+        # normalize 154 -> 1:54, 0154 -> 1:54, keep H:MM formats as is
+        if ':' in raw:
+            hh, mm = raw.split(':', 1)
+        else:
+            digits = raw.zfill(4)  # 154 -> 0154
+            hh, mm = digits[:2], digits[2:]
+            if hh.startswith('0'):
+                hh = hh[1:]
+
+        clean = f"{int(hh)}:{mm}{(' ' + ampm) if ampm else ''}".rstrip()
+        return temp, clean
+
+    return None, None
+
+
 def now_nyc():
     return datetime.datetime.now(NYC_TZ)
 
@@ -327,24 +366,80 @@ def log_actual_for_date_via_version(target_date_iso: str, version: int, force: b
 import pytz
 
 def log_actual_today_if_after_6pm_local():
-    """Log today's actual high, but only after 6pm ET."""
-    nyc = pytz.timezone("America/New_York")
-    now = datetime.datetime.now(nyc)
-    if now.hour >= 18:
-        print("🕕 After 6pm ET — attempting to log today’s actual high")
-        log_actual()
-    else:
+    """Log today's actual from the latest CLI only after 6pm ET (provisional)."""
+    now = now_nyc()
+    if now.hour < 18:
         print("⏭️ Skipping: it’s before 6pm ET")
+        return
+
+    try:
+        url = "https://forecast.weather.gov/product.php?site=NWS&issuedby=NYC&product=CLI&format=CI&version=1&glossary=0"
+        html = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}).text
+        soup = BeautifulSoup(html, "html.parser")
+        pre = soup.find("pre")
+        if not pre:
+            print("❌ CLI report not found.")
+            return
+
+        temp, time_clean = _parse_cli_max_line(pre.text, "TODAY")
+        if not temp or not time_clean:
+            print("⚠️ TODAY MAXIMUM not found; skipping.")
+            return
+
+        cli_date = today_nyc().isoformat()
+
+        # de-dupe
+        if os.path.exists(CSV_FILE):
+            with open(CSV_FILE, newline="") as f:
+                for row in csv.DictReader(f):
+                    if row["forecast_or_actual"] == "actual" and row["cli_date"] == cli_date:
+                        print(f"⏭️ Actual for {cli_date} already logged. Skipping.")
+                        return
+
+        with open(CSV_FILE, "a", newline="") as f:
+            csv.writer(f).writerow([
+                now.strftime("%Y-%m-%d %H:%M:%S"),
+                cli_date, "actual",
+                "", "", "",
+                cli_date,
+                temp,
+                time_clean
+            ])
+        print(f"✅ Logged today's actual high: {temp}°F at {time_clean} for {cli_date}")
+
+    except Exception as e:
+        print(f"❌ Error logging today's actual high: {e}")
 
 def upsert_yesterday_actual_if_morning_local():
-    """Log yesterday’s actual high, but only if it’s morning (midnight–noon ET)."""
-    nyc = pytz.timezone("America/New_York")
-    now = datetime.datetime.now(nyc)
-    if 0 <= now.hour < 12:
-        print("🌅 Morning ET — attempting to log yesterday’s actual high")
-        log_yesterday_actual()
-    else:
+    """
+    Between midnight–noon ET:
+      - If CLI v1 now shows 'YESTERDAY MAXIMUM', use that (it means the official rollover happened).
+      - Upsert yesterday’s 'actual' row: update if changed, insert if missing.
+      - If v1 still shows 'TODAY MAXIMUM' (no rollover yet), do nothing.
+    """
+    now = now_nyc()
+    if not (0 <= now.hour < 12):
         print("⏭️ Skipping: it’s afternoon/evening ET")
+        return
+
+    pre = fetch_cli(version=1)
+    if not pre:
+        print("❌ CLI v1 not available")
+        return
+
+    # Only proceed if YESTERDAY appears with MAXIMUM in v1
+    if "YESTERDAY" not in pre.upper():
+        print("⏭️ No YESTERDAY MAXIMUM on v1 yet — will check later.")
+        return
+
+    temp, time_clean = parse_max_from_cli(pre, target="yesterday")
+    if not temp:
+        print("⚠️ Could not parse YESTERDAY MAXIMUM from v1.")
+        return
+
+    yday = (today_nyc() - datetime.timedelta(days=1)).isoformat()
+    upsert_actual_row(yday, temp, time_clean)
+    print(f"✅ Upserted yesterday’s actual: {temp}°F at {time_clean} for {yday}")
 
 
 # ========== ✅ MANUAL TRIGGERS (uncomment as needed) ==========
