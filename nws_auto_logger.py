@@ -459,7 +459,7 @@ def upsert_yesterday_actual_if_morning_local():
 # log_forecast_for_tomorrow() # Log tomorrow’s forecast
 # log_actual()                # Log actual high (today or yesterday depending on time)
 # log_yesterday_actual()      # Force actual high for yesterday using CLI v2
-
+# upsert_yesterday_actual_if_morning_local()
 # main_loop()                 # Auto-logger loop (scheduled mode)
 
 # --- one-time backfills ---
