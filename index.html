@@ -342,6 +342,43 @@ function showMostRecent() {
       document.getElementById("box-tomorrow-forecast").textContent=
         (tomorrowAvgForecast==null) ? "–" : tomorrowAvgForecast.toFixed(1) + "°F";
     }
+/* ---------------- Bias over ALL available days, using pre-high forecasts only ---------------- */
+function calcBiases(){
+  const biasList = [], dayMap = {};
+  allRows.forEach(r => {
+    const d = r.forecast_or_actual==="actual" ? r.cli_date : r.target_date;
+    if(!d) return;
+    if(!dayMap[d]) dayMap[d] = [];
+    dayMap[d].push(r);
+  });
+
+  const dates = Object.keys(dayMap).sort();
+  dates.forEach(d => {
+    const rows = dayMap[d];
+    const actual = rows.find(r => r.forecast_or_actual==="actual" && r.actual_high);
+    if(!actual) return;
+    const actualHigh = Number(actual.actual_high);
+    const highTime = actual.high_time || "";
+
+    // collect forecasts BEFORE the recorded high time (if available)
+    const fcVals = [];
+    rows.forEach(r => {
+      if(r.forecast_or_actual!=="forecast" || !r.predicted_high) return;
+      if (highTime) {
+        const fcHHMM = (r.forecast_time||"").substr(11,5);
+        if (fcHHMM && compareTimes(fcHHMM, highTime) > 0) return;
+      }
+      fcVals.push(Number(r.predicted_high));
+    });
+
+    if(fcVals.length){
+      const meanFc = fcVals.reduce((a,b)=>a+b,0)/fcVals.length;
+      biasList.push(actualHigh - meanFc);
+    }
+  });
+
+  return biasList; // ALL qualifying days
+}
 
   /* ---------------- Corrected predictions (avg of ALL *pre-high* forecasts for the date + global bias) ---------------- */
 function updateCorrectionBoxes(){
