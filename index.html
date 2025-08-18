@@ -12,7 +12,6 @@
       --bg:#f5f7fb; --card:#fff; --ink:#17324a; --muted:#5c728a;
       --brand:#175398; --brand-2:#1976d2; --ok:#2e7d32; --warn:#f59e0b;
       --ring:#e6eef7; --shadow:0 8px 24px rgba(17,38,146,.08);
-      --controls-height: 54px; /* height of sticky controls bar */
     }
     body{
       font-family:"Inter", system-ui, -apple-system, Segoe UI, Arial, sans-serif;
@@ -29,12 +28,12 @@
     .badge{ display:inline-block; margin-left:8px; padding:4px 8px; font-size:12px;
       border-radius:999px; background:#e8f2ff; color:var(--brand-2); border:1px solid var(--ring); }
 
+    /* Controls – no longer sticky */
     .controls{
       display:flex; gap:12px; align-items:center; margin:20px 0 24px;
-      position:sticky; top:0; padding:10px 0;
-      height: var(--controls-height);            /* ← ensures consistent sticky offset */
-      background:linear-gradient(#fff,#fff0);
-      z-index:1; border-top:1px solid var(--ring); border-bottom:1px solid var(--ring);
+      padding:10px 0;
+      background:transparent;
+      border-top:1px solid var(--ring); border-bottom:1px solid var(--ring);
     }
     input[type="date"]{ font-size:14px; padding:7px 8px; border-radius:8px; border:1px solid #cfd9e6; }
     .btn{ background:var(--brand-2); color:#fff; border:none; border-radius:10px;
@@ -56,13 +55,17 @@
 
     #dataTable{ width:100%; border-collapse:collapse; font-size:14px; table-layout:fixed; }
     th, td{ border:1px solid #e6edf6; padding:10px 6px; text-align:center; }
-    th{
-      background:var(--brand-2); color:#fff;
+
+    /* Sticky table header (not overlapping) */
+    thead th{
       position: sticky;
-      top: var(--controls-height);   /* ← sits right under the controls bar */
-      z-index: 2;
+      top: 0;                     /* sits at top of viewport */
+      background: var(--brand-2); /* opaque background to hide content behind */
+      color:#fff;
+      z-index: 5;                 /* above row cells */
       box-shadow: 0 1px 0 rgba(0,0,0,.08) inset, 0 2px 6px rgba(0,0,0,.06);
     }
+
     tr:nth-child(even){ background:#f8fbff; }
     tr:hover td{ background:#eef6ff; }
 
@@ -274,7 +277,7 @@
       return null;
     }
 
-    /* ---------------- “Last logged forecast” (fixed) ---------------- */
+    /* ---------------- “Last logged forecast” ---------------- */
     function showMostRecent() {
       const fcRows = allRows.filter(r => r.forecast_or_actual === "forecast" && r.predicted_high && r.target_date);
       if (!fcRows.length) { document.getElementById("recentForecast").innerHTML = ""; return; }
@@ -293,7 +296,6 @@
       const today = new Date().toISOString().slice(0,10);
       const tomorrow = new Date(Date.now()+86400000).toISOString().slice(0,10);
 
-      // latest only for today's card (as you asked)
       const latestForDate = (date) => {
         const rows = allRows.filter(
           r => r.forecast_or_actual === "forecast" && r.target_date === date && r.predicted_high
@@ -363,10 +365,10 @@
           biasList.push(actualHigh - fcHigh);
         }
       });
-      return biasList; // ← ALL days, no slicing
+      return biasList; // all days
     }
 
-    /* ---------------- Corrected predictions (use ALL forecasts for date) ---------------- */
+    /* ---------------- Corrected predictions (avg of ALL forecasts per date) ---------------- */
     function updateCorrectionBoxes(){
       const biasList=calcBiases();
       const avgBias=biasList.length?biasList.reduce((a,b)=>a+b,0)/biasList.length:0;
