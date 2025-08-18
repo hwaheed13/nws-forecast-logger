@@ -283,19 +283,25 @@
       return null;
     }
 
-    /* ---------------- “Last logged forecast” (latest by timestamp/forecast_time) ---------------- */
-    function showMostRecent() {
-      const fcRows = allRows.filter(r => r.forecast_or_actual === "forecast" && r.predicted_high && r.target_date);
-      if (!fcRows.length) { document.getElementById("recentForecast").innerHTML = ""; return; }
-      fcRows.sort((a,b) => {
-        const A = a.timestamp || a.forecast_time || "";
-        const B = b.timestamp || b.forecast_time || "";
-        return B.localeCompare(A);
-      });
-      const recent = fcRows[0];
-      document.getElementById("recentForecast").innerHTML =
-        `Last logged forecast: <b>${recent.forecast_time || recent.timestamp}</b> — <b>${recent.predicted_high}°F</b> (for <b>${recent.target_date}</b>)`;
+/* -------- Last logged forecast = the final forecast row in the CSV -------- */
+function showMostRecent() {
+  const el = document.getElementById("recentForecast");
+  if (!allRows.length) { el.textContent = ""; return; }
+
+  // Walk from the end to find the most recently appended forecast row
+  for (let i = allRows.length - 1; i >= 0; i--) {
+    const r = allRows[i];
+    if (r && r.forecast_or_actual === "forecast" && r.predicted_high && r.target_date) {
+      const when = r.timestamp || r.forecast_time || "(time unknown)";
+      el.innerHTML =
+        `Last logged forecast: <b>${when}</b> — <b>${r.predicted_high}°F</b> (for <b>${r.target_date}</b>)`;
+      return;
     }
+  }
+
+  // If no forecast rows found:
+  el.textContent = "";
+}
 
     /* ---------------- Summary boxes ---------------- */
     function updateSummaryBoxes() {
