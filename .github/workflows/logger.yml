@@ -3,28 +3,20 @@ name: NWS Auto Logger
 on:
   schedule:
     # Today's forecast — 7am, 9am, 11am, 2pm ET
-    - cron: "0 11 * * *"
-    - cron: "0 13 * * *"
-    - cron: "0 15 * * *"
-    - cron: "0 18 * * *"
+    - cron: "0 11 * * *"   # 7am ET
+    - cron: "0 13 * * *"   # 9am ET
+    - cron: "0 15 * * *"   # 11am ET
+    - cron: "0 18 * * *"   # 2pm ET
+
     # Tomorrow's forecast — 10am & 8pm ET
-    - cron: "0 14 * * *"
-    - cron: "0 0 * * *"
-    # Yesterday's actual — 4am ET
-    - cron: "0 8 * * *"
-  workflow_dispatch:
-    inputs:
-      task:
-        description: "What to run?"
-        required: true
-        default: "smart_all"
-        type: choice
-        options:
-          - smart_all
-          - forecast_today
-          - forecast_tomorrow
-          - actual_if_available
-          - yesterday_actual
+    - cron: "0 14 * * *"   # 10am ET
+    - cron: "0 0 * * *"    # 8pm ET (0 UTC ~= 8pm ET during DST)
+
+    # Actuals:
+    - cron: "0 22 * * *"   # 6pm ET provisional TODAY
+    - cron: "0 8 * * *"    # 4am ET final YESTERDAY upsert
+
+  workflow_dispatch: {}     # manual run button
 
 permissions:
   contents: write
@@ -43,18 +35,10 @@ jobs:
       - name: Install dependencies
         run: pip install requests beautifulsoup4 pytz
 
-      # Scheduled runs: default to smart_all
-      - name: Run (scheduled smart)
-        if: ${{ github.event_name == 'schedule' }}
-        run: python run_smart.py
+      - name: Run logger
+        run: python run_once.py
 
-      # Manual runs: use input
-      - name: Run (manual selection)
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: TASK="${{ github.event.inputs.task }}" python run_smart.py
-
-      # Clean up blank/whitespace-only rows (line-ending hiccups)
-      - name: Clean CSV
+      - name: Remove empty/blank lines
         run: |
           grep -Ev '^[[:space:]]*(,?[[:space:]]*)*$' nws_forecast_log.csv > /tmp/clean.csv || true
           mv /tmp/clean.csv nws_forecast_log.csv
@@ -65,4 +49,4 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add nws_forecast_log.csv
           git commit -m "Update forecast log [skip ci]" || echo "No changes to commit"
-          git push origin HEAD:main
+          git push origin main
