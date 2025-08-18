@@ -12,6 +12,7 @@
       --bg:#f5f7fb; --card:#fff; --ink:#17324a; --muted:#5c728a;
       --brand:#175398; --brand-2:#1976d2; --ok:#2e7d32; --warn:#f59e0b;
       --ring:#e6eef7; --shadow:0 8px 24px rgba(17,38,146,.08);
+      --controls-height: 54px; /* height of sticky controls bar */
     }
     body{
       font-family:"Inter", system-ui, -apple-system, Segoe UI, Arial, sans-serif;
@@ -28,9 +29,13 @@
     .badge{ display:inline-block; margin-left:8px; padding:4px 8px; font-size:12px;
       border-radius:999px; background:#e8f2ff; color:var(--brand-2); border:1px solid var(--ring); }
 
-    .controls{ display:flex; gap:12px; align-items:center; margin:20px 0 24px;
-      position:sticky; top:0; padding:10px 0; background:linear-gradient(#fff,#fff0);
-      z-index:1; border-top:1px solid var(--ring); border-bottom:1px solid var(--ring); }
+    .controls{
+      display:flex; gap:12px; align-items:center; margin:20px 0 24px;
+      position:sticky; top:0; padding:10px 0;
+      height: var(--controls-height);            /* ← ensures consistent sticky offset */
+      background:linear-gradient(#fff,#fff0);
+      z-index:1; border-top:1px solid var(--ring); border-bottom:1px solid var(--ring);
+    }
     input[type="date"]{ font-size:14px; padding:7px 8px; border-radius:8px; border:1px solid #cfd9e6; }
     .btn{ background:var(--brand-2); color:#fff; border:none; border-radius:10px;
       padding:8px 14px; cursor:pointer; font-weight:600;
@@ -43,15 +48,21 @@
     .stat-box{ background:#f7fbff; border:1px solid var(--ring);
       border-radius:14px; padding:14px 18px; flex:1; box-shadow:var(--shadow); }
     .stat-val{ font-size:24px; color:var(--brand-2); font-weight:700; }
+
     /* Distinct colors for the three summary cards */
     #card-today-forecast  { background:#fff5eb; border-color:#ffe6c7; }
     #card-today-actual    { background:#f0fff4; border-color:#c8f2d0; }
     #card-tomorrow-forecast { background:#ebf5ff; border-color:#cfe6ff; }
 
-
     #dataTable{ width:100%; border-collapse:collapse; font-size:14px; table-layout:fixed; }
     th, td{ border:1px solid #e6edf6; padding:10px 6px; text-align:center; }
-    th{ background:var(--brand-2); color:#fff; position:sticky; top:54px; z-index:1; }
+    th{
+      background:var(--brand-2); color:#fff;
+      position: sticky;
+      top: var(--controls-height);   /* ← sits right under the controls bar */
+      z-index: 2;
+      box-shadow: 0 1px 0 rgba(0,0,0,.08) inset, 0 2px 6px rgba(0,0,0,.06);
+    }
     tr:nth-child(even){ background:#f8fbff; }
     tr:hover td{ background:#eef6ff; }
 
@@ -85,25 +96,21 @@
     </div>
     <div id="recentForecast" class="recent-line">Last logged forecast: ...</div>
 
-   <!-- Summary boxes -->
-<div class="stats">
-  <div class="stat-box" id="card-today-forecast">
-    <div style="font-size:14px;">Today’s Forecasted High</div>
-    <div id="box-today-forecast" class="stat-val">–</div>
-  </div>
-
-  <div class="stat-box" id="card-today-actual">
-    <div style="font-size:14px;">Today’s Actual High</div>
-    <div id="box-today-actual" class="stat-val">–</div>
-  </div>
-
-  <div class="stat-box" id="card-tomorrow-forecast">
-    <div style="font-size:14px;">Tomorrow’s Forecasted High</div>
-    <div id="box-tomorrow-forecast" class="stat-val">–</div>
-  </div>
-</div>
-
-
+    <!-- Summary boxes -->
+    <div class="stats">
+      <div class="stat-box" id="card-today-forecast">
+        <div style="font-size:14px;">Today’s Forecasted High</div>
+        <div id="box-today-forecast" class="stat-val">–</div>
+      </div>
+      <div class="stat-box" id="card-today-actual">
+        <div style="font-size:14px;">Today’s Actual High</div>
+        <div id="box-today-actual" class="stat-val">–</div>
+      </div>
+      <div class="stat-box" id="card-tomorrow-forecast">
+        <div style="font-size:14px;">Tomorrow’s Forecasted High</div>
+        <div id="box-tomorrow-forecast" class="stat-val">–</div>
+      </div>
+    </div>
 
     <!-- Corrected prediction boxes -->
     <div class="stats">
@@ -163,10 +170,10 @@
         .then(resp => resp.text())
         .then(parseCSV)
         .then(() => {
-          resetFilter();            // populates table, chart, stats
-          showMostRecent();         // fixed: truly latest forecast entry
-          updateSummaryBoxes();     // <<< exists now
-          updateCorrectionBoxes();  // today + tomorrow corrected predictions
+          resetFilter();
+          showMostRecent();
+          updateSummaryBoxes();
+          updateCorrectionBoxes();
         })
         .catch(err => {
           alert("Could not load CSV. " + err);
@@ -271,7 +278,6 @@
     function showMostRecent() {
       const fcRows = allRows.filter(r => r.forecast_or_actual === "forecast" && r.predicted_high && r.target_date);
       if (!fcRows.length) { document.getElementById("recentForecast").innerHTML = ""; return; }
-      // Sort by timestamp first; fallback to forecast_time if timestamp missing
       fcRows.sort((a,b) => {
         const A = a.timestamp || a.forecast_time || "";
         const B = b.timestamp || b.forecast_time || "";
@@ -282,71 +288,68 @@
         `Last logged forecast: <b>${recent.forecast_time || recent.timestamp}</b> — <b>${recent.predicted_high}°F</b> (for <b>${recent.target_date}</b>)`;
     }
 
- function updateSummaryBoxes() {
-  const today = new Date().toISOString().slice(0,10);
-  const tomorrow = new Date(Date.now()+86400000).toISOString().slice(0,10);
+    /* ---------------- Summary boxes ---------------- */
+    function updateSummaryBoxes() {
+      const today = new Date().toISOString().slice(0,10);
+      const tomorrow = new Date(Date.now()+86400000).toISOString().slice(0,10);
 
-  // helper: latest forecasted high for a given target date
-  const latestForDate = (date) => {
-    const rows = allRows.filter(
-      r => r.forecast_or_actual === "forecast" &&
-           r.target_date === date &&
-           r.predicted_high
-    );
-    if (!rows.length) return null;
-    // sort by timestamp (fallback to forecast_time) descending
-    rows.sort((a,b) => {
-      const A = a.timestamp || a.forecast_time || "";
-      const B = b.timestamp || b.forecast_time || "";
-      return B.localeCompare(A);
-    });
-    return Number(rows[0].predicted_high);
-  };
+      // latest only for today's card (as you asked)
+      const latestForDate = (date) => {
+        const rows = allRows.filter(
+          r => r.forecast_or_actual === "forecast" && r.target_date === date && r.predicted_high
+        );
+        if (!rows.length) return null;
+        rows.sort((a,b) => {
+          const A = a.timestamp || a.forecast_time || "";
+          const B = b.timestamp || b.forecast_time || "";
+          return B.localeCompare(A);
+        });
+        return Number(rows[0].predicted_high);
+      };
+      const avgForDate = (date) => {
+        const vals = allRows
+          .filter(r => r.forecast_or_actual==="forecast" && r.target_date===date && r.predicted_high)
+          .map(r => Number(r.predicted_high));
+        if (!vals.length) return null;
+        return vals.reduce((a,b)=>a+b,0)/vals.length;
+      };
 
-  // helper: average of forecasts for a given target date (still used for tomorrow)
-  const avgForDate = (date) => {
-    const vals = allRows
-      .filter(r => r.forecast_or_actual==="forecast" && r.target_date===date && r.predicted_high)
-      .map(r => Number(r.predicted_high));
-    if (!vals.length) return null;
-    return vals.reduce((a,b)=>a+b,0)/vals.length;
-  };
+      const todayLatestForecast = latestForDate(today);
+      let todayActual = null;
+      const todayActualRow = allRows.find(r => r.forecast_or_actual==="actual" && r.cli_date===today && r.actual_high);
+      if (todayActualRow) todayActual = Number(todayActualRow.actual_high);
 
-  // today's values
-  const todayLatestForecast = latestForDate(today);    // <-- MOST RECENT ONLY
-  let todayActual = null;
-  const todayActualRow = allRows.find(r => r.forecast_or_actual==="actual" && r.cli_date===today && r.actual_high);
-  if (todayActualRow) todayActual = Number(todayActualRow.actual_high);
+      const tomorrowAvgForecast = avgForDate(tomorrow);
 
-  // tomorrow (leave as average unless you want latest too)
-  const tomorrowAvgForecast = latestForDate(tomorrow);
+      document.getElementById("box-today-forecast").textContent  =
+        (todayLatestForecast==null) ? "–" : todayLatestForecast.toFixed(1) + "°F";
+      document.getElementById("box-today-actual").textContent    =
+        (todayActual==null) ? "–" : todayActual.toFixed(1) + "°F";
+      document.getElementById("box-tomorrow-forecast").textContent=
+        (tomorrowAvgForecast==null) ? "–" : tomorrowAvgForecast.toFixed(1) + "°F";
+    }
 
-  // write to DOM
-  document.getElementById("box-today-forecast").textContent =
-    (todayLatestForecast==null) ? "–" : todayLatestForecast.toFixed(1) + "°F";
-
-  document.getElementById("box-today-actual").textContent =
-    (todayActual==null) ? "–" : todayActual.toFixed(1) + "°F";
-
-  document.getElementById("box-tomorrow-forecast").textContent =
-    (tomorrowAvgForecast==null) ? "–" : tomorrowAvgForecast.toFixed(1) + "°F";
-}
-
-    /* ---------------- Corrected predictions (today + tomorrow) ---------------- */
+    /* ---------------- Bias over ALL available days ---------------- */
     function calcBiases(){
       const biasList=[], dayMap={};
       allRows.forEach(r=>{
         const d=r.forecast_or_actual==="actual"?r.cli_date:r.target_date;
-        if(!d)return; if(!dayMap[d])dayMap[d]=[]; dayMap[d].push(r);
+        if(!d) return;
+        if(!dayMap[d]) dayMap[d]=[];
+        dayMap[d].push(r);
       });
       const dates=Object.keys(dayMap).sort();
       dates.forEach(d=>{
-        const rows=dayMap[d], actual=rows.find(r=>r.forecast_or_actual==="actual"&&r.actual_high);
-        if(!actual) return; const actualHigh=Number(actual.actual_high);
-        let bestErr=999,lastFc=null, highTime=actual.high_time||"";
+        const rows=dayMap[d];
+        const actual=rows.find(r=>r.forecast_or_actual==="actual" && r.actual_high);
+        if(!actual) return;
+        const actualHigh=Number(actual.actual_high);
+        const highTime=actual.high_time||"";
+
+        // choose best forecast BEFORE the recorded high time (if available)
+        let bestErr=999,lastFc=null;
         rows.forEach(r=>{
           if(r.forecast_or_actual!=="forecast"||!r.predicted_high) return;
-          // Optional: only forecasts before the high time
           if (highTime) {
             const fcHour=(r.forecast_time||"").substr(11,5);
             if (fcHour && compareTimes(fcHour, highTime) > 0) return;
@@ -354,33 +357,39 @@
           const err=Math.abs(Number(r.predicted_high)-actualHigh);
           if(err<bestErr){bestErr=err; lastFc=r;}
         });
-        if(lastFc) biasList.push(actualHigh-Number(lastFc.predicted_high));
+
+        if(lastFc){
+          const fcHigh=Number(lastFc.predicted_high);
+          biasList.push(actualHigh - fcHigh);
+        }
       });
-     return biasList;
+      return biasList; // ← ALL days, no slicing
     }
 
+    /* ---------------- Corrected predictions (use ALL forecasts for date) ---------------- */
     function updateCorrectionBoxes(){
-      const biasList=calcBiases(); 
+      const biasList=calcBiases();
       const avgBias=biasList.length?biasList.reduce((a,b)=>a+b,0)/biasList.length:0;
+
       const today=new Date().toISOString().slice(0,10);
       const tomorrow=new Date(Date.now()+86400000).toISOString().slice(0,10);
 
-      const latestForDate = (date) => {
-        const rows = allRows.filter(r=>r.forecast_or_actual==="forecast" && r.target_date===date && r.predicted_high);
-        if (!rows.length) return null;
-        rows.sort((a,b)=> {
-          const A=a.timestamp||a.forecast_time||"", B=b.timestamp||b.forecast_time||"";
-          return B.localeCompare(A);
-        });
-        return Number(rows[0].predicted_high);
+      // average of ALL forecasts logged for a target date
+      const meanForecastForDate = (date) => {
+        const vals = allRows
+          .filter(r=>r.forecast_or_actual==="forecast" && r.target_date===date && r.predicted_high)
+          .map(r=>Number(r.predicted_high));
+        if (!vals.length) return null;
+        return vals.reduce((a,b)=>a+b,0)/vals.length;
       };
 
-      const todayFcHigh    = latestForDate(today);
-      const tomorrowFcHigh = latestForDate(tomorrow);
-      const todayPred      = (todayFcHigh==null) ? null : todayFcHigh + avgBias;
-      const tomorrowPred   = (tomorrowFcHigh==null) ? null : tomorrowFcHigh + avgBias;
+      const todayFcAvg    = meanForecastForDate(today);
+      const tomorrowFcAvg = meanForecastForDate(tomorrow);
 
-      const biasTxt = avgBias ? (avgBias > 0 ? "+" : "") + avgBias.toFixed(2) : "+0.00";
+      const todayPred    = (todayFcAvg==null) ? null : todayFcAvg + avgBias;
+      const tomorrowPred = (tomorrowFcAvg==null) ? null : tomorrowFcAvg + avgBias;
+
+      const biasTxt = avgBias ? (avgBias>0?"+":"") + avgBias.toFixed(2) : "+0.00";
 
       document.getElementById("correctionBoxToday").innerHTML =
         `<b>Today's Corrected Prediction:</b><br>
@@ -482,7 +491,7 @@
         },
         options: {
           plugins: { legend: { display: true, position: "top" }},
-          scales: { x: { title: {display:true,text:"Date"} }, y: { title: {display:true,text:"Temperature (°F)"}} }
+          scales: { x: { title: {display:true,text:"Date"} }, y: { title: {display:true,text:"Temperature (°F)"} } }
         }
       });
     }
