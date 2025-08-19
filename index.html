@@ -49,6 +49,10 @@
     #card-today-forecast  { background:#fff5eb; border-color:#ffe6c7; }
     #card-today-actual    { background:#f0fff4; border-color:#c8f2d0; }
     #card-tomorrow-forecast { background:#ebf5ff; border-color:#cfe6ff; }
+    /* Kalshi card */
+    #card-kalshi-winner { background:#f3f0ff; border-color:#dfd9ff; }
+    #kalshi-winner-range{ font-size:24px; font-weight:700; color:#4a3aff; }
+    #kalshi-winner-sub  { font-size:12px; color:var(--muted); margin-top:4px; }
 
     .recent-line{ color:var(--brand-2); font-size:15px; font-weight:600; letter-spacing:.02em; }
     .correction-box{ margin:18px 0 16px 0; background:#fffbe9;
@@ -114,6 +118,12 @@
         <div style="font-size:14px;">Tomorrow’s Forecasted High</div>
         <div id="box-tomorrow-forecast" class="stat-val">–</div>
       </div>
+      <!-- Kalshi Winner Box -->
+      <div class="stat-box" id="card-kalshi-winner">
+        <div style="font-size:14px;">Kalshi Winning Range</div>
+        <div id="kalshi-winner-range">Loading…</div>
+        <div id="kalshi-winner-sub"></div>
+      </div>
     </div>
 
     <!-- Corrected prediction boxes -->
@@ -169,8 +179,7 @@
     /* ---------------- CSV load + parsing ---------------- */
     function showSkeleton(rows=6){
       const tb=document.querySelector("#dataTable tbody"); tb.innerHTML="";
-      for(let i=0;i<rows;i++){ const tr=document.createElement("tr"); tr.className="skel"; tr.innerHTML="<td></td>".repeat(8); tb.appendChild(tr);}
-    }
+      for(let i=0;i<rows;i++){ const tr=document.createElement("tr"); tr.className="skel"; tr.innerHTML="<td></td>".repeat(8); tb.appendChild(tr);} }
 
     function reloadCSV() {
       showSkeleton();
@@ -182,6 +191,7 @@
           showMostRecent();         // truly latest forecast entry
           updateSummaryBoxes();     // summary cards
           updateCorrectionBoxes();  // corrected predictions (avg of all forecasts for date)
+          fetchKalshiWinner();      // <-- refresh Kalshi winner too
         })
         .catch(err => {
           alert("Could not load CSV. " + err);
@@ -283,25 +293,25 @@
       return null;
     }
 
-/* -------- Last logged forecast = the final forecast row in the CSV -------- */
-function showMostRecent() {
-  const el = document.getElementById("recentForecast");
-  if (!allRows.length) { el.textContent = ""; return; }
+    /* -------- Last logged forecast = the final forecast row in the CSV -------- */
+    function showMostRecent() {
+      const el = document.getElementById("recentForecast");
+      if (!allRows.length) { el.textContent = ""; return; }
 
-  // Walk from the end to find the most recently appended forecast row
-  for (let i = allRows.length - 1; i >= 0; i--) {
-    const r = allRows[i];
-    if (r && r.forecast_or_actual === "forecast" && r.predicted_high && r.target_date) {
-      const when = r.timestamp || r.forecast_time || "(time unknown)";
-      el.innerHTML =
-        `Last logged forecast: <b>${when}</b> — <b>${r.predicted_high}°F</b> (for <b>${r.target_date}</b>)`;
-      return;
+      // Walk from the end to find the most recently appended forecast row
+      for (let i = allRows.length - 1; i >= 0; i--) {
+        const r = allRows[i];
+        if (r && r.forecast_or_actual === "forecast" && r.predicted_high && r.target_date) {
+          const when = r.timestamp || r.forecast_time || "(time unknown)";
+          el.innerHTML =
+            `Last logged forecast: <b>${when}</b> — <b>${r.predicted_high}°F</b> (for <b>${r.target_date}</b>)`;
+          return;
+        }
+      }
+
+      // If no forecast rows found:
+      el.textContent = "";
     }
-  }
-
-  // If no forecast rows found:
-  el.textContent = "";
-}
 
     /* ---------------- Summary boxes ---------------- */
     function updateSummaryBoxes() {
@@ -342,91 +352,91 @@ function showMostRecent() {
       document.getElementById("box-tomorrow-forecast").textContent=
         (tomorrowAvgForecast==null) ? "–" : tomorrowAvgForecast.toFixed(1) + "°F";
     }
-/* ---------------- Bias over ALL available days, using pre-high forecasts only ---------------- */
-function calcBiases(){
-  const biasList = [], dayMap = {};
-  allRows.forEach(r => {
-    const d = r.forecast_or_actual==="actual" ? r.cli_date : r.target_date;
-    if(!d) return;
-    if(!dayMap[d]) dayMap[d] = [];
-    dayMap[d].push(r);
-  });
 
-  const dates = Object.keys(dayMap).sort();
-  dates.forEach(d => {
-    const rows = dayMap[d];
-    const actual = rows.find(r => r.forecast_or_actual==="actual" && r.actual_high);
-    if(!actual) return;
-    const actualHigh = Number(actual.actual_high);
-    const highTime = actual.high_time || "";
+    /* ---------------- Bias over ALL available days, using pre-high forecasts only ---------------- */
+    function calcBiases(){
+      const biasList = [], dayMap = {};
+      allRows.forEach(r => {
+        const d = r.forecast_or_actual==="actual" ? r.cli_date : r.target_date;
+        if(!d) return;
+        if(!dayMap[d]) dayMap[d] = [];
+        dayMap[d].push(r);
+      });
 
-    // collect forecasts BEFORE the recorded high time (if available)
-    const fcVals = [];
-    rows.forEach(r => {
-      if(r.forecast_or_actual!=="forecast" || !r.predicted_high) return;
-      if (highTime) {
-        const fcHHMM = (r.forecast_time||"").substr(11,5);
-        if (fcHHMM && compareTimes(fcHHMM, highTime) > 0) return;
-      }
-      fcVals.push(Number(r.predicted_high));
-    });
+      const dates = Object.keys(dayMap).sort();
+      dates.forEach(d => {
+        const rows = dayMap[d];
+        const actual = rows.find(r => r.forecast_or_actual==="actual" && r.actual_high);
+        if(!actual) return;
+        const actualHigh = Number(actual.actual_high);
+        const highTime = actual.high_time || "";
 
-    if(fcVals.length){
-      const meanFc = fcVals.reduce((a,b)=>a+b,0)/fcVals.length;
-      biasList.push(actualHigh - meanFc);
-    }
-  });
+        // collect forecasts BEFORE the recorded high time (if available)
+        const fcVals = [];
+        rows.forEach(r => {
+          if(r.forecast_or_actual!=="forecast" || !r.predicted_high) return;
+          if (highTime) {
+            const fcHHMM = (r.forecast_time||"").substr(11,5);
+            if (fcHHMM && compareTimes(fcHHMM, highTime) > 0) return;
+          }
+          fcVals.push(Number(r.predicted_high));
+        });
 
-  return biasList; // ALL qualifying days
-}
-
-  /* ---------------- Corrected predictions (avg of ALL *pre-high* forecasts for the date + global bias) ---------------- */
-function updateCorrectionBoxes(){
-  const biasList=calcBiases();
-  const avgBias=biasList.length? (biasList.reduce((a,b)=>a+b,0)/biasList.length) : 0;
-
-  const today=new Date().toISOString().slice(0,10);
-  const tomorrow=new Date(Date.now()+86400000).toISOString().slice(0,10);
-
-  const meanForecastForDate = (date) => {
-    // get actual high time (if known) so we can enforce the same cutoff
-    const actual = allRows.find(r=>r.forecast_or_actual==="actual" && r.cli_date===date && r.actual_high);
-    const highTime = actual ? actual.high_time : "";
-
-    const vals = allRows
-      .filter(r=>r.forecast_or_actual==="forecast" && r.target_date===date && r.predicted_high)
-      .filter(r=>{
-        if(highTime){
-          const fcHHMM=(r.forecast_time||"").substr(11,5);
-          if(fcHHMM && compareTimes(fcHHMM, highTime) > 0) return false; // drop post-high forecasts
+        if(fcVals.length){
+          const meanFc = fcVals.reduce((a,b)=>a+b,0)/fcVals.length;
+          biasList.push(actualHigh - meanFc);
         }
-        return true;
-      })
-      .map(r=>Number(r.predicted_high));
+      });
 
-    if (!vals.length) return null;
-    return vals.reduce((a,b)=>a+b,0)/vals.length;
-  };
+      return biasList; // ALL qualifying days
+    }
 
-  const todayFcAvg    = meanForecastForDate(today);
-  const tomorrowFcAvg = meanForecastForDate(tomorrow);
+    /* ---------------- Corrected predictions (avg of ALL *pre-high* forecasts for the date + global bias) ---------------- */
+    function updateCorrectionBoxes(){
+      const biasList=calcBiases();
+      const avgBias=biasList.length? (biasList.reduce((a,b)=>a+b,0)/biasList.length) : 0;
 
-  const todayPred    = (todayFcAvg==null) ? null : todayFcAvg + avgBias;
-  const tomorrowPred = (tomorrowFcAvg==null) ? null : tomorrowFcAvg + avgBias;
+      const today=new Date().toISOString().slice(0,10);
+      const tomorrow=new Date(Date.now()+86400000).toISOString().slice(0,10);
 
-  const biasTxt = (avgBias>0?"+":"") + avgBias.toFixed(2);
+      const meanForecastForDate = (date) => {
+        // get actual high time (if known) so we can enforce the same cutoff
+        const actual = allRows.find(r=>r.forecast_or_actual==="actual" && r.cli_date===date && r.actual_high);
+        const highTime = actual ? actual.high_time : "";
 
-  document.getElementById("correctionBoxToday").innerHTML =
-    `<b>Today's Corrected Prediction:</b><br>
-     <span style="font-size:1.6em;">${today}: <b>${todayPred==null?"–":todayPred.toFixed(1)+"°F"}</b></span><br>
-     <span style="color:#666;">Bias: <b>${biasTxt}°F</b> (avg of ${biasList.length} days)</span>`;
+        const vals = allRows
+          .filter(r=>r.forecast_or_actual==="forecast" && r.target_date===date && r.predicted_high)
+          .filter(r=>{
+            if(highTime){
+              const fcHHMM=(r.forecast_time||"").substr(11,5);
+              if(fcHHMM && compareTimes(fcHHMM, highTime) > 0) return false; // drop post-high forecasts
+            }
+            return true;
+          })
+          .map(r=>Number(r.predicted_high));
 
-  document.getElementById("correctionBoxTomorrow").innerHTML =
-    `<b>Tomorrow's Corrected Prediction:</b><br>
-     <span style="font-size:1.6em;">${tomorrow}: <b>${tomorrowPred==null?"–":tomorrowPred.toFixed(1)+"°F"}</b></span><br>
-     <span style="color:#666;">Bias: <b>${biasTxt}°F</b> (avg of ${biasList.length} days)</span>`;
-}
+        if (!vals.length) return null;
+        return vals.reduce((a,b)=>a+b,0)/vals.length;
+      };
 
+      const todayFcAvg    = meanForecastForDate(today);
+      const tomorrowFcAvg = meanForecastForDate(tomorrow);
+
+      const todayPred    = (todayFcAvg==null) ? null : todayFcAvg + avgBias;
+      const tomorrowPred = (tomorrowFcAvg==null) ? null : tomorrowFcAvg + avgBias;
+
+      const biasTxt = (avgBias>0?"+":"") + avgBias.toFixed(2);
+
+      document.getElementById("correctionBoxToday").innerHTML =
+        `<b>Today's Corrected Prediction:</b><br>
+         <span style="font-size:1.6em;">${today}: <b>${todayPred==null?"–":todayPred.toFixed(1)+"°F"}</b></span><br>
+         <span style="color:#666;">Bias: <b>${biasTxt}°F</b> (avg of ${biasList.length} days)</span>`;
+
+      document.getElementById("correctionBoxTomorrow").innerHTML =
+        `<b>Tomorrow's Corrected Prediction:</b><br>
+         <span style="font-size:1.6em;">${tomorrow}: <b>${tomorrowPred==null?"–":tomorrowPred.toFixed(1)+"°F"}</b></span><br>
+         <span style="color:#666;">Bias: <b>${biasTxt}°F</b> (avg of ${biasList.length} days)</span>`;
+    }
 
     /* ---------------- Stats ---------------- */
     function showStats() {
@@ -577,8 +587,52 @@ function updateCorrectionBoxes(){
       });
     }
 
+    /* ---------------- Kalshi winner integration ---------------- */
+    function getTargetSettlementDate(){
+      const tz = 'America/New_York';
+      const now = new Date();
+      const nowET = new Date(now.toLocaleString('en-US',{timeZone:tz}));
+      const target = new Date(nowET);
+      if (nowET.getHours() < 15) target.setDate(target.getDate()-1); // before 3pm ET, use yesterday
+      const yyyy = target.getFullYear();
+      const mm = String(target.getMonth()+1).padStart(2,'0');
+      const dd = String(target.getDate()).padStart(2,'0');
+      return `${yyyy}-${mm}-${dd}`;
+    }
+
+    async function fetchKalshiWinner(){
+      const date = getTargetSettlementDate();
+      const eventTicker = `KXHIGHNY-${date}`;
+      const rangeEl = document.getElementById('kalshi-winner-range');
+      const subEl = document.getElementById('kalshi-winner-sub');
+      try{
+        const sRes = await fetch(`https://api.elections.kalshi.com/trade-api/v2/settlements?event_ticker=${eventTicker}`);
+        if(!sRes.ok) throw new Error(`Settlements HTTP ${sRes.status}`);
+        const sJson = await sRes.json();
+        const settlements = sJson.settlements || sJson.data || [];
+        const yes = settlements.find(x => String(x.result||x.outcome).toLowerCase()==='yes');
+        if(!yes){ rangeEl.textContent = 'Pending'; subEl.textContent = `${eventTicker}`; return; }
+        const mTicker = yes.market_ticker || yes.ticker;
+        const mRes = await fetch(`https://api.elections.kalshi.com/trade-api/v2/markets/${mTicker}`);
+        if(!mRes.ok) throw new Error(`Market HTTP ${mRes.status}`);
+        const mJson = await mRes.json();
+        const market = mJson.market || mJson.data || {};
+        const labelRaw = market.title || market.subtitle || mTicker || 'Winner';
+        const label = labelRaw.replace(/\s*\(Yes\)$/i,'').replace(/^.*?:\s*/,'').trim();
+        rangeEl.textContent = label;
+        subEl.textContent = `${eventTicker}`;
+      }catch(err){
+        rangeEl.textContent = 'Error';
+        subEl.textContent = String(err.message||err);
+      }
+    }
+
+    // refresh Kalshi winner every 5 minutes
+    setInterval(fetchKalshiWinner, 5*60*1000);
+
     /* ---------------- Boot ---------------- */
     reloadCSV();
+    fetchKalshiWinner();
   </script>
 </body>
 </html>
