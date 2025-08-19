@@ -19,11 +19,13 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install deps
-        run: pip install requests beautifulsoup4
+      - name: Install Playwright (Python)
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
 
-      - name: Fetch Kalshi winner
-        run: python fetch_kalshi.py
+      - name: Fetch Kalshi winner (rendered)
+        run: python fetch_kalshi_playwright.py
 
       - name: Commit kalshi_winner.json (if changed)
         run: |
