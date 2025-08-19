@@ -173,6 +173,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
+    const KALSHI_PROXY = "https://waheedweather.dewdropventures.com/api/kalshi"; // ← set to your deployed proxy base (e.g., Vercel/Cloudflare). Leave blank to call Kalshi directly.
     let allRows = [];
     let filteredRows = [];
 
@@ -606,14 +607,15 @@
       const rangeEl = document.getElementById('kalshi-winner-range');
       const subEl = document.getElementById('kalshi-winner-sub');
       try{
-        const sRes = await fetch(`https://api.elections.kalshi.com/trade-api/v2/settlements?event_ticker=${eventTicker}`);
+        const base = KALSHI_PROXY || "https://api.elections.kalshi.com/trade-api/v2";
+        const sRes = await fetch(`${base}/settlements?event_ticker=${encodeURIComponent(eventTicker)}`);
         if(!sRes.ok) throw new Error(`Settlements HTTP ${sRes.status}`);
         const sJson = await sRes.json();
         const settlements = sJson.settlements || sJson.data || [];
         const yes = settlements.find(x => String(x.result||x.outcome).toLowerCase()==='yes');
         if(!yes){ rangeEl.textContent = 'Pending'; subEl.textContent = `${eventTicker}`; return; }
         const mTicker = yes.market_ticker || yes.ticker;
-        const mRes = await fetch(`https://api.elections.kalshi.com/trade-api/v2/markets/${mTicker}`);
+        const mRes = await fetch(`${base}/markets/${encodeURIComponent(mTicker)}`);
         if(!mRes.ok) throw new Error(`Market HTTP ${mRes.status}`);
         const mJson = await mRes.json();
         const market = mJson.market || mJson.data || {};
