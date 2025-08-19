@@ -601,36 +601,35 @@
       return `${yyyy}-${mm}-${dd}`;
     }
 
-    async function fetchKalshiWinner(){
-      const date = getTargetSettlementDate();
-      const eventTicker = `KXHIGHNY-${date}`;
-      const rangeEl = document.getElementById('kalshi-winner-range');
-      const subEl = document.getElementById('kalshi-winner-sub');
-      try{
-        const base = KALSHI_PROXY || "https://api.elections.kalshi.com/trade-api/v2";
-        const sRes = await fetch(`${base}/settlements?event_ticker=${encodeURIComponent(eventTicker)}`);
-        if(!sRes.ok) throw new Error(`Settlements HTTP ${sRes.status}`);
-        const sJson = await sRes.json();
-        const settlements = sJson.settlements || sJson.data || [];
-        const yes = settlements.find(x => String(x.result||x.outcome).toLowerCase()==='yes');
-        if(!yes){ rangeEl.textContent = 'Pending'; subEl.textContent = `${eventTicker}`; return; }
-        const mTicker = yes.market_ticker || yes.ticker;
-        const mRes = await fetch(`${base}/markets/${encodeURIComponent(mTicker)}`);
-        if(!mRes.ok) throw new Error(`Market HTTP ${mRes.status}`);
-        const mJson = await mRes.json();
-        const market = mJson.market || mJson.data || {};
-        const labelRaw = market.title || market.subtitle || mTicker || 'Winner';
-        const label = labelRaw.replace(/\s*\(Yes\)$/i,'').replace(/^.*?:\s*/,'').trim();
-        rangeEl.textContent = label;
-        subEl.textContent = `${eventTicker}`;
-      }catch(err){
-        rangeEl.textContent = 'Error';
-        subEl.textContent = String(err.message||err);
-      }
-    }
+<script>
+  // Replace your current fetchKalshiWinner with this:
+  async function fetchKalshiWinner(){
+    const rangeEl = document.getElementById('kalshi-winner-range');
+    const subEl   = document.getElementById('kalshi-winner-sub');
 
-    // refresh Kalshi winner every 5 minutes
-    setInterval(fetchKalshiWinner, 5*60*1000);
+    try {
+      const resp = await fetch('/kalshi_winner.json?' + Date.now()); // cache-bust
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const j = await resp.json();
+
+      if (j.status !== 'settled' || !j.label) {
+        rangeEl.textContent = 'Pending';
+        subEl.textContent   = j.event_ticker || '';
+        return;
+      }
+
+      rangeEl.textContent = j.label;            // e.g., "89–90°F"
+      subEl.textContent   = j.event_ticker || '';// e.g., "KXHIGHNY-2025-08-17"
+    } catch (err) {
+      rangeEl.textContent = 'Error';
+      subEl.textContent   = (err && err.message) ? err.message : String(err);
+    }
+  }
+
+  // keep your auto-refresh
+  setInterval(fetchKalshiWinner, 5 * 60 * 1000);
+</script>
+
 
     /* ---------------- Boot ---------------- */
     reloadCSV();
