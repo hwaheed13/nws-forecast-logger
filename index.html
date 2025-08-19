@@ -164,6 +164,15 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
     let allRows = [];
+    function nycISODate(offsetDays=0){
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone:'America/New_York', year:'numeric', month:'2-digit', day:'2-digit'
+  });
+  const parts = fmt.formatToParts(new Date(Date.now()+offsetDays*86400000));
+  const g = k => parts.find(p => p.type === k).value;
+  return `${g('year')}-${g('month')}-${g('day')}`;
+}
+
     let filteredRows = [];
 
     /* ---------------- CSV load + parsing ---------------- */
@@ -305,8 +314,8 @@ function showMostRecent() {
 
     /* ---------------- Summary boxes ---------------- */
     function updateSummaryBoxes() {
-      const today = new Date().toISOString().slice(0,10);
-      const tomorrow = new Date(Date.now()+86400000).toISOString().slice(0,10);
+     const today    = nycISODate(0);
+     const tomorrow = nycISODate(1);
 
       // latest forecast for today
       const latestForDate = (date) => {
@@ -385,8 +394,8 @@ function updateCorrectionBoxes(){
   const biasList=calcBiases();
   const avgBias=biasList.length? (biasList.reduce((a,b)=>a+b,0)/biasList.length) : 0;
 
-  const today=new Date().toISOString().slice(0,10);
-  const tomorrow=new Date(Date.now()+86400000).toISOString().slice(0,10);
+    const today    = nycISODate(0);
+    const tomorrow = nycISODate(1);
 
   const meanForecastForDate = (date) => {
     // get actual high time (if known) so we can enforce the same cutoff
