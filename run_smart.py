@@ -8,6 +8,7 @@ from nws_auto_logger import (
     upsert_yesterday_actual_if_morning_local,
 )
 
+# TASK can be set in the workflow "env" or via "workflow_dispatch" input mapping.
 TASK = (os.getenv("TASK") or "smart_all").strip().lower()
 
 def main():
@@ -18,11 +19,9 @@ def main():
     elif TASK == "forecast_tomorrow":
         log_forecast_for_tomorrow()
     elif TASK == "actual_provisional":
-        # Only logs after 6pm ET; otherwise no-ops
-        log_actual_today_if_after_6pm_local()
+        log_actual_today_if_after_6pm_local()          # only effective after 6pm ET
     elif TASK == "actual_finalize":
-        # Only runs between midnight–noon ET; otherwise no-ops
-        upsert_yesterday_actual_if_morning_local()
+        upsert_yesterday_actual_if_morning_local()     # only effective midnight–noon ET
     else:
         # smart_all (default): run everything idempotently
         log_forecast()
