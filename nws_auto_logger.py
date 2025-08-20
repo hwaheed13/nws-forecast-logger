@@ -43,9 +43,7 @@ def ensure_csv_header() -> None:
             csv.writer(f).writerow(HEADER)
 
 def _read_all_rows() -> Tuple[list, list]:
-    """
-    Returns (rows, fieldnames). If file missing, ensures header.
-    """
+    """Returns (rows, fieldnames). If file missing, ensures header."""
     ensure_csv_header()
     rows = []
     fieldnames = HEADER
@@ -108,7 +106,7 @@ def upsert_actual_row(cli_date_iso: str, temp: str, time_clean: str) -> None:
 # Forecast helpers
 # =========================
 def already_logged(entry_type: str, identifier: str) -> bool:
-    """ Lightweight duplicate check by substring—used only by the old loop mode. """
+    """Lightweight duplicate check by substring—used only by the old loop mode."""
     if not os.path.exists(CSV_FILE):
         return False
     with open(CSV_FILE, "r") as f:
@@ -121,23 +119,38 @@ def get_forecast_data() -> list:
     return forecast_resp.json()["properties"]["periods"]
 
 def get_best_forecast(periods: list, for_tomorrow: bool = False) -> Tuple[Optional[dict], Optional[str]]:
-    # Use ET-based date (not system UTC)
+    # ET-based date for target
     target_date = (today_nyc() + datetime.timedelta(days=1 if for_tomorrow else 0)).isoformat()
     for p in periods:
         if p["startTime"][:10] == target_date and p.get("isDaytime"):
             return p, p.get("name")
     return None, None
 
-def forecast_already_logged(target_date: str, predicted_high: str) -> bool:
+def _get_last_forecast_row_for_date(target_date: str) -> Optional[dict]:
+    """Return the last (most recent) forecast row for target_date, or None."""
+    if not os.path.exists(CSV_FILE):
+        return None
+    last = None
+    with open(CSV_FILE, newline="") as f:
+        for row in csv.DictReader(f):
+            if row.get("forecast_or_actual") == "forecast" and row.get("target_date") == target_date:
+                last = row
+    return last
+
+def forecast_changed_since_last(target_date: str, new_value: str) -> bool:
+    """True if no prior forecast for the date, or the last one differs."""
+    last = _get_last_forecast_row_for_date(target_date)
+    if last is None:
+        return True
+    return (last.get("predicted_high") or "") != new_value
+
+def actual_exists_for_date(target_date: str) -> bool:
+    """True if an actual row for this date already exists (freeze further forecasts)."""
     if not os.path.exists(CSV_FILE):
         return False
     with open(CSV_FILE, newline="") as f:
         for row in csv.DictReader(f):
-            if (
-                row.get("forecast_or_actual") == "forecast"
-                and row.get("target_date") == target_date
-                and row.get("predicted_high") == predicted_high
-            ):
+            if row.get("forecast_or_actual") == "actual" and row.get("cli_date") == target_date:
                 return True
     return False
 
@@ -150,8 +163,15 @@ def log_forecast() -> None:
         return
 
     target_date = today_nyc().isoformat()
-    if forecast_already_logged(target_date, str(period["temperature"])):
-        print(f"⏭️ Forecast for today with {period['temperature']}°F already logged.")
+
+    # Freeze forecasts once actual exists
+    if actual_exists_for_date(target_date):
+        print(f"⏭️ Actual already logged for {target_date}; freezing forecast capture.")
+        return
+
+    new_val = str(period["temperature"])
+    if not forecast_changed_since_last(target_date, new_val):
+        print(f"⏭️ Unchanged since last for {target_date}: {new_val}°F")
         return
 
     now_local = now_nyc().strftime("%Y-%m-%d %H:%M:%S")
@@ -161,11 +181,11 @@ def log_forecast() -> None:
             target_date,              # target_date (For Date)
             "forecast",
             now_local,                # forecast_time (ET)
-            str(period["temperature"]),
+            new_val,
             period.get("detailedForecast", ""),
             "", "", ""
         ])
-    print(f"✅ Logged forecast for today: {period['temperature']}°F")
+    print(f"✅ Logged forecast for today: {new_val}°F")
 
 def log_forecast_for_tomorrow() -> None:
     print("🔍 Fetching tomorrow’s forecast...")
@@ -177,7 +197,8 @@ def log_forecast_for_tomorrow() -> None:
     for period in forecast["properties"]["periods"]:
         start_date = datetime.datetime.fromisoformat(period["startTime"]).date()
         if start_date == tomorrow:
-            if not forecast_already_logged(str(tomorrow), str(period["temperature"])):
+            new_val = str(period["temperature"])
+            if forecast_changed_since_last(str(tomorrow), new_val):
                 now_local = now_nyc().strftime("%Y-%m-%d %H:%M:%S")
                 with open(CSV_FILE, mode="a", newline="") as f:
                     csv.writer(f).writerow([
@@ -185,13 +206,13 @@ def log_forecast_for_tomorrow() -> None:
                         str(tomorrow),          # For Date
                         "forecast",
                         now_local,              # forecast_time (ET)
-                        str(period["temperature"]),
+                        new_val,
                         period.get("detailedForecast", ""),
                         "", "", ""
                     ])
-                print(f"✅ Logged forecast for {tomorrow}: {period['temperature']}°F")
+                print(f"✅ Logged forecast for {tomorrow}: {new_val}°F")
             else:
-                print(f"⏭️ Forecast for {tomorrow} with {period['temperature']}°F already logged.")
+                print(f"⏭️ Unchanged since last for {tomorrow}: {new_val}°F")
             break
     else:
         print("⚠️ No forecast found for tomorrow.")
@@ -254,10 +275,8 @@ def _parse_cli_sections(cli_text: str) -> Dict[str, Optional[Tuple[str, str]]]:
 
             if i + 1 < len(parts) and parts[i+1].isdigit():
                 temp = parts[i+1]
-
             if i + 2 < len(parts) and _TIME_TOKEN.match(parts[i+2]):
                 tkn_time = parts[i+2]
-
             if i + 3 < len(parts) and parts[i+3] in ("AM", "PM"):
                 ampm = parts[i+3]
 
@@ -379,5 +398,4 @@ def main_loop() -> None:
         # These contain their own time windows and de-dupe/upsert logic.
         log_actual_today_if_after_6pm_local()
         upsert_yesterday_actual_if_morning_local()
-
         time.sleep(60)
