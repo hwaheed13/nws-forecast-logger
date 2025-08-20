@@ -5,7 +5,7 @@ import datetime
 import os
 import re
 import time
-from typing import Optional, Tuple, Dict
+from typing import Optional, Tuple, Dict, List
 
 import requests
 from bs4 import BeautifulSoup
@@ -25,7 +25,7 @@ def today_nyc() -> datetime.date:
 CSV_FILE = "nws_forecast_log.csv"
 NWS_API_ENDPOINT = "https://api.weather.gov/points/40.7834,-73.965"
 
-# Optional if you still use the local looping mode
+# Optional local-loop schedule (if you ever use main_loop)
 FETCH_TIMES = ["19:30", "21:00", "23:00", "05:00", "06:00", "07:00", "09:00",
                "10:00", "10:50", "11:00", "12:00", "13:00", "14:00", "15:00"]
 
@@ -42,10 +42,10 @@ def ensure_csv_header() -> None:
         with open(CSV_FILE, mode="w", newline="") as f:
             csv.writer(f).writerow(HEADER)
 
-def _read_all_rows() -> Tuple[list, list]:
+def _read_all_rows() -> Tuple[List[dict], List[str]]:
     """Returns (rows, fieldnames). If file missing, ensures header."""
     ensure_csv_header()
-    rows = []
+    rows: List[dict] = []
     fieldnames = HEADER
     with open(CSV_FILE, newline="") as f:
         reader = csv.DictReader(f)
@@ -55,7 +55,7 @@ def _read_all_rows() -> Tuple[list, list]:
             rows.append(r)
     return rows, fieldnames
 
-def _write_all_rows(rows: list, fieldnames: list) -> None:
+def _write_all_rows(rows: List[dict], fieldnames: List[str]) -> None:
     with open(CSV_FILE, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
         w.writeheader()
@@ -63,13 +63,12 @@ def _write_all_rows(rows: list, fieldnames: list) -> None:
 
 def upsert_actual_row(cli_date_iso: str, temp: str, time_clean: str) -> None:
     """
-    Insert or replace an 'actual' row for cli_date_iso (YYYY-MM-DD).
-    If a row exists (forecast_or_actual == 'actual' and cli_date == cli_date_iso),
-    update it in place; otherwise append a new row.
+    Insert or replace the 'actual' row for cli_date_iso (YYYY-MM-DD).
+    If that date already exists as an actual, update it in-place.
     """
     rows, fns = _read_all_rows()
     now_s = now_nyc().strftime("%Y-%m-%d %H:%M:%S")
-    target_date = cli_date_iso  # align with cli_date for actual rows
+    target_date = cli_date_iso  # keep aligned with cli_date for actual rows
 
     updated = False
     for r in rows:
@@ -105,29 +104,38 @@ def upsert_actual_row(cli_date_iso: str, temp: str, time_clean: str) -> None:
 # =========================
 # Forecast helpers
 # =========================
-def already_logged(entry_type: str, identifier: str) -> bool:
-    """Lightweight duplicate check by substring—used only by the old loop mode."""
-    if not os.path.exists(CSV_FILE):
-        return False
-    with open(CSV_FILE, "r") as f:
-        return any(identifier in line and entry_type in line for line in f)
+def _period_date_local(iso_ts: str) -> datetime.date:
+    """
+    Convert NWS period startTime (ISO8601 with TZ) to **NYC local date**.
+    This avoids UTC date drift causing "tomorrow shows up under today".
+    """
+    dt = datetime.datetime.fromisoformat(iso_ts)
+    if dt.tzinfo is None:
+        # safety: assume UTC if missing, then convert
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    return dt.astimezone(NYC_TZ).date()
 
 def get_forecast_data() -> list:
     resp = requests.get(NWS_API_ENDPOINT, headers={"User-Agent": "Mozilla/5.0"})
+    resp.raise_for_status()
     forecast_url = resp.json()["properties"]["forecast"]
     forecast_resp = requests.get(forecast_url, headers={"User-Agent": "Mozilla/5.0"})
+    forecast_resp.raise_for_status()
     return forecast_resp.json()["properties"]["periods"]
 
 def get_best_forecast(periods: list, for_tomorrow: bool = False) -> Tuple[Optional[dict], Optional[str]]:
-    # ET-based date for target
-    target_date = (today_nyc() + datetime.timedelta(days=1 if for_tomorrow else 0)).isoformat()
+    """
+    Pick the daytime period whose **NYC-local date** equals target.
+    """
+    target = (today_nyc() + datetime.timedelta(days=1 if for_tomorrow else 0))
     for p in periods:
-        if p["startTime"][:10] == target_date and p.get("isDaytime"):
+        p_date = _period_date_local(p["startTime"])
+        if p_date == target and p.get("isDaytime"):
             return p, p.get("name")
     return None, None
 
 def _get_last_forecast_row_for_date(target_date: str) -> Optional[dict]:
-    """Return the last (most recent) forecast row for target_date, or None."""
+    """Return the most recent forecast row for target_date, or None."""
     if not os.path.exists(CSV_FILE):
         return None
     last = None
@@ -138,7 +146,7 @@ def _get_last_forecast_row_for_date(target_date: str) -> Optional[dict]:
     return last
 
 def forecast_changed_since_last(target_date: str, new_value: str) -> bool:
-    """True if no prior forecast for the date, or the last one differs."""
+    """True if no prior forecast for the date, or the last recorded value differs."""
     last = _get_last_forecast_row_for_date(target_date)
     if last is None:
         return True
@@ -155,8 +163,17 @@ def actual_exists_for_date(target_date: str) -> bool:
     return False
 
 def log_forecast() -> None:
+    """
+    Log **today's** forecast iff it changed since the last forecast line
+    AND no actual exists yet for today.
+    """
     print("🔍 Fetching today’s forecast...")
-    periods = get_forecast_data()
+    try:
+        periods = get_forecast_data()
+    except Exception as e:
+        print(f"❌ Error fetching forecast: {e}")
+        return
+
     period, _ = get_best_forecast(periods, for_tomorrow=False)
     if not period:
         print("⚠️ No valid forecast found for today.")
@@ -188,15 +205,22 @@ def log_forecast() -> None:
     print(f"✅ Logged forecast for today: {new_val}°F")
 
 def log_forecast_for_tomorrow() -> None:
+    """
+    Log **tomorrow’s** forecast if it changed vs the last recorded for tomorrow.
+    """
     print("🔍 Fetching tomorrow’s forecast...")
-    resp = requests.get(NWS_API_ENDPOINT, headers={"User-Agent": "Mozilla/5.0"}).json()
-    forecast_url = resp["properties"]["forecast"]
-    forecast = requests.get(forecast_url, headers={"User-Agent": "Mozilla/5.0"}).json()
+    try:
+        resp = requests.get(NWS_API_ENDPOINT, headers={"User-Agent": "Mozilla/5.0"}).json()
+        forecast_url = resp["properties"]["forecast"]
+        forecast = requests.get(forecast_url, headers={"User-Agent": "Mozilla/5.0"}).json()
+    except Exception as e:
+        print(f"❌ Error fetching forecast: {e}")
+        return
 
     tomorrow = today_nyc() + datetime.timedelta(days=1)
     for period in forecast["properties"]["periods"]:
-        start_date = datetime.datetime.fromisoformat(period["startTime"]).date()
-        if start_date == tomorrow:
+        p_date = _period_date_local(period["startTime"])
+        if p_date == tomorrow and period.get("isDaytime"):
             new_val = str(period["temperature"])
             if forecast_changed_since_last(str(tomorrow), new_val):
                 now_local = now_nyc().strftime("%Y-%m-%d %H:%M:%S")
@@ -232,7 +256,7 @@ def _normalize_cli_time(raw: str, ampm: Optional[str]) -> str:
     if ":" in raw:
         hh, mm = raw.split(":", 1)
     else:
-        digits = raw.zfill(4)  # 154 -> 0154
+        digits = raw.zfill(4)
         hh, mm = digits[:2], digits[2:]
         if hh.startswith("0"):
             hh = hh[1:]
@@ -245,10 +269,10 @@ def _normalize_cli_time(raw: str, ampm: Optional[str]) -> str:
 
 def _parse_cli_sections(cli_text: str) -> Dict[str, Optional[Tuple[str, str]]]:
     """
-    Parses the CLI 'pre' text and returns:
-      { 'TODAY': (temp, time), 'YESTERDAY': (temp, time) }  (values may be None)
-    Handles the layout where the section header (TODAY/YESTERDAY)
-    can be on its own line and MAXIMUM is on a following line.
+    Parse the CLI <pre> content and return
+        { 'TODAY': (temp, time), 'YESTERDAY': (temp, time) }
+    Values may be None if not present yet.
+    Handles header lines like "TODAY" / "YESTERDAY" followed by a line with "MAXIMUM".
     """
     current = None
     today: Optional[Tuple[str, str]] = None
@@ -297,8 +321,8 @@ def log_actual_today_if_after_6pm_local() -> None:
     After 6pm ET, log 'TODAY MAXIMUM' from v1 as a provisional actual.
     Morning job can overwrite (replace) yesterday’s row if it changes.
     """
-    now = now_nyc()
-    if now.hour < 18:
+    n = now_nyc()
+    if n.hour < 18:
         print("⏭️ Skipping: it’s before 6pm ET")
         return
 
@@ -320,7 +344,7 @@ def log_actual_today_if_after_6pm_local() -> None:
         temp, time_clean = today_pair
         cli_date = today_nyc().isoformat()
 
-        # ensure CSV exists then de-dupe
+        # de-dupe actual for today
         ensure_csv_header()
         with open(CSV_FILE, newline="") as f:
             for row in csv.DictReader(f):
@@ -330,7 +354,7 @@ def log_actual_today_if_after_6pm_local() -> None:
 
         with open(CSV_FILE, "a", newline="") as f:
             csv.writer(f).writerow([
-                now.strftime("%Y-%m-%d %H:%M:%S"),
+                n.strftime("%Y-%m-%d %H:%M:%S"),
                 cli_date, "actual",
                 "", "", "",
                 cli_date,
@@ -347,8 +371,8 @@ def upsert_yesterday_actual_if_morning_local() -> None:
     Between midnight–noon ET, prefer the latest CLI (v1) 'YESTERDAY MAXIMUM'.
     Upsert (replace-in-place or insert) the row for yesterday so the CSV stays clean.
     """
-    now = now_nyc()
-    if not (0 <= now.hour < 12):
+    n = now_nyc()
+    if not (0 <= n.hour < 12):
         print("⏭️ Skipping: it’s afternoon/evening ET")
         return
 
@@ -368,9 +392,8 @@ def upsert_yesterday_actual_if_morning_local() -> None:
             return
 
         temp, time_clean = yday_pair
-        yday_iso = (now.date() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+        yday_iso = (n.date() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
 
-        # Replace existing row or insert new one.
         upsert_actual_row(yday_iso, temp, time_clean)
         print(f"✅ Upserted YESTERDAY actual: {temp}°F at {time_clean} for {yday_iso}")
 
@@ -380,9 +403,20 @@ def upsert_yesterday_actual_if_morning_local() -> None:
 # =========================
 # (Optional) Simple loop mode
 # =========================
+def already_logged(entry_type: str, identifier: str) -> bool:
+    """Legacy: substring check used only by the loop mode."""
+    if not os.path.exists(CSV_FILE):
+        return False
+    with open(CSV_FILE, "r") as f:
+        return any(identifier in line and entry_type in line for line in f)
+
 def main_loop() -> None:
     """
-    Legacy local loop; not used by Actions.
+    Legacy local loop; not used by Actions, but safe to keep.
+    Runs once per minute:
+      - logs forecasts at your FETCH_TIMES (idempotent, change-aware)
+      - provisional today’s actual after 6pm ET (idempotent)
+      - finalizes yesterday between midnight–noon ET (upsert)
     """
     print("NWS Auto Logger started. Ctrl+C to stop.")
     ensure_csv_header()
@@ -391,11 +425,12 @@ def main_loop() -> None:
         n_str = n.strftime("%H:%M")
         for sched in FETCH_TIMES:
             if n_str == sched:
-                if not already_logged("forecast", n.strftime("%Y-%m-%d %H")):
-                    log_forecast()
+                # Forecasts
+                log_forecast()
                 log_forecast_for_tomorrow()
 
-        # These contain their own time windows and de-dupe/upsert logic.
+        # These contain their own ET gating + de-dupe/upsert logic.
         log_actual_today_if_after_6pm_local()
         upsert_yesterday_actual_if_morning_local()
+
         time.sleep(60)
