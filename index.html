@@ -350,19 +350,28 @@
     /* ---------------- Kalshi via proxy (single call) ---------------- */
     const KALSHI_PROXY_BASE = "https://kalshi-proxy-git-main-hyder-waheeds-projects.vercel.app/api/kalshi";
 
-    async function fetchKalshiWinningRange(dateISO){
-      try {
-        const r = await fetch(`${KALSHI_PROXY_BASE}?date=${encodeURIComponent(dateISO)}`, {
-          mode: "cors",
-          headers: { Accept: "application/json" }
-        });
-        if (r.status === 204) return null; // not settled yet
-        if (!r.ok) return null;
-        return await r.json(); // { label, exactTemp, eventTicker, url }
-      } catch {
-        return null;
-      }
+async function fetchKalshiWinningRange(dateISO){
+  try {
+    let r = await fetch(`${KALSHI_PROXY_BASE}?date=${encodeURIComponent(dateISO)}`, {
+      mode: "cors",
+      headers: { Accept: "application/json" },
+      cache: "no-cache"        // <— important
+    });
+    if (r.status === 204) return null; // not settled yet
+    if (r.status === 304) {
+      // belt-and-suspenders fallback (rare with cache:"no-cache")
+      r = await fetch(`${KALSHI_PROXY_BASE}?date=${encodeURIComponent(dateISO)}&cb=${Date.now()}`, {
+        mode: "cors",
+        headers: { Accept: "application/json" }
+      });
     }
+    if (!r.ok) return null;
+    return await r.json();
+  } catch {
+    return null;
+  }
+}
+
 
     const kalshiCache = new Map();
     async function getKalshiLabel(dateISO){
