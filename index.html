@@ -99,6 +99,7 @@
     .kalshi-badge{display:inline-block;margin-top:6px;padding:3px 8px;border-radius:999px;border:1px solid var(--ring);font-size:12px;background:#fff7f0;color:#b14b00}
     .kalshi-link{color:inherit;text-decoration:none;border-bottom:1px dotted #b14b00}
     .kalshi-pending{display:inline-block;margin-top:6px;padding:3px 8px;border-radius:999px;border:1px dashed var(--ring);font-size:12px;background:#fffaf0;color:#a16207}
+    .kalshi-small{font-size:12px;color:#6b7280;margin-top:4px}
   </style>
 </head>
 <body>
@@ -131,15 +132,17 @@
       </div>
     </div>
 
-    <!-- NEW: Kalshi cards row -->
+    <!-- Kalshi cards row -->
     <div class="stats">
       <div class="stat-box" id="card-today-kalshi">
         <div style="font-size:14px;">Today’s Kalshi Winning Range</div>
         <div id="box-today-kalshi" class="stat-val" style="font-size:18px;">Pending settlement</div>
+        <div id="box-today-kalshi-note" class="kalshi-small"></div>
       </div>
       <div class="stat-box" id="card-yday-kalshi">
         <div style="font-size:14px;">Yesterday’s Kalshi Winning Range</div>
         <div id="box-yday-kalshi" class="stat-val" style="font-size:18px;">–</div>
+        <div id="box-yday-kalshi-note" class="kalshi-small"></div>
       </div>
     </div>
 
@@ -149,7 +152,7 @@
       <div id="correctionBoxTomorrow" class="correction-box" style="flex:1;">Loading...</div>
     </div>
 
-    <!-- Filters (not sticky) -->
+    <!-- Filters -->
     <div class="controls">
       <label for="from">From:</label><input type="date" id="fromDate"/>
       <label for="to">To:</label><input type="date" id="toDate"/>
@@ -181,7 +184,6 @@
             <th>High Time</th>
             <th>Error (°F)</th>
             <th>Best?</th>
-            <!-- NEW: Kalshi Range column (after Best?) -->
             <th>Kalshi Range</th>
           </tr>
         </thead>
@@ -405,7 +407,7 @@
       ctx.fillStyle = '#2ecc71'; ctx.fill();
     }
 
-    /* ---------------- Summary boxes (now updates Kalshi cards too) ---------------- */
+    /* ---------------- Summary boxes (updates Kalshi cards too) ---------------- */
     function updateSummaryBoxes() {
       const today = nycISODate(0);
       const tomorrow = nycISODate(1);
@@ -452,27 +454,33 @@
       Promise.all([ getKalshiLabel(today), getKalshiLabel(yesterday) ])
         .then(([ktoday, kyday]) => {
           const tBox = document.getElementById('box-today-kalshi');
+          const tNote = document.getElementById('box-today-kalshi-note');
           const yBox = document.getElementById('box-yday-kalshi');
+          const yNote = document.getElementById('box-yday-kalshi-note');
 
-          if (tBox) {
-            if (ktoday && ktoday.label) {
-              tBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${ktoday.url}" target="_blank" rel="noopener">${ktoday.label}</a></span>`;
-            } else {
-              tBox.innerHTML = `<span class="kalshi-pending">Pending settlement</span>`;
-            }
+          // Today
+          if (ktoday && ktoday.label) {
+            tBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${ktoday.url}" target="_blank" rel="noopener">${ktoday.label}</a></span>`;
+            tNote.textContent = ktoday.exactTemp ? `Settled at ${ktoday.exactTemp.toFixed(1)}°F.` : "";
+          } else {
+            tBox.innerHTML = `<span class="kalshi-pending">Pending settlement</span>`;
+            tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
           }
 
-          if (yBox) {
-            if (kyday && kyday.label) {
-              yBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${kyday.url}" target="_blank" rel="noopener">${kyday.label}</a></span>`;
-            } else {
-              yBox.textContent = "–";
-            }
+          // Yesterday
+          if (kyday && kyday.label) {
+            yBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${kyday.url}" target="_blank" rel="noopener">${kyday.label}</a></span>`;
+            yNote.textContent = kyday.exactTemp ? `Settled at ${kyday.exactTemp.toFixed(1)}°F.` : "";
+          } else {
+            yBox.textContent = "–";
+            yNote.textContent = "";
           }
         })
         .catch(() => {
           const tBox = document.getElementById('box-today-kalshi');
+          const tNote = document.getElementById('box-today-kalshi-note');
           if (tBox) tBox.innerHTML = `<span class="kalshi-pending">Pending settlement</span>`;
+          if (tNote) tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
         });
     }
 
@@ -639,7 +647,7 @@
       });
     }
 
-    /* ---------------- Table (now fetches per-day Kalshi results) ---------------- */
+    /* ---------------- Table (fetches per-day Kalshi results) ---------------- */
     async function displayTable() {
       const tb = document.querySelector("#dataTable tbody");
       tb.innerHTML = "";
@@ -679,9 +687,9 @@
         });
 
         const k = kalshiByDate[date];
-        const kalshiCell = k && k.label
-          ? `<span class="kalshi-badge"><a class="kalshi-link" href="${k.url}" target="_blank" rel="noopener">${k.label}</a></span>`
-          : "";
+        const label = k && k.label ? k.label : "";
+        const exact = k && k.exactTemp != null ? ` (${k.exactTemp.toFixed(1)}°F)` : "";
+        const kalshiCell = label ? `<span class="kalshi-badge" title="Kalshi settled range">${label}${exact}</span>` : "";
 
         dayRows.forEach((r,i) => {
           if (r.forecast_or_actual!=="forecast" && r.forecast_or_actual!=="actual") return;
@@ -709,7 +717,6 @@
     }
 
     /* ---------------- Kalshi integration ---------------- */
-    // Build event ticker like KXHIGHNY-25AUG23 from YYYY-MM-DD (NYC local)
     function toKalshiEventTicker(dateISO){
       const [Y,M,D] = dateISO.split('-');
       const yy = Y.slice(-2);
@@ -717,23 +724,49 @@
       return `KXHIGHNY-${yy}${mon}${D}`;
     }
 
-    // Fetch the event with nested markets and return the settled bracket {label, url}
+    // ROBUST: find settled bracket and exact temp; try event-scoped first, then series fallback
     async function fetchKalshiWinningRange(dateISO){
-      const ticker = toKalshiEventTicker(dateISO);
       const base = "https://api.elections.kalshi.com/trade-api/v2";
-      const resp = await fetch(`${base}/events/${ticker}?with_nested_markets=true`, { mode: "cors" });
-      if(!resp.ok) throw new Error(`Kalshi event ${ticker} not found`);
-      const ev = await resp.json();
-      const markets = ev?.event?.markets || [];
+      const eventTicker = toKalshiEventTicker(dateISO);
 
-      // Prefer market with explicit result === "yes"; otherwise any with settlement_value
-      let winner = markets.find(m => m.result === "yes");
-      if(!winner) winner = markets.find(m => m.settlement_value != null);
-      if(!winner) return null;
+      // 1) Event-scoped markets (best source)
+      try {
+        const r1 = await fetch(`${base}/markets?event_ticker=${encodeURIComponent(eventTicker)}`, { mode: "cors" });
+        if (r1.ok) {
+          const j1 = await r1.json();
+          const mkts = Array.isArray(j1?.markets) ? j1.markets : [];
+          const winner =
+            mkts.find(m => m.result === "yes") ||
+            mkts.find(m => m.settlement_value != null) ||
+            mkts.find(m => (m.status || "").toLowerCase() === "finalized" || (m.status || "").toLowerCase() === "settled");
+          if (winner) {
+            const label = winner.subtitle || winner.title || winner.ticker || "Settled";
+            const exactTemp = winner.expiration_value ? Number(winner.expiration_value) : null; // e.g., "83.00"
+            return { label, url: "https://kalshi.com/markets/kxhighny", exactTemp };
+          }
+        }
+      } catch (_) { /* fall through */ }
 
-      const label = winner.subtitle || winner.title || "Settled";
-      const uiUrl = `https://kalshi.com/markets/${(ev?.event?.series_ticker || "KXHIGHNY").toLowerCase()}`;
-      return { label, url: uiUrl };
+      // 2) Series-scoped fallback (filter to our event)
+      try {
+        const r2 = await fetch(`${base}/markets?series_ticker=KXHIGHNY&status=settled`, { mode: "cors" });
+        if (r2.ok) {
+          const j2 = await r2.json();
+          const mkts2 = Array.isArray(j2?.markets) ? j2.markets : [];
+          const forEvent = mkts2.filter(m => m.event_ticker === eventTicker);
+          const winner2 =
+            forEvent.find(m => m.result === "yes") ||
+            forEvent.find(m => m.settlement_value != null) ||
+            forEvent.find(m => (m.status || "").toLowerCase() === "finalized" || (m.status || "").toLowerCase() === "settled");
+          if (winner2) {
+            const label = winner2.subtitle || winner2.title || winner2.ticker || "Settled";
+            const exactTemp = winner2.expiration_value ? Number(winner2.expiration_value) : null;
+            return { label, url: "https://kalshi.com/markets/kxhighny", exactTemp };
+          }
+        }
+      } catch (_) { /* ignore */ }
+
+      return null;
     }
 
     const kalshiCache = new Map();
