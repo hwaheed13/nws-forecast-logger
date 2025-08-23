@@ -125,9 +125,10 @@
 
     /* ===== Controls (sub-toolbar) ===== */
     .controls{
-      position:sticky; top:var(--sticky-offset); z-index:40; margin-top:18px; border:1px solid var(--border);
-      border-radius:14px; padding:12px 14px; backdrop-filter:saturate(1.1) blur(8px);
-      background:linear-gradient(180deg, rgba(30,41,59,.85), rgba(11,18,32,.65));
+      /* no longer sticky */
+      position: static; top: auto; z-index: auto; margin-top:18px; border:1px solid var(--border);
+      border-radius:14px; padding:12px 14px;
+      background:linear-gradient(180deg, rgba(30,41,59,.45), rgba(11,18,32,.45));
       display:flex; flex-wrap:wrap; gap:10px; align-items:center; box-shadow:0 10px 24px rgba(2,8,23,.35);
     }
     label{ font-size:12px; color:var(--muted) }
@@ -149,14 +150,16 @@
     /* ===== Table ===== */
     .table-wrap{ margin-top:18px; border:1px solid var(--border); border-radius:16px; overflow:hidden; box-shadow:var(--shadow) }
     #dataTable{ width:100%; border-collapse:separate; border-spacing:0; font-size:14px; background:rgba(2,6,23,.45); }
-    thead th{ position:sticky; top:calc(var(--sticky-offset) + 60px); z-index:5; text-align:center; padding:12px 8px; color:#c7d2fe; background:linear-gradient(180deg, rgba(15,23,42,.98), rgba(11,18,32,.94)); border-bottom:1px solid var(--ring); backdrop-filter:blur(8px) }
+    thead th{ position:sticky; top:0; z-index:5; text-align:center; padding:12px 8px; color:#c7d2fe; background:linear-gradient(180deg, rgba(15,23,42,.98), rgba(11,18,32,.94)); border-bottom:1px solid var(--ring); backdrop-filter:blur(8px) }
     tbody td{ text-align:center; padding:10px 8px; border-bottom:1px solid rgba(148,163,184,.12); color:#e5e9f5 }
     tbody tr:nth-child(even) td{ background:rgba(148,163,184,.03) }
     tbody tr:hover td{ background:rgba(59,130,246,.08) }
 
     .forecast-row td{ background:rgba(251,191,36,.05) }
     .actual-row td{ background:rgba(16,185,129,.05) }
-    .best{ outline:2px solid rgba(52,211,153,.65); outline-offset:-2px }
+    .best{ outline:2px solid rgba(52,211,153,.65); outline-offset:-2px } 
+    /* Highlight the best forecast row without clipping lines */
+    
 
     /* Skeleton loader */
     .skel td::before{ content:""; display:block; height:10px; margin:6px auto; width:70%;
@@ -608,14 +611,17 @@
         .light :root{ --ink:#17324a; --muted:#5c728a; --border:rgba(23,50,74,.15) }
         .light .topbar{ background:linear-gradient( to right, rgba(255,255,255,.9), rgba(255,255,255,.7) ); border-bottom:1px solid rgba(23,50,74,.12) }
         .light .title{ color:#175398 }
-        .light .panel, .light .chart{ background:linear-gradient(180deg, rgba(255,255,255,.9), rgba(255,255,255,.75)); border-color:rgba(23,50,74,.12) }
-        .light .kpi{ background:linear-gradient(180deg, rgba(255,255,255,.9), rgba(255,255,255,.75)); border-color:rgba(23,50,74,.12) }
+        .light .panel, .light .chart{ background:linear-gradient(180deg, rgba(255,255,255,.95), rgba(255,255,255,.85)); border-color:rgba(23,50,74,.12) }
+        .light .kpi{ background:linear-gradient(180deg, rgba(255,255,255,.95), rgba(255,255,255,.85)); border-color:rgba(23,50,74,.12) }
+        .light .val, .light .stat-box .stat-val{ color:#17324a }
+        .light #recentForecast{ color:#175398 }
+        .light .mini-chip{ color:#175398; background:#e8f2ff; border-color:#cfe6ff }
         .light #dataTable{ background:#fff }
         .light thead th{ background:linear-gradient(180deg, rgba(255,255,255,.98), rgba(255,255,255,.92)); color:#175398; border-bottom:1px solid rgba(23,50,74,.12) }
         .light tbody td{ color:#17324a; border-bottom:1px solid rgba(23,50,74,.08) }
         .light .forecast-row td{ background:#fff7e6 }
         .light .actual-row td{ background:#ecfff4 }
-        .light .controls{ background:linear-gradient(180deg, rgba(255,255,255,.90), rgba(255,255,255,.75)); border-color:rgba(23,50,74,.12) }
+        .light .controls{ background:linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.82)); border-color:rgba(23,50,74,.12) }
       `;
       const tag = document.createElement('style'); tag.innerHTML = css; document.head.appendChild(tag);
       document.documentElement.classList.remove('light'); // default dark on
