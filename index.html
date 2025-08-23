@@ -30,7 +30,6 @@
     }
 
     h1 { margin:0 0 8px 0; color:var(--brand); letter-spacing:.2px; }
-
     .note { color:var(--muted); margin:0 0 14px 0; }
 
     .badge {
@@ -124,14 +123,23 @@
       <div class="stat-box" id="card-today-actual">
         <div style="font-size:14px;">Today’s Actual High</div>
         <div id="box-today-actual" class="stat-val">–</div>
-        <!-- Kalshi badges -->
-        <div id="box-today-kalshi" style="font-size:12px;color:#6b7280;"></div>
-        <div id="box-yday-kalshi"  style="font-size:12px;color:#6b7280;"></div>
       </div>
 
       <div class="stat-box" id="card-tomorrow-forecast">
         <div style="font-size:14px;">Tomorrow’s Forecasted High</div>
         <div id="box-tomorrow-forecast" class="stat-val">–</div>
+      </div>
+    </div>
+
+    <!-- NEW: Kalshi cards row -->
+    <div class="stats">
+      <div class="stat-box" id="card-today-kalshi">
+        <div style="font-size:14px;">Today’s Kalshi Winning Range</div>
+        <div id="box-today-kalshi" class="stat-val" style="font-size:18px;">Pending settlement</div>
+      </div>
+      <div class="stat-box" id="card-yday-kalshi">
+        <div style="font-size:14px;">Yesterday’s Kalshi Winning Range</div>
+        <div id="box-yday-kalshi" class="stat-val" style="font-size:18px;">–</div>
       </div>
     </div>
 
@@ -173,6 +181,8 @@
             <th>High Time</th>
             <th>Error (°F)</th>
             <th>Best?</th>
+            <!-- NEW: Kalshi Range column (after Best?) -->
+            <th>Kalshi Range</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -202,7 +212,7 @@
       for(let i=0;i<rows;i++){
         const tr=document.createElement("tr");
         tr.className="skel";
-        tr.innerHTML="<td></td>".repeat(8);
+        tr.innerHTML="<td></td>".repeat(9);
         tb.appendChild(tr);
       }
     }
@@ -213,14 +223,17 @@
         .then(resp => resp.text())
         .then(parseCSV)
         .then(() => {
-          resetFilter();
-          showMostRecent();
-          updateSummaryBoxes();
-          updateCorrectionBoxes();
+          resetFilter();        // populates table, chart, stats
+          showMostRecent();     // truly latest forecast entry
+          updateSummaryBoxes(); // summary cards + Kalshi cards
+          updateCorrectionBoxes(); // corrected predictions
         })
-        .catch(err => { alert("Could not load CSV. " + err); });
+        .catch(err => {
+          alert("Could not load CSV. " + err);
+        });
     }
 
+    // robust CSV parsing
     function csvToRows(text) {
       const rows = [];
       let row = [], field = '', inQuotes = false;
@@ -238,7 +251,10 @@
           row = [];
         } else { field += c; }
       }
-      if (field !== '' || row.length) { row.push(field); if (row.length && row.some(x => x !== '')) rows.push(row); }
+      if (field !== '' || row.length) {
+        row.push(field);
+        if (row.length && row.some(x => x !== '')) rows.push(row);
+      }
       return rows;
     }
 
@@ -252,7 +268,8 @@
         const rec = {};
         for (let j = 0; j < header.length; j++) {
           let v = (vals[j] ?? '').trim();
-          if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1).replace(/""/g, '"');
+          if (v.startsWith('"') && v.endsWith('"'))
+            v = v.slice(1, -1).replace(/""/g, '"');
           rec[header[j]] = v;
         }
         allRows.push(rec);
@@ -279,21 +296,30 @@
         return true;
       });
       displayTable(); showStats(); showChart();
-      showMostRecent(); updateCorrectionBoxes(); updateSummaryBoxes();
+      showMostRecent(); updateCorrectionBoxes();
+      updateSummaryBoxes(); // keep mini history in sync if needed
     }
 
     function rNum(x){ const n=Number(x); return Number.isFinite(n)?n:null; }
 
-    function compareTimes(t1,t2) { const d1 = toDateObj(t1), d2 = toDateObj(t2); return (d1&&d2) ? d1-d2 : 0; }
+    function compareTimes(t1,t2) {
+      const d1 = toDateObj(t1), d2 = toDateObj(t2);
+      return (d1&&d2) ? d1-d2 : 0;
+    }
+
     function toDateObj(t) {
       if (!t) return null;
       if (/[AP]M/i.test(t)) {
         const m = t.match(/(\d{1,2}):(\d{2})\s*([AP]M)/i);
         if (!m) return null;
-        const [,h,mn,amp] = m; const hour = Number(h)%12 + (amp.toUpperCase()==="PM"?12:0);
+        const [,h,mn,amp] = m;
+        const hour = Number(h)%12 + (amp.toUpperCase()==="PM"?12:0);
         return new Date(2020,1,1,hour,Number(mn));
       }
-      if (/^\d{2}:\d{2}$/.test(t)) { const [h,mn]=t.split(":"); return new Date(2020,1,1,Number(h),Number(mn)); }
+      if (/^\d{2}:\d{2}$/.test(t)) {
+        const [h,mn]=t.split(":");
+        return new Date(2020,1,1,Number(h),Number(mn));
+      }
       return null;
     }
 
@@ -316,7 +342,11 @@
     function getForecastsForDate(dateISO) {
       const rows = allRows
         .filter(r => r.forecast_or_actual === "forecast" && r.target_date === dateISO && r.predicted_high)
-        .map(r => ({ tstamp: r.timestamp || r.forecast_time || "", timeHHMM: (r.forecast_time || "").substr(11,5), val: Number(r.predicted_high) }))
+        .map(r => ({
+          tstamp: r.timestamp || r.forecast_time || "",
+          timeHHMM: (r.forecast_time || "").substr(11,5),
+          val: Number(r.predicted_high)
+        }))
         .filter(x => Number.isFinite(x.val));
       rows.sort((a,b) => (a.tstamp || "").localeCompare(b.tstamp || ""));
       return rows;
@@ -327,42 +357,68 @@
       if (!host) return;
       host.innerHTML = "";
       const compact = [];
-      rows.forEach((r, i) => { if (i === 0 || r.val !== rows[i-1].val) compact.push(r); });
-      if (!compact.length) { host.innerHTML = `<span class="mini-chip">No forecasts yet</span>`; return; }
+      rows.forEach((r, i) => {
+        if (i === 0 || r.val !== rows[i-1].val) compact.push(r);
+      });
+      if (!compact.length) {
+        host.innerHTML = `<span class="mini-chip">No forecasts yet</span>`;
+        return;
+      }
       compact.forEach(r => {
         const label = `${r.timeHHMM || "—"} ${r.val.toFixed(0)}°`;
         const chip = document.createElement("span");
-        chip.className = "mini-chip"; chip.textContent = label; host.appendChild(chip);
+        chip.className = "mini-chip";
+        chip.textContent = label;
+        host.appendChild(chip);
       });
     }
 
     function drawSparkline(canvasId, rows) {
-      const cv = document.getElementById(canvasId); if (!cv) return;
-      const ctx = cv.getContext('2d'); ctx.clearRect(0,0,cv.width,cv.height);
+      const cv = document.getElementById(canvasId);
+      if (!cv) return;
+      const ctx = cv.getContext('2d');
+      ctx.clearRect(0,0,cv.width,cv.height);
       if (!rows.length) return;
       const W = cv.width, H = cv.height, pad = 2;
-      const vals = rows.map(r => r.val), min = Math.min(...vals), max = Math.max(...vals);
+      const vals = rows.map(r => r.val);
+      const min = Math.min(...vals), max = Math.max(...vals);
       if (max === min) {
-        const y = H/2; ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(W-pad, y); ctx.lineWidth = 2; ctx.strokeStyle = '#1976d2'; ctx.stroke();
-        ctx.beginPath(); ctx.arc(W-pad, y, 2.5, 0, Math.PI*2); ctx.fillStyle = '#2ecc71'; ctx.fill(); return;
+        const y = H/2;
+        ctx.beginPath();
+        ctx.moveTo(pad, y); ctx.lineTo(W-pad, y);
+        ctx.lineWidth = 2; ctx.strokeStyle = '#1976d2'; ctx.stroke();
+        ctx.beginPath(); ctx.arc(W-pad, y, 2.5, 0, Math.PI*2);
+        ctx.fillStyle = '#2ecc71'; ctx.fill();
+        return;
       }
-      const n = vals.length, xStep = (W - pad*2) / Math.max(1, n-1), toY = v => H - pad - ((v - min) / (max - min)) * (H - pad*2);
+      const n = vals.length;
+      const xStep = (W - pad*2) / Math.max(1, n-1);
+      const toY = v => H - pad - ((v - min) / (max - min)) * (H - pad*2);
       ctx.beginPath(); ctx.lineWidth = 2; ctx.strokeStyle = '#1976d2';
-      vals.forEach((v, i) => { const x = pad + i * xStep, y = toY(v); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
-      ctx.stroke(); const lastX = pad + (n-1)*xStep, lastY = toY(vals[n-1]); ctx.beginPath(); ctx.arc(lastX, lastY, 2.5, 0, Math.PI*2); ctx.fillStyle = '#2ecc71'; ctx.fill();
+      vals.forEach((v, i) => {
+        const x = pad + i * xStep, y = toY(v);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      const lastX = pad + (n-1)*xStep, lastY = toY(vals[n-1]);
+      ctx.beginPath(); ctx.arc(lastX, lastY, 2.5, 0, Math.PI*2);
+      ctx.fillStyle = '#2ecc71'; ctx.fill();
     }
 
-    /* ---------------- Summary boxes ---------------- */
+    /* ---------------- Summary boxes (now updates Kalshi cards too) ---------------- */
     function updateSummaryBoxes() {
       const today = nycISODate(0);
       const tomorrow = nycISODate(1);
       const yesterday = nycISODate(-1);
 
       const latestForDate = (date) => {
-        const rows = allRows.filter(r => r.forecast_or_actual === "forecast" && r.target_date === date && r.predicted_high);
+        const rows = allRows.filter(r =>
+          r.forecast_or_actual === "forecast" && r.target_date === date && r.predicted_high
+        );
         if (!rows.length) return null;
         rows.sort((a,b) => {
-          const A = a.timestamp || a.forecast_time || "", B = b.timestamp || b.forecast_time || "";
+          const A = a.timestamp || a.forecast_time || "";
+          const B = b.timestamp || b.forecast_time || "";
           return B.localeCompare(A);
         });
         return Number(rows[0].predicted_high);
@@ -392,29 +448,31 @@
       renderMiniForecastChips(todayRows, "mini-today-forecasts");
       drawSparkline("spark-today-forecast", todayRows);
 
-      /* Kalshi badges: today (pending/settled) + yesterday (settled if available) */
+      /* Kalshi cards */
       Promise.all([ getKalshiLabel(today), getKalshiLabel(yesterday) ])
         .then(([ktoday, kyday]) => {
-          const hostToday = document.getElementById('box-today-kalshi');
-          const hostYday  = document.getElementById('box-yday-kalshi');
-          if (hostToday) {
-            if (ktoday) {
-              hostToday.innerHTML = `Today: <span class="kalshi-badge"><a class="kalshi-link" href="${ktoday.url}" target="_blank" rel="noopener">${ktoday.label}</a></span>`;
+          const tBox = document.getElementById('box-today-kalshi');
+          const yBox = document.getElementById('box-yday-kalshi');
+
+          if (tBox) {
+            if (ktoday && ktoday.label) {
+              tBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${ktoday.url}" target="_blank" rel="noopener">${ktoday.label}</a></span>`;
             } else {
-              hostToday.innerHTML = `Today: <span class="kalshi-pending">pending settlement</span>`;
+              tBox.innerHTML = `<span class="kalshi-pending">Pending settlement</span>`;
             }
           }
-          if (hostYday) {
-            if (kyday) {
-              hostYday.innerHTML = `Yesterday: <span class="kalshi-badge"><a class="kalshi-link" href="${kyday.url}" target="_blank" rel="noopener">${kyday.label}</a></span>`;
+
+          if (yBox) {
+            if (kyday && kyday.label) {
+              yBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${kyday.url}" target="_blank" rel="noopener">${kyday.label}</a></span>`;
             } else {
-              hostYday.textContent = ""; // hide if unavailable
+              yBox.textContent = "–";
             }
           }
         })
         .catch(() => {
-          const hostToday = document.getElementById('box-today-kalshi');
-          if (hostToday) hostToday.innerHTML = `Today: <span class="kalshi-pending">pending settlement</span>`;
+          const tBox = document.getElementById('box-today-kalshi');
+          if (tBox) tBox.innerHTML = `<span class="kalshi-pending">Pending settlement</span>`;
         });
     }
 
@@ -423,7 +481,9 @@
       const biasList = [], dayMap = {};
       allRows.forEach(r => {
         const d = r.forecast_or_actual==="actual" ? r.cli_date : r.target_date;
-        if(!d) return; if(!dayMap[d]) dayMap[d] = []; dayMap[d].push(r);
+        if(!d) return;
+        if(!dayMap[d]) dayMap[d] = [];
+        dayMap[d].push(r);
       });
       const dates = Object.keys(dayMap).sort();
       dates.forEach(d => {
@@ -533,7 +593,9 @@
       const dayMap = {};
       filteredRows.forEach(row => {
         const date = row.forecast_or_actual === "actual" ? row.cli_date : row.target_date;
-        if (!date) return; if (!dayMap[date]) dayMap[date] = []; dayMap[date].push(row);
+        if (!date) return;
+        if (!dayMap[date]) dayMap[date] = [];
+        dayMap[date].push(row);
       });
       const labels=[], actuals=[], bestForecasts=[];
       Object.keys(dayMap).sort().forEach(date => {
@@ -552,7 +614,9 @@
           if (err<bestErr) { bestErr=err; best=r; }
         });
         if (actualHigh !== null) {
-          labels.push(date); actuals.push(actualHigh); bestForecasts.push(best ? Number(best.predicted_high) : null);
+          labels.push(date);
+          actuals.push(actualHigh);
+          bestForecasts.push(best ? Number(best.predicted_high) : null);
         }
       });
 
@@ -567,13 +631,16 @@
         },
         options: {
           plugins: { legend: { display: true, position: "top" } },
-          scales: { x: { title: {display:true,text:"Date"} }, y: { title: {display:true,text:"Temperature (°F)"} } }
+          scales: {
+            x: { title: {display:true,text:"Date"} },
+            y: { title: {display:true,text:"Temperature (°F)"} }
+          }
         }
       });
     }
 
-    /* ---------------- Table ---------------- */
-    function displayTable() {
+    /* ---------------- Table (now fetches per-day Kalshi results) ---------------- */
+    async function displayTable() {
       const tb = document.querySelector("#dataTable tbody");
       tb.innerHTML = "";
       const dayMap = {};
@@ -584,7 +651,16 @@
         dayMap[date].push(r);
       });
 
-      Object.keys(dayMap).sort().forEach(date => {
+      const dates = Object.keys(dayMap).sort();
+
+      // Prefetch Kalshi range per date
+      const kalshiByDate = {};
+      await Promise.all(dates.map(async d => {
+        try { kalshiByDate[d] = await getKalshiLabel(d); }
+        catch { kalshiByDate[d] = null; }
+      }));
+
+      dates.forEach(date => {
         const dayRows = dayMap[date];
         const actual = dayRows.find(r => r.forecast_or_actual==="actual");
         const actualHigh = actual ? rNum(actual.actual_high) : null;
@@ -601,6 +677,11 @@
           const err = Math.abs(Number(r.predicted_high)-actualHigh);
           if (err<bestErr) { bestErr=err; bestIdx=i; }
         });
+
+        const k = kalshiByDate[date];
+        const kalshiCell = k && k.label
+          ? `<span class="kalshi-badge"><a class="kalshi-link" href="${k.url}" target="_blank" rel="noopener">${k.label}</a></span>`
+          : "";
 
         dayRows.forEach((r,i) => {
           if (r.forecast_or_actual!=="forecast" && r.forecast_or_actual!=="actual") return;
@@ -621,6 +702,7 @@
               <td>${highTime}</td>
               <td>${errTxt}</td>
               <td>${(i===bestIdx && r.forecast_or_actual==="forecast") ? "✔️" : ""}</td>
+              <td>${kalshiCell}</td>
             </tr>`;
         });
       });
@@ -644,6 +726,7 @@
       const ev = await resp.json();
       const markets = ev?.event?.markets || [];
 
+      // Prefer market with explicit result === "yes"; otherwise any with settlement_value
       let winner = markets.find(m => m.result === "yes");
       if(!winner) winner = markets.find(m => m.settlement_value != null);
       if(!winner) return null;
