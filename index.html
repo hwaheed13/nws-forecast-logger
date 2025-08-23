@@ -202,6 +202,10 @@
 
     .sparkline-wrap { margin-top:6px; }
     .sparkline { width:180px; height:30px; display:block; }
+
+    /* -------- NEW: Kalshi badge styles -------- */
+    .kalshi-badge{display:inline-block;margin-top:6px;padding:3px 8px;border-radius:999px;border:1px solid var(--ring);font-size:12px;background:#fff7f0;color:#b14b00}
+    .kalshi-link{color:inherit;text-decoration:none;border-bottom:1px dotted #b14b00}
   </style>
 </head>
 <body>
@@ -227,6 +231,8 @@
       <div class="stat-box" id="card-today-actual">
         <div style="font-size:14px;">Today’s Actual High</div>
         <div id="box-today-actual" class="stat-val">–</div>
+        <!-- NEW: Kalshi winning range goes here -->
+        <div id="box-today-kalshi" style="font-size:12px;color:#6b7280;"></div>
       </div>
       <div class="stat-box" id="card-tomorrow-forecast">
         <div style="font-size:14px;">Tomorrow’s Forecasted High</div>
@@ -536,6 +542,17 @@
       const todayRows = getForecastsForDate(today);
       renderMiniForecastChips(todayRows, "mini-today-forecasts");
       drawSparkline("spark-today-forecast", todayRows);
+
+      /* -------- NEW: Kalshi badge for today's settled range -------- */
+      getKalshiLabel(today).then(k => {
+        const host = document.getElementById('box-today-kalshi');
+        if (!host) return;
+        if (k) {
+          host.innerHTML = `Kalshi settled: <span class="kalshi-badge"><a class="kalshi-link" href="${k.url}" target="_blank" rel="noopener">${k.label}</a></span>`;
+        } else {
+          host.textContent = ""; // not settled or not available
+        }
+      }).catch(()=>{/* ignore */});
     }
 
     /* ---------------- Bias calc ---------------- */
@@ -753,6 +770,48 @@
             </tr>`;
         });
       });
+    }
+
+    /* ---------------- Kalshi integration ---------------- */
+    // Build event ticker like KXHIGHNY-25AUG23 from YYYY-MM-DD (NYC local)
+    function toKalshiEventTicker(dateISO){
+      const [Y,M,D] = dateISO.split('-');
+      const yy = Y.slice(-2);
+      const mon = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"][Number(M)-1];
+      return `KXHIGHNY-${yy}${mon}${D}`;
+    }
+
+    // Fetch the event with nested markets and return the settled bracket {label, url}
+    async function fetchKalshiWinningRange(dateISO){
+      const ticker = toKalshiEventTicker(dateISO);
+      const base = "https://api.elections.kalshi.com/trade-api/v2";
+      const resp = await fetch(`${base}/events/${ticker}?with_nested_markets=true`, { mode: "cors" });
+      if(!resp.ok) throw new Error(`Kalshi event ${ticker} not found`);
+      const ev = await resp.json();
+      const markets = ev?.event?.markets || [];
+
+      // Prefer market with explicit result === "yes"; otherwise any with settlement_value
+      let winner = markets.find(m => m.result === "yes");
+      if(!winner) winner = markets.find(m => m.settlement_value != null);
+
+      if(!winner) return null;
+
+      const label = winner.subtitle || winner.title || "Settled";
+      const uiUrl = `https://kalshi.com/markets/${(ev?.event?.series_ticker || "KXHIGHNY").toLowerCase()}`;
+      return { label, url: uiUrl };
+    }
+
+    const kalshiCache = new Map();
+    async function getKalshiLabel(dateISO){
+      if(kalshiCache.has(dateISO)) return kalshiCache.get(dateISO);
+      try{
+        const data = await fetchKalshiWinningRange(dateISO);
+        kalshiCache.set(dateISO, data);
+        return data;
+      }catch(e){
+        kalshiCache.set(dateISO, null);
+        return null;
+      }
     }
 
     /* ---------------- Boot ---------------- */
