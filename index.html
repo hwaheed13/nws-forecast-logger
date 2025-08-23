@@ -620,52 +620,20 @@
         || markets.find(m => m.settlement_value != null)
         || markets.find(m => (m.status||"").toLowerCase() === "finalized" || (m.status||"").toLowerCase() === "settled") ) || null;
     }
-    async function fetchKalshiWinningRange(dateISO){
-      const base = "https://kalshi-proxy-git-main-hyder-waheeds-projects.vercel.app/api/kalshi";
-      const eventTicker = toKalshiEventTicker(dateISO);
+   async function fetchKalshiWinningRange(dateISO){
+  try {
+    const r = await fetch(`${base}?date=${encodeURIComponent(dateISO)}`, {
+      mode: "cors",
+      headers: { Accept: "application/json" }
+    });
+    if (r.status === 204) return null; // no data yet
+    if (!r.ok) return null;
+    return await r.json(); // { label, exactTemp, eventTicker, url }
+  } catch {
+    return null;
+  }
+}
 
-      // 1) Event with nested markets
-      try {
-        const r0 = await fetch(`${base}?path=/events/${encodeURIComponent(eventTicker)}&with_nested_markets=true`, { headers:{Accept:"application/json"} });
-        if (r0.ok) {
-          const j0 = await r0.json();
-          const winner0 = pickWinner(j0?.event?.markets);
-          if (winner0) {
-            const label = winner0.subtitle || winner0.title || winner0.ticker || "Settled";
-            const exactTemp = winner0.expiration_value ? Number(winner0.expiration_value) : null;
-            return { label, url: "https://kalshi.com/markets/kxhighny", exactTemp };
-          }
-        }
-      } catch (e) {}
-      // 2) Markets by event
-      try {
-       const r1 = await fetch(`${base}?path=/markets&event_ticker=${encodeURIComponent(eventTicker)}`, { headers:{Accept:"application/json"} });
-        if (r1.ok) {
-          const j1 = await r1.json();
-          const winner1 = pickWinner(j1?.markets);
-          if (winner1) {
-            const label = winner1.subtitle || winner1.title || winner1.ticker || "Settled";
-            const exactTemp = winner1.expiration_value ? Number(winner1.expiration_value) : null;
-            return { label, url: "https://kalshi.com/markets/kxhighny", exactTemp };
-          }
-        }
-      } catch (e) {}
-      // 3) Series fallback
-      try {
-        const r2 = await fetch(`${base}?path=/markets&series_ticker=KXHIGHNY&status=settled`, { headers:{Accept:"application/json"} });
-        if (r2.ok) {
-          const j2 = await r2.json();
-          const mkts = (j2?.markets || []).filter(m => m.event_ticker === eventTicker);
-          const winner2 = pickWinner(mkts);
-          if (winner2) {
-            const label = winner2.subtitle || winner2.title || winner2.ticker || "Settled";
-            const exactTemp = winner2.expiration_value ? Number(winner2.expiration_value) : null;
-            return { label, url: "https://kalshi.com/markets/kxhighny", exactTemp };
-          }
-        }
-      } catch (e) {}
-      return null;
-    }
     const kalshiCache = new Map();
     async function getKalshiLabel(dateISO){
       if (!ENABLE_KALSHI) return null;
