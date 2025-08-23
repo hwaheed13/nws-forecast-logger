@@ -442,38 +442,37 @@
       drawSparkline("spark-today-forecast", todayRows);
 
       // Kalshi cards
-      Promise.all([ getKalshiLabel(today), getKalshiLabel(yesterday) ])
-        .then(([ktoday, kyday]) => {
-          const tBox = document.getElementById('box-today-kalshi');
-          const tNote = document.getElementById('box-today-kalshi-note');
-          const yBox = document.getElementById('box-yday-kalshi');
-          const yNote = document.getElementById('box-yday-kalshi-note');
+    Promise.all([ getKalshiLabel(today), getKalshiLabel(yesterday) ])
+  .then(([ktoday, kyday]) => {
+    const tBox = document.getElementById('box-today-kalshi');
+    const tNote = document.getElementById('box-today-kalshi-note');
+    const yBox = document.getElementById('box-yday-kalshi');
+    const yNote = document.getElementById('box-yday-kalshi-note');
 
-          // Today
-          if (ktoday && ktoday.label) {
-            tBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${ktoday.url}" target="_blank" rel="noopener">${ktoday.label}</a></span>`;
-            tNote.textContent = ktoday.exactTemp ? `Settled at ${ktoday.exactTemp.toFixed(1)}°F.` : "";
-          } else {
-            tBox.innerHTML = `<span class="kalshi-pending">Pending settlement</span>`;
-            tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
-          }
-
-          // Yesterday
-          if (kyday && kyday.label) {
-            yBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${kyday.url}" target="_blank" rel="noopener">${kyday.label}</a></span>`;
-            yNote.textContent = kyday.exactTemp ? `Settled at ${kyday.exactTemp.toFixed(1)}°F.` : "";
-          } else {
-            yBox.innerHTML = `<span class="kalshi-pending">No data</span>`;
-            yNote.textContent = "Open DevTools → Network to check if the Kalshi call was blocked by CORS.";
-          }
-        })
-        .catch(() => {
-          const tBox = document.getElementById('box-today-kalshi');
-          const tNote = document.getElementById('box-today-kalshi-note');
-          if (tBox) tBox.innerHTML = `<span class="kalshi-pending">Pending settlement</span>`;
-          if (tNote) tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
-        });
+    // Today
+    if (ktoday && ktoday.label) {
+      tBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${ktoday.url}" target="_blank" rel="noopener">${ktoday.label}</a></span>`;
+      tNote.textContent = ktoday.exactTemp ? `Settled at ${ktoday.exactTemp.toFixed(1)}°F.` : "";
+    } else {
+      tBox.innerHTML = `<span class="kalshi-pending">Pending settlement</span>`;
+      tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
     }
+
+    // Yesterday
+    if (kyday && kyday.label) {
+      yBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${kyday.url}" target="_blank" rel="noopener">${kyday.label}</a></span>`;
+      yNote.textContent = kyday.exactTemp ? `Settled at ${kyday.exactTemp.toFixed(1)}°F.` : "";
+    } else {
+      yBox.innerHTML = `<span class="kalshi-pending">No data</span>`;
+      yNote.textContent = "Open DevTools → Network to check if the Kalshi call was blocked by CORS.";
+    }
+  })
+  .catch(() => {
+    const tBox = document.getElementById('box-today-kalshi');
+    const tNote = document.getElementById('box-today-kalshi-note');
+    if (tBox) tBox.innerHTML = `<span class="kalshi-pending">Pending settlement</span>`;
+    if (tNote) tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
+  });
 
     /* ---------------- Bias calc ---------------- */
     function calcBiases(){
