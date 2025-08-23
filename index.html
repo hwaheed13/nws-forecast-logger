@@ -148,7 +148,7 @@
     canvas{ display:block; width:100% !important; height:auto !important }
 
     /* ===== Table ===== */
-    .table-wrap{ margin-top:18px; border:1px solid var(--border); border-radius:16px; overflow:hidden; box-shadow:var(--shadow) }
+    .table-wrap{ margin-top:18px; border:1px solid var(--border); border-radius:16px; overflow-x:auto; overflow-y:visible; box-shadow:var(--shadow) }
     #dataTable{ width:100%; border-collapse:separate; border-spacing:0; font-size:14px; background:rgba(2,6,23,.45); }
     thead th{ position:sticky; top:0; z-index:5; text-align:center; padding:12px 8px; color:#c7d2fe; background:linear-gradient(180deg, rgba(15,23,42,.98), rgba(11,18,32,.94)); border-bottom:1px solid var(--ring); backdrop-filter:blur(8px) }
     tbody td{ text-align:center; padding:10px 8px; border-bottom:1px solid rgba(148,163,184,.12); color:#e5e9f5 }
@@ -177,6 +177,19 @@
       .two-col{ grid-template-columns:1fr }
       .stats{ grid-template-columns:1fr }
       :root{ --sticky-offset: 62px }
+    }
+      .kpis{ grid-template-columns:1fr; }
+      .two-col{ grid-template-columns:1fr }
+      .stats{ grid-template-columns:1fr }
+      :root{ --sticky-offset: 62px }
+    }
+    /* Extra-small mobile tweaks */
+    @media (max-width: 640px){
+      .container{ padding:0 12px }
+      #dataTable{ font-size:12px }
+      thead th, tbody td{ padding:8px 6px }
+      .kpi{ padding:14px 16px }
+      .val{ font-size:24px }
     }
   </style>
 </head>
@@ -207,7 +220,7 @@
     <section class="panel header">
       <div class="intro">
         <h1>Forecast Overview</h1>
-        <p class="note">Automatically logs every NWS forecast update for Central Park and compares to the official daily high.</p>
+        <p class="note">Focused, legible, and responsive—rebuilt for clarity and visual polish while preserving your existing IDs & logic.</p>
         <div id="recentForecast">Last logged forecast: …</div>
       </div>
       <div class="meta">
@@ -569,6 +582,7 @@
           }
         }
       });
+      if(window._applyThemeToChart) window._applyThemeToChart();
     }
 
     /* ---------------- Table ---------------- */
@@ -606,9 +620,7 @@
 
     /* Optional light theme overrides */
     (function injectLightTheme(){
-      const css = `
-        .light body{ background:radial-gradient(1200px 1200px at 20% -20%, #e5f1ff 0%, #f5f7fb 45%, #eef3fb 100%) }
-        .light :root{ --ink:#17324a; --muted:#5c728a; --border:rgba(23,50,74,.15) }
+      const css = `$1.light{ --ink:#17324a; --muted:#5c728a; --border:rgba(23,50,74,.15) }
         .light .topbar{ background:linear-gradient( to right, rgba(255,255,255,.9), rgba(255,255,255,.7) ); border-bottom:1px solid rgba(23,50,74,.12) }
         .light .title{ color:#175398 }
         .light .panel, .light .chart{ background:linear-gradient(180deg, rgba(255,255,255,.95), rgba(255,255,255,.85)); border-color:rgba(23,50,74,.12) }
@@ -628,6 +640,29 @@
     })();
 
     /* ---------------- Boot ---------------- */
+    /* THEME helpers (idempotent) */
+    (function(){
+      const themeToggle = document.getElementById('themeToggle');
+      window._applyThemeToChart = function(){
+        const isLight = document.documentElement.classList.contains('light');
+        if(window.mainChart){
+          const x = window.mainChart.options.scales.x; const y = window.mainChart.options.scales.y;
+          x.ticks.color = isLight ? '#4b5563' : '#a5b4fc';
+          y.ticks.color = isLight ? '#4b5563' : '#a5b4fc';
+          x.grid.color  = isLight ? 'rgba(23,50,74,.12)' : 'rgba(148,163,184,.15)';
+          y.grid.color  = isLight ? 'rgba(23,50,74,.12)' : 'rgba(148,163,184,.15)';
+          window.mainChart.update('none');
+        }
+      };
+      function setThemeFromToggle(){
+        const isLight = !themeToggle.checked;
+        document.documentElement.classList.toggle('light', isLight);
+        document.body.classList.toggle('light', isLight);
+        window._applyThemeToChart();
+      }
+      if(themeToggle){ themeToggle.addEventListener('change', setThemeFromToggle); setThemeFromToggle(); }
+    })();
+
     reloadCSV();
   </script>
 </body>
