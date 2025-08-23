@@ -10,98 +10,59 @@
       --brand:#175398; --brand-2:#1976d2; --ok:#2e7d32; --warn:#f59e0b;
       --ring:#e6eef7; --shadow:0 8px 24px rgba(17,38,146,.08);
     }
-
-    body {
-      font-family:"Inter", system-ui, -apple-system, Segoe UI, Arial, sans-serif;
-      background:var(--bg);
-      margin:0; color:var(--ink);
-      font-feature-settings:"tnum" 1, "lnum" 1;
-    }
-
-    .container {
-      max-width:1100px; background:var(--card); margin:32px auto; border-radius:16px;
-      box-shadow:var(--shadow); padding:32px 40px 42px; border:1px solid var(--ring);
-    }
-
+    body { font-family:"Inter", system-ui, -apple-system, Segoe UI, Arial, sans-serif; background:var(--bg); margin:0; color:var(--ink); font-feature-settings:"tnum" 1, "lnum" 1; }
+    .container { max-width:1100px; background:var(--card); margin:32px auto; border-radius:16px; box-shadow:var(--shadow); padding:32px 40px 42px; border:1px solid var(--ring); }
     h1 { margin:0 0 8px 0; color:var(--brand); letter-spacing:.2px; }
     .note { color:var(--muted); margin:0 0 14px 0; }
+    .badge { display:inline-block; margin-left:8px; padding:4px 8px; font-size:12px; border-radius:999px; background:#e8f2ff; color:var(--brand-2); border:1px solid var(--ring); }
 
-    .badge {
-      display:inline-block; margin-left:8px; padding:4px 8px; font-size:12px;
-      border-radius:999px; background:#e8f2ff; color:var(--brand-2); border:1px solid var(--ring);
-    }
-
-    /* Controls (NOT sticky) */
-    .controls {
-      display:flex; gap:12px; align-items:center; margin:20px 0 24px; padding:10px 0;
-      background:transparent; border-top:1px solid var(--ring); border-bottom:1px solid var(--ring);
-    }
+    .controls { display:flex; gap:12px; align-items:center; margin:20px 0 24px; padding:10px 0; background:transparent; border-top:1px solid var(--ring); border-bottom:1px solid var(--ring); }
     input[type="date"] { font-size:14px; padding:7px 8px; border-radius:8px; border:1px solid #cfd9e6; }
-    .btn {
-      background:var(--brand-2); color:#fff; border:none; border-radius:10px; padding:8px 14px; cursor:pointer; font-weight:600;
-      box-shadow:0 2px 10px rgba(25,118,210,.18); transition:transform .04s ease, box-shadow .2s ease, opacity .15s ease;
-    }
+    .btn { background:var(--brand-2); color:#fff; border:none; border-radius:10px; padding:8px 14px; cursor:pointer; font-weight:600; box-shadow:0 2px 10px rgba(25,118,210,.18); transition:transform .04s ease, box-shadow .2s ease, opacity .15s ease; }
     .btn:hover { box-shadow:0 6px 18px rgba(25,118,210,.22); } .btn:active { transform:translateY(1px); }
 
     .stats { display:flex; gap:16px; margin:14px 0 8px 0; flex-wrap:wrap; }
-    .stat-box {
-      background:#f7fbff; border:1px solid var(--ring); border-radius:14px; padding:14px 18px; flex:1 1 260px; box-shadow:var(--shadow);
-    }
+    .stat-box { background:#f7fbff; border:1px solid var(--ring); border-radius:14px; padding:14px 18px; flex:1 1 260px; box-shadow:var(--shadow); }
     .stat-val { font-size:24px; color:#1976d2; font-weight:700; }
 
-    /* Distinct colors for the three summary cards */
     #card-today-forecast { background:#fff5eb; border-color:#ffe6c7; }
     #card-today-actual   { background:#f0fff4; border-color:#c8f2d0; }
     #card-tomorrow-forecast { background:#ebf5ff; border-color:#cfe6ff; }
 
     .recent-line { color:var(--brand-2); font-size:15px; font-weight:600; letter-spacing:.02em; }
 
-    .correction-box {
-      margin:18px 0 16px 0; background:#fffbe9; border-left:7px solid #ffd95b; border-radius:8px;
-      padding:22px 30px; font-size:1.05em; box-shadow:0 2px 8px #0001;
-    }
+    .correction-box { margin:18px 0 16px 0; background:#fffbe9; border-left:7px solid #ffd95b; border-radius:8px; padding:22px 30px; font-size:1.05em; box-shadow:0 2px 8px #0001; }
 
-    /* Table wrapper and sticky header */
     .table-wrap { overflow-x:auto; overflow-y:visible; margin-top:18px; }
     #dataTable { width:100%; border-collapse:collapse; font-size:14px; table-layout:fixed; background:#fff; }
     th, td { border:1px solid #e6edf6; padding:10px 6px; text-align:center; }
-    thead th {
-      position: sticky; top: 0; background: var(--brand-2); color:#fff; z-index: 5;
-      box-shadow: 0 1px 0 rgba(0,0,0,.08) inset, 0 2px 6px rgba(0,0,0,.06);
-    }
+    thead th { position: sticky; top: 0; background: var(--brand-2); color:#fff; z-index: 5; box-shadow: 0 1px 0 rgba(0,0,0,.08) inset, 0 2px 6px rgba(0,0,0,.06); }
     tr:nth-child(even) { background:#f8fbff; } tr:hover td { background:#eef6ff; }
     .forecast-row { background:#fffdf3 !important; } .actual-row { background:#f2faf2 !important; }
     .best { box-shadow:inset 0 0 0 2px #9be19b; }
-
-    /* Skeleton loader */
-    .skel td::before{
-      content:""; display:block; height:10px; margin:6px auto; width:70%;
-      background:linear-gradient(90deg,#eef3f9,#f8fbff,#eef3f9); background-size:200% 100%;
-      animation:sh 1.2s infinite linear; border-radius:6px;
-    }
-    @keyframes sh { from{background-position:0 0;} to{background-position:200% 0;} }
-
-    /* Narrow the "Actual High" column */
     #dataTable th:nth-child(5), #dataTable td:nth-child(5) { width: 90px; }
 
-    /* Mini history chips & sparkline */
+    .skel td::before{ content:""; display:block; height:10px; margin:6px auto; width:70%; background:linear-gradient(90deg,#eef3f9,#f8fbff,#eef3f9); background-size:200% 100%; animation:sh 1.2s infinite linear; border-radius:6px; }
+    @keyframes sh { from{background-position:0 0;} to{background-position:200% 0;} }
+
     .mini-forecasts { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
-    .mini-chip { font-size:12px; padding:2px 8px; border-radius:999px; background:#eef6ff; border:1px solid var(--ring); color:var(--brand-2); white-space:nowrap; }
+    .mini-chip { font-size:12px; padding:2px 8px; border-radius:999px; background:#eef6ff; border:1px solid var(--ring); color:#1976d2; white-space:nowrap; }
     .sparkline-wrap { margin-top:6px; } .sparkline { width:180px; height:30px; display:block; }
 
-    /* Kalshi badge styles */
+    /* Kalshi bits */
     .kalshi-badge{display:inline-block;margin-top:6px;padding:3px 8px;border-radius:999px;border:1px solid var(--ring);font-size:12px;background:#fff7f0;color:#b14b00}
     .kalshi-link{color:inherit;text-decoration:none;border-bottom:1px dotted #b14b00}
     .kalshi-pending{display:inline-block;margin-top:6px;padding:3px 8px;border-radius:999px;border:1px dashed var(--ring);font-size:12px;background:#fffaf0;color:#a16207}
     .kalshi-small{font-size:12px;color:#6b7280;margin-top:4px}
+
+    /* Hide helper */
+    .hide { display:none !important; }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>🌡️ NWS Forecast Logger Dashboard <span class="badge">Live</span></h1>
-    <div class="note">
-      Automatically logs every NWS forecast update for Central Park and compares to the official daily high.
-    </div>
+    <div class="note">Automatically logs every NWS forecast update for Central Park and compares to the official daily high.</div>
     <div id="recentForecast" class="recent-line">Last logged forecast: ...</div>
 
     <!-- Summary boxes -->
@@ -110,9 +71,7 @@
         <div style="font-size:14px;">Today’s Latest Forecasted High</div>
         <div id="box-today-forecast" class="stat-val">–</div>
         <div id="mini-today-forecasts" class="mini-forecasts"></div>
-        <div class="sparkline-wrap">
-          <canvas id="spark-today-forecast" class="sparkline" width="180" height="30"></canvas>
-        </div>
+        <div class="sparkline-wrap"><canvas id="spark-today-forecast" class="sparkline" width="180" height="30"></canvas></div>
       </div>
 
       <div class="stat-box" id="card-today-actual">
@@ -126,8 +85,8 @@
       </div>
     </div>
 
-    <!-- Kalshi cards row -->
-    <div class="stats">
+    <!-- Kalshi cards row (hidden by default; toggle via ENABLE_KALSHI) -->
+    <div class="stats" id="kalshiRow">
       <div class="stat-box" id="card-today-kalshi">
         <div style="font-size:14px;">Today’s Kalshi Winning Range</div>
         <div id="box-today-kalshi" class="stat-val" style="font-size:18px;">Pending settlement</div>
@@ -178,7 +137,7 @@
             <th>High Time</th>
             <th>Error (°F)</th>
             <th>Best?</th>
-            <th>Kalshi Range</th>
+            <th class="kalshi-colhead">Kalshi Range</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -188,91 +147,88 @@
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
+    /* ===== Feature flag ===== */
+    const ENABLE_KALSHI = false; // set to true to enable Kalshi fetch + column/cards
+
+    /* ===== State ===== */
     let allRows = [];
     let filteredRows = [];
 
-    /* NYC-local ISO date helper (YYYY-MM-DD) */
+    /* ===== Helpers ===== */
     function nycISODate(offsetDays=0){
-      const fmt = new Intl.DateTimeFormat('en-CA', {
-        timeZone:'America/New_York', year:'numeric', month:'2-digit', day:'2-digit'
-      });
+      const fmt = new Intl.DateTimeFormat('en-CA', { timeZone:'America/New_York', year:'numeric', month:'2-digit', day:'2-digit' });
       const parts = fmt.formatToParts(new Date(Date.now()+offsetDays*86400000));
       const g = k => parts.find(p => p.type === k).value;
       return `${g('year')}-${g('month')}-${g('day')}`;
     }
+    function rNum(x){ const n=Number(x); return Number.isFinite(n)?n:null; }
+    function toDateObj(t) {
+      if (!t) return null;
+      if (/[AP]M/i.test(t)) {
+        const m = t.match(/(\d{1,2}):(\d{2})\s*([AP]M)/i);
+        if (!m) return null;
+        const [,h,mn,amp] = m;
+        const hour = Number(h)%12 + (amp.toUpperCase()==="PM"?12:0);
+        return new Date(2020,1,1,hour,Number(mn));
+      }
+      if (/^\d{2}:\d{2}$/.test(t)) { const [h,mn]=t.split(":"); return new Date(2020,1,1,Number(h),Number(mn)); }
+      return null;
+    }
+    function compareTimes(t1,t2) { const d1 = toDateObj(t1), d2 = toDateObj(t2); return (d1&&d2) ? d1-d2 : 0; }
 
-    /* ---------------- CSV load + parsing ---------------- */
+    /* ===== CSV ===== */
     function showSkeleton(rows=6){
       const tb=document.querySelector("#dataTable tbody");
       tb.innerHTML="";
       for(let i=0;i<rows;i++){
         const tr=document.createElement("tr");
         tr.className="skel";
-        tr.innerHTML="<td></td>".repeat(9);
+        tr.innerHTML="<td></td>".repeat(ENABLE_KALSHI?9:8);
         tb.appendChild(tr);
       }
     }
-
-    function reloadCSV() {
-      showSkeleton();
-      fetch("https://raw.githubusercontent.com/hwaheed13/nws-forecast-logger/main/nws_forecast_log.csv?"+Date.now())
-        .then(resp => resp.text())
-        .then(parseCSV)
-        .then(() => {
-          resetFilter();        // populates table, chart, stats
-          showMostRecent();     // truly latest forecast entry
-          updateSummaryBoxes(); // summary cards + Kalshi cards
-          updateCorrectionBoxes(); // corrected predictions
-        })
-        .catch(err => {
-          alert("Could not load CSV. " + err);
-        });
-    }
-
-    // robust CSV parsing
     function csvToRows(text) {
-      const rows = [];
-      let row = [], field = '', inQuotes = false;
+      const rows = []; let row = [], field = '', inQuotes = false;
       for (let i = 0; i < text.length; i++) {
         const c = text[i], n = text[i+1];
-        if (c === '"') {
-          if (inQuotes && n === '"') { field += '"'; i++; }
-          else { inQuotes = !inQuotes; }
-        } else if (c === ',' && !inQuotes) {
-          row.push(field); field = '';
-        } else if ((c === '\n' || c === '\r') && !inQuotes) {
-          if (c === '\r' && n === '\n') i++;
-          row.push(field); field = '';
-          if (row.length && row.some(x => x !== '')) rows.push(row);
-          row = [];
-        } else { field += c; }
+        if (c === '"') { if (inQuotes && n === '"') { field += '"'; i++; } else { inQuotes = !inQuotes; } }
+        else if (c === ',' && !inQuotes) { row.push(field); field = ''; }
+        else if ((c === '\n' || c === '\r') && !inQuotes) { if (c === '\r' && n === '\n') i++; row.push(field); field = ''; if (row.some(x => x !== '')) rows.push(row); row = []; }
+        else { field += c; }
       }
-      if (field !== '' || row.length) {
-        row.push(field);
-        if (row.length && row.some(x => x !== '')) rows.push(row);
-      }
+      if (field !== '' || row.length) { row.push(field); if (row.some(x => x !== '')) rows.push(row); }
       return rows;
     }
-
     function parseCSV(text) {
       const rows = csvToRows(text);
       if (!rows.length) return;
       const header = rows[0].map(h => h.trim());
       allRows = [];
       for (let i = 1; i < rows.length; i++) {
-        const vals = rows[i];
-        const rec = {};
+        const vals = rows[i], rec = {};
         for (let j = 0; j < header.length; j++) {
           let v = (vals[j] ?? '').trim();
-          if (v.startsWith('"') && v.endsWith('"'))
-            v = v.slice(1, -1).replace(/""/g, '"');
+          if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1).replace(/""/g, '"');
           rec[header[j]] = v;
         }
         allRows.push(rec);
       }
     }
+    function reloadCSV() {
+      showSkeleton();
+      fetch("https://raw.githubusercontent.com/hwaheed13/nws-forecast-logger/main/nws_forecast_log.csv?"+Date.now())
+        .then(resp => resp.text())
+        .then(parseCSV)
+        .then(() => {
+          resetFilter();
+          showMostRecent();
+          updateSummaryBoxes();
+          updateCorrectionBoxes();
+        })
+        .catch(err => { alert("Could not load CSV. " + err); });
+    }
 
-    /* ---------------- Filters & helpers ---------------- */
+    /* ===== Filters ===== */
     function resetFilter() {
       filteredRows = allRows.slice();
       document.getElementById('fromDate').value = "";
@@ -280,7 +236,6 @@
       displayTable(); showStats(); showChart();
       showMostRecent(); updateCorrectionBoxes();
     }
-
     function applyDateFilter() {
       const from = document.getElementById('fromDate').value;
       const to = document.getElementById('toDate').value;
@@ -292,34 +247,10 @@
         return true;
       });
       displayTable(); showStats(); showChart();
-      showMostRecent(); updateCorrectionBoxes();
-      updateSummaryBoxes(); // keep mini history in sync if needed
+      showMostRecent(); updateCorrectionBoxes(); updateSummaryBoxes();
     }
 
-    function rNum(x){ const n=Number(x); return Number.isFinite(n)?n:null; }
-
-    function compareTimes(t1,t2) {
-      const d1 = toDateObj(t1), d2 = toDateObj(t2);
-      return (d1&&d2) ? d1-d2 : 0;
-    }
-
-    function toDateObj(t) {
-      if (!t) return null;
-      if (/[AP]M/i.test(t)) {
-        const m = t.match(/(\d{1,2}):(\d{2})\s*([AP]M)/i);
-        if (!m) return null;
-        const [,h,mn,amp] = m;
-        const hour = Number(h)%12 + (amp.toUpperCase()==="PM"?12:0);
-        return new Date(2020,1,1,hour,Number(mn));
-      }
-      if (/^\d{2}:\d{2}$/.test(t)) {
-        const [h,mn]=t.split(":");
-        return new Date(2020,1,1,Number(h),Number(mn));
-      }
-      return null;
-    }
-
-    /* -------- Last logged forecast -------- */
+    /* ===== Top-line info ===== */
     function showMostRecent() {
       const el = document.getElementById("recentForecast");
       if (!allRows.length) { el.textContent = ""; return; }
@@ -334,97 +265,66 @@
       el.textContent = "";
     }
 
-    /* -------- Helpers for today's mini history -------- */
+    /* ===== Mini today history + sparkline ===== */
     function getForecastsForDate(dateISO) {
       const rows = allRows
         .filter(r => r.forecast_or_actual === "forecast" && r.target_date === dateISO && r.predicted_high)
-        .map(r => ({
-          tstamp: r.timestamp || r.forecast_time || "",
-          timeHHMM: (r.forecast_time || "").substr(11,5),
-          val: Number(r.predicted_high)
-        }))
+        .map(r => ({ tstamp: r.timestamp || r.forecast_time || "", timeHHMM: (r.forecast_time || "").substr(11,5), val: Number(r.predicted_high) }))
         .filter(x => Number.isFinite(x.val));
       rows.sort((a,b) => (a.tstamp || "").localeCompare(b.tstamp || ""));
       return rows;
     }
-
     function renderMiniForecastChips(rows, elId) {
       const host = document.getElementById(elId);
       if (!host) return;
       host.innerHTML = "";
       const compact = [];
       rows.forEach((r, i) => { if (i === 0 || r.val !== rows[i-1].val) compact.push(r); });
-      if (!compact.length) {
-        host.innerHTML = `<span class="mini-chip">No forecasts yet</span>`;
-        return;
-      }
+      if (!compact.length) { host.innerHTML = `<span class="mini-chip">No forecasts yet</span>`; return; }
       compact.forEach(r => {
         const label = `${r.timeHHMM || "—"} ${r.val.toFixed(0)}°`;
         const chip = document.createElement("span");
-        chip.className = "mini-chip";
-        chip.textContent = label;
-        host.appendChild(chip);
+        chip.className = "mini-chip"; chip.textContent = label; host.appendChild(chip);
       });
     }
-
     function drawSparkline(canvasId, rows) {
-      const cv = document.getElementById(canvasId);
-      if (!cv) return;
-      const ctx = cv.getContext('2d');
-      ctx.clearRect(0,0,cv.width,cv.height);
+      const cv = document.getElementById(canvasId); if (!cv) return;
+      const ctx = cv.getContext('2d'); ctx.clearRect(0,0,cv.width,cv.height);
       if (!rows.length) return;
       const W = cv.width, H = cv.height, pad = 2;
       const vals = rows.map(r => r.val);
       const min = Math.min(...vals), max = Math.max(...vals);
       if (max === min) {
         const y = H/2;
-        ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(W-pad, y);
-        ctx.lineWidth = 2; ctx.strokeStyle = '#1976d2'; ctx.stroke();
-        ctx.beginPath(); ctx.arc(W-pad, y, 2.5, 0, Math.PI*2);
-        ctx.fillStyle = '#2ecc71'; ctx.fill();
+        ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(W-pad, y); ctx.lineWidth = 2; ctx.strokeStyle = '#1976d2'; ctx.stroke();
+        ctx.beginPath(); ctx.arc(W-pad, y, 2.5, 0, Math.PI*2); ctx.fillStyle = '#2ecc71'; ctx.fill();
         return;
       }
-      const n = vals.length;
-      const xStep = (W - pad*2) / Math.max(1, n-1);
+      const n = vals.length, xStep = (W - pad*2) / Math.max(1, n-1);
       const toY = v => H - pad - ((v - min) / (max - min)) * (H - pad*2);
       ctx.beginPath(); ctx.lineWidth = 2; ctx.strokeStyle = '#1976d2';
-      vals.forEach((v, i) => {
-        const x = pad + i * xStep, y = toY(v);
-        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      });
+      vals.forEach((v, i) => { const x = pad + i * xStep, y = toY(v); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
       ctx.stroke();
       const lastX = pad + (n-1)*xStep, lastY = toY(vals[n-1]);
-      ctx.beginPath(); ctx.arc(lastX, lastY, 2.5, 0, Math.PI*2);
-      ctx.fillStyle = '#2ecc71'; ctx.fill();
+      ctx.beginPath(); ctx.arc(lastX, lastY, 2.5, 0, Math.PI*2); ctx.fillStyle = '#2ecc71'; ctx.fill();
     }
 
-    /* ---------------- Summary boxes (updates Kalshi cards too) ---------------- */
+    /* ===== Summary boxes ===== */
     function updateSummaryBoxes() {
       const today = nycISODate(0);
       const tomorrow = nycISODate(1);
-      const yesterday = nycISODate(-1);
-
       const latestForDate = (date) => {
-        const rows = allRows.filter(r =>
-          r.forecast_or_actual === "forecast" && r.target_date === date && r.predicted_high
-        );
+        const rows = allRows.filter(r => r.forecast_or_actual === "forecast" && r.target_date === date && r.predicted_high);
         if (!rows.length) return null;
-        rows.sort((a,b) => {
-          const A = a.timestamp || a.forecast_time || "";
-          const B = b.timestamp || b.forecast_time || "";
-          return B.localeCompare(A);
-        });
+        rows.sort((a,b) => ( (b.timestamp||b.forecast_time||"").localeCompare(a.timestamp||a.forecast_time||"") ));
         return Number(rows[0].predicted_high);
       };
-
       const avgForDate = (date) => {
-        const vals = allRows
-          .filter(r => r.forecast_or_actual==="forecast" && r.target_date===date && r.predicted_high)
-          .map(r => Number(r.predicted_high));
+        const vals = allRows.filter(r => r.forecast_or_actual==="forecast" && r.target_date===date && r.predicted_high)
+                            .map(r => Number(r.predicted_high));
         if (!vals.length) return null;
         return vals.reduce((a,b)=>a+b,0)/vals.length;
       };
-
       const todayLatestForecast = latestForDate(today);
       const todayActualRow = allRows.find(r => r.forecast_or_actual==="actual" && r.cli_date===today && r.actual_high);
       const todayActual = todayActualRow ? Number(todayActualRow.actual_high) : null;
@@ -441,50 +341,50 @@
       renderMiniForecastChips(todayRows, "mini-today-forecasts");
       drawSparkline("spark-today-forecast", todayRows);
 
-      // Kalshi cards
-    Promise.all([ getKalshiLabel(today), getKalshiLabel(yesterday) ])
-  .then(([ktoday, kyday]) => {
-    const tBox = document.getElementById('box-today-kalshi');
-    const tNote = document.getElementById('box-today-kalshi-note');
-    const yBox = document.getElementById('box-yday-kalshi');
-    const yNote = document.getElementById('box-yday-kalshi-note');
+      // Kalshi cards (only if enabled)
+      const krow = document.getElementById('kalshiRow');
+      if (!ENABLE_KALSHI) { krow.classList.add('hide'); return; }
+      const yesterday = nycISODate(-1);
+      Promise.all([ getKalshiLabel(today), getKalshiLabel(yesterday) ])
+        .then(([ktoday, kyday]) => {
+          const tBox = document.getElementById('box-today-kalshi');
+          const tNote = document.getElementById('box-today-kalshi-note');
+          const yBox = document.getElementById('box-yday-kalshi');
+          const yNote = document.getElementById('box-yday-kalshi-note');
 
-    // Today
-    if (ktoday && ktoday.label) {
-      tBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${ktoday.url}" target="_blank" rel="noopener">${ktoday.label}</a></span>`;
-      tNote.textContent = ktoday.exactTemp ? `Settled at ${ktoday.exactTemp.toFixed(1)}°F.` : "";
-    } else {
-      tBox.innerHTML = `<span class="kalshi-pending">Pending settlement</span>`;
-      tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
+          if (ktoday && ktoday.label) {
+            tBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${ktoday.url}" target="_blank" rel="noopener">${ktoday.label}</a></span>`;
+            tNote.textContent = ktoday.exactTemp ? `Settled at ${ktoday.exactTemp.toFixed(1)}°F.` : "";
+          } else {
+            tBox.innerHTML = `<span class="kalshi-pending">Pending settlement</span>`;
+            tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
+          }
+
+          if (kyday && kyday.label) {
+            yBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${kyday.url}" target="_blank" rel="noopener">${kyday.label}</a></span>`;
+            yNote.textContent = kyday.exactTemp ? `Settled at ${kyday.exactTemp.toFixed(1)}°F.` : "";
+          } else {
+            yBox.innerHTML = `<span class="kalshi-pending">No data</span>`;
+            yNote.textContent = "Open DevTools → Network to check if the Kalshi call was blocked by CORS.";
+          }
+        })
+        .catch(() => {
+          const tBox = document.getElementById('box-today-kalshi');
+          const tNote = document.getElementById('box-today-kalshi-note');
+          if (tBox) tBox.innerHTML = `<span class="kalshi-pending">Pending settlement</span>`;
+          if (tNote) tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
+        });
     }
 
-    // Yesterday
-    if (kyday && kyday.label) {
-      yBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${kyday.url}" target="_blank" rel="noopener">${kyday.label}</a></span>`;
-      yNote.textContent = kyday.exactTemp ? `Settled at ${kyday.exactTemp.toFixed(1)}°F.` : "";
-    } else {
-      yBox.innerHTML = `<span class="kalshi-pending">No data</span>`;
-      yNote.textContent = "Open DevTools → Network to check if the Kalshi call was blocked by CORS.";
-    }
-  })
-  .catch(() => {
-    const tBox = document.getElementById('box-today-kalshi');
-    const tNote = document.getElementById('box-today-kalshi-note');
-    if (tBox) tBox.innerHTML = `<span class="kalshi-pending">Pending settlement</span>`;
-    if (tNote) tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
-  });
-}
-    /* ---------------- Bias calc ---------------- */
+    /* ===== Bias + corrected predictions ===== */
     function calcBiases(){
       const biasList = [], dayMap = {};
       allRows.forEach(r => {
         const d = r.forecast_or_actual==="actual" ? r.cli_date : r.target_date;
         if(!d) return;
-        if(!dayMap[d]) dayMap[d] = [];
-        dayMap[d].push(r);
+        (dayMap[d] ||= []).push(r);
       });
-      const dates = Object.keys(dayMap).sort();
-      dates.forEach(d => {
+      Object.keys(dayMap).sort().forEach(d => {
         const rows = dayMap[d];
         const actual = rows.find(r => r.forecast_or_actual==="actual" && r.actual_high);
         if(!actual) return;
@@ -506,8 +406,6 @@
       });
       return biasList;
     }
-
-    /* ---------------- Corrected predictions ---------------- */
     function updateCorrectionBoxes(){
       const biasList=calcBiases();
       const avgBias=biasList.length? (biasList.reduce((a,b)=>a+b,0)/biasList.length) : 0;
@@ -548,7 +446,42 @@
         <span style="color:#666;">Bias: <b>${biasTxt}°F</b> (avg of ${biasList.length} days)</span>`;
     }
 
-    /* ---------------- Chart ---------------- */
+    /* ===== Stats (RESTORED) ===== */
+    function showStats() {
+      let count=0, absSum=0, bestSum=0, bestCount=0;
+      const dayMap = {};
+      filteredRows.forEach(row => {
+        const date = row.forecast_or_actual === "actual" ? row.cli_date : row.target_date;
+        if (!date) return;
+        (dayMap[date] ||= []).push(row);
+      });
+      Object.values(dayMap).forEach(dayRows => {
+        const actual = dayRows.find(r => r.forecast_or_actual==="actual");
+        const actualHigh = actual ? Number(actual.actual_high) : null;
+        if (!Number.isFinite(actualHigh)) return;
+        const highTime = actual ? actual.high_time : "";
+        let bestErr=999;
+        dayRows.forEach(r => {
+          if (r.forecast_or_actual!=="forecast" || !r.predicted_high) return;
+          if (highTime) {
+            const fcHour = (r.forecast_time||"").substr(11,5);
+            if (fcHour && compareTimes(fcHour, highTime)>0) return;
+          }
+          const err = Math.abs(Number(r.predicted_high)-actualHigh);
+          absSum += err; count++;
+          if (err<bestErr) bestErr=err;
+        });
+        if (bestErr<999) { bestSum += bestErr; bestCount++; }
+      });
+      const avgAbs = count ? (absSum/count).toFixed(2) : "--";
+      const avgBest = bestCount ? (bestSum/bestCount).toFixed(2) : "--";
+      document.getElementById("stats").innerHTML =
+        `<div class="stat-box">Total Days: <span class="stat-val">${Object.keys(dayMap).length}</span></div>
+         <div class="stat-box">Avg Absolute Error (all forecasts): <span class="stat-val">${avgAbs}°F</span></div>
+         <div class="stat-box">Avg Best Error (closest forecast per day): <span class="stat-val">${avgBest}°F</span></div>`;
+    }
+
+    /* ===== Chart ===== */
     function showChart() {
       const ctx = document.getElementById('dailyChart').getContext('2d');
       if (window.mainChart) window.mainChart.destroy();
@@ -556,8 +489,7 @@
       filteredRows.forEach(row => {
         const date = row.forecast_or_actual === "actual" ? row.cli_date : row.target_date;
         if (!date) return;
-        if (!dayMap[date]) dayMap[date] = [];
-        dayMap[date].push(row);
+        (dayMap[date] ||= []).push(row);
       });
       const labels=[], actuals=[], bestForecasts=[];
       Object.keys(dayMap).sort().forEach(date => {
@@ -601,26 +533,31 @@
       });
     }
 
-    /* ---------------- Table (fetches per-day Kalshi results) ---------------- */
+    /* ===== Table ===== */
     async function displayTable() {
       const tb = document.querySelector("#dataTable tbody");
       tb.innerHTML = "";
       const dayMap = {};
       filteredRows.forEach(r => {
         const date = r.forecast_or_actual === "actual" ? r.cli_date : r.target_date;
-        if (!date) return;
-        if (!dayMap[date]) dayMap[date]=[];
-        dayMap[date].push(r);
+        if (!date) return; (dayMap[date] ||= []).push(r);
       });
 
       const dates = Object.keys(dayMap).sort();
 
-      // Prefetch Kalshi range per date
+      // If Kalshi disabled, hide column/cells
+      if (!ENABLE_KALSHI) {
+        document.querySelectorAll('.kalshi-colhead').forEach(th => th.classList.add('hide'));
+      }
+
+      // Prefetch Kalshi range per date only if enabled
       const kalshiByDate = {};
-      await Promise.all(dates.map(async d => {
-        try { kalshiByDate[d] = await getKalshiLabel(d); }
-        catch { kalshiByDate[d] = null; }
-      }));
+      if (ENABLE_KALSHI) {
+        await Promise.all(dates.map(async d => {
+          try { kalshiByDate[d] = await getKalshiLabel(d); }
+          catch { kalshiByDate[d] = null; }
+        }));
+      }
 
       dates.forEach(date => {
         const dayRows = dayMap[date];
@@ -640,7 +577,7 @@
           if (err<bestErr) { bestErr=err; bestIdx=i; }
         });
 
-        const k = kalshiByDate[date];
+        const k = ENABLE_KALSHI ? kalshiByDate[date] : null;
         const label = k && k.label ? k.label : "";
         const exact = k && k.exactTemp != null ? ` (${k.exactTemp.toFixed(1)}°F)` : "";
         const kalshiCell = label ? `<span class="kalshi-badge" title="Kalshi settled range">${label}${exact}</span>` : "";
@@ -664,30 +601,25 @@
               <td>${highTime}</td>
               <td>${errTxt}</td>
               <td>${(i===bestIdx && r.forecast_or_actual==="forecast") ? "✔️" : ""}</td>
-              <td>${kalshiCell}</td>
+              ${ENABLE_KALSHI ? `<td>${kalshiCell}</td>` : ``}
             </tr>`;
         });
       });
     }
 
-    /* ---------------- Kalshi integration ---------------- */
+    /* ===== Kalshi (guarded by flag) ===== */
     function toKalshiEventTicker(dateISO){
       const [Y,M,D] = dateISO.split('-');
       const yy = Y.slice(-2);
       const mon = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"][Number(M)-1];
       return `KXHIGHNY-${yy}${mon}${D}`;
     }
-
     function pickWinner(markets){
       if (!Array.isArray(markets)) return null;
-      return (
-        markets.find(m => m.result === "yes") ||
-        markets.find(m => m.settlement_value != null) ||
-        markets.find(m => (m.status||"").toLowerCase() === "finalized" || (m.status||"").toLowerCase() === "settled")
-      ) || null;
+      return ( markets.find(m => m.result === "yes")
+        || markets.find(m => m.settlement_value != null)
+        || markets.find(m => (m.status||"").toLowerCase() === "finalized" || (m.status||"").toLowerCase() === "settled") ) || null;
     }
-
-    // Try events?with_nested_markets=true, then markets?event_ticker=, then series fallback
     async function fetchKalshiWinningRange(dateISO){
       const base = "https://api.elections.kalshi.com/trade-api/v2";
       const eventTicker = toKalshiEventTicker(dateISO);
@@ -703,11 +635,8 @@
             const exactTemp = winner0.expiration_value ? Number(winner0.expiration_value) : null;
             return { label, url: "https://kalshi.com/markets/kxhighny", exactTemp };
           }
-        } else {
-          console.debug("Kalshi events nested NOT ok", r0.status, eventTicker);
         }
-      } catch (e) { console.debug("Kalshi events nested error", e); }
-
+      } catch (e) {}
       // 2) Markets by event
       try {
         const r1 = await fetch(`${base}/markets?event_ticker=${encodeURIComponent(eventTicker)}`, {mode:"cors", headers:{Accept:"application/json"}});
@@ -719,12 +648,9 @@
             const exactTemp = winner1.expiration_value ? Number(winner1.expiration_value) : null;
             return { label, url: "https://kalshi.com/markets/kxhighny", exactTemp };
           }
-        } else {
-          console.debug("Kalshi markets by event NOT ok", r1.status, eventTicker);
         }
-      } catch (e) { console.debug("Kalshi markets by event error", e); }
-
-      // 3) Series fallback (filter to this event)
+      } catch (e) {}
+      // 3) Series fallback
       try {
         const r2 = await fetch(`${base}/markets?series_ticker=KXHIGHNY&status=settled`, {mode:"cors", headers:{Accept:"application/json"}});
         if (r2.ok) {
@@ -736,30 +662,33 @@
             const exactTemp = winner2.expiration_value ? Number(winner2.expiration_value) : null;
             return { label, url: "https://kalshi.com/markets/kxhighny", exactTemp };
           }
-        } else {
-          console.debug("Kalshi series settled NOT ok", r2.status);
         }
-      } catch (e) { console.debug("Kalshi series settled error", e); }
-
+      } catch (e) {}
       return null;
     }
-
     const kalshiCache = new Map();
     async function getKalshiLabel(dateISO){
+      if (!ENABLE_KALSHI) return null;
       if(kalshiCache.has(dateISO)) return kalshiCache.get(dateISO);
       try{
         const data = await fetchKalshiWinningRange(dateISO);
         kalshiCache.set(dateISO, data);
-        console.debug("Kalshi result", dateISO, data);
         return data;
       }catch(e){
-        console.debug("Kalshi get label error", e);
         kalshiCache.set(dateISO, null);
         return null;
       }
     }
 
-    /* ---------------- Boot ---------------- */
+    /* ===== Boot ===== */
+    // Hide Kalshi column on load if disabled
+    if (!ENABLE_KALSHI) {
+      document.getElementById('kalshiRow').classList.add('hide');
+      // Also hide the column header right away (tbody cells are conditionally omitted)
+      window.addEventListener('DOMContentLoaded', () => {
+        document.querySelectorAll('.kalshi-colhead').forEach(th => th.classList.add('hide'));
+      });
+    }
     reloadCSV();
   </script>
 </body>
