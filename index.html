@@ -621,12 +621,12 @@
         || markets.find(m => (m.status||"").toLowerCase() === "finalized" || (m.status||"").toLowerCase() === "settled") ) || null;
     }
     async function fetchKalshiWinningRange(dateISO){
-      const base = "https://api.elections.kalshi.com/trade-api/v2";
+      const base = "https://kalshi-proxy-git-main-hyder-waheeds-projects.vercel.app/api/kalshi";
       const eventTicker = toKalshiEventTicker(dateISO);
 
       // 1) Event with nested markets
       try {
-        const r0 = await fetch(`${base}/events/${encodeURIComponent(eventTicker)}?with_nested_markets=true`, {mode:"cors", headers:{Accept:"application/json"}});
+        const r0 = await fetch(`${base}?path=/events/${encodeURIComponent(eventTicker)}&with_nested_markets=true`, { headers:{Accept:"application/json"} });
         if (r0.ok) {
           const j0 = await r0.json();
           const winner0 = pickWinner(j0?.event?.markets);
@@ -639,7 +639,7 @@
       } catch (e) {}
       // 2) Markets by event
       try {
-        const r1 = await fetch(`${base}/markets?event_ticker=${encodeURIComponent(eventTicker)}`, {mode:"cors", headers:{Accept:"application/json"}});
+       const r1 = await fetch(`${base}?path=/markets&event_ticker=${encodeURIComponent(eventTicker)}`, { headers:{Accept:"application/json"} });
         if (r1.ok) {
           const j1 = await r1.json();
           const winner1 = pickWinner(j1?.markets);
@@ -652,7 +652,7 @@
       } catch (e) {}
       // 3) Series fallback
       try {
-        const r2 = await fetch(`${base}/markets?series_ticker=KXHIGHNY&status=settled`, {mode:"cors", headers:{Accept:"application/json"}});
+        const r2 = await fetch(`${base}?path=/markets&series_ticker=KXHIGHNY&status=settled`, { headers:{Accept:"application/json"} });
         if (r2.ok) {
           const j2 = await r2.json();
           const mkts = (j2?.markets || []).filter(m => m.event_ticker === eventTicker);
