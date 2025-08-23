@@ -14,19 +14,13 @@
     body {
       font-family:"Inter", system-ui, -apple-system, Segoe UI, Arial, sans-serif;
       background:var(--bg);
-      margin:0;
-      color:var(--ink);
+      margin:0; color:var(--ink);
       font-feature-settings:"tnum" 1, "lnum" 1;
     }
 
     .container {
-      max-width:1100px;
-      background:var(--card);
-      margin:32px auto;
-      border-radius:16px;
-      box-shadow:var(--shadow);
-      padding:32px 40px 42px;
-      border:1px solid var(--ring);
+      max-width:1100px; background:var(--card); margin:32px auto; border-radius:16px;
+      box-shadow:var(--shadow); padding:32px 40px 42px; border:1px solid var(--ring);
     }
 
     h1 { margin:0 0 8px 0; color:var(--brand); letter-spacing:.2px; }
@@ -359,9 +353,7 @@
       if (!host) return;
       host.innerHTML = "";
       const compact = [];
-      rows.forEach((r, i) => {
-        if (i === 0 || r.val !== rows[i-1].val) compact.push(r);
-      });
+      rows.forEach((r, i) => { if (i === 0 || r.val !== rows[i-1].val) compact.push(r); });
       if (!compact.length) {
         host.innerHTML = `<span class="mini-chip">No forecasts yet</span>`;
         return;
@@ -386,8 +378,7 @@
       const min = Math.min(...vals), max = Math.max(...vals);
       if (max === min) {
         const y = H/2;
-        ctx.beginPath();
-        ctx.moveTo(pad, y); ctx.lineTo(W-pad, y);
+        ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(W-pad, y);
         ctx.lineWidth = 2; ctx.strokeStyle = '#1976d2'; ctx.stroke();
         ctx.beginPath(); ctx.arc(W-pad, y, 2.5, 0, Math.PI*2);
         ctx.fillStyle = '#2ecc71'; ctx.fill();
@@ -450,7 +441,7 @@
       renderMiniForecastChips(todayRows, "mini-today-forecasts");
       drawSparkline("spark-today-forecast", todayRows);
 
-      /* Kalshi cards */
+      // Kalshi cards
       Promise.all([ getKalshiLabel(today), getKalshiLabel(yesterday) ])
         .then(([ktoday, kyday]) => {
           const tBox = document.getElementById('box-today-kalshi');
@@ -458,24 +449,24 @@
           const yBox = document.getElementById('box-yday-kalshi');
           const yNote = document.getElementById('box-yday-kalshi-note');
 
-        // Today
-        if (ktoday && ktoday.label) {
-          tBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${ktoday.url}" target="_blank" rel="noopener">${ktoday.label}</a></span>`;
-          tNote.textContent = ktoday.exactTemp ? `Settled at ${ktoday.exactTemp.toFixed(1)}°F.` : "";
-        } else {
-          tBox.innerHTML = `<span class="kalshi-pending">Pending settlement</span>`;
-          tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
-        }
-        
-        // Yesterday
-        if (kyday && kyday.label) {
-          yBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${kyday.url}" target="_blank" rel="noopener">${kyday.label}</a></span>`;
-          yNote.textContent = kyday.exactTemp ? `Settled at ${kyday.exactTemp.toFixed(1)}°F.` : "";
-        } else {
-          yBox.innerHTML = `<span class="kalshi-pending">No data</span>`;
-          yNote.textContent = "Open DevTools → Network to check if the Kalshi call was blocked by CORS.";
-        }
+          // Today
+          if (ktoday && ktoday.label) {
+            tBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${ktoday.url}" target="_blank" rel="noopener">${ktoday.label}</a></span>`;
+            tNote.textContent = ktoday.exactTemp ? `Settled at ${ktoday.exactTemp.toFixed(1)}°F.` : "";
+          } else {
+            tBox.innerHTML = `<span class="kalshi-pending">Pending settlement</span>`;
+            tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
+          }
 
+          // Yesterday
+          if (kyday && kyday.label) {
+            yBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${kyday.url}" target="_blank" rel="noopener">${kyday.label}</a></span>`;
+            yNote.textContent = kyday.exactTemp ? `Settled at ${kyday.exactTemp.toFixed(1)}°F.` : "";
+          } else {
+            yBox.innerHTML = `<span class="kalshi-pending">No data</span>`;
+            yNote.textContent = "Open DevTools → Network to check if the Kalshi call was blocked by CORS.";
+          }
+        })
         .catch(() => {
           const tBox = document.getElementById('box-today-kalshi');
           const tNote = document.getElementById('box-today-kalshi-note');
@@ -556,42 +547,6 @@
         `<b>Tomorrow's Corrected Prediction:</b><br>
         <span style="font-size:1.6em;">${tomorrow}: <b>${tomorrowPred==null?"–":tomorrowPred.toFixed(1)+"°F"}</b></span><br>
         <span style="color:#666;">Bias: <b>${biasTxt}°F</b> (avg of ${biasList.length} days)</span>`;
-    }
-
-    /* ---------------- Stats ---------------- */
-    function showStats() {
-      let count=0, absSum=0, bestSum=0, bestCount=0;
-      const dayMap = {};
-      filteredRows.forEach(row => {
-        const date = row.forecast_or_actual === "actual" ? row.cli_date : row.target_date;
-        if (!date) return;
-        if (!dayMap[date]) dayMap[date] = [];
-        dayMap[date].push(row);
-      });
-      Object.values(dayMap).forEach(dayRows => {
-        const actual = dayRows.find(r => r.forecast_or_actual==="actual");
-        const actualHigh = actual ? Number(actual.actual_high) : null;
-        if (!Number.isFinite(actualHigh)) return;
-        const highTime = actual ? actual.high_time : "";
-        let bestErr=999;
-        dayRows.forEach(r => {
-          if (r.forecast_or_actual!=="forecast" || !r.predicted_high) return;
-          if (highTime) {
-            const fcHour = (r.forecast_time||"").substr(11,5);
-            if (fcHour && compareTimes(fcHour, highTime)>0) return;
-          }
-          const err = Math.abs(Number(r.predicted_high)-actualHigh);
-          absSum += err; count++;
-          if (err<bestErr) bestErr=err;
-        });
-        if (bestErr<999) { bestSum += bestErr; bestCount++; }
-      });
-      const avgAbs = count ? (absSum/count).toFixed(2) : "--";
-      const avgBest = bestCount ? (bestSum/bestCount).toFixed(2) : "--";
-      document.getElementById("stats").innerHTML =
-        `<div class="stat-box">Total Days: <span class="stat-val">${Object.keys(dayMap).length}</span></div>
-         <div class="stat-box">Avg Absolute Error (all forecasts): <span class="stat-val">${avgAbs}°F</span></div>
-         <div class="stat-box">Avg Best Error (closest forecast per day): <span class="stat-val">${avgBest}°F</span></div>`;
     }
 
     /* ---------------- Chart ---------------- */
@@ -717,95 +672,93 @@
     }
 
     /* ---------------- Kalshi integration ---------------- */
- <script>
-  function toKalshiEventTicker(dateISO){
-    const [Y,M,D] = dateISO.split('-');
-    const yy = Y.slice(-2);
-    const mon = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"][Number(M)-1];
-    return `KXHIGHNY-${yy}${mon}${D}`;
-  }
+    function toKalshiEventTicker(dateISO){
+      const [Y,M,D] = dateISO.split('-');
+      const yy = Y.slice(-2);
+      const mon = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"][Number(M)-1];
+      return `KXHIGHNY-${yy}${mon}${D}`;
+    }
 
-  function pickWinner(markets){
-    if (!Array.isArray(markets)) return null;
-    return (
-      markets.find(m => m.result === "yes") ||
-      markets.find(m => m.settlement_value != null) ||
-      markets.find(m => (m.status||"").toLowerCase() === "finalized" || (m.status||"").toLowerCase() === "settled")
-    ) || null;
-  }
+    function pickWinner(markets){
+      if (!Array.isArray(markets)) return null;
+      return (
+        markets.find(m => m.result === "yes") ||
+        markets.find(m => m.settlement_value != null) ||
+        markets.find(m => (m.status||"").toLowerCase() === "finalized" || (m.status||"").toLowerCase() === "settled")
+      ) || null;
+    }
 
-  // Try events?with_nested_markets=true, then markets?event_ticker=, then series fallback
-  async function fetchKalshiWinningRange(dateISO){
-    const base = "https://api.elections.kalshi.com/trade-api/v2";
-    const eventTicker = toKalshiEventTicker(dateISO);
+    // Try events?with_nested_markets=true, then markets?event_ticker=, then series fallback
+    async function fetchKalshiWinningRange(dateISO){
+      const base = "https://api.elections.kalshi.com/trade-api/v2";
+      const eventTicker = toKalshiEventTicker(dateISO);
 
-    // 1) Event with nested markets (this is what gave you the JSON you pasted)
-    try {
-      const r0 = await fetch(`${base}/events/${encodeURIComponent(eventTicker)}?with_nested_markets=true`, {mode:"cors", headers:{Accept:"application/json"}});
-      if (r0.ok) {
-        const j0 = await r0.json();
-        const winner0 = pickWinner(j0?.event?.markets);
-        if (winner0) {
-          const label = winner0.subtitle || winner0.title || winner0.ticker || "Settled";
-          const exactTemp = winner0.expiration_value ? Number(winner0.expiration_value) : null;
-          return { label, url: "https://kalshi.com/markets/kxhighny", exactTemp };
+      // 1) Event with nested markets
+      try {
+        const r0 = await fetch(`${base}/events/${encodeURIComponent(eventTicker)}?with_nested_markets=true`, {mode:"cors", headers:{Accept:"application/json"}});
+        if (r0.ok) {
+          const j0 = await r0.json();
+          const winner0 = pickWinner(j0?.event?.markets);
+          if (winner0) {
+            const label = winner0.subtitle || winner0.title || winner0.ticker || "Settled";
+            const exactTemp = winner0.expiration_value ? Number(winner0.expiration_value) : null;
+            return { label, url: "https://kalshi.com/markets/kxhighny", exactTemp };
+          }
+        } else {
+          console.debug("Kalshi events nested NOT ok", r0.status, eventTicker);
         }
-      } else {
-        console.debug("Kalshi events nested NOT ok", r0.status, eventTicker);
-      }
-    } catch (e) { console.debug("Kalshi events nested error", e); }
+      } catch (e) { console.debug("Kalshi events nested error", e); }
 
-    // 2) Markets by event
-    try {
-      const r1 = await fetch(`${base}/markets?event_ticker=${encodeURIComponent(eventTicker)}`, {mode:"cors", headers:{Accept:"application/json"}});
-      if (r1.ok) {
-        const j1 = await r1.json();
-        const winner1 = pickWinner(j1?.markets);
-        if (winner1) {
-          const label = winner1.subtitle || winner1.title || winner1.ticker || "Settled";
-          const exactTemp = winner1.expiration_value ? Number(winner1.expiration_value) : null;
-          return { label, url: "https://kalshi.com/markets/kxhighny", exactTemp };
+      // 2) Markets by event
+      try {
+        const r1 = await fetch(`${base}/markets?event_ticker=${encodeURIComponent(eventTicker)}`, {mode:"cors", headers:{Accept:"application/json"}});
+        if (r1.ok) {
+          const j1 = await r1.json();
+          const winner1 = pickWinner(j1?.markets);
+          if (winner1) {
+            const label = winner1.subtitle || winner1.title || winner1.ticker || "Settled";
+            const exactTemp = winner1.expiration_value ? Number(winner1.expiration_value) : null;
+            return { label, url: "https://kalshi.com/markets/kxhighny", exactTemp };
+          }
+        } else {
+          console.debug("Kalshi markets by event NOT ok", r1.status, eventTicker);
         }
-      } else {
-        console.debug("Kalshi markets by event NOT ok", r1.status, eventTicker);
-      }
-    } catch (e) { console.debug("Kalshi markets by event error", e); }
+      } catch (e) { console.debug("Kalshi markets by event error", e); }
 
-    // 3) Series fallback (filter to this event)
-    try {
-      const r2 = await fetch(`${base}/markets?series_ticker=KXHIGHNY&status=settled`, {mode:"cors", headers:{Accept:"application/json"}});
-      if (r2.ok) {
-        const j2 = await r2.json();
-        const mkts = (j2?.markets || []).filter(m => m.event_ticker === eventTicker);
-        const winner2 = pickWinner(mkts);
-        if (winner2) {
-          const label = winner2.subtitle || winner2.title || winner2.ticker || "Settled";
-          const exactTemp = winner2.expiration_value ? Number(winner2.expiration_value) : null;
-          return { label, url: "https://kalshi.com/markets/kxhighny", exactTemp };
+      // 3) Series fallback (filter to this event)
+      try {
+        const r2 = await fetch(`${base}/markets?series_ticker=KXHIGHNY&status=settled`, {mode:"cors", headers:{Accept:"application/json"}});
+        if (r2.ok) {
+          const j2 = await r2.json();
+          const mkts = (j2?.markets || []).filter(m => m.event_ticker === eventTicker);
+          const winner2 = pickWinner(mkts);
+          if (winner2) {
+            const label = winner2.subtitle || winner2.title || winner2.ticker || "Settled";
+            const exactTemp = winner2.expiration_value ? Number(winner2.expiration_value) : null;
+            return { label, url: "https://kalshi.com/markets/kxhighny", exactTemp };
+          }
+        } else {
+          console.debug("Kalshi series settled NOT ok", r2.status);
         }
-      } else {
-        console.debug("Kalshi series settled NOT ok", r2.status);
-      }
-    } catch (e) { console.debug("Kalshi series settled error", e); }
+      } catch (e) { console.debug("Kalshi series settled error", e); }
 
-    return null;
-  }
-
-  const kalshiCache = new Map();
-  async function getKalshiLabel(dateISO){
-    if(kalshiCache.has(dateISO)) return kalshiCache.get(dateISO);
-    try{
-      const data = await fetchKalshiWinningRange(dateISO);
-      kalshiCache.set(dateISO, data);
-      console.debug("Kalshi result", dateISO, data);
-      return data;
-    }catch(e){
-      console.debug("Kalshi get label error", e);
-      kalshiCache.set(dateISO, null);
       return null;
     }
-  }
-</script>
+
+    const kalshiCache = new Map();
+    async function getKalshiLabel(dateISO){
+      if(kalshiCache.has(dateISO)) return kalshiCache.get(dateISO);
+      try{
+        const data = await fetchKalshiWinningRange(dateISO);
+        kalshiCache.set(dateISO, data);
+        console.debug("Kalshi result", dateISO, data);
+        return data;
+      }catch(e){
+        console.debug("Kalshi get label error", e);
+        kalshiCache.set(dateISO, null);
+        return null;
+      }
+    }
 
     /* ---------------- Boot ---------------- */
     reloadCSV();
