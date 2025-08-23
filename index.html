@@ -2,280 +2,265 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>NWS Forecast Logger Dashboard (Live)</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <title>🌡️ NWS Forecast Logger Dashboard (Live)</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
-    /* ===== Design Tokens ===== */
-    :root{
-      /* Core palette */
-      --bg: #0f172a;               /* slate-900 */
-      --bg-elev: #0b1220;          /* deeper backdrop for header */
-      --card: #0b1220;             /* glass card base */
-      --ink: #e2e8f0;              /* slate-200 */
-      --muted: #8aa0b6;            /* slate-400/blue-300 mix */
-      --ring: rgba(148,163,184,.25);
-      --shadow: 0 14px 40px rgba(2, 8, 23, .55);
-
-      --brand: #60a5fa;            /* blue-400 */
-      --brand-2: #93c5fd;          /* blue-300 */
-      --ok: #34d399;               /* emerald-400 */
-      --warn: #f59e0b;             /* amber-500 */
-
-      --card-grad-1: rgba(148,163,184,.10);
-      --card-grad-2: rgba(59,130,246,.10);
-      --border: rgba(148,163,184,.25);
-
-      --radius: 16px;
-      --radius-lg: 20px;
-      --radius-xl: 24px;
-
-      /* layout */
-      --container: 1200px;
-      --sticky-offset: 68px; /* used by sticky table header */
+    :root {
+      --bg:#f5f7fb; --card:#fff; --ink:#17324a; --muted:#5c728a;
+      --brand:#175398; --brand-2:#1976d2; --ok:#2e7d32; --warn:#f59e0b;
+      --ring:#e6eef7; --shadow:0 8px 24px rgba(17,38,146,.08);
     }
 
-    /* ===== Base ===== */
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    body{
-      margin:0; font-family:"Inter", system-ui, -apple-system, Segoe UI, Arial, sans-serif;
-      color:var(--ink); background:radial-gradient(1200px 1200px at 20% -20%, #0b2447 0%, #0f172a 45%, #0b1220 100%);
-      -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
+    body {
+      font-family:"Inter", system-ui, -apple-system, Segoe UI, Arial, sans-serif;
+      background:var(--bg);
+      margin:0;
+      color:var(--ink);
+      font-feature-settings:"tnum" 1, "lnum" 1;
     }
 
-    /* ===== Topbar ===== */
-    .topbar{
-      position:sticky; top:0; z-index:50;
-      backdrop-filter:saturate(1.2) blur(10px);
-      background:linear-gradient( to right, rgba(15,23,42,.85), rgba(11,18,32,.65) );
+    .container {
+      max-width:1100px;
+      background:var(--card);
+      margin:32px auto;
+      border-radius:16px;
+      box-shadow:var(--shadow);
+      padding:32px 40px 42px;
+      border:1px solid var(--ring);
+    }
+
+    h1 {
+      margin:0 0 8px 0;
+      color:var(--brand);
+      letter-spacing:.2px;
+    }
+
+    .note {
+      color:var(--muted);
+      margin:0 0 14px 0;
+    }
+
+    .badge {
+      display:inline-block;
+      margin-left:8px;
+      padding:4px 8px;
+      font-size:12px;
+      border-radius:999px;
+      background:#e8f2ff;
+      color:var(--brand-2);
+      border:1px solid var(--ring);
+    }
+
+    /* Controls (NOT sticky) */
+    .controls {
+      display:flex;
+      gap:12px;
+      align-items:center;
+      margin:20px 0 24px;
+      padding:10px 0;
+      background:transparent;
+      border-top:1px solid var(--ring);
       border-bottom:1px solid var(--ring);
     }
-    .topbar-inner{
-      max-width:var(--container); margin:0 auto; padding:14px 20px; display:flex; align-items:center; gap:12px;
-    }
-    .brand{
-      display:flex; align-items:center; gap:12px; flex:1;
-    }
-    .dot{ width:9px; height:9px; border-radius:999px; background:var(--ok); box-shadow:0 0 0 0 rgba(52,211,153,.7); animation:pulse 2s infinite; }
-    @keyframes pulse{ 0%{box-shadow:0 0 0 0 rgba(52,211,153,.7)} 70%{box-shadow:0 0 0 10px rgba(52,211,153,0)} 100%{box-shadow:0 0 0 0 rgba(52,211,153,0)} }
-    .title{ font-weight:700; letter-spacing:.2px; font-size:16px; color:#dbeafe }
-    .sub{ font-size:12px; color:var(--muted) }
 
-    .actions{ display:flex; align-items:center; gap:10px; }
-    .btn{ appearance:none; border:1px solid var(--ring); background:linear-gradient(180deg, rgba(99,102,241,.15), rgba(59,130,246,.10));
-      color:#e5edff; padding:8px 12px; border-radius:12px; font-weight:600; cursor:pointer; transition:all .2s ease;
-      box-shadow:0 4px 16px rgba(2,8,23,.2);
-    }
-    .btn:hover{ transform:translateY(-1px); box-shadow:0 8px 22px rgba(2,8,23,.35); border-color:rgba(99,102,241,.35) }
-    .btn:active{ transform:translateY(0) scale(.98) }
-    .btn-ghost{ background:transparent; color:var(--brand-2) }
-
-    /* toggle */
-    .toggle{
-      display:inline-flex; gap:8px; align-items:center; padding:6px 10px; border:1px solid var(--ring); border-radius:12px;
-      background:linear-gradient(180deg, rgba(148,163,184,.12), rgba(148,163,184,.06)); cursor:pointer; user-select:none;
-    }
-    .toggle input{ display:none }
-    .knob{ width:36px; height:22px; border-radius:999px; border:1px solid var(--ring); position:relative; background:rgba(148,163,184,.25) }
-    .knob::after{ content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:#e2e8f0; transition:left .2s }
-    .toggle input:checked + .knob::after{ left:18px }
-
-    /* ===== Layout ===== */
-    .container{ max-width:var(--container); margin:28px auto 50px; padding:0 20px }
-    .panel{
-      background:linear-gradient(180deg, var(--card-grad-1), var(--card-grad-2));
-      border:1px solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow);
-      padding:24px 28px;
+    input[type="date"] {
+      font-size:14px;
+      padding:7px 8px;
+      border-radius:8px;
+      border:1px solid #cfd9e6;
     }
 
-    /* ===== Header Panel ===== */
-    .header{ display:grid; grid-template-columns:1.2fr .8fr; gap:18px; align-items:stretch }
-    .intro{ display:flex; flex-direction:column; gap:10px }
-    h1{ margin:0; font-size:20px; color:#dbeafe; letter-spacing:.3px }
-    .note{ color:var(--muted); margin:0 }
-    #recentForecast{ color:var(--brand-2); font-weight:600; font-size:14px }
-
-    .meta{ display:flex; align-items:center; justify-content:flex-end; gap:12px; }
-
-    /* ===== KPI Cards ===== */
-    .kpis{ margin-top:22px; display:grid; grid-template-columns:repeat(3,1fr); gap:14px }
-    .kpi{ position:relative; padding:18px 20px; border-radius:18px; border:1px solid var(--border); box-shadow:0 10px 24px rgba(2,8,23,.35);
-      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(59,130,246,.08));
+    .btn {
+      background:var(--brand-2);
+      color:#fff;
+      border:none;
+      border-radius:10px;
+      padding:8px 14px;
+      cursor:pointer;
+      font-weight:600;
+      box-shadow:0 2px 10px rgba(25,118,210,.18);
+      transition:transform .04s ease, box-shadow .2s ease, opacity .15s ease;
     }
-    .kpi small{ color:var(--muted) }
-    .val{ font-size:28px; font-weight:700; letter-spacing:.2px; color:#e8f1ff; margin-top:4px }
+    .btn:hover { box-shadow:0 6px 18px rgba(25,118,210,.22); }
+    .btn:active { transform:translateY(1px); }
 
-    /* distinct accents */
-    #card-today-forecast{ background:linear-gradient(180deg, rgba(253,230,138,.10), rgba(251,191,36,.10)); border-color:rgba(251,191,36,.25) }
-    #card-today-actual{ background:linear-gradient(180deg, rgba(16,185,129,.10), rgba(52,211,153,.10)); border-color:rgba(34,197,94,.25) }
-    #card-tomorrow-forecast{ background:linear-gradient(180deg, rgba(147,197,253,.12), rgba(59,130,246,.10)); border-color:rgba(59,130,246,.25) }
-
-    /* mini chips + sparkline */
-    .mini-forecasts{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px }
-    .mini-chip{ font-size:12px; padding:2px 8px; border-radius:999px; color:#bfdbfe; background:rgba(147,197,253,.15); border:1px solid rgba(147,197,253,.3) }
-    .sparkline-wrap{ margin-top:8px }
-    .sparkline{ width:100%; height:34px; display:block }
-
-    /* ===== Correction Boxes ===== */
-    .two-col{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:16px }
-    .callout{ border-left:6px solid var(--warn); background:linear-gradient(180deg, rgba(255,221,87,.06), rgba(255,221,87,.02));
-      border-radius:14px; padding:18px 22px; border:1px solid var(--border) }
-    .callout b{ color:#fde68a }
-
-    /* ===== Controls (sub-toolbar) ===== */
-    .controls{
-      /* no longer sticky */
-      position: static; top: auto; z-index: auto; margin-top:18px; border:1px solid var(--border);
-      border-radius:14px; padding:12px 14px;
-      background:linear-gradient(180deg, rgba(30,41,59,.45), rgba(11,18,32,.45));
-      display:flex; flex-wrap:wrap; gap:10px; align-items:center; box-shadow:0 10px 24px rgba(2,8,23,.35);
+    .stats {
+      display:flex;
+      gap:16px;
+      margin:14px 0 8px 0;
+      flex-wrap:wrap;
     }
-    label{ font-size:12px; color:var(--muted) }
-    input[type="date"]{ font-size:14px; padding:8px 10px; border-radius:10px; border:1px solid var(--ring); background:#0b1220; color:var(--ink) }
 
-    .btn-sm{ padding:8px 12px; border-radius:10px }
-    .btn-primary{ border:1px solid rgba(59,130,246,.4); background:linear-gradient(180deg, rgba(59,130,246,.25), rgba(37,99,235,.20)); color:#e8f1ff }
+    .stat-box {
+      background:#f7fbff;
+      border:1px solid var(--ring);
+      border-radius:14px;
+      padding:14px 18px;
+      flex:1 1 260px;
+      box-shadow:var(--shadow);
+    }
 
-    /* ===== Stats Row ===== */
-    .stats{ display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:14px }
-    .stat-box{ background:linear-gradient(180deg, rgba(148,163,184,.10), rgba(148,163,184,.06));
-      border:1px solid var(--border); border-radius:16px; padding:14px 18px }
-    .stat-box .stat-val{ font-size:22px; font-weight:700; color:#e8f1ff }
+    .stat-val {
+      font-size:24px;
+      color:#1976d2;
+      font-weight:700;
+    }
 
-    /* ===== Chart ===== */
-    .chart{ margin-top:18px; padding:16px; border:1px solid var(--border); border-radius:16px; background:linear-gradient(180deg, rgba(30,41,59,.45), rgba(11,18,32,.45)); box-shadow:var(--shadow) }
-    canvas{ display:block; width:100% !important; height:auto !important }
+    /* Distinct colors for the three summary cards */
+    #card-today-forecast { background:#fff5eb; border-color:#ffe6c7; }
+    #card-today-actual { background:#f0fff4; border-color:#c8f2d0; }
+    #card-tomorrow-forecast { background:#ebf5ff; border-color:#cfe6ff; }
 
-    /* ===== Table ===== */
-    .table-wrap{ margin-top:18px; border:1px solid var(--border); border-radius:16px; overflow-x:auto; overflow-y:visible; box-shadow:var(--shadow) }
-    #dataTable{ width:100%; border-collapse:separate; border-spacing:0; font-size:14px; background:rgba(2,6,23,.45); }
-    thead th{ position:sticky; top:0; z-index:5; text-align:center; padding:12px 8px; color:#c7d2fe; background:linear-gradient(180deg, rgba(15,23,42,.98), rgba(11,18,32,.94)); border-bottom:1px solid var(--ring); backdrop-filter:blur(8px) }
-    tbody td{ text-align:center; padding:10px 8px; border-bottom:1px solid rgba(148,163,184,.12); color:#e5e9f5 }
-    tbody tr:nth-child(even) td{ background:rgba(148,163,184,.03) }
-    tbody tr:hover td{ background:rgba(59,130,246,.08) }
+    .recent-line {
+      color:var(--brand-2);
+      font-size:15px;
+      font-weight:600;
+      letter-spacing:.02em;
+    }
 
-    .forecast-row td{ background:rgba(251,191,36,.05) }
-    .actual-row td{ background:rgba(16,185,129,.05) }
-    .best{ outline:2px solid rgba(52,211,153,.65); outline-offset:-2px } 
-    /* Highlight the best forecast row without clipping lines */
-    
+    .correction-box {
+      margin:18px 0 16px 0;
+      background:#fffbe9;
+      border-left:7px solid #ffd95b;
+      border-radius:8px;
+      padding:22px 30px;
+      font-size:1.05em;
+      box-shadow:0 2px 8px #0001;
+    }
+
+    /* Table wrapper and sticky header */
+    .table-wrap {
+      overflow-x:auto; /* horizontal scroll if needed */
+      overflow-y:visible; /* let page (body) handle vertical scroll */
+      margin-top:18px;
+    }
+
+    #dataTable {
+      width:100%;
+      border-collapse:collapse;
+      font-size:14px;
+      table-layout:fixed;
+      background:#fff;
+    }
+
+    th, td {
+      border:1px solid #e6edf6;
+      padding:10px 6px;
+      text-align:center;
+    }
+
+    thead th {
+      position: sticky;
+      top: 0; /* stick to VERY TOP of viewport */
+      background: var(--brand-2);
+      color:#fff;
+      z-index: 5;
+      box-shadow: 0 1px 0 rgba(0,0,0,.08) inset, 0 2px 6px rgba(0,0,0,.06);
+    }
+
+    tr:nth-child(even) { background:#f8fbff; }
+    tr:hover td { background:#eef6ff; }
+
+    .forecast-row { background:#fffdf3 !important; }
+    .actual-row { background:#f2faf2 !important; }
+    .best { box-shadow:inset 0 0 0 2px #9be19b; }
 
     /* Skeleton loader */
-    .skel td::before{ content:""; display:block; height:10px; margin:6px auto; width:70%;
-      background:linear-gradient(90deg, rgba(148,163,184,.18), rgba(148,163,184,.05), rgba(148,163,184,.18));
-      background-size:200% 100%; animation:sh 1.2s infinite linear; border-radius:6px }
-    @keyframes sh{ from{background-position:0 0} to{background-position:200% 0} }
+    .skel td::before {
+      content:"";
+      display:block;
+      height:10px;
+      margin:6px auto;
+      width:70%;
+      background:linear-gradient(90deg,#eef3f9,#f8fbff,#eef3f9);
+      background-size:200% 100%;
+      animation:sh 1.2s infinite linear;
+      border-radius:6px;
+    }
+    @keyframes sh { from{background-position:0 0;} to{background-position:200% 0;} }
 
-    /* narrow the "Actual High" column */
-    #dataTable th:nth-child(5), #dataTable td:nth-child(5){ width: 90px }
+    /* Narrow the "Actual High" column */
+    #dataTable th:nth-child(5), #dataTable td:nth-child(5) { width: 90px; }
 
-    /* Responsive */
-    @media (max-width: 980px){
-      .header{ grid-template-columns:1fr }
-      .kpis{ grid-template-columns:1fr; }
-      .two-col{ grid-template-columns:1fr }
-      .stats{ grid-template-columns:1fr }
-      :root{ --sticky-offset: 62px }
+    /* -------- NEW: mini history chips & sparkline inside Today's card -------- */
+    .mini-forecasts {
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+      margin-top:6px;
     }
-      .kpis{ grid-template-columns:1fr; }
-      .two-col{ grid-template-columns:1fr }
-      .stats{ grid-template-columns:1fr }
-      :root{ --sticky-offset: 62px }
+
+    .mini-chip {
+      font-size:12px;
+      padding:2px 8px;
+      border-radius:999px;
+      background:#eef6ff;
+      border:1px solid var(--ring);
+      color:var(--brand-2);
+      white-space:nowrap;
     }
-    /* Extra-small mobile tweaks */
-    @media (max-width: 640px){
-      .container{ padding:0 12px }
-      #dataTable{ font-size:12px }
-      thead th, tbody td{ padding:8px 6px }
-      .kpi{ padding:14px 16px }
-      .val{ font-size:24px }
-    }
+
+    .sparkline-wrap { margin-top:6px; }
+    .sparkline { width:180px; height:30px; display:block; }
   </style>
 </head>
 <body>
-  <!-- ===== Sticky Topbar ===== -->
-  <div class="topbar">
-    <div class="topbar-inner">
-      <div class="brand">
-        <span class="dot" aria-hidden="true"></span>
-        <div>
-          <div class="title">NWS Forecast Logger Dashboard<span class="sub"> — Central Park, NY</span></div>
-          <div class="sub">Auto‑logs NWS forecasts and compares against the official daily high</div>
+  <div class="container">
+    <h1>🌡️ NWS Forecast Logger Dashboard <span class="badge">Live</span></h1>
+    <div class="note">
+      Automatically logs every NWS forecast update for Central Park and compares to the official daily high.
+    </div>
+    <div id="recentForecast" class="recent-line">Last logged forecast: ...</div>
+
+    <!-- Summary boxes -->
+    <div class="stats">
+      <div class="stat-box" id="card-today-forecast">
+        <div style="font-size:14px;">Today’s Latest Forecasted High</div>
+        <div id="box-today-forecast" class="stat-val">–</div>
+        <!-- NEW: mini list of all forecasts for today -->
+        <div id="mini-today-forecasts" class="mini-forecasts"></div>
+        <!-- NEW: tiny sparkline of today's forecasts -->
+        <div class="sparkline-wrap">
+          <canvas id="spark-today-forecast" class="sparkline" width="180" height="30"></canvas>
         </div>
       </div>
-      <div class="actions">
-        <label class="toggle" title="Dark UI is on by default">
-          <input type="checkbox" id="themeToggle" checked>
-          <span class="knob"></span>
-          <span class="sub">Dark</span>
-        </label>
-        <button class="btn btn-ghost" onclick="reloadCSV()">Reload</button>
+      <div class="stat-box" id="card-today-actual">
+        <div style="font-size:14px;">Today’s Actual High</div>
+        <div id="box-today-actual" class="stat-val">–</div>
+      </div>
+      <div class="stat-box" id="card-tomorrow-forecast">
+        <div style="font-size:14px;">Tomorrow’s Forecasted High</div>
+        <div id="box-tomorrow-forecast" class="stat-val">–</div>
       </div>
     </div>
-  </div>
 
-  <div class="container">
-    <!-- ===== Intro + Recent ===== -->
-    <section class="panel header">
-      <div class="intro">
-        <h1>Forecast Overview</h1>
-        <p class="note">Focused, legible, and responsive—rebuilt for clarity and visual polish while preserving your existing IDs & logic.</p>
-        <div id="recentForecast">Last logged forecast: …</div>
-      </div>
-      <div class="meta">
-        <!-- Space reserved for future metadata (run time, data age, etc.) -->
-      </div>
+    <!-- Corrected prediction boxes -->
+    <div class="stats">
+      <div id="correctionBoxToday" class="correction-box" style="flex:1;">Loading...</div>
+      <div id="correctionBoxTomorrow" class="correction-box" style="flex:1;">Loading...</div>
+    </div>
 
-      <!-- KPI Cards -->
-      <div class="kpis" style="grid-column:1 / -1">
-        <div class="kpi" id="card-today-forecast">
-          <small>Today’s Latest Forecasted High</small>
-          <div id="box-today-forecast" class="val">–</div>
-          <div id="mini-today-forecasts" class="mini-forecasts"></div>
-          <div class="sparkline-wrap"><canvas id="spark-today-forecast" class="sparkline" width="260" height="34"></canvas></div>
-        </div>
-        <div class="kpi" id="card-today-actual">
-          <small>Today’s Actual High</small>
-          <div id="box-today-actual" class="val">–</div>
-        </div>
-        <div class="kpi" id="card-tomorrow-forecast">
-          <small>Tomorrow’s Forecasted High</small>
-          <div id="box-tomorrow-forecast" class="val">–</div>
-        </div>
-      </div>
-    </section>
+    <!-- Filters (not sticky) -->
+    <div class="controls">
+      <label for="from">From:</label><input type="date" id="fromDate"/>
+      <label for="to">To:</label><input type="date" id="toDate"/>
+      <button class="btn" onclick="applyDateFilter()">Filter</button>
+      <button class="btn" onclick="resetFilter()">Show All</button>
+      <button class="btn" onclick="reloadCSV()">Reload</button>
+    </div>
 
-    <!-- ===== Corrected Predictions ===== -->
-    <section class="two-col">
-      <div id="correctionBoxToday" class="callout">Loading…</div>
-      <div id="correctionBoxTomorrow" class="callout">Loading…</div>
-    </section>
-
-    <!-- ===== Controls ===== -->
-    <section class="controls">
-      <label for="fromDate">From</label>
-      <input type="date" id="fromDate" />
-      <label for="toDate">To</label>
-      <input type="date" id="toDate" />
-      <button class="btn btn-sm btn-primary" onclick="applyDateFilter()">Filter</button>
-      <button class="btn btn-sm btn-ghost" onclick="resetFilter()">Show All</button>
-    </section>
-
-    <!-- ===== Stats ===== -->
-    <section class="stats">
+    <!-- Stats row -->
+    <div class="stats" id="stats">
       <div class="stat-box">Total Days: <span class="stat-val">0</span></div>
       <div class="stat-box">Avg Absolute Error (all forecasts): <span class="stat-val">--°F</span></div>
-      <div class="stat-box">Avg Best Error (pre‑high best): <span class="stat-val">--°F</span></div>
-    </section>
+      <div class="stat-box">Avg Best Error (closest forecast per day): <span class="stat-val">--°F</span></div>
+    </div>
 
-    <!-- ===== Chart ===== -->
-    <section class="chart panel">
-      <canvas id="dailyChart" width="1100" height="420"></canvas>
-    </section>
+    <!-- Chart -->
+    <div class="chart"><canvas id="dailyChart" width="1000" height="400"></canvas></div>
 
-    <!-- ===== Table ===== -->
-    <section class="table-wrap">
+    <!-- Table (header sticks to the very top) -->
+    <div class="table-wrap">
       <table id="dataTable">
         <thead>
           <tr>
@@ -291,24 +276,20 @@
         </thead>
         <tbody></tbody>
       </table>
-    </section>
+    </div>
   </div>
 
-  <!-- ===== Scripts ===== -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
-    /*
-      NOTE: All original IDs & function names preserved so your CSV + logic continue working.
-      You can drop this file in as a replacement. Only UI/UX polish has been added
-      (sticky toolbars, glassy cards, consistent type scale, better contrast, responsive layout).
-    */
-
     let allRows = [];
     let filteredRows = [];
 
     /* NYC-local ISO date helper (YYYY-MM-DD) */
     function nycISODate(offsetDays=0){
-      const fmt = new Intl.DateTimeFormat('en-CA', { timeZone:'America/New_York', year:'numeric', month:'2-digit', day:'2-digit' });
+      const fmt = new Intl.DateTimeFormat('en-CA', {
+        timeZone:'America/New_York',
+        year:'numeric', month:'2-digit', day:'2-digit'
+      });
       const parts = fmt.formatToParts(new Date(Date.now()+offsetDays*86400000));
       const g = k => parts.find(p => p.type === k).value;
       return `${g('year')}-${g('month')}-${g('day')}`;
@@ -316,9 +297,12 @@
 
     /* ---------------- CSV load + parsing ---------------- */
     function showSkeleton(rows=6){
-      const tb=document.querySelector("#dataTable tbody"); tb.innerHTML="";
+      const tb=document.querySelector("#dataTable tbody");
+      tb.innerHTML="";
       for(let i=0;i<rows;i++){
-        const tr=document.createElement("tr"); tr.className="skel"; tr.innerHTML="<td></td>".repeat(8);
+        const tr=document.createElement("tr");
+        tr.className="skel";
+        tr.innerHTML="<td></td>".repeat(8);
         tb.appendChild(tr);
       }
     }
@@ -329,12 +313,14 @@
         .then(resp => resp.text())
         .then(parseCSV)
         .then(() => {
-          resetFilter();            // populates table, chart, stats
-          showMostRecent();         // truly latest forecast entry
-          updateSummaryBoxes();     // summary cards (and today's mini history + sparkline)
-          updateCorrectionBoxes();  // corrected predictions (avg of all forecasts for date)
+          resetFilter();        // populates table, chart, stats
+          showMostRecent();     // truly latest forecast entry
+          updateSummaryBoxes(); // summary cards (and today's mini history + sparkline)
+          updateCorrectionBoxes(); // corrected predictions (avg of all forecasts for date)
         })
-        .catch(err => { alert("Could not load CSV. " + err); });
+        .catch(err => {
+          alert("Could not load CSV. " + err);
+        });
     }
 
     // robust CSV parsing
@@ -353,9 +339,7 @@
           row.push(field); field = '';
           if (row.length && row.some(x => x !== '')) rows.push(row);
           row = [];
-        } else {
-          field += c;
-        }
+        } else { field += c; }
       }
       if (field !== '' || row.length) {
         row.push(field);
@@ -374,7 +358,8 @@
         const rec = {};
         for (let j = 0; j < header.length; j++) {
           let v = (vals[j] ?? '').trim();
-          if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1).replace(/""/g, '"');
+          if (v.startsWith('"') && v.endsWith('"'))
+            v = v.slice(1, -1).replace(/""/g, '"');
           rec[header[j]] = v;
         }
         allRows.push(rec);
@@ -386,12 +371,8 @@
       filteredRows = allRows.slice();
       document.getElementById('fromDate').value = "";
       document.getElementById('toDate').value = "";
-      displayTable();
-      showStats();
-      showChart();
-      showMostRecent();
-      updateCorrectionBoxes();
-      updateSummaryBoxes();
+      displayTable(); showStats(); showChart();
+      showMostRecent(); updateCorrectionBoxes();
     }
 
     function applyDateFilter() {
@@ -404,17 +385,18 @@
         if (to && date > to) return false;
         return true;
       });
-      displayTable();
-      showStats();
-      showChart();
-      showMostRecent();
-      updateCorrectionBoxes();
-      updateSummaryBoxes();
+      displayTable(); showStats(); showChart();
+      showMostRecent(); updateCorrectionBoxes();
+      updateSummaryBoxes(); // keep mini history in sync if needed
     }
 
     function rNum(x){ const n=Number(x); return Number.isFinite(n)?n:null; }
 
-    function compareTimes(t1,t2) { const d1 = toDateObj(t1), d2 = toDateObj(t2); return (d1&&d2) ? d1-d2 : 0 }
+    function compareTimes(t1,t2) {
+      const d1 = toDateObj(t1), d2 = toDateObj(t2);
+      return (d1&&d2) ? d1-d2 : 0;
+    }
+
     function toDateObj(t) {
       if (!t) return null;
       if (/[AP]M/i.test(t)) {
@@ -424,11 +406,14 @@
         const hour = Number(h)%12 + (amp.toUpperCase()==="PM"?12:0);
         return new Date(2020,1,1,hour,Number(mn));
       }
-      if (/^\d{2}:\d{2}$/.test(t)) { const [h,mn]=t.split(":"); return new Date(2020,1,1,Number(h),Number(mn)) }
+      if (/^\d{2}:\d{2}$/.test(t)) {
+        const [h,mn]=t.split(":");
+        return new Date(2020,1,1,Number(h),Number(mn));
+      }
       return null;
     }
 
-    /* -------- Last logged forecast = the final forecast row in the CSV -------- */
+    /* -------- Last logged forecast -------- */
     function showMostRecent() {
       const el = document.getElementById("recentForecast");
       if (!allRows.length) { el.textContent = ""; return; }
@@ -447,110 +432,220 @@
     function getForecastsForDate(dateISO) {
       const rows = allRows
         .filter(r => r.forecast_or_actual === "forecast" && r.target_date === dateISO && r.predicted_high)
-        .map(r => ({ tstamp: r.timestamp || r.forecast_time || "", timeHHMM: (r.forecast_time || "").substr(11,5), val: Number(r.predicted_high) }))
+        .map(r => ({
+          tstamp: r.timestamp || r.forecast_time || "",
+          timeHHMM: (r.forecast_time || "").substr(11,5),
+          val: Number(r.predicted_high)
+        }))
         .filter(x => Number.isFinite(x.val));
       rows.sort((a,b) => (a.tstamp || "").localeCompare(b.tstamp || ""));
       return rows;
     }
+
     function renderMiniForecastChips(rows, elId) {
-      const host = document.getElementById(elId); if (!host) return; host.innerHTML = "";
-      const compact = []; rows.forEach((r, i) => { if (i === 0 || r.val !== rows[i-1].val) compact.push(r) });
-      if (!compact.length) { host.innerHTML = `<span class="mini-chip">No forecasts yet</span>`; return; }
-      compact.forEach(r => { const label = `${r.timeHHMM || "—"} ${r.val.toFixed(0)}°`; const chip = document.createElement("span"); chip.className = "mini-chip"; chip.textContent = label; host.appendChild(chip) });
-    }
-    function drawSparkline(canvasId, rows) {
-      const cv = document.getElementById(canvasId); if (!cv) return; const ctx = cv.getContext('2d'); ctx.clearRect(0,0,cv.width,cv.height);
-      if (!rows.length) return; const W = cv.width, H = cv.height, pad = 2; const vals = rows.map(r => r.val); const min = Math.min(...vals), max = Math.max(...vals);
-      if (max === min) { const y = H/2; ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(W-pad, y); ctx.lineWidth = 2; ctx.strokeStyle = '#93c5fd'; ctx.stroke(); ctx.beginPath(); ctx.arc(W-pad, y, 2.5, 0, Math.PI*2); ctx.fillStyle = '#34d399'; ctx.fill(); return; }
-      const n = vals.length; const xStep = (W - pad*2) / Math.max(1, n-1); const toY = v => H - pad - ((v - min) / (max - min)) * (H - pad*2);
-      ctx.beginPath(); ctx.lineWidth = 2; ctx.strokeStyle = '#93c5fd'; vals.forEach((v, i) => { const x = pad + i * xStep; const y = toY(v); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y) }); ctx.stroke();
-      const lastX = pad + (n-1)*xStep, lastY = toY(vals[n-1]); ctx.beginPath(); ctx.arc(lastX, lastY, 2.5, 0, Math.PI*2); ctx.fillStyle = '#34d399'; ctx.fill();
+      const host = document.getElementById(elId);
+      if (!host) return;
+      host.innerHTML = "";
+      const compact = [];
+      rows.forEach((r, i) => {
+        if (i === 0 || r.val !== rows[i-1].val) compact.push(r);
+      });
+      if (!compact.length) {
+        host.innerHTML = `<span class="mini-chip">No forecasts yet</span>`;
+        return;
+      }
+      compact.forEach(r => {
+        const label = `${r.timeHHMM || "—"} ${r.val.toFixed(0)}°`;
+        const chip = document.createElement("span");
+        chip.className = "mini-chip";
+        chip.textContent = label;
+        host.appendChild(chip);
+      });
     }
 
-    /* ---------------- Summary boxes (includes mini history) ---------------- */
+    function drawSparkline(canvasId, rows) {
+      const cv = document.getElementById(canvasId);
+      if (!cv) return;
+      const ctx = cv.getContext('2d');
+      ctx.clearRect(0,0,cv.width,cv.height);
+      if (!rows.length) return;
+      const W = cv.width, H = cv.height, pad = 2;
+      const vals = rows.map(r => r.val);
+      const min = Math.min(...vals), max = Math.max(...vals);
+      if (max === min) {
+        const y = H/2;
+        ctx.beginPath();
+        ctx.moveTo(pad, y); ctx.lineTo(W-pad, y);
+        ctx.lineWidth = 2; ctx.strokeStyle = '#1976d2'; ctx.stroke();
+        ctx.beginPath(); ctx.arc(W-pad, y, 2.5, 0, Math.PI*2);
+        ctx.fillStyle = '#2ecc71'; ctx.fill();
+        return;
+      }
+      const n = vals.length;
+      const xStep = (W - pad*2) / Math.max(1, n-1);
+      const toY = v => H - pad - ((v - min) / (max - min)) * (H - pad*2);
+      ctx.beginPath(); ctx.lineWidth = 2; ctx.strokeStyle = '#1976d2';
+      vals.forEach((v, i) => {
+        const x = pad + i * xStep, y = toY(v);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      const lastX = pad + (n-1)*xStep, lastY = toY(vals[n-1]);
+      ctx.beginPath(); ctx.arc(lastX, lastY, 2.5, 0, Math.PI*2);
+      ctx.fillStyle = '#2ecc71'; ctx.fill();
+    }
+
+    /* ---------------- Summary boxes ---------------- */
     function updateSummaryBoxes() {
-      const today    = nycISODate(0);
+      const today = nycISODate(0);
       const tomorrow = nycISODate(1);
+
       const latestForDate = (date) => {
-        const rows = allRows.filter(r => r.forecast_or_actual === "forecast" && r.target_date === date && r.predicted_high);
-        if (!rows.length) return null; rows.sort((a,b) => { const A = a.timestamp || a.forecast_time || ""; const B = b.timestamp || b.forecast_time || ""; return B.localeCompare(A) });
+        const rows = allRows.filter(r =>
+          r.forecast_or_actual === "forecast" && r.target_date === date && r.predicted_high
+        );
+        if (!rows.length) return null;
+        rows.sort((a,b) => {
+          const A = a.timestamp || a.forecast_time || "";
+          const B = b.timestamp || b.forecast_time || "";
+          return B.localeCompare(A);
+        });
         return Number(rows[0].predicted_high);
       };
-      const avgForDate = (date) => { const vals = allRows.filter(r => r.forecast_or_actual==="forecast" && r.target_date===date && r.predicted_high).map(r => Number(r.predicted_high)); if (!vals.length) return null; return vals.reduce((a,b)=>a+b,0)/vals.length };
+
+      const avgForDate = (date) => {
+        const vals = allRows
+          .filter(r => r.forecast_or_actual==="forecast" && r.target_date===date && r.predicted_high)
+          .map(r => Number(r.predicted_high));
+        if (!vals.length) return null;
+        return vals.reduce((a,b)=>a+b,0)/vals.length;
+      };
+
       const todayLatestForecast = latestForDate(today);
       const todayActualRow = allRows.find(r => r.forecast_or_actual==="actual" && r.cli_date===today && r.actual_high);
       const todayActual = todayActualRow ? Number(todayActualRow.actual_high) : null;
       const tomorrowAvgForecast = avgForDate(tomorrow);
 
-      document.getElementById("box-today-forecast").textContent  = (todayLatestForecast==null) ? "–" : todayLatestForecast.toFixed(1) + "°F";
-      document.getElementById("box-today-actual").textContent    = (todayActual==null) ? "–" : todayActual.toFixed(1) + "°F";
-      document.getElementById("box-tomorrow-forecast").textContent= (tomorrowAvgForecast==null) ? "–" : tomorrowAvgForecast.toFixed(1) + "°F";
+      document.getElementById("box-today-forecast").textContent =
+        (todayLatestForecast==null) ? "–" : todayLatestForecast.toFixed(1) + "°F";
+      document.getElementById("box-today-actual").textContent =
+        (todayActual==null) ? "–" : todayActual.toFixed(1) + "°F";
+      document.getElementById("box-tomorrow-forecast").textContent =
+        (tomorrowAvgForecast==null) ? "–" : tomorrowAvgForecast.toFixed(1) + "°F";
 
       const todayRows = getForecastsForDate(today);
       renderMiniForecastChips(todayRows, "mini-today-forecasts");
       drawSparkline("spark-today-forecast", todayRows);
     }
 
-    /* ---------------- Bias over ALL available days, using pre-high forecasts only ---------------- */
+    /* ---------------- Bias calc ---------------- */
     function calcBiases(){
       const biasList = [], dayMap = {};
-      allRows.forEach(r => { const d = r.forecast_or_actual==="actual" ? r.cli_date : r.target_date; if(!d) return; if(!dayMap[d]) dayMap[d] = []; dayMap[d].push(r); });
+      allRows.forEach(r => {
+        const d = r.forecast_or_actual==="actual" ? r.cli_date : r.target_date;
+        if(!d) return;
+        if(!dayMap[d]) dayMap[d] = [];
+        dayMap[d].push(r);
+      });
       const dates = Object.keys(dayMap).sort();
       dates.forEach(d => {
         const rows = dayMap[d];
         const actual = rows.find(r => r.forecast_or_actual==="actual" && r.actual_high);
-        if(!actual) return; const actualHigh = Number(actual.actual_high); const highTime = actual.high_time || "";
+        if(!actual) return;
+        const actualHigh = Number(actual.actual_high);
+        const highTime = actual.high_time || "";
         const fcVals = [];
-        rows.forEach(r => { if(r.forecast_or_actual!=="forecast" || !r.predicted_high) return; if (highTime) { const fcHHMM = (r.forecast_time||"").substr(11,5); if (fcHHMM && compareTimes(fcHHMM, highTime) > 0) return; } fcVals.push(Number(r.predicted_high)); });
-        if(fcVals.length){ const meanFc = fcVals.reduce((a,b)=>a+b,0)/fcVals.length; biasList.push(actualHigh - meanFc); }
+        rows.forEach(r => {
+          if(r.forecast_or_actual!=="forecast" || !r.predicted_high) return;
+          if (highTime) {
+            const fcHHMM = (r.forecast_time||"").substr(11,5);
+            if (fcHHMM && compareTimes(fcHHMM, highTime) > 0) return;
+          }
+          fcVals.push(Number(r.predicted_high));
+        });
+        if(fcVals.length){
+          const meanFc = fcVals.reduce((a,b)=>a+b,0)/fcVals.length;
+          biasList.push(actualHigh - meanFc);
+        }
       });
-      return biasList; // ALL qualifying days
+      return biasList;
     }
 
     /* ---------------- Corrected predictions ---------------- */
     function updateCorrectionBoxes(){
       const biasList=calcBiases();
       const avgBias=biasList.length? (biasList.reduce((a,b)=>a+b,0)/biasList.length) : 0;
-      const today    = nycISODate(0);
+      const today = nycISODate(0);
       const tomorrow = nycISODate(1);
+
       const meanForecastForDate = (date) => {
         const actual = allRows.find(r=>r.forecast_or_actual==="actual" && r.cli_date===date && r.actual_high);
         const highTime = actual ? actual.high_time : "";
         const vals = allRows
           .filter(r=>r.forecast_or_actual==="forecast" && r.target_date===date && r.predicted_high)
-          .filter(r=>{ if(highTime){ const fcHHMM=(r.forecast_time||"").substr(11,5); if(fcHHMM && compareTimes(fcHHMM, highTime) > 0) return false; } return true; })
+          .filter(r=>{
+            if(highTime){
+              const fcHHMM=(r.forecast_time||"").substr(11,5);
+              if(fcHHMM && compareTimes(fcHHMM, highTime) > 0) return false;
+            }
+            return true;
+          })
           .map(r=>Number(r.predicted_high));
-        if (!vals.length) return null; return vals.reduce((a,b)=>a+b,0)/vals.length;
+        if (!vals.length) return null;
+        return vals.reduce((a,b)=>a+b,0)/vals.length;
       };
-      const todayFcAvg    = meanForecastForDate(today);
+
+      const todayFcAvg = meanForecastForDate(today);
       const tomorrowFcAvg = meanForecastForDate(tomorrow);
-      const todayPred    = (todayFcAvg==null) ? null : todayFcAvg + avgBias;
+      const todayPred = (todayFcAvg==null) ? null : todayFcAvg + avgBias;
       const tomorrowPred = (tomorrowFcAvg==null) ? null : tomorrowFcAvg + avgBias;
       const biasTxt = (avgBias>0?"+":"") + avgBias.toFixed(2);
+
       document.getElementById("correctionBoxToday").innerHTML =
         `<b>Today's Corrected Prediction:</b><br>
-         <span style="font-size:1.6em; color:#e8f1ff">${today}: <b>${todayPred==null?"–":todayPred.toFixed(1)+"°F"}</b></span><br>
-         <span style="color:#cbd5e1">Bias: <b>${biasTxt}°F</b> (avg of ${biasList.length} days)</span>`;
+        <span style="font-size:1.6em;">${today}: <b>${todayPred==null?"–":todayPred.toFixed(1)+"°F"}</b></span><br>
+        <span style="color:#666;">Bias: <b>${biasTxt}°F</b> (avg of ${biasList.length} days)</span>`;
+
       document.getElementById("correctionBoxTomorrow").innerHTML =
         `<b>Tomorrow's Corrected Prediction:</b><br>
-         <span style="font-size:1.6em; color:#e8f1ff">${tomorrow}: <b>${tomorrowPred==null?"–":tomorrowPred.toFixed(1)+"°F"}</b></span><br>
-         <span style="color:#cbd5e1">Bias: <b>${biasTxt}°F</b> (avg of ${biasList.length} days)</span>`;
+        <span style="font-size:1.6em;">${tomorrow}: <b>${tomorrowPred==null?"–":tomorrowPred.toFixed(1)+"°F"}</b></span><br>
+        <span style="color:#666;">Bias: <b>${biasTxt}°F</b> (avg of ${biasList.length} days)</span>`;
     }
 
     /* ---------------- Stats ---------------- */
     function showStats() {
-      let count=0, absSum=0, bestSum=0, bestCount=0; const dayMap = {};
-      filteredRows.forEach(row => { const date = row.forecast_or_actual === "actual" ? row.cli_date : row.target_date; if (!date) return; if (!dayMap[date]) dayMap[date] = []; dayMap[date].push(row); });
-      Object.values(dayMap).forEach(dayRows => { const actual = dayRows.find(r => r.forecast_or_actual==="actual"); const actualHigh = actual ? Number(actual.actual_high) : null; if (!Number.isFinite(actualHigh)) return; const highTime = actual ? actual.high_time : ""; let bestErr=999;
-        dayRows.forEach(r => { if (r.forecast_or_actual!=="forecast" || !r.predicted_high) return; if (highTime) { const fcHour = (r.forecast_time||"").substr(11,5); if (fcHour && compareTimes(fcHour, highTime)>0) return; } const err = Math.abs(Number(r.predicted_high)-actualHigh); absSum += err; count++; if (err<bestErr) bestErr=err; });
+      let count=0, absSum=0, bestSum=0, bestCount=0;
+      const dayMap = {};
+      filteredRows.forEach(row => {
+        const date = row.forecast_or_actual === "actual" ? row.cli_date : row.target_date;
+        if (!date) return;
+        if (!dayMap[date]) dayMap[date] = [];
+        dayMap[date].push(row);
+      });
+      Object.values(dayMap).forEach(dayRows => {
+        const actual = dayRows.find(r => r.forecast_or_actual==="actual");
+        const actualHigh = actual ? Number(actual.actual_high) : null;
+        if (!Number.isFinite(actualHigh)) return;
+        const highTime = actual ? actual.high_time : "";
+        let bestErr=999;
+        dayRows.forEach(r => {
+          if (r.forecast_or_actual!=="forecast" || !r.predicted_high) return;
+          if (highTime) {
+            const fcHour = (r.forecast_time||"").substr(11,5);
+            if (fcHour && compareTimes(fcHour, highTime)>0) return;
+          }
+          const err = Math.abs(Number(r.predicted_high)-actualHigh);
+          absSum += err; count++;
+          if (err<bestErr) bestErr=err;
+        });
         if (bestErr<999) { bestSum += bestErr; bestCount++; }
       });
-      const avgAbs = count ? (absSum/count).toFixed(2) : "--"; const avgBest = bestCount ? (bestSum/bestCount).toFixed(2) : "--";
-      document.querySelector('.stats').innerHTML = `
-        <div class="stat-box">Total Days: <span class="stat-val">${Object.keys(dayMap).length}</span></div>
-        <div class="stat-box">Avg Absolute Error (all forecasts): <span class="stat-val">${avgAbs}°F</span></div>
-        <div class="stat-box">Avg Best Error (pre‑high best): <span class="stat-val">${avgBest}°F</span></div>
-      `;
+      const avgAbs = count ? (absSum/count).toFixed(2) : "--";
+      const avgBest = bestCount ? (bestSum/bestCount).toFixed(2) : "--";
+      document.getElementById("stats").innerHTML =
+        `<div class="stat-box">Total Days: <span class="stat-val">${Object.keys(dayMap).length}</span></div>
+         <div class="stat-box">Avg Absolute Error (all forecasts): <span class="stat-val">${avgAbs}°F</span></div>
+         <div class="stat-box">Avg Best Error (closest forecast per day): <span class="stat-val">${avgBest}°F</span></div>`;
     }
 
     /* ---------------- Chart ---------------- */
@@ -558,45 +653,93 @@
       const ctx = document.getElementById('dailyChart').getContext('2d');
       if (window.mainChart) window.mainChart.destroy();
       const dayMap = {};
-      filteredRows.forEach(row => { const date = row.forecast_or_actual === "actual" ? row.cli_date : row.target_date; if (!date) return; if (!dayMap[date]) dayMap[date] = []; dayMap[date].push(row); });
+      filteredRows.forEach(row => {
+        const date = row.forecast_or_actual === "actual" ? row.cli_date : row.target_date;
+        if (!date) return;
+        if (!dayMap[date]) dayMap[date] = [];
+        dayMap[date].push(row);
+      });
       const labels=[], actuals=[], bestForecasts=[];
       Object.keys(dayMap).sort().forEach(date => {
-        const dayRows = dayMap[date]; const actual = dayRows.find(r => r.forecast_or_actual==="actual"); const actualHigh = actual ? Number(actual.actual_high) : null; const highTime = actual ? actual.high_time : ""; let best=null, bestErr=999;
-        dayRows.forEach(r => { if (r.forecast_or_actual!=="forecast" || !r.predicted_high) return; if (highTime) { const fcHour=(r.forecast_time||"").substr(11,5); if (fcHour && compareTimes(fcHour, highTime)>0) return; } const err = Math.abs(Number(r.predicted_high)-actualHigh); if (err<bestErr) { bestErr=err; best=r; } });
-        if (actualHigh !== null) { labels.push(date); actuals.push(actualHigh); bestForecasts.push(best ? Number(best.predicted_high) : null); }
+        const dayRows = dayMap[date];
+        const actual = dayRows.find(r => r.forecast_or_actual==="actual");
+        const actualHigh = actual ? Number(actual.actual_high) : null;
+        const highTime = actual ? actual.high_time : "";
+        let best=null, bestErr=999;
+        dayRows.forEach(r => {
+          if (r.forecast_or_actual!=="forecast" || !r.predicted_high) return;
+          if (highTime) {
+            const fcHour=(r.forecast_time||"").substr(11,5);
+            if (fcHour && compareTimes(fcHour, highTime)>0) return;
+          }
+          const err = Math.abs(Number(r.predicted_high)-actualHigh);
+          if (err<bestErr) { bestErr=err; best=r; }
+        });
+        if (actualHigh !== null) {
+          labels.push(date);
+          actuals.push(actualHigh);
+          bestForecasts.push(best ? Number(best.predicted_high) : null);
+        }
       });
+
       window.mainChart = new Chart(ctx, {
         type: 'line',
-        data: { labels, datasets: [
-          { label: "Actual High", data: actuals, borderColor: "#34d399", backgroundColor: "transparent", tension: .25, pointRadius: 0 },
-          { label: "Best Forecast (pre‑high)", data: bestForecasts, borderColor: "#93c5fd", backgroundColor: "transparent", tension: .25, pointRadius: 0 }
-        ]},
+        data: {
+          labels,
+          datasets: [
+            { label: "Actual High", data: actuals, borderColor: "#2ecc71", fill:false, tension:0.2 },
+            { label: "Best Forecast (pre-high)", data: bestForecasts, borderColor: "#1976d2", fill:false, tension:0.2 }
+          ]
+        },
         options: {
-          plugins: {
-            legend: { labels: { color: '#c7d2fe', usePointStyle:true } },
-            tooltip: { intersect:false, mode:'index' }
-          },
+          plugins: { legend: { display: true, position: "top" } },
           scales: {
-            x: { ticks:{ color:'#a5b4fc' }, grid:{ color:'rgba(148,163,184,.15)' }, title:{ display:true, text:'Date', color:'#cbd5e1' } },
-            y: { ticks:{ color:'#a5b4fc' }, grid:{ color:'rgba(148,163,184,.15)' }, title:{ display:true, text:'Temperature (°F)', color:'#cbd5e1' } }
+            x: { title: {display:true,text:"Date"} },
+            y: { title: {display:true,text:"Temperature (°F)"} }
           }
         }
       });
-      if(window._applyThemeToChart) window._applyThemeToChart();
     }
 
     /* ---------------- Table ---------------- */
     function displayTable() {
-      const tb = document.querySelector("#dataTable tbody"); tb.innerHTML = ""; const dayMap = {};
-      filteredRows.forEach(r => { const date = r.forecast_or_actual === "actual" ? r.cli_date : r.target_date; if (!date) return; if (!dayMap[date]) dayMap[date]=[]; dayMap[date].push(r); });
+      const tb = document.querySelector("#dataTable tbody");
+      tb.innerHTML = "";
+      const dayMap = {};
+      filteredRows.forEach(r => {
+        const date = r.forecast_or_actual === "actual" ? r.cli_date : r.target_date;
+        if (!date) return;
+        if (!dayMap[date]) dayMap[date]=[];
+        dayMap[date].push(r);
+      });
+
       Object.keys(dayMap).sort().forEach(date => {
-        const dayRows = dayMap[date]; const actual = dayRows.find(r => r.forecast_or_actual==="actual"); const actualHigh = actual ? rNum(actual.actual_high) : null; const actualHighTxt = actual && actual.actual_high ? actual.actual_high+"°F" : ""; const highTime = actual ? actual.high_time : ""; let bestIdx=-1, bestErr=999;
-        dayRows.forEach((r,i) => { if (r.forecast_or_actual !== "forecast" || !r.predicted_high || actualHigh===null) return; if (highTime) { const fcHour = (r.forecast_time||"").substr(11,5); if (fcHour && compareTimes(fcHour, highTime)>0) return; } const err = Math.abs(Number(r.predicted_high)-actualHigh); if (err<bestErr) { bestErr=err; bestIdx=i; } });
+        const dayRows = dayMap[date];
+        const actual = dayRows.find(r => r.forecast_or_actual==="actual");
+        const actualHigh = actual ? rNum(actual.actual_high) : null;
+        const actualHighTxt = actual && actual.actual_high ? actual.actual_high+"°F" : "";
+        const highTime = actual ? actual.high_time : "";
+        let bestIdx=-1, bestErr=999;
+
+        dayRows.forEach((r,i) => {
+          if (r.forecast_or_actual !== "forecast" || !r.predicted_high || actualHigh===null) return;
+          if (highTime) {
+            const fcHour = (r.forecast_time||"").substr(11,5);
+            if (fcHour && compareTimes(fcHour, highTime)>0) return;
+          }
+          const err = Math.abs(Number(r.predicted_high)-actualHigh);
+          if (err<bestErr) { bestErr=err; bestIdx=i; }
+        });
+
         dayRows.forEach((r,i) => {
           if (r.forecast_or_actual!=="forecast" && r.forecast_or_actual!=="actual") return;
-          let cls = r.forecast_or_actual==="actual" ? "actual-row" : "forecast-row"; if (i===bestIdx && r.forecast_or_actual==="forecast") cls += " best";
-          const pred = r.predicted_high ? r.predicted_high+"°F" : ""; const act = r.actual_high ? r.actual_high+"°F" : actualHighTxt; const fTime = r.forecast_time ? r.forecast_time.substr(11,5) : "";
-          const errTxt = (r.forecast_or_actual==="forecast" && r.predicted_high && actualHigh!==null) ? (Number(r.predicted_high)-actualHigh).toFixed(1) : "";
+          let cls = r.forecast_or_actual==="actual" ? "actual-row" : "forecast-row";
+          if (i===bestIdx && r.forecast_or_actual==="forecast") cls += " best";
+          const pred = r.predicted_high ? r.predicted_high+"°F" : "";
+          const act = r.actual_high ? r.actual_high+"°F" : actualHighTxt;
+          const fTime = r.forecast_time ? r.forecast_time.substr(11,5) : "";
+          const errTxt = (r.forecast_or_actual==="forecast" && r.predicted_high && actualHigh!==null)
+            ? (Number(r.predicted_high)-actualHigh).toFixed(1) : "";
           tb.innerHTML += `
             <tr class="${cls}">
               <td>${r.timestamp ? r.timestamp.substr(0,10) : ""}</td>
@@ -612,57 +755,7 @@
       });
     }
 
-    /* ----- Light/Dark theme toggle (dark default) ----- */
-    const themeToggle = document.getElementById('themeToggle');
-    themeToggle?.addEventListener('change', () => {
-      document.documentElement.classList.toggle('light', !themeToggle.checked);
-    });
-
-    /* Optional light theme overrides */
-    (function injectLightTheme(){
-      const css = `$1.light{ --ink:#17324a; --muted:#5c728a; --border:rgba(23,50,74,.15) }
-        .light .topbar{ background:linear-gradient( to right, rgba(255,255,255,.9), rgba(255,255,255,.7) ); border-bottom:1px solid rgba(23,50,74,.12) }
-        .light .title{ color:#175398 }
-        .light .panel, .light .chart{ background:linear-gradient(180deg, rgba(255,255,255,.95), rgba(255,255,255,.85)); border-color:rgba(23,50,74,.12) }
-        .light .kpi{ background:linear-gradient(180deg, rgba(255,255,255,.95), rgba(255,255,255,.85)); border-color:rgba(23,50,74,.12) }
-        .light .val, .light .stat-box .stat-val{ color:#17324a }
-        .light #recentForecast{ color:#175398 }
-        .light .mini-chip{ color:#175398; background:#e8f2ff; border-color:#cfe6ff }
-        .light #dataTable{ background:#fff }
-        .light thead th{ background:linear-gradient(180deg, rgba(255,255,255,.98), rgba(255,255,255,.92)); color:#175398; border-bottom:1px solid rgba(23,50,74,.12) }
-        .light tbody td{ color:#17324a; border-bottom:1px solid rgba(23,50,74,.08) }
-        .light .forecast-row td{ background:#fff7e6 }
-        .light .actual-row td{ background:#ecfff4 }
-        .light .controls{ background:linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.82)); border-color:rgba(23,50,74,.12) }
-      `;
-      const tag = document.createElement('style'); tag.innerHTML = css; document.head.appendChild(tag);
-      document.documentElement.classList.remove('light'); // default dark on
-    })();
-
     /* ---------------- Boot ---------------- */
-    /* THEME helpers (idempotent) */
-    (function(){
-      const themeToggle = document.getElementById('themeToggle');
-      window._applyThemeToChart = function(){
-        const isLight = document.documentElement.classList.contains('light');
-        if(window.mainChart){
-          const x = window.mainChart.options.scales.x; const y = window.mainChart.options.scales.y;
-          x.ticks.color = isLight ? '#4b5563' : '#a5b4fc';
-          y.ticks.color = isLight ? '#4b5563' : '#a5b4fc';
-          x.grid.color  = isLight ? 'rgba(23,50,74,.12)' : 'rgba(148,163,184,.15)';
-          y.grid.color  = isLight ? 'rgba(23,50,74,.12)' : 'rgba(148,163,184,.15)';
-          window.mainChart.update('none');
-        }
-      };
-      function setThemeFromToggle(){
-        const isLight = !themeToggle.checked;
-        document.documentElement.classList.toggle('light', isLight);
-        document.body.classList.toggle('light', isLight);
-        window._applyThemeToChart();
-      }
-      if(themeToggle){ themeToggle.addEventListener('change', setThemeFromToggle); setThemeFromToggle(); }
-    })();
-
     reloadCSV();
   </script>
 </body>
