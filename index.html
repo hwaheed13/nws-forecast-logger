@@ -72,6 +72,12 @@
         <div style="font-size:14px;">Today’s Actual High</div>
         <div id="box-today-actual" class="stat-val">–</div>
       </div>
+      <div class="stat-box" id="card-today-obs">
+  <div style="font-size:14px;">Today’s High So Far (NWS obs)</div>
+  <div id="box-today-obs" class="stat-val">–</div>
+  <div id="box-today-obs-note" class="kalshi-small"></div>
+</div>
+
       <div class="stat-box" id="card-tomorrow-forecast">
         <div style="font-size:14px;">Tomorrow’s Forecasted High</div>
         <div id="box-tomorrow-forecast" class="stat-val">–</div>
@@ -409,6 +415,21 @@ async function getKalshiLabel(dateISO){
   kalshiCache.set(dateISO, data);
   return data;
 }
+const NWS_OBS_BASE = "https://kalshi-proxy-theta.vercel.app/api/nws-high-so-far";
+
+async function fetchNwsHighSoFar(station = "KNYC") {
+  try {
+    const r = await fetch(`${NWS_OBS_BASE}?station=${encodeURIComponent(station)}`, {
+      mode: "cors",
+      headers: { Accept: "application/json" },
+      cache: "no-cache"
+    });
+    if (!r.ok) return null;  // 204/502/etc.
+    return await r.json();   // { highF, atISO, station }
+  } catch {
+    return null;
+  }
+}
 
 
     /* ---------------- Summary boxes (uses proxy) ---------------- */
@@ -497,6 +518,28 @@ Promise.all([ getKalshiLabel(today), getKalshiLabel(yesterday) ])
     if (tNote) tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
   });
     }
+    // --- NWS "Today's High So Far" (observations)
+    fetchNwsHighSoFar("KNYC").then(obs => {
+      const el = document.getElementById("box-today-obs");
+      const note = document.getElementById("box-today-obs-note");
+      if (!el || !note) return;
+    
+      if (obs && obs.highF != null) {
+        el.textContent = `${Number(obs.highF).toFixed(1)}°F`;
+        // pretty time in ET
+        const ts = obs.atISO ? new Date(obs.atISO) : null;
+        const tNY = ts
+          ? new Intl.DateTimeFormat("en-US", {
+              timeZone: "America/New_York", hour: "numeric", minute: "2-digit"
+            }).format(ts)
+          : "";
+        note.textContent = tNY ? `as of ${tNY} ET • station ${obs.station}` : `station ${obs.station}`;
+      } else {
+        el.textContent = "–";
+        note.textContent = "";
+      }
+    });
+
 
     /* ---------------- Bias calc & corrected predictions ---------------- */
     function calcBiases(){
@@ -742,6 +785,10 @@ async function displayTable() {
 
     /* ---------------- Boot ---------------- */
     reloadCSV();
+    // Auto-refresh summary boxes (includes NWS obs + live Kalshi)
+  setInterval(() => {
+  updateSummaryBoxes();
+}, 10 * 60 * 1000); // every 10 minutes (tune as you like)
   </script>
 </body>
 </html>
