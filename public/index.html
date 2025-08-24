@@ -2,152 +2,775 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>🌡️ Daily Dew Point (Live)</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🌡️ Daily Dew Point Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg:#f5f7fb; --card:#fff; --ink:#17324a; --muted:#5c728a;
-      --brand:#175398; --brand-2:#1976d2; --ok:#2e7d32; --warn:#f59e0b;
-      --ring:#e6eef7; --shadow:0 8px 24px rgba(17,38,146,.08);
+      /* Modern color palette */
+      --bg-primary: #fafbfc;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #f8f9fa;
+      --bg-accent: #f1f5f9;
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --text-muted: #64748b;
+      --text-light: #94a3b8;
+      --border-subtle: #e2e8f0;
+      --border-default: #cbd5e1;
+      --accent-blue: #2563eb;
+      --accent-blue-light: #dbeafe;
+      --accent-green: #059669;
+      --accent-green-light: #d1fae5;
+      --accent-amber: #d97706;
+      --accent-amber-light: #fef3c7;
+      --accent-red: #dc2626;
+      --accent-red-light: #fee2e2;
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
     }
+
+    * {
+      box-sizing: border-box;
+    }
+
     body {
-      font-family:"Inter", system-ui, -apple-system, Segoe UI, Arial, sans-serif;
-      background:var(--bg);
-      margin:0; color:var(--ink);
-      font-feature-settings:"tnum" 1, "lnum" 1;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg-primary);
+      margin: 0;
+      color: var(--text-primary);
+      line-height: 1.6;
+      font-feature-settings: "tnum" 1, "lnum" 1;
     }
+
+    .header {
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-subtle);
+      padding: 24px 0;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(8px);
+    }
+
+    .header-content {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 0 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo-section {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-icon {
+      font-size: 32px;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-green));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .logo-text h1 {
+      margin: 0;
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .logo-subtitle {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin: 0;
+      font-weight: 400;
+    }
+
+    .status-badge {
+      background: var(--accent-green-light);
+      color: var(--accent-green);
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      background: var(--accent-green);
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
     .container {
-      max-width:1100px; background:var(--card); margin:32px auto; border-radius:16px;
-      box-shadow:var(--shadow); padding:32px 40px 42px; border:1px solid var(--ring);
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 32px;
     }
-    h1 { margin:0 0 8px 0; color:var(--brand); letter-spacing:.2px; }
-    .note { color:var(--muted); margin:0 0 14px 0; }
-    .badge { display:inline-block; margin-left:8px; padding:4px 8px; font-size:12px; border-radius:999px; background:#e8f2ff; color:var(--brand-2); border:1px solid var(--ring); }
-    .controls { display:flex; gap:12px; align-items:center; margin:20px 0 24px; padding:10px 0; background:transparent; border-top:1px solid var(--ring); border-bottom:1px solid var(--ring); }
-    input[type="date"] { font-size:14px; padding:7px 8px; border-radius:8px; border:1px solid #cfd9e6; }
-    .btn { background:var(--brand-2); color:#fff; border:none; border-radius:10px; padding:8px 14px; cursor:pointer; font-weight:600; box-shadow:0 2px 10px rgba(25,118,210,.18); transition:transform .04s ease, box-shadow .2s ease, opacity .15s ease; }
-    .btn:hover { box-shadow:0 6px 18px rgba(25,118,210,.22); } .btn:active { transform:translateY(1px); }
-    .stats { display:flex; gap:16px; margin:14px 0 8px 0; flex-wrap:wrap; }
-    .stat-box { background:#f7fbff; border:1px solid var(--ring); border-radius:14px; padding:14px 18px; flex:1 1 260px; box-shadow:var(--shadow); }
-    .stat-val { font-size:24px; color:#1976d2; font-weight:700; }
-    #card-today-forecast { background:#fff5eb; border-color:#ffe6c7; }
-    #card-today-actual   { background:#f0fff4; border-color:#c8f2d0; }
-    #card-tomorrow-forecast { background:#ebf5ff; border-color:#cfe6ff; }
-    .recent-line { color:var(--brand-2); font-size:15px; font-weight:600; letter-spacing:.02em; }
-    .correction-box { margin:18px 0 16px 0; background:#fffbe9; border-left:7px solid #ffd95b; border-radius:8px; padding:22px 30px; font-size:1.05em; box-shadow:0 2px 8px #0001; }
-    .table-wrap { overflow-x:auto; overflow-y:visible; margin-top:18px; }
-    #dataTable { width:100%; border-collapse:collapse; font-size:14px; table-layout:fixed; background:#fff; }
-    th, td { border:1px solid #e6edf6; padding:10px 6px; text-align:center; }
-    thead th { position: sticky; top: 0; background: var(--brand-2); color:#fff; z-index: 5; box-shadow: 0 1px 0 rgba(0,0,0,.08) inset, 0 2px 6px rgba(0,0,0,.06); }
-    tr:nth-child(even) { background:#f8fbff; } tr:hover td { background:#eef6ff; }
-    .forecast-row { background:#fffdf3 !important; } .actual-row { background:#f2faf2 !important; }
-    .best { box-shadow:inset 0 0 0 2px #9be19b; }
-    .skel td::before{ content:""; display:block; height:10px; margin:6px auto; width:70%; background:linear-gradient(90deg,#eef3f9,#f8fbff,#eef3f9); background-size:200% 100%; animation:sh 1.2s infinite linear; border-radius:6px; }
-    @keyframes sh { from{background-position:0 0;} to{background-position:200% 0;} }
-    #dataTable th:nth-child(5), #dataTable td:nth-child(5) { width: 90px; }
-    .mini-forecasts { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
-    .mini-chip { font-size:12px; padding:2px 8px; border-radius:999px; background:#eef6ff; border:1px solid var(--ring); color:var(--brand-2); white-space:nowrap; }
-    .sparkline-wrap { margin-top:6px; } .sparkline { width:180px; height:30px; display:block; }
-    .kalshi-badge{display:inline-block;margin-top:6px;padding:3px 8px;border-radius:999px;border:1px solid var(--ring);font-size:12px;background:#fff7f0;color:#b14b00}
-    .kalshi-link{color:inherit;text-decoration:none;border-bottom:1px dotted #b14b00}
-    .kalshi-pending{display:inline-block;margin-top:6px;padding:3px 8px;border-radius:999px;border:1px dashed var(--ring);font-size:12px;background:#fffaf0;color:#a16207}
-    .kalshi-small{font-size:12px;color:#6b7280;margin-top:4px}
+
+    .last-update {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 20px 24px;
+      margin-bottom: 32px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .last-update-label {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .last-update-content {
+      font-size: 15px;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    /* Grid Layouts */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+      margin-bottom: 32px;
+    }
+
+    .metric-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 28px;
+      box-shadow: var(--shadow-sm);
+      transition: all 0.2s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .metric-card:hover {
+      box-shadow: var(--shadow-md);
+      transform: translateY(-2px);
+    }
+
+    .metric-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, var(--accent-blue), var(--accent-green));
+    }
+
+    .metric-card.today-forecast::before {
+      background: var(--accent-amber);
+    }
+
+    .metric-card.today-obs::before {
+      background: var(--accent-blue);
+    }
+
+    .metric-card.today-actual::before {
+      background: var(--accent-green);
+    }
+
+    .metric-card.tomorrow-forecast::before {
+      background: var(--accent-blue);
+    }
+
+    .metric-label {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      font-weight: 500;
+    }
+
+    .metric-value {
+      font-size: 36px;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: 16px;
+      line-height: 1;
+    }
+
+    .metric-subtitle {
+      font-size: 13px;
+      color: var(--text-light);
+      margin-bottom: 12px;
+    }
+
+    .mini-forecasts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .mini-chip {
+      background: var(--bg-accent);
+      color: var(--text-secondary);
+      padding: 4px 10px;
+      border-radius: 16px;
+      font-size: 12px;
+      font-weight: 500;
+      border: 1px solid var(--border-subtle);
+    }
+
+    .sparkline-container {
+      height: 40px;
+      margin-top: 12px;
+    }
+
+    .sparkline {
+      width: 100%;
+      height: 40px;
+      display: block;
+    }
+
+    /* Kalshi Cards */
+    .kalshi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+      margin-bottom: 32px;
+    }
+
+    .kalshi-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 28px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .kalshi-badge {
+      background: var(--accent-amber-light);
+      color: var(--accent-amber);
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+      display: inline-block;
+      transition: all 0.2s ease;
+    }
+
+    .kalshi-badge:hover {
+      background: var(--accent-amber);
+      color: white;
+    }
+
+    .kalshi-pending {
+      background: var(--bg-accent);
+      color: var(--text-muted);
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 500;
+      border: 2px dashed var(--border-default);
+    }
+
+    .kalshi-note {
+      font-size: 13px;
+      color: var(--text-light);
+      margin-top: 8px;
+    }
+
+    /* Prediction Cards */
+    .prediction-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+      gap: 24px;
+      margin-bottom: 32px;
+    }
+
+    .prediction-card {
+      background: linear-gradient(135deg, var(--accent-blue-light), var(--accent-green-light));
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 32px;
+      box-shadow: var(--shadow-md);
+    }
+
+    .prediction-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 16px;
+    }
+
+    .prediction-value {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--accent-blue);
+      margin-bottom: 12px;
+    }
+
+    .prediction-subtitle {
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
+
+    /* Controls */
+    .controls-section {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      margin-bottom: 32px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .controls-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 16px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .control-label {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+
+    input[type="date"] {
+      padding: 10px 12px;
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+      color: var(--text-primary);
+      background: var(--bg-secondary);
+      transition: all 0.2s ease;
+    }
+
+    input[type="date"]:focus {
+      outline: none;
+      border-color: var(--accent-blue);
+      box-shadow: 0 0 0 3px var(--accent-blue-light);
+    }
+
+    .btn {
+      background: var(--accent-blue);
+      color: white;
+      border: none;
+      border-radius: var(--radius-sm);
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .btn:hover {
+      background: #1d4ed8;
+      box-shadow: var(--shadow-md);
+      transform: translateY(-1px);
+    }
+
+    .btn:active {
+      transform: translateY(0);
+    }
+
+    .btn.secondary {
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-default);
+    }
+
+    .btn.secondary:hover {
+      background: var(--bg-accent);
+      border-color: var(--border-default);
+    }
+
+    /* Stats */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 24px;
+      margin-bottom: 32px;
+    }
+
+    .stat-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 24px;
+      box-shadow: var(--shadow-sm);
+      text-align: center;
+    }
+
+    .stat-label {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      font-weight: 500;
+    }
+
+    .stat-value {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--accent-blue);
+    }
+
+    /* Chart Section */
+    .chart-section {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 32px;
+      margin-bottom: 32px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .chart-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 24px;
+    }
+
+    .chart-container {
+      position: relative;
+      height: 400px;
+      width: 100%;
+    }
+
+    /* Table Section */
+    .table-section {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 32px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .table-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 24px;
+    }
+
+    .table-container {
+      overflow-x: auto;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-subtle);
+    }
+
+    #dataTable {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      background: var(--bg-secondary);
+    }
+
+    #dataTable th {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      padding: 16px 12px;
+      text-align: left;
+      font-weight: 600;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 2px solid var(--border-default);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    #dataTable td {
+      padding: 14px 12px;
+      border-bottom: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+    }
+
+    #dataTable tbody tr:hover {
+      background: var(--bg-accent);
+    }
+
+    .forecast-row {
+      background: var(--accent-blue-light) !important;
+    }
+
+    .actual-row {
+      background: var(--accent-green-light) !important;
+    }
+
+    .best {
+      box-shadow: inset 0 0 0 2px var(--accent-green);
+    }
+
+    /* Loading skeleton */
+    .skel td::before {
+      content: "";
+      display: block;
+      height: 12px;
+      margin: 4px 0;
+      width: 70%;
+      background: linear-gradient(90deg, var(--bg-accent), var(--bg-tertiary), var(--bg-accent));
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+      border-radius: 4px;
+    }
+
+    @keyframes shimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+
+    /* Footer */
+    .footer {
+      margin-top: 48px;
+      padding: 24px 32px;
+      background: var(--bg-tertiary);
+      border-top: 1px solid var(--border-subtle);
+      text-align: center;
+      font-size: 13px;
+      color: var(--text-light);
+    }
+
+    .footer a {
+      color: var(--accent-blue);
+      text-decoration: none;
+    }
+
+    .footer a:hover {
+      text-decoration: underline;
+    }
+
+    /* Responsive Design */
+    @media (max-width: 768px) {
+      .container {
+        padding: 16px;
+      }
+
+      .header-content {
+        padding: 0 16px;
+        flex-direction: column;
+        gap: 16px;
+        text-align: center;
+      }
+
+      .metrics-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .prediction-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .controls {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .control-group {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .chart-container {
+        height: 300px;
+      }
+
+      .table-section {
+        padding: 16px;
+      }
+    }
   </style>
 </head>
 <body>
+  <header class="header">
+    <div class="header-content">
+      <div class="logo-section">
+        <div class="logo-icon">🌡️</div>
+        <div class="logo-text">
+          <h1>Daily Dew Point</h1>
+          <p class="logo-subtitle">Forecast vs Actual — Central Park, NY</p>
+        </div>
+      </div>
+      <div class="status-badge">
+        <div class="status-dot"></div>
+        Live Dashboard
+      </div>
+    </div>
+  </header>
+
   <div class="container">
-    <h1>🌡️ Daily Dew Point<span class="badge">Live</span></h1>
-    <div class="note">Automatically logs every NWS forecast update for Central Park and compares to the official daily high.</div>
-    <div id="recentForecast" class="recent-line">Last logged forecast: ...</div>
+    <div class="last-update">
+      <div class="last-update-label">Latest Forecast Update</div>
+      <div id="recentForecast" class="last-update-content">Loading latest forecast data...</div>
+    </div>
 
-    <!-- Summary boxes -->
-    <div class="stats">
-      <div class="stat-box" id="card-today-forecast">
-        <div style="font-size:14px;">Today’s Latest Forecasted High</div>
-        <div id="box-today-forecast" class="stat-val">–</div>
+    <!-- Current Metrics Grid -->
+    <div class="metrics-grid">
+      <div class="metric-card today-forecast">
+        <div class="metric-label">Today's Latest Forecast</div>
+        <div id="box-today-forecast" class="metric-value">–</div>
         <div id="mini-today-forecasts" class="mini-forecasts"></div>
-        <div class="sparkline-wrap"><canvas id="spark-today-forecast" class="sparkline" width="180" height="30"></canvas></div>
+        <div class="sparkline-container">
+          <canvas id="spark-today-forecast" class="sparkline" width="280" height="40"></canvas>
+        </div>
       </div>
-    <div class="stat-box" id="card-today-obs">
-      <div style="font-size:14px;">Today’s High So Far (NWS obs)</div>
-      <div id="box-today-obs" class="stat-val">–</div>
-      <div id="box-today-obs-note" class="kalshi-small"></div>
-    
-      <div style="height:8px;"></div>
-      <div class="kalshi-small" style="opacity:.8">Current Temp (NWS obs)</div>
-      <div id="box-today-current" class="stat-val" style="font-size:20px;">–</div>
-      <div id="box-today-current-note" class="kalshi-small"></div>
-    </div>
-      <div class="stat-box" id="card-today-actual">
-        <div style="font-size:14px;">Today’s Actual High</div>
-        <div id="box-today-actual" class="stat-val">–</div>
+
+      <div class="metric-card today-obs">
+        <div class="metric-label">Today's High So Far</div>
+        <div id="box-today-obs" class="metric-value">–</div>
+        <div id="box-today-obs-note" class="metric-subtitle"></div>
+        
+        <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-subtle);">
+          <div class="metric-subtitle">Current Temperature</div>
+          <div id="box-today-current" class="metric-value" style="font-size: 24px;">–</div>
+          <div id="box-today-current-note" class="metric-subtitle"></div>
+        </div>
       </div>
-      <div class="stat-box" id="card-tomorrow-forecast">
-        <div style="font-size:14px;">Tomorrow’s Forecasted High</div>
-        <div id="box-tomorrow-forecast" class="stat-val">–</div>
+
+      <div class="metric-card today-actual">
+        <div class="metric-label">Today's Actual High</div>
+        <div id="box-today-actual" class="metric-value">–</div>
+      </div>
+
+      <div class="metric-card tomorrow-forecast">
+        <div class="metric-label">Tomorrow's Forecast</div>
+        <div id="box-tomorrow-forecast" class="metric-value">–</div>
       </div>
     </div>
 
-    <!-- Kalshi cards -->
-    <div class="stats">
-      <div class="stat-box" id="card-today-kalshi">
-        <div style="font-size:14px;">Today’s Kalshi Winning Range</div>
-        <div id="box-today-kalshi" class="stat-val" style="font-size:18px;">Pending settlement</div>
-        <div id="box-today-kalshi-note" class="kalshi-small"></div>
+    <!-- Kalshi Cards -->
+    <div class="kalshi-grid">
+      <div class="kalshi-card">
+        <div class="metric-label">Today's Kalshi Market</div>
+        <div id="box-today-kalshi" class="metric-value" style="font-size: 18px;">Pending settlement</div>
+        <div id="box-today-kalshi-note" class="kalshi-note"></div>
       </div>
-      <div class="stat-box" id="card-yday-kalshi">
-        <div style="font-size:14px;">Yesterday’s Kalshi Winning Range</div>
-        <div id="box-yday-kalshi" class="stat-val" style="font-size:18px;">–</div>
-        <div id="box-yday-kalshi-note" class="kalshi-small"></div>
+      <div class="kalshi-card">
+        <div class="metric-label">Yesterday's Kalshi Result</div>
+        <div id="box-yday-kalshi" class="metric-value" style="font-size: 18px;">–</div>
+        <div id="box-yday-kalshi-note" class="kalshi-note"></div>
       </div>
     </div>
 
-    <!-- Corrected predictions -->
-    <div class="stats">
-      <div id="correctionBoxToday" class="correction-box" style="flex:1;">Loading...</div>
-      <div id="correctionBoxTomorrow" class="correction-box" style="flex:1;">Loading...</div>
+    <!-- Bias-Corrected Predictions -->
+    <div class="prediction-grid">
+      <div class="prediction-card">
+        <div class="prediction-title">Today's Bias-Corrected Prediction</div>
+        <div id="correctionBoxToday" class="prediction-content">Loading...</div>
+      </div>
+      <div class="prediction-card">
+        <div class="prediction-title">Tomorrow's Bias-Corrected Prediction</div>
+        <div id="correctionBoxTomorrow" class="prediction-content">Loading...</div>
+      </div>
     </div>
 
-    <!-- Filters -->
-    <div class="controls">
-      <label for="from">From:</label><input type="date" id="fromDate"/>
-      <label for="to">To:</label><input type="date" id="toDate"/>
-      <button class="btn" onclick="applyDateFilter()">Filter</button>
-      <button class="btn" onclick="resetFilter()">Show All</button>
-      <button class="btn" onclick="reloadCSV()">Reload</button>
+    <!-- Controls -->
+    <div class="controls-section">
+      <div class="controls-title">Filter Data</div>
+      <div class="controls">
+        <div class="control-group">
+          <label class="control-label" for="fromDate">From:</label>
+          <input type="date" id="fromDate"/>
+        </div>
+        <div class="control-group">
+          <label class="control-label" for="toDate">To:</label>
+          <input type="date" id="toDate"/>
+        </div>
+        <button class="btn" onclick="applyDateFilter()">Apply Filter</button>
+        <button class="btn secondary" onclick="resetFilter()">Show All</button>
+        <button class="btn secondary" onclick="reloadCSV()">Refresh Data</button>
+      </div>
     </div>
 
-    <!-- Stats row -->
-    <div class="stats" id="stats">
-      <div class="stat-box">Total Days: <span class="stat-val">0</span></div>
-      <div class="stat-box">Avg Absolute Error 
-        (all forecasts): <span class="stat-val">--°F</span></div>
-      <div class="stat-box">Avg Best Error (closest forecast per day): <span class="stat-val">--°F</span></div>
+    <!-- Statistics -->
+    <div class="stats-grid" id="stats">
+      <div class="stat-card">
+        <div class="stat-label">Total Days</div>
+        <div class="stat-value">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Average Absolute Error</div>
+        <div class="stat-value">--°F</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Average Best Error</div>
+        <div class="stat-value">--°F</div>
+      </div>
     </div>
 
     <!-- Chart -->
-    <div class="chart"><canvas id="dailyChart" width="1000" height="400"></canvas></div>
+    <div class="chart-section">
+      <div class="chart-title">Temperature Trends: Actual vs Predicted</div>
+      <div class="chart-container">
+        <canvas id="dailyChart" width="1000" height="400"></canvas>
+      </div>
+    </div>
 
-    <!-- Table -->
-    <div class="table-wrap">
-      <table id="dataTable">
-        <thead>
-          <tr>
-            <th>Date Pulled</th>
-            <th>Forecast Time</th>
-            <th>For Date</th>
-            <th>Forecasted High</th>
-            <th>Actual High</th>
-            <th>High Time</th>
-            <th>Error (°F)</th>
-            <th>Best?</th>
-            <th>Kalshi Range</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
+    <!-- Data Table -->
+    <div class="table-section">
+      <div class="table-title">Detailed Forecast Log</div>
+      <div class="table-container">
+        <table id="dataTable">
+          <thead>
+            <tr>
+              <th>Date Pulled</th>
+              <th>Forecast Time</th>
+              <th>For Date</th>
+              <th>Forecasted High</th>
+              <th>Actual High</th>
+              <th>High Time</th>
+              <th>Error (°F)</th>
+              <th>Best?</th>
+              <th>Kalshi Range</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </div>
   </div>
+
+  <footer class="footer">
+    © 2025 Dewdrop Ventures, LLC · 
+    <a href="/terms.html">Terms</a> · 
+    <a href="/privacy.html">Privacy</a> · 
+    <span>Informational only — not financial advice. Do your own due diligence before placing any bets or making financial decisions.</span>
+  </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
@@ -267,15 +890,16 @@
 
     function toDateObj(t) {
       if (!t) return null;
-      if (/[AP]M/i.test(t)) {
-        const m = t.match(/(\d{1,2}):(\d{2})\s*([AP]M)/i);
+      const clean = String(t).trim().replace(/:(\d{2})(?=\s*[AP]M)/i, ''); // drop seconds before AM/PM if present
+      if (/[AP]M/i.test(clean)) {
+        const m = clean.match(/(\d{1,2}):(\d{2})\s*([AP]M)/i);
         if (!m) return null;
         const [,h,mn,amp] = m;
-        const hour = Number(h)%12 + (amp.toUpperCase()==="PM"?12:0);
+        const hour = (Number(h)%12) + (amp.toUpperCase()==="PM"?12:0);
         return new Date(2020,1,1,hour,Number(mn));
       }
-      if (/^\d{2}:\d{2}$/.test(t)) {
-        const [h,mn]=t.split(":");
+      if (/^\d{2}:\d{2}$/.test(clean)) {
+        const [h,mn]=clean.split(":");
         return new Date(2020,1,1,Number(h),Number(mn));
       }
       return null;
@@ -288,8 +912,11 @@
       for (let i = allRows.length - 1; i >= 0; i--) {
         const r = allRows[i];
         if (r && r.forecast_or_actual === "forecast" && r.predicted_high && r.target_date) {
-          const when = r.timestamp || r.forecast_time || "(time unknown)";
-          el.innerHTML = `Last logged forecast: <b>${when}</b> — <b>${r.predicted_high}°F</b> (for <b>${r.target_date}</b>)`;
+          const iso = r.timestamp;
+          const when = iso ? new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/New_York", hour: "numeric", minute: "2-digit", month: "short", day: "numeric"
+          }).format(new Date(iso)) : (r.forecast_time || "(time unknown)");      
+          el.innerHTML = `<strong>${when} ET</strong> — <strong>${r.predicted_high}°F</strong> for <strong>${r.target_date}</strong>`;
           return;
         }
       }
@@ -332,29 +959,29 @@
       const ctx = cv.getContext('2d');
       ctx.clearRect(0,0,cv.width,cv.height);
       if (!rows.length) return;
-      const W = cv.width, H = cv.height, pad = 2;
+      const W = cv.width, H = cv.height, pad = 4;
       const vals = rows.map(r => r.val);
       const min = Math.min(...vals), max = Math.max(...vals);
       if (max === min) {
         const y = H/2;
         ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(W-pad, y);
-        ctx.lineWidth = 2; ctx.strokeStyle = '#1976d2'; ctx.stroke();
-        ctx.beginPath(); ctx.arc(W-pad, y, 2.5, 0, Math.PI*2);
-        ctx.fillStyle = '#2ecc71'; ctx.fill();
+        ctx.lineWidth = 3; ctx.strokeStyle = '#2563eb'; ctx.stroke();
+        ctx.beginPath(); ctx.arc(W-pad, y, 3, 0, Math.PI*2);
+        ctx.fillStyle = '#059669'; ctx.fill();
         return;
       }
       const n = vals.length;
       const xStep = (W - pad*2) / Math.max(1, n-1);
       const toY = v => H - pad - ((v - min) / (max - min)) * (H - pad*2);
-      ctx.beginPath(); ctx.lineWidth = 2; ctx.strokeStyle = '#1976d2';
+      ctx.beginPath(); ctx.lineWidth = 3; ctx.strokeStyle = '#2563eb';
       vals.forEach((v, i) => {
         const x = pad + i * xStep, y = toY(v);
         if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
       });
       ctx.stroke();
       const lastX = pad + (n-1)*xStep, lastY = toY(vals[n-1]);
-      ctx.beginPath(); ctx.arc(lastX, lastY, 2.5, 0, Math.PI*2);
-      ctx.fillStyle = '#2ecc71'; ctx.fill();
+      ctx.beginPath(); ctx.arc(lastX, lastY, 3, 0, Math.PI*2);
+      ctx.fillStyle = '#059669'; ctx.fill();
     }
 
 /* ---------------- Kalshi via proxy (single call) ---------------- */
@@ -419,8 +1046,37 @@ async function getKalshiLabel(dateISO){
   kalshiCache.set(dateISO, data);
   return data;
 }
-const NWS_OBS_BASE = "https://kalshi-proxy-theta.vercel.app/api/nws-high-so-far";
+    function updateObservations(){
+      fetchNwsHighSoFar("KNYC").then(obs => {
+        const el = document.getElementById("box-today-obs");
+        const note = document.getElementById("box-today-obs-note");
+        if (!el || !note) return;
+        if (obs && obs.highF != null) {
+          el.textContent = `${Number(obs.highF).toFixed(1)}°F`;
+          const ts = obs.atISO ? new Date(obs.atISO) : null;
+          const tNY = ts ? new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/New_York", hour: "numeric", minute: "2-digit"
+          }).format(ts) : "";
+          note.textContent = tNY ? `as of ${tNY} ET • station ${obs.station}` : `station ${obs.station}`;
+        } else { el.textContent = "–"; note.textContent = ""; }
+      });
 
+      fetchNwsCurrentTemp("KNYC").then(cur => {
+        const el = document.getElementById("box-today-current");
+        const note = document.getElementById("box-today-current-note");
+        if (!el || !note) return;
+        if (cur && cur.currentF != null) {
+          el.textContent = `${Number(cur.currentF).toFixed(1)}°F`;
+          const ts = cur.atISO ? new Date(cur.atISO) : null;
+          const tNY = ts ? new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/New_York", hour: "numeric", minute: "2-digit"
+          }).format(ts) : "";
+          note.textContent = tNY ? `as of ${tNY} ET • station ${cur.station}` : `station ${cur.station}`;
+        } else { el.textContent = "–"; note.textContent = ""; }
+      });
+    }
+
+const NWS_OBS_BASE = "https://kalshi-proxy-theta.vercel.app/api/nws-high-so-far";
 async function fetchNwsHighSoFar(station = "KNYC") {
   try {
     const r = await fetch(`${NWS_OBS_BASE}?station=${encodeURIComponent(station)}`, {
@@ -495,7 +1151,6 @@ async function fetchNwsCurrentTemp(station = "KNYC") {
       drawSparkline("spark-today-forecast", todayRows);
 
       // Kalshi cards (proxy)
-// Kalshi cards (proxy)
 Promise.all([ getKalshiLabel(today), getKalshiLabel(yesterday) ])
   .then(async ([ktoday, kyday]) => {
     const tBox = document.getElementById('box-today-kalshi');
@@ -505,7 +1160,7 @@ Promise.all([ getKalshiLabel(today), getKalshiLabel(yesterday) ])
 
     // YESTERDAY (settled or not)
     if (kyday && kyday.label) {
-      yBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${kyday.url}" target="_blank" rel="noopener">${kyday.label}</a></span>`;
+      yBox.innerHTML = `<a class="kalshi-badge" href="${kyday.url}" target="_blank" rel="noopener">${kyday.label}</a>`;
       yNote.textContent = kyday.exactTemp != null ? `Settled at ${kyday.exactTemp.toFixed(1)}°F.` : "";
     } else {
       yBox.innerHTML = `<span class="kalshi-pending">No data</span>`;
@@ -515,14 +1170,14 @@ Promise.all([ getKalshiLabel(today), getKalshiLabel(yesterday) ])
     // TODAY: prefer settled; otherwise show LIVE LEADER
     if (ktoday && ktoday.label) {
       // Settled (rarely same-day, but keep behavior)
-      tBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${ktoday.url}" target="_blank" rel="noopener">${ktoday.label}</a></span>`;
+      tBox.innerHTML = `<a class="kalshi-badge" href="${ktoday.url}" target="_blank" rel="noopener">${ktoday.label}</a>`;
       tNote.textContent = ktoday.exactTemp != null ? `Settled at ${ktoday.exactTemp.toFixed(1)}°F.` : "";
     } else {
       // Not settled yet ⇒ pull live leader
       const live = await fetchKalshiLiveLeader(today);
       if (live && live.leadingLabel) {
         const pct = (live.leadingProb != null) ? ` (${Math.round(live.leadingProb*100)}%)` : "";
-        tBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${live.url}" target="_blank" rel="noopener">${live.leadingLabel}${pct}</a></span>`;
+        tBox.innerHTML = `<a class="kalshi-badge" href="${live.url}" target="_blank" rel="noopener">${live.leadingLabel}${pct}</a>`;
         tNote.textContent = "Live leader (can flip before settlement).";
       } else {
         tBox.innerHTML = `<span class="kalshi-pending">Pending settlement</span>`;
@@ -534,50 +1189,8 @@ Promise.all([ getKalshiLabel(today), getKalshiLabel(yesterday) ])
     const tBox = document.getElementById('box-today-kalshi');
     const tNote = document.getElementById('box-today-kalshi-note');
     if (tBox) tBox.innerHTML = `<span class="kalshi-pending">Pending settlement</span>`;
-    if (tNote) tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
-  });
-    // --- NWS "Today's High So Far" (observations)
-    fetchNwsHighSoFar("KNYC").then(obs => {
-      const el = document.getElementById("box-today-obs");
-      const note = document.getElementById("box-today-obs-note");
-      if (!el || !note) return;
-    
-      if (obs && obs.highF != null) {
-        el.textContent = `${Number(obs.highF).toFixed(1)}°F`;
-        // pretty time in ET
-        const ts = obs.atISO ? new Date(obs.atISO) : null;
-        const tNY = ts
-          ? new Intl.DateTimeFormat("en-US", {
-              timeZone: "America/New_York", hour: "numeric", minute: "2-digit"
-            }).format(ts)
-          : "";
-        note.textContent = tNY ? `as of ${tNY} ET • station ${obs.station}` : `station ${obs.station}`;
-      } else {
-        el.textContent = "–";
-        note.textContent = "";
-      }
-    });
-    // --- NWS "Current Temp" (latest obs)
-fetchNwsCurrentTemp("KNYC").then(cur => {
-  const el = document.getElementById("box-today-current");
-  const note = document.getElementById("box-today-current-note");
-  if (!el || !note) return;
-
-  if (cur && cur.currentF != null) {
-    el.textContent = `${Number(cur.currentF).toFixed(1)}°F`;
-    const ts = cur.atISO ? new Date(cur.atISO) : null;
-    const tNY = ts
-      ? new Intl.DateTimeFormat("en-US", {
-          timeZone: "America/New_York",
-          hour: "numeric", minute: "2-digit"
-        }).format(ts)
-      : "";
-    note.textContent = tNY ? `as of ${tNY} ET • station ${cur.station}` : `station ${cur.station}`;
-  } else {
-    el.textContent = "–";
-    note.textContent = "";
-  }
-}); 
+          if (tNote) tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
+  }); 
     }
 
     /* ---------------- Bias calc & corrected predictions ---------------- */
@@ -643,14 +1256,12 @@ fetchNwsCurrentTemp("KNYC").then(cur => {
       const biasTxt = (avgBias>0?"+":"") + avgBias.toFixed(2);
 
       document.getElementById("correctionBoxToday").innerHTML =
-        `<b>Today's Corrected Prediction:</b><br>
-        <span style="font-size:1.6em;">${today}: <b>${todayPred==null?"–":todayPred.toFixed(1)+"°F"}</b></span><br>
-        <span style="color:#666;">Bias: <b>${biasTxt}°F</b> (avg of ${biasList.length} days)</span>`;
+        `<div class="prediction-value">${todayPred==null?"–":todayPred.toFixed(1)+"°F"}</div>
+        <div class="prediction-subtitle">For ${today} • Historical bias: ${biasTxt}°F (${biasList.length} days)</div>`;
 
       document.getElementById("correctionBoxTomorrow").innerHTML =
-        `<b>Tomorrow's Corrected Prediction:</b><br>
-        <span style="font-size:1.6em;">${tomorrow}: <b>${tomorrowPred==null?"–":tomorrowPred.toFixed(1)+"°F"}</b></span><br>
-        <span style="color:#666;">Bias: <b>${biasTxt}°F</b> (avg of ${biasList.length} days)</span>`;
+        `<div class="prediction-value">${tomorrowPred==null?"–":tomorrowPred.toFixed(1)+"°F"}</div>
+        <div class="prediction-subtitle">For ${tomorrow} • Historical bias: ${biasTxt}°F (${biasList.length} days)</div>`;
     }
 
     /* ---------------- Stats ---------------- */
@@ -683,10 +1294,26 @@ fetchNwsCurrentTemp("KNYC").then(cur => {
       });
       const avgAbs = count ? (absSum/count).toFixed(2) : "--";
       const avgBest = bestCount ? (bestSum/bestCount).toFixed(2) : "--";
-      document.getElementById("stats").innerHTML =
-        `<div class="stat-box">Total Days: <span class="stat-val">${Object.keys(dayMap).length}</span></div>
-         <div class="stat-box">Avg Absolute Error (all forecasts): <span class="stat-val">${avgAbs}°F</span></div>
-         <div class="stat-box">Avg Best Error (closest forecast per day): <span class="stat-val">${avgBest}°F</span></div>`;
+      
+      const daysWithActual = Object.values(dayMap).filter(rows =>
+        rows.some(x => x.forecast_or_actual === "actual" && Number.isFinite(Number(x.actual_high)))
+      ).length;
+      
+      const statsContainer = document.getElementById("stats");
+      statsContainer.innerHTML = `
+        <div class="stat-card">
+          <div class="stat-label">Total Days</div>
+          <div class="stat-value">${daysWithActual}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Average Absolute Error</div>
+          <div class="stat-value">${avgAbs}°F</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Average Best Error</div>
+          <div class="stat-value">${avgBest}°F</div>
+        </div>
+      `;
     }
 
     /* ---------------- Chart ---------------- */
@@ -728,15 +1355,60 @@ fetchNwsCurrentTemp("KNYC").then(cur => {
         data: {
           labels,
           datasets: [
-            { label: "Actual High", data: actuals, borderColor: "#2ecc71", fill:false, tension:0.2 },
-            { label: "Best Forecast (pre-high)", data: bestForecasts, borderColor: "#1976d2", fill:false, tension:0.2 }
+            { 
+              label: "Actual High", 
+              data: actuals, 
+              borderColor: "#059669", 
+              backgroundColor: "rgba(5, 150, 105, 0.1)",
+              fill: false, 
+              tension: 0.3,
+              pointRadius: 4,
+              pointHoverRadius: 6,
+              borderWidth: 3
+            },
+            { 
+              label: "Best Forecast (pre-high)", 
+              data: bestForecasts, 
+              borderColor: "#2563eb", 
+              backgroundColor: "rgba(37, 99, 235, 0.1)",
+              fill: false, 
+              tension: 0.3,
+              pointRadius: 4,
+              pointHoverRadius: 6,
+              borderWidth: 3
+            }
           ]
         },
         options: {
-          plugins: { legend: { display: true, position: "top" } },
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { 
+            legend: { 
+              display: true, 
+              position: "top",
+              labels: {
+                usePointStyle: true,
+                padding: 20,
+                font: {
+                  size: 13,
+                  weight: '500'
+                }
+              }
+            }
+          },
           scales: {
-            x: { title: {display:true,text:"Date"} },
-            y: { title: {display:true,text:"Temperature (°F)"} }
+            x: { 
+              title: {display:true, text:"Date", font: {size: 12, weight: '500'}},
+              grid: {color: 'rgba(0,0,0,0.05)'}
+            },
+            y: { 
+              title: {display:true, text:"Temperature (°F)", font: {size: 12, weight: '500'}},
+              grid: {color: 'rgba(0,0,0,0.05)'}
+            }
+          },
+          interaction: {
+            intersect: false,
+            mode: 'index'
           }
         }
       });
@@ -759,9 +1431,6 @@ async function displayTable() {
   // ✅ Only prefetch real ISO dates (prevents accidental "?date=target_date" calls)
   const isISODate = d => /^\d{4}-\d{2}-\d{2}$/.test(d);
   const dates = Object.keys(dayMap).filter(isISODate).sort();
-
-  // (Optional) throttle how many dates to prefetch if you want:
-  // const dates = Object.keys(dayMap).filter(isISODate).sort().slice(-120);
 
   // Prefetch Kalshi once per date
   const kalshiByDate = {};
@@ -792,9 +1461,9 @@ async function displayTable() {
     const k = kalshiByDate[date];
     const label = k && k.label ? k.label : "";
     const exact = k && k.exactTemp != null ? ` (${k.exactTemp.toFixed(1)}°F)` : "";
-    const kalshiCell = label
-  ? `<span class="kalshi-badge" title="Kalshi settled range">${label}${exact}</span>`
-  : `<span class="kalshi-small">—</span>`;
+    const kalshiCell = (k && k.label)
+      ? `<a class="kalshi-badge" href="${k.url}" target="_blank" rel="noopener" title="Kalshi settled range">${k.label}${exact}</a>`
+      : `<span style="color: var(--text-light); font-size: 12px;">—</span>`;
 
     dayRows.forEach((r,i) => {
       if (r.forecast_or_actual!=="forecast" && r.forecast_or_actual!=="actual") return;
@@ -814,26 +1483,21 @@ async function displayTable() {
           <td>${act}</td>
           <td>${highTime}</td>
           <td>${errTxt}</td>
-          <td>${(i===bestIdx && r.forecast_or_actual==="forecast") ? "✔️" : ""}</td>
+          <td>${(i===bestIdx && r.forecast_or_actual==="forecast") ? "✓" : ""}</td>
           <td>${kalshiCell}</td>
         </tr>`;
     });
   });
 }
 
-
     /* ---------------- Boot ---------------- */
     reloadCSV();
+    updateObservations();                 // ← call once on load
     // Auto-refresh summary boxes (includes NWS obs + live Kalshi)
-  setInterval(() => {
-  updateSummaryBoxes();
-}, 10 * 60 * 1000); // every 10 minutes (tune as you like)
+    setInterval(() => {
+      updateSummaryBoxes();
+      updateObservations();               // ← refresh obs too
+    }, 10 * 60 * 1000); // every 10 minutes
   </script>
-  <footer style="margin:24px 0; font-size:12px; color:#6b7280; text-align:center">
-  © 2025 Dewdrop Ventures, LLC · 
-  <a href="/terms.html">Terms</a> · 
-  <a href="/privacy.html">Privacy</a> · 
-  <span>Informational only — not financial advice. Do your own due diligence before placing any bets or making financial decisions.</span>
-</footer>
 </body>
 </html>
