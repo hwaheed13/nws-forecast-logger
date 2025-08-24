@@ -68,11 +68,16 @@
         <div id="mini-today-forecasts" class="mini-forecasts"></div>
         <div class="sparkline-wrap"><canvas id="spark-today-forecast" class="sparkline" width="180" height="30"></canvas></div>
       </div>
-      <div class="stat-box" id="card-today-obs">
+    <div class="stat-box" id="card-today-obs">
       <div style="font-size:14px;">Today’s High So Far (NWS obs)</div>
       <div id="box-today-obs" class="stat-val">–</div>
       <div id="box-today-obs-note" class="kalshi-small"></div>
-      </div>
+    
+      <div style="height:8px;"></div>
+      <div class="kalshi-small" style="opacity:.8">Current Temp (NWS obs)</div>
+      <div id="box-today-current" class="stat-val" style="font-size:20px;">–</div>
+      <div id="box-today-current-note" class="kalshi-small"></div>
+    </div>
       <div class="stat-box" id="card-today-actual">
         <div style="font-size:14px;">Today’s Actual High</div>
         <div id="box-today-actual" class="stat-val">–</div>
@@ -429,7 +434,22 @@ async function fetchNwsHighSoFar(station = "KNYC") {
     return null;
   }
 }
+// --- NWS current temp (latest obs)
+const NWS_CURRENT_BASE = "https://kalshi-proxy-theta.vercel.app/api/nws-current-temp";
 
+async function fetchNwsCurrentTemp(station = "KNYC") {
+  try {
+    const r = await fetch(`${NWS_CURRENT_BASE}?station=${encodeURIComponent(station)}&cb=${Date.now()}`, {
+      mode: "cors",
+      headers: { Accept: "application/json" },
+      cache: "no-cache"
+    });
+    if (!r.ok) return null;
+    return await r.json();   // { currentF, atISO, station }
+  } catch {
+    return null;
+  }
+}
 
     /* ---------------- Summary boxes (uses proxy) ---------------- */
     function updateSummaryBoxes() {
@@ -516,7 +536,6 @@ Promise.all([ getKalshiLabel(today), getKalshiLabel(yesterday) ])
     if (tBox) tBox.innerHTML = `<span class="kalshi-pending">Pending settlement</span>`;
     if (tNote) tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
   });
-    }
     // --- NWS "Today's High So Far" (observations)
     fetchNwsHighSoFar("KNYC").then(obs => {
       const el = document.getElementById("box-today-obs");
@@ -538,7 +557,28 @@ Promise.all([ getKalshiLabel(today), getKalshiLabel(yesterday) ])
         note.textContent = "";
       }
     });
+    // --- NWS "Current Temp" (latest obs)
+fetchNwsCurrentTemp("KNYC").then(cur => {
+  const el = document.getElementById("box-today-current");
+  const note = document.getElementById("box-today-current-note");
+  if (!el || !note) return;
 
+  if (cur && cur.currentF != null) {
+    el.textContent = `${Number(cur.currentF).toFixed(1)}°F`;
+    const ts = cur.atISO ? new Date(cur.atISO) : null;
+    const tNY = ts
+      ? new Intl.DateTimeFormat("en-US", {
+          timeZone: "America/New_York",
+          hour: "numeric", minute: "2-digit"
+        }).format(ts)
+      : "";
+    note.textContent = tNY ? `as of ${tNY} ET • station ${cur.station}` : `station ${cur.station}`;
+  } else {
+    el.textContent = "–";
+    note.textContent = "";
+  }
+}); 
+    }
 
     /* ---------------- Bias calc & corrected predictions ---------------- */
     function calcBiases(){
