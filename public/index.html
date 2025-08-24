@@ -23,14 +23,14 @@
       --accent-green-light: #d1fae5;
       --accent-amber: #d97706;
       --accent-amber-light: #fef3c7;
-      --accent-red: #dc2626;
-      --accent-red-light: #fee2e2;
       --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
       --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
       --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
       --radius-sm: 8px;
       --radius-md: 12px;
       --radius-lg: 16px;
+      --cl-actual: #10b981;   /* emerald */
+      --cl-forecast: #f59e0b; /* amber */
     }
 
     * { box-sizing: border-box; }
@@ -69,7 +69,9 @@
       background: linear-gradient(135deg, var(--accent-blue), var(--accent-green));
       -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
     }
-    .logo-text h1 { margin: 0; font-size: 24px; font-weight: 700; color: var(--text-primary); }
+    /* 4) Slightly bigger title */
+    .logo-text h1 { margin: 0; font-size: 28px; font-weight: 800; color: var(--text-primary); }
+    /* 3) Subtitle text reverted */
     .logo-subtitle { font-size: 13px; color: var(--text-muted); margin: 0; font-weight: 400; }
 
     .status-badge {
@@ -180,14 +182,35 @@
       border-radius: var(--radius-lg); padding: 32px; margin-bottom: 32px; box-shadow: var(--shadow-sm);
     }
     .chart-title { font-size: 18px; font-weight: 600; color: var(--text-primary); margin-bottom: 24px; }
-    .chart-container { position: relative; height: 400px; width: 100%; }
+    .chart-container { position: relative; height: 420px; width: 100%; } /* tiny extra height for axis padding */
 
+    /* 2) Collapsible table styles */
     .table-section {
       background: var(--bg-secondary); border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-lg); padding: 32px; box-shadow: var(--shadow-sm);
+      border-radius: var(--radius-lg); padding: 0; box-shadow: var(--shadow-sm);
+      overflow: hidden;
     }
-    .table-title { font-size: 18px; font-weight: 600; color: var(--text-primary); margin-bottom: 24px; }
-    .table-container { overflow-x: auto; border-radius: var(--radius-md); border: 1px solid var(--border-subtle); }
+    details.collapsible { border-radius: var(--radius-lg); }
+    details.collapsible > summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 18px 20px;
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+      display: flex; align-items: center; gap: 10px;
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--bg-tertiary);
+    }
+    details.collapsible > summary::-webkit-details-marker { display: none; }
+    .chev {
+      width: 10px; height: 10px; border-right: 2px solid var(--text-secondary); border-bottom: 2px solid var(--text-secondary);
+      transform: rotate(-45deg); transition: transform .2s ease;
+    }
+    details[open] .chev { transform: rotate(45deg); }
+    .table-body-pad { padding: 16px 20px 24px; }
+    .table-container { overflow-x: auto; border-radius: var(--radius-md); border: 1px solid var(--border-subtle); background: var(--bg-secondary); }
+
     #dataTable { width: 100%; border-collapse: collapse; font-size: 14px; background: var(--bg-secondary); }
     #dataTable th {
       background: var(--bg-tertiary); color: var(--text-primary); padding: 16px 12px; text-align: left; font-weight: 600;
@@ -221,8 +244,8 @@
       .prediction-grid { grid-template-columns: 1fr; }
       .controls { flex-direction: column; align-items: stretch; }
       .control-group { flex-direction: column; align-items: stretch; }
-      .chart-container { height: 300px; }
-      .table-section { padding: 16px; }
+      .chart-container { height: 340px; }
+      .table-body-pad { padding: 12px 12px 16px; }
     }
   </style>
 </head>
@@ -233,7 +256,7 @@
         <div class="logo-icon">🌡️</div>
         <div class="logo-text">
           <h1>Daily Dew Point</h1>
-          <p class="logo-subtitle">Forecast vs Actual — Central Park, NY</p>
+          <p class="logo-subtitle">Automatically logs every NWS forecast update for Central Park and compares to the official daily high</p>
         </div>
       </div>
       <div class="status-badge"><div class="status-dot"></div>Live Dashboard</div>
@@ -338,31 +361,36 @@
     <div class="chart-section">
       <div class="chart-title">Temperature Trends: Actual vs Predicted</div>
       <div class="chart-container">
-        <canvas id="dailyChart" width="1000" height="400"></canvas>
+        <canvas id="dailyChart" width="1000" height="420"></canvas>
       </div>
     </div>
 
-    <div class="table-section">
-      <div class="table-title">Detailed Forecast Log</div>
-      <div class="table-container">
-        <table id="dataTable">
-          <thead>
-            <tr>
-              <th>Date Pulled</th>
-              <th>Forecast Time</th>
-              <th>For Date</th>
-              <th>Forecasted High</th>
-              <th>Actual High</th>
-              <th>High Time</th>
-              <th>Error (°F)</th>
-              <th>Best?</th>
-              <th>Kalshi Range</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </div>
+    <!-- 2) Collapsible: Detailed Forecast Log -->
+    <section class="table-section">
+      <details class="collapsible">
+        <summary><span class="chev"></span> Detailed Forecast Log</summary>
+        <div class="table-body-pad">
+          <div class="table-container">
+            <table id="dataTable">
+              <thead>
+                <tr>
+                  <th>Date Pulled</th>
+                  <th>Forecast Time</th>
+                  <th>For Date</th>
+                  <th>Forecasted High</th>
+                  <th>Actual High</th>
+                  <th>High Time</th>
+                  <th>Error (°F)</th>
+                  <th>Best?</th>
+                  <th>Kalshi Range</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+    </section>
   </div>
 
   <footer class="footer">
@@ -377,7 +405,6 @@
     let allRows = [];
     let filteredRows = [];
 
-    /* NYC-local ISO date helper (YYYY-MM-DD) */
     function nycISODate(offsetDays=0){
       const fmt = new Intl.DateTimeFormat('en-CA', {
         timeZone:'America/New_York', year:'numeric', month:'2-digit', day:'2-digit'
@@ -387,7 +414,6 @@
       return `${g('year')}-${g('month')}-${g('day')}`;
     }
 
-    /* ---------------- CSV load + parsing ---------------- */
     function showSkeleton(rows=6){
       const tb=document.querySelector("#dataTable tbody");
       tb.innerHTML="";
@@ -457,7 +483,6 @@
       }
     }
 
-    /* ---------------- Filters & helpers ---------------- */
     function resetFilter() {
       filteredRows = allRows.slice();
       document.getElementById('fromDate').value = "";
@@ -505,7 +530,6 @@
       return null;
     }
 
-    /* -------- Last logged forecast -------- */
     function showMostRecent() {
       const el = document.getElementById("recentForecast");
       if (!allRows.length) { el.textContent = ""; return; }
@@ -523,7 +547,6 @@
       el.textContent = "";
     }
 
-    /* -------- Helpers for today's mini history -------- */
     function getForecastsForDate(dateISO) {
       const rows = allRows
         .filter(r => r.forecast_or_actual === "forecast" && r.target_date === dateISO && r.predicted_high)
@@ -584,15 +607,14 @@
       ctx.fillStyle = '#059669'; ctx.fill();
     }
 
-    /* ---------------- Kalshi via proxy + URL anchor helpers ---------------- */
+    /* Kalshi proxy + anchors */
     const KALSHI_PROXY_BASE = "https://kalshi-proxy-theta.vercel.app/api/kalshi";
     const KALSHI_LIVE_BASE  = "https://kalshi-proxy-theta.vercel.app/api/kalshi-live";
-
-    // NEW: force correct dated anchor (e.g., #kxhighny-25aug23)
     const KALSHI_MARKET_ID = "kxhighny"; // NYC daily high
+
     function kalshiDateHash(dateISO) {
       const [y,m,d] = dateISO.split("-").map(Number);
-      const dt = new Date(Date.UTC(y, m-1, d)); // safe for month name
+      const dt = new Date(Date.UTC(y, m-1, d));
       const dd = String(d).padStart(2,"0");
       const mmm = dt.toLocaleString("en-US",{month:"short", timeZone:"UTC"}).toLowerCase();
       const yy = String(y).slice(-2);
@@ -609,7 +631,7 @@
         let r = await fetch(`${KALSHI_PROXY_BASE}?date=${encodeURIComponent(dateISO)}`, {
           mode: "cors", headers: { Accept: "application/json" }, cache: "no-cache"
         });
-        if (r.status === 204) return null; // not settled yet
+        if (r.status === 204) return null;
         if (r.status === 304) {
           r = await fetch(`${KALSHI_PROXY_BASE}?date=${encodeURIComponent(dateISO)}&cb=${Date.now()}`, {
             mode: "cors", headers: { Accept: "application/json" }
@@ -647,7 +669,6 @@
       return data;
     }
 
-    /* --- NWS obs helpers --- */
     const NWS_OBS_BASE = "https://kalshi-proxy-theta.vercel.app/api/nws-high-so-far";
     const NWS_CURRENT_BASE = "https://kalshi-proxy-theta.vercel.app/api/nws-current-temp";
 
@@ -657,7 +678,7 @@
           mode: "cors", headers: { Accept: "application/json" }, cache: "no-cache"
         });
         if (!r.ok) return null;
-        return await r.json(); // { highF, atISO, station }
+        return await r.json();
       } catch { return null; }
     }
     async function fetchNwsCurrentTemp(station = "KNYC") {
@@ -666,11 +687,10 @@
           mode: "cors", headers: { Accept: "application/json" }, cache: "no-cache"
         });
         if (!r.ok) return null;
-        return await r.json(); // { currentF, atISO, station }
+        return await r.json();
       } catch { return null; }
     }
 
-    /* ---------------- Summary boxes (uses proxy) ---------------- */
     function updateSummaryBoxes() {
       const today = nycISODate(0);
       const tomorrow = nycISODate(1);
@@ -713,7 +733,6 @@
       renderMiniForecastChips(todayRows, "mini-today-forecasts");
       drawSparkline("spark-today-forecast", todayRows);
 
-      // Kalshi cards (with corrected anchors)
       Promise.all([ getKalshiLabel(today), getKalshiLabel(yesterday) ])
         .then(async ([ktoday, kyday]) => {
           const tBox = document.getElementById('box-today-kalshi');
@@ -721,7 +740,6 @@
           const yBox = document.getElementById('box-yday-kalshi');
           const yNote = document.getElementById('box-yday-kalshi-note');
 
-          // Yesterday (settled or not) — always link to yesterday's anchor
           if (kyday && kyday.label) {
             const yLink = ensureKalshiAnchor(kyday.url, yesterday);
             yBox.innerHTML = `<a class="kalshi-badge" href="${yLink}" target="_blank" rel="noopener">${kyday.label}</a>`;
@@ -732,7 +750,6 @@
             yNote.textContent = "";
           }
 
-          // Today: settled takes priority; otherwise live leader
           if (ktoday && ktoday.label) {
             const tLink = ensureKalshiAnchor(ktoday.url, today);
             tBox.innerHTML = `<a class="kalshi-badge" href="${tLink}" target="_blank" rel="noopener">${ktoday.label}</a>`;
@@ -759,7 +776,6 @@
         });
     }
 
-    /* ---------------- Bias calc & corrected predictions ---------------- */
     function calcBiases(){
       const biasList = [], dayMap = {};
       allRows.forEach(r => {
@@ -830,7 +846,6 @@
         <div class="prediction-subtitle">For ${tomorrow} • Historical bias: ${biasTxt}°F (${biasList.length} days)</div>`;
     }
 
-    /* ---------------- Stats ---------------- */
     function showStats() {
       let count = 0, absSum = 0, bestSum = 0, bestCount = 0;
 
@@ -896,7 +911,7 @@
       `;
     }
 
-    /* ---------------- Chart (weekly x-axis labels, daily points) ---------------- */
+    /* Chart with thicker x-axis labels + extra title paddings + weekly labels and nicer colors */
     function showChart() {
       const ctx = document.getElementById('dailyChart').getContext('2d');
       if (window.mainChart) window.mainChart.destroy();
@@ -946,44 +961,51 @@
             { 
               label: "Actual High", 
               data: actuals, 
-              borderColor: "#059669", 
-              backgroundColor: "rgba(5, 150, 105, 0.1)",
-              fill: false, tension: 0.3, pointRadius: 3, pointHoverRadius: 5, borderWidth: 3
+              borderColor: getComputedStyle(document.documentElement).getPropertyValue('--cl-actual').trim(),
+              backgroundColor: "rgba(16, 185, 129, 0.10)",
+              pointBackgroundColor: "rgba(16, 185, 129, 1)",
+              pointBorderColor: "rgba(16, 185, 129, 1)",
+              fill: false, tension: 0.25, pointRadius: 3, pointHoverRadius: 6, borderWidth: 3
             },
             { 
               label: "Best Forecast (pre-high)", 
               data: bestForecasts, 
-              borderColor: "#2563eb", 
-              backgroundColor: "rgba(37, 99, 235, 0.1)",
-              fill: false, tension: 0.3, pointRadius: 3, pointHoverRadius: 5, borderWidth: 3
+              borderColor: getComputedStyle(document.documentElement).getPropertyValue('--cl-forecast').trim(),
+              backgroundColor: "rgba(245, 158, 11, 0.10)",
+              pointBackgroundColor: "rgba(245, 158, 11, 1)",
+              pointBorderColor: "rgba(245, 158, 11, 1)",
+              fill: false, tension: 0.25, pointRadius: 3, pointHoverRadius: 6, borderWidth: 3
             }
           ]
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          layout: {
+            padding: { left: 8, right: 8, top: 4, bottom: 14 } /* a touch more bottom space for x-axis title */
+          },
           plugins: { 
             legend: { 
               display: true, position: "top",
-              labels: { usePointStyle: true, padding: 20, font: { size: 13, weight: '500' } }
+              labels: { usePointStyle: true, padding: 20, font: { size: 13, weight: '600' } }
             }
           },
           scales: {
             x: { 
-              title: {display:true, text:"Date", font: {size: 12, weight: '500'}},
+              title: {display:true, text:"Date", font: {size: 13, weight: '700'}, padding: {top: 8}},
               grid: {color: 'rgba(0,0,0,0.05)'},
               ticks: {
-                // Show a label about once a week; no "W25" — use "Aug 25" style
-                callback: function(value, index) {
-                  return (index % 7 === 0) ? prettyDate(labels[index]) : "";
-                },
+                font: { size: 12, weight: '700' },  /* 1) thicker x labels */
+                callback: function(value, index) { return (index % 7 === 0) ? prettyDate(labels[index]) : ""; },
                 maxRotation: 0,
-                autoSkip: false
+                autoSkip: false,
+                padding: 6
               }
             },
             y: { 
-              title: {display:true, text:"Temperature (°F)", font: {size: 12, weight: '500'}},
-              grid: {color: 'rgba(0,0,0,0.05)'}
+              title: {display:true, text:"Temperature (°F)", font: {size: 13, weight: '700'}, padding: {bottom: 8}},
+              grid: {color: 'rgba(0,0,0,0.05)'},
+              ticks: { font: { size: 12, weight: '600' }, padding: 6 }
             }
           },
           interaction: { intersect: false, mode: 'index' }
@@ -991,7 +1013,6 @@
       });
     }
 
-    /* ---------------- Table (prefetches Kalshi via proxy, fixed anchors) ---------------- */
     async function displayTable() {
       const tb = document.querySelector("#dataTable tbody");
       tb.innerHTML = "";
@@ -1063,7 +1084,6 @@
       });
     }
 
-    /* ---------------- Observations box refresh ---------------- */
     function updateObservations(){
       fetchNwsHighSoFar("KNYC").then(obs => {
         const el = document.getElementById("box-today-obs");
@@ -1094,13 +1114,13 @@
       });
     }
 
-    /* ---------------- Boot ---------------- */
+    /* Boot */
     reloadCSV();
     updateObservations();
     setInterval(() => {
       updateSummaryBoxes();
       updateObservations();
-    }, 10 * 60 * 1000); // every 10 minutes
+    }, 10 * 60 * 1000);
   </script>
 </body>
 </html>
