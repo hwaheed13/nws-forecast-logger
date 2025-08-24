@@ -1264,57 +1264,78 @@ Promise.all([ getKalshiLabel(today), getKalshiLabel(yesterday) ])
         <div class="prediction-subtitle">For ${tomorrow} • Historical bias: ${biasTxt}°F (${biasList.length} days)</div>`;
     }
 
-    /* ---------------- Stats ---------------- */
-    function showStats() {
-      let count=0, absSum=0, bestSum=0, bestCount=0;
-      const dayMap = {};
-      filteredRows.forEach(row => {
-        const date = row.forecast_or_actual === "actual" ? row.cli_date : row.target_date;
-        if (!date) return;
-        if (!dayMap[date]) dayMap[date] = [];
-        dayMap[date].push(row);
-      });
-      Object.values(dayMap).forEach(dayRows => {
-        const actual = dayRows.find(r => r.forecast_or_actual==="actual");
-        const actualHigh = actual ? Number(actual.actual_high) : null;
-        if (!Number.isFinite(actualHigh)) return;
-        const highTime = actual ? actual.high_time : "";
-        let bestErr=999;
-        dayRows.forEach(r => {
-          if (r.forecast_or_actual!=="forecast" || !r.predicted_high) return;
-          if (highTime) {
-            const fcHour = (r.forecast_time||"").substr(11,5);
-            if (fcHour && compareTimes(fcHour, highTime)>0) return;
-          }
-          const err = Math.abs(Number(r.predicted_high)-actualHigh);
-          absSum += err; count++;
-          if (err<bestErr) bestErr=err;
-        });
-        if (bestErr<999) { bestSum += bestErr; bestCount++; }
-      });
-      const avgAbs = count ? (absSum/count).toFixed(2) : "--";
-      const avgBest = bestCount ? (bestSum/bestCount).toFixed(2) : "--";
-      
-      const daysWithActual = Object.values(dayMap).filter(rows =>
-        rows.some(x => x.forecast_or_actual === "actual" && Number.isFinite(Number(x.actual_high)))
-      ).length;
-      
-      const statsContainer = document.getElementById("stats");
-      statsContainer.innerHTML = `
-        <div class="stat-card">
-          <div class="stat-label">Total Days</div>
-          <div class="stat-value">${daysWithActual}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Average Absolute Error</div>
-          <div class="stat-value">${avgAbs}°F</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Average Best Error</div>
-          <div class="stat-value">${avgBest}°F</div>
-        </div>
-      `;
-    }
+  /* ---------------- Stats ---------------- */
+function showStats() {
+  let count = 0, absSum = 0, bestSum = 0, bestCount = 0;
+
+  // Build a map of target dates → rows
+  const dayMap = {};
+  filteredRows.forEach(row => {
+    const date = row.forecast_or_actual === "actual" ? row.cli_date : row.target_date;
+    if (!date) return;
+    if (!dayMap[date]) dayMap[date] = [];
+    dayMap[date].push(row);
+  });
+
+  // NEW: total distinct days that have any forecast/actual logged
+  const totalDays = Object.keys(dayMap).length;
+
+  // Compute errors using ONLY days that have an actual
+  Object.values(dayMap).forEach(dayRows => {
+    const actual = dayRows.find(r => r.forecast_or_actual === "actual");
+    const actualHigh = actual ? Number(actual.actual_high) : null;
+    if (!Number.isFinite(actualHigh)) return; // skip days without an actual
+
+    const highTime = actual ? actual.high_time : "";
+    let bestErr = 999;
+
+    dayRows.forEach(r => {
+      if (r.forecast_or_actual !== "forecast" || !r.predicted_high) return;
+
+      // only consider forecasts issued before the daily high occurred
+      if (highTime) {
+        const fcHour = (r.forecast_time || "").substr(11, 5);
+        if (fcHour && compareTimes(fcHour, highTime) > 0) return;
+      }
+
+      const err = Math.abs(Number(r.predicted_high) - actualHigh);
+      absSum += err; 
+      count++;
+      if (err < bestErr) bestErr = err;
+    });
+
+    if (bestErr < 999) { bestSum += bestErr; bestCount++; }
+  });
+
+  const avgAbs  = count      ? (absSum / count).toFixed(2)   : "--";
+  const avgBest = bestCount  ? (bestSum / bestCount).toFixed(2) : "--";
+
+  // NEW: how many days actually have an official actual high
+  const daysWithActual = Object.values(dayMap).filter(rows =>
+    rows.some(x => x.forecast_or_actual === "actual" && Number.isFinite(Number(x.actual_high)))
+  ).length;
+
+  // Render dual counters + metrics
+  const statsContainer = document.getElementById("stats");
+  statsContainer.innerHTML = `
+    <div class="stat-card">
+      <div class="stat-label">Days Tracked</div>
+      <div class="stat-value">${totalDays}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Days With Actual</div>
+      <div class="stat-value">${daysWithActual}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Average Absolute Error</div>
+      <div class="stat-value">${avgAbs}°F</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Average Best Error</div>
+      <div class="stat-value">${avgBest}°F</div>
+    </div>
+  `;
+}
 
     /* ---------------- Chart ---------------- */
     function showChart() {
