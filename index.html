@@ -710,7 +710,9 @@ async function displayTable() {
     const k = kalshiByDate[date];
     const label = k && k.label ? k.label : "";
     const exact = k && k.exactTemp != null ? ` (${k.exactTemp.toFixed(1)}°F)` : "";
-    const kalshiCell = label ? `<span class="kalshi-badge" title="Kalshi settled range">${label}${exact}</span>` : "";
+    const kalshiCell = label
+  ? `<span class="kalshi-badge" title="Kalshi settled range">${label}${exact}</span>`
+  : `<span class="kalshi-small">—</span>`;
 
     dayRows.forEach((r,i) => {
       if (r.forecast_or_actual!=="forecast" && r.forecast_or_actual!=="actual") return;
