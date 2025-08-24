@@ -287,17 +287,19 @@
       return `${g('year')}-${g('month')}-${g('day')}`;
     }
 
-    /* Make Kalshi “yesterday” anchor like #kxhighny-25aug23 (ET) */
-    function kalshiAnchorForISO(dateISO){
-      const [y,m,d] = dateISO.split('-').map(Number);
-      // Construct date in ET to be safe (no DST issues for just day/month/year usage)
-      const dt = new Date(Date.UTC(y, m-1, d));
-      const monthMap = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
-      const dd = String(dt.getUTCDate()).replace(/^0/,''); // no leading zero
-      const mon = monthMap[dt.getUTCMonth()];
-      const yy = String(dt.getUTCFullYear()).slice(-2);
-      return `#kxhighny-${dd}${mon}${yy}`;
-    }
+  /* Make Kalshi anchor like #kxhighny-25aug23 for 2025-08-23 (ET) => YYmonDD */
+function kalshiAnchorForISO(dateISO){
+  const [y, m, d] = dateISO.split('-').map(Number);
+  // Use UTC to avoid local DST/offset surprises for day/month/year pieces
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  const monthMap = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+  const dd = String(dt.getUTCDate()).replace(/^0/, ''); // no leading zero
+  const mon = monthMap[dt.getUTCMonth()];
+  const yy = String(dt.getUTCFullYear()).slice(-2);
+  return `#kxhighny-${yy}${mon}${dd}`;
+}
+// quick sanity check:
+// kalshiAnchorForISO('2025-08-23') -> "#kxhighny-25aug23"
 
     /* ---------------- CSV load + parsing ---------------- */
     function showSkeleton(rows=6){
