@@ -546,7 +546,6 @@ function kalshiAnchorForISO(dateISO){
 
       const todayRows=getForecastsForDate(today);
       renderMiniForecastChips(todayRows,"mini-today-forecasts");
-      drawSparkline("spark-today-forecast",todayRows);
 
       // KALSHI CARDS
       Promise.all([ getKalshiLabel(today), getKalshiLabel(yesterday) ])
