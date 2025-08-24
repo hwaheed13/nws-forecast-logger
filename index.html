@@ -373,18 +373,26 @@ async function fetchKalshiWinningRange(dateISO){
 }
 
 
-    const kalshiCache = new Map();
-    async function getKalshiLabel(dateISO){
-      if(kalshiCache.has(dateISO)) return kalshiCache.get(dateISO);
-      try{
-        const data = await fetchKalshiWinningRange(dateISO);
-        kalshiCache.set(dateISO, data);
-        return data;
-      }catch{
-        kalshiCache.set(dateISO, null);
-        return null;
-      }
+   // Cache that retries once if we previously saw null (e.g., pre-settlement)
+const kalshiCache = new Map();
+async function getKalshiLabel(dateISO){
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateISO)) return null; // guard
+
+  if (kalshiCache.has(dateISO)) {
+    const cached = kalshiCache.get(dateISO);
+    if (cached === null) {
+      // one fresh refetch after initial null
+      const fresh = await fetchKalshiWinningRange(dateISO);
+      kalshiCache.set(dateISO, fresh);
+      return fresh;
     }
+    return cached;
+  }
+
+  const data = await fetchKalshiWinningRange(dateISO);
+  kalshiCache.set(dateISO, data);
+  return data;
+}
 
     /* ---------------- Summary boxes (uses proxy) ---------------- */
     function updateSummaryBoxes() {
@@ -624,73 +632,82 @@ async function fetchKalshiWinningRange(dateISO){
     }
 
     /* ---------------- Table (prefetches Kalshi via proxy) ---------------- */
-    async function displayTable() {
-      const tb = document.querySelector("#dataTable tbody");
-      tb.innerHTML = "";
-      const dayMap = {};
-      filteredRows.forEach(r => {
-        const date = r.forecast_or_actual === "actual" ? r.cli_date : r.target_date;
-        if (!date) return;
-        if (!dayMap[date]) dayMap[date]=[];
-        dayMap[date].push(r);
-      });
+async function displayTable() {
+  const tb = document.querySelector("#dataTable tbody");
+  tb.innerHTML = "";
 
-      const dates = Object.keys(dayMap).sort();
+  // Build day map
+  const dayMap = {};
+  filteredRows.forEach(r => {
+    const date = r.forecast_or_actual === "actual" ? r.cli_date : r.target_date;
+    if (!date) return;
+    if (!dayMap[date]) dayMap[date] = [];
+    dayMap[date].push(r);
+  });
 
-      // Prefetch Kalshi range per date (via proxy)
-      const kalshiByDate = {};
-      await Promise.all(dates.map(async d => {
-        try { kalshiByDate[d] = await getKalshiLabel(d); }
-        catch { kalshiByDate[d] = null; }
-      }));
+  // ✅ Only prefetch real ISO dates (prevents accidental "?date=target_date" calls)
+  const isISODate = d => /^\d{4}-\d{2}-\d{2}$/.test(d);
+  const dates = Object.keys(dayMap).filter(isISODate).sort();
 
-      dates.forEach(date => {
-        const dayRows = dayMap[date];
-        const actual = dayRows.find(r => r.forecast_or_actual==="actual");
-        const actualHigh = actual ? rNum(actual.actual_high) : null;
-        const actualHighTxt = actual && actual.actual_high ? actual.actual_high+"°F" : "";
-        const highTime = actual ? actual.high_time : "";
-        let bestIdx=-1, bestErr=999;
+  // (Optional) throttle how many dates to prefetch if you want:
+  // const dates = Object.keys(dayMap).filter(isISODate).sort().slice(-120);
 
-        dayRows.forEach((r,i) => {
-          if (r.forecast_or_actual !== "forecast" || !r.predicted_high || actualHigh===null) return;
-          if (highTime) {
-            const fcHour = (r.forecast_time||"").substr(11,5);
-            if (fcHour && compareTimes(fcHour, highTime)>0) return;
-          }
-          const err = Math.abs(Number(r.predicted_high)-actualHigh);
-          if (err<bestErr) { bestErr=err; bestIdx=i; }
-        });
+  // Prefetch Kalshi once per date
+  const kalshiByDate = {};
+  await Promise.all(dates.map(async d => {
+    try { kalshiByDate[d] = await getKalshiLabel(d); }
+    catch { kalshiByDate[d] = null; }
+  }));
 
-        const k = kalshiByDate[date];
-        const label = k && k.label ? k.label : "";
-        const exact = k && k.exactTemp != null ? ` (${k.exactTemp.toFixed(1)}°F)` : "";
-        const kalshiCell = label ? `<span class="kalshi-badge" title="Kalshi settled range">${label}${exact}</span>` : "";
+  // Render rows
+  dates.forEach(date => {
+    const dayRows = dayMap[date];
+    const actual = dayRows.find(r => r.forecast_or_actual==="actual");
+    const actualHigh = actual ? rNum(actual.actual_high) : null;
+    const actualHighTxt = actual && actual.actual_high ? actual.actual_high+"°F" : "";
+    const highTime = actual ? actual.high_time : "";
+    let bestIdx=-1, bestErr=999;
 
-        dayRows.forEach((r,i) => {
-          if (r.forecast_or_actual!=="forecast" && r.forecast_or_actual!=="actual") return;
-          let cls = r.forecast_or_actual==="actual" ? "actual-row" : "forecast-row";
-          if (i===bestIdx && r.forecast_or_actual==="forecast") cls += " best";
-          const pred = r.predicted_high ? r.predicted_high+"°F" : "";
-          const act = r.actual_high ? r.actual_high+"°F" : actualHighTxt;
-          const fTime = r.forecast_time ? r.forecast_time.substr(11,5) : "";
-          const errTxt = (r.forecast_or_actual==="forecast" && r.predicted_high && actualHigh!==null)
-            ? (Number(r.predicted_high)-actualHigh).toFixed(1) : "";
-          tb.innerHTML += `
-            <tr class="${cls}">
-              <td>${r.timestamp ? r.timestamp.substr(0,10) : ""}</td>
-              <td>${fTime}</td>
-              <td>${date}</td>
-              <td>${pred}</td>
-              <td>${act}</td>
-              <td>${highTime}</td>
-              <td>${errTxt}</td>
-              <td>${(i===bestIdx && r.forecast_or_actual==="forecast") ? "✔️" : ""}</td>
-              <td>${kalshiCell}</td>
-            </tr>`;
-        });
-      });
-    }
+    dayRows.forEach((r,i) => {
+      if (r.forecast_or_actual !== "forecast" || !r.predicted_high || actualHigh===null) return;
+      if (highTime) {
+        const fcHour = (r.forecast_time||"").substr(11,5);
+        if (fcHour && compareTimes(fcHour, highTime)>0) return;
+      }
+      const err = Math.abs(Number(r.predicted_high)-actualHigh);
+      if (err<bestErr) { bestErr=err; bestIdx=i; }
+    });
+
+    const k = kalshiByDate[date];
+    const label = k && k.label ? k.label : "";
+    const exact = k && k.exactTemp != null ? ` (${k.exactTemp.toFixed(1)}°F)` : "";
+    const kalshiCell = label ? `<span class="kalshi-badge" title="Kalshi settled range">${label}${exact}</span>` : "";
+
+    dayRows.forEach((r,i) => {
+      if (r.forecast_or_actual!=="forecast" && r.forecast_or_actual!=="actual") return;
+      let cls = r.forecast_or_actual==="actual" ? "actual-row" : "forecast-row";
+      if (i===bestIdx && r.forecast_or_actual==="forecast") cls += " best";
+      const pred = r.predicted_high ? r.predicted_high+"°F" : "";
+      const act = r.actual_high ? r.actual_high+"°F" : actualHighTxt;
+      const fTime = r.forecast_time ? r.forecast_time.substr(11,5) : "";
+      const errTxt = (r.forecast_or_actual==="forecast" && r.predicted_high && actualHigh!==null)
+        ? (Number(r.predicted_high)-actualHigh).toFixed(1) : "";
+      tb.innerHTML += `
+        <tr class="${cls}">
+          <td>${r.timestamp ? r.timestamp.substr(0,10) : ""}</td>
+          <td>${fTime}</td>
+          <td>${date}</td>
+          <td>${pred}</td>
+          <td>${act}</td>
+          <td>${highTime}</td>
+          <td>${errTxt}</td>
+          <td>${(i===bestIdx && r.forecast_or_actual==="forecast") ? "✔️" : ""}</td>
+          <td>${kalshiCell}</td>
+        </tr>`;
+    });
+  });
+}
+
 
     /* ---------------- Boot ---------------- */
     reloadCSV();
