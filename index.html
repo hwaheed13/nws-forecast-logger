@@ -347,19 +347,18 @@
       ctx.fillStyle = '#2ecc71'; ctx.fill();
     }
 
-    /* ---------------- Kalshi via proxy (single call) ---------------- */
-    const KALSHI_PROXY_BASE = "https://kalshi-proxy-theta.vercel.app/api/kalshi";
+/* ---------------- Kalshi via proxy (single call) ---------------- */
+const KALSHI_PROXY_BASE = "https://kalshi-proxy-theta.vercel.app/api/kalshi";
 
 async function fetchKalshiWinningRange(dateISO){
   try {
     let r = await fetch(`${KALSHI_PROXY_BASE}?date=${encodeURIComponent(dateISO)}`, {
       mode: "cors",
       headers: { Accept: "application/json" },
-      cache: "no-cache"        // <— important
+      cache: "no-cache"
     });
     if (r.status === 204) return null; // not settled yet
     if (r.status === 304) {
-      // belt-and-suspenders fallback (rare with cache:"no-cache")
       r = await fetch(`${KALSHI_PROXY_BASE}?date=${encodeURIComponent(dateISO)}&cb=${Date.now()}`, {
         mode: "cors",
         headers: { Accept: "application/json" }
@@ -367,6 +366,23 @@ async function fetchKalshiWinningRange(dateISO){
     }
     if (!r.ok) return null;
     return await r.json();
+  } catch {
+    return null;
+  }
+}
+
+// --- LIVE (intraday) leader endpoint
+const KALSHI_LIVE_BASE = "https://kalshi-proxy-theta.vercel.app/api/kalshi-live";
+
+async function fetchKalshiLiveLeader(dateISO){
+  try {
+    const r = await fetch(`${KALSHI_LIVE_BASE}?date=${encodeURIComponent(dateISO)}`, {
+      mode: "cors",
+      headers: { Accept: "application/json" },
+      cache: "no-cache"
+    });
+    if (!r.ok) return null;   // 204/404/etc.
+    return await r.json();    // { leadingLabel, leadingProb, url }
   } catch {
     return null;
   }
@@ -388,11 +404,12 @@ async function getKalshiLabel(dateISO){
     }
     return cached;
   }
-
+   // fall through: no cache yet → fetch once
   const data = await fetchKalshiWinningRange(dateISO);
   kalshiCache.set(dateISO, data);
   return data;
 }
+
 
     /* ---------------- Summary boxes (uses proxy) ---------------- */
     function updateSummaryBoxes() {
@@ -438,35 +455,47 @@ async function getKalshiLabel(dateISO){
       drawSparkline("spark-today-forecast", todayRows);
 
       // Kalshi cards (proxy)
-      Promise.all([ getKalshiLabel(today), getKalshiLabel(yesterday) ])
-        .then(([ktoday, kyday]) => {
-          const tBox = document.getElementById('box-today-kalshi');
-          const tNote = document.getElementById('box-today-kalshi-note');
-          const yBox = document.getElementById('box-yday-kalshi');
-          const yNote = document.getElementById('box-yday-kalshi-note');
+// Kalshi cards (proxy)
+Promise.all([ getKalshiLabel(today), getKalshiLabel(yesterday) ])
+  .then(async ([ktoday, kyday]) => {
+    const tBox = document.getElementById('box-today-kalshi');
+    const tNote = document.getElementById('box-today-kalshi-note');
+    const yBox = document.getElementById('box-yday-kalshi');
+    const yNote = document.getElementById('box-yday-kalshi-note');
 
-          if (ktoday && ktoday.label) {
-            tBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${ktoday.url}" target="_blank" rel="noopener">${ktoday.label}</a></span>`;
-            tNote.textContent = ktoday.exactTemp != null ? `Settled at ${ktoday.exactTemp.toFixed(1)}°F.` : "";
-          } else {
-            tBox.innerHTML = `<span class="kalshi-pending">Pending settlement</span>`;
-            tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
-          }
+    // YESTERDAY (settled or not)
+    if (kyday && kyday.label) {
+      yBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${kyday.url}" target="_blank" rel="noopener">${kyday.label}</a></span>`;
+      yNote.textContent = kyday.exactTemp != null ? `Settled at ${kyday.exactTemp.toFixed(1)}°F.` : "";
+    } else {
+      yBox.innerHTML = `<span class="kalshi-pending">No data</span>`;
+      yNote.textContent = "";
+    }
 
-          if (kyday && kyday.label) {
-            yBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${kyday.url}" target="_blank" rel="noopener">${kyday.label}</a></span>`;
-            yNote.textContent = kyday.exactTemp != null ? `Settled at ${kyday.exactTemp.toFixed(1)}°F.` : "";
-          } else {
-            yBox.innerHTML = `<span class="kalshi-pending">No data</span>`;
-            yNote.textContent = "";
-          }
-        })
-        .catch(() => {
-          const tBox = document.getElementById('box-today-kalshi');
-          const tNote = document.getElementById('box-today-kalshi-note');
-          if (tBox) tBox.innerHTML = `<span class="kalshi-pending">Pending settlement</span>`;
-          if (tNote) tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
-        });
+    // TODAY: prefer settled; otherwise show LIVE LEADER
+    if (ktoday && ktoday.label) {
+      // Settled (rarely same-day, but keep behavior)
+      tBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${ktoday.url}" target="_blank" rel="noopener">${ktoday.label}</a></span>`;
+      tNote.textContent = ktoday.exactTemp != null ? `Settled at ${ktoday.exactTemp.toFixed(1)}°F.` : "";
+    } else {
+      // Not settled yet ⇒ pull live leader
+      const live = await fetchKalshiLiveLeader(today);
+      if (live && live.leadingLabel) {
+        const pct = (live.leadingProb != null) ? ` (${Math.round(live.leadingProb*100)}%)` : "";
+        tBox.innerHTML = `<span class="kalshi-badge"><a class="kalshi-link" href="${live.url}" target="_blank" rel="noopener">${live.leadingLabel}${pct}</a></span>`;
+        tNote.textContent = "Live leader (can flip before settlement).";
+      } else {
+        tBox.innerHTML = `<span class="kalshi-pending">Pending settlement</span>`;
+        tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
+      }
+    }
+  })
+  .catch(() => {
+    const tBox = document.getElementById('box-today-kalshi');
+    const tNote = document.getElementById('box-today-kalshi-note');
+    if (tBox) tBox.innerHTML = `<span class="kalshi-pending">Pending settlement</span>`;
+    if (tNote) tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
+  });
     }
 
     /* ---------------- Bias calc & corrected predictions ---------------- */
