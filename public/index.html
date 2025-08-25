@@ -181,20 +181,23 @@
       </div>
     </div>
     
-	  <!-- Bias-corrected -->
-    <div class="prediction-grid">
-      <div class="prediction-card">
-        <div class="prediction-title">Today's Bias-Corrected Prediction</div>
-        <div id="correctionBoxToday" class="prediction-content">Loading...</div>
-      </div>
-      <div class="prediction-card">
-        <div class="prediction-title">Tomorrow's Bias-Corrected Prediction</div>
-        <div id="correctionBoxTomorrow" class="prediction-content">Loading...</div>
-      </div>
-    </div>
-	<p style="font-size:12px; color:var(--text-light); margin-top:6px;">
-  	Note: “days” refers only to dates with an actual high and at least one valid forecast logged before that high.
-	</p>
+	<!-- Bias-corrected -->
+	<div class="prediction-grid">
+	  <div class="prediction-card">
+	    <div class="prediction-title">Today's Bias-Corrected Prediction</div>
+	    <div id="correctionBoxToday" class="prediction-content">Loading...</div>
+	  </div>
+	  <div class="prediction-card">
+	    <div class="prediction-title">Tomorrow's Bias-Corrected Prediction</div>
+	    <div id="correctionBoxTomorrow" class="prediction-content">Loading...</div>
+	  </div>
+
+  <!-- Note inside grid -->
+  <div style="grid-column:1/-1; font-size:12px; color:var(--text-light); margin-top:-4px;">
+    Note: “days” refers only to dates with an actual high and at least one valid forecast logged before that high.
+  </div>
+</div>
+
 	  
     <!-- Kalshi -->
     <div class="kalshi-grid">
