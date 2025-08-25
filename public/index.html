@@ -205,6 +205,77 @@
       .chart-container{height:320px}
       .header-content{flex-direction:column; gap:8px}
     }
+ /* === Fluid sizing (works on all viewports) === */
+.brand-title        { font-size: clamp(18px, 2.2vw, 28px); }
+.metric-value       { font-size: clamp(22px, 3vw, 36px); }
+.prediction-value   { font-size: clamp(20px, 2.6vw, 28px); }
+.stat-value         { font-size: clamp(18px, 2.4vw, 28px); }
+.kalshi-badge       { font-size: clamp(11px, 1.8vw, 14px); padding: 6px 10px; }
+.pill               { font-size: clamp(10px, 1.6vw, 12px); padding: 4px 8px; }
+
+/* Make the main chart height fluid instead of fixed */
+.chart-container { height: clamp(220px, 38vh, 380px); }
+
+/* === Phone tweaks (≤ 600px) === */
+@media (max-width: 600px) {
+  .container        { padding: 12px; }
+  .header           { padding: 12px 0; }
+  .header-content   { gap: 6px; }
+
+  /* Brand block */
+  .brand            { gap: 8px; }
+  .brand-left       { gap: 8px; }
+  .brand-mark       { width: 32px; height: 32px; border-radius: 10px; top: -2px; }
+  .brand-mark svg   { width: 28px; height: 28px; transform: translate(0, 0); }
+  .brand-sub        { font-size: 12px; line-height: 1.35; }
+
+  /* Cards & grids */
+  .metrics-grid,
+  .prediction-grid,
+  .kalshi-grid,
+  .stats-grid       { grid-template-columns: 1fr; gap: 10px; }
+  .metric-card      { padding: 14px; border-radius: 14px; }
+  .metric-label     { font-size: 13px; }
+  .metric-value     { line-height: 1.05; }
+  .metric-subtitle  { font-size: 12px; }
+  .prediction-card  { padding: 14px; }
+  .stat-card        { padding: 12px; }
+
+  /* Mini forecast chips */
+  .mini-forecasts   { gap: 4px; }
+  .mini-chip        { font-size: 11px; padding: 3px 8px; }
+
+  /* Controls */
+  .controls-section { padding: 12px; }
+  .controls         { gap: 8px; }
+  .control-label    { font-size: 12px; }
+  input[type="date"]{ font-size: 13px; padding: 7px 8px; border-radius: 8px; }
+  .btn              { font-size: 13px; padding: 8px 12px; border-radius: 8px; }
+
+  /* Chart */
+  .chart-section    { padding: 14px; }
+  .chart-title      { font-size: 14px; margin-bottom: 10px; }
+  .chart-container  { height: 260px; }
+
+  /* Table */
+  .table-title      { font-size: 14px; padding: 12px 14px; }
+  .table-container  { padding: 0 12px 12px; }
+  #dataTable        { font-size: 12px; }
+  #dataTable th     { font-size: 11px; padding: 10px 8px; }
+  #dataTable td     { padding: 10px 8px; }
+
+  /* Pills (top-right) */
+  .brand-right      { gap: 6px; }
+  .pill .dot        { width: 5px; height: 5px; }
+}
+
+/* === Small phones (≤ 400px) — nudge once more === */
+@media (max-width: 400px) {
+  .metric-card      { padding: 12px; }
+  .metric-value     { font-size: 20px; }
+  .prediction-value { font-size: 18px; }
+  .chart-container  { height: 230px; }
+}
   </style>
 </head>
 <body>
