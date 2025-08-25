@@ -45,18 +45,17 @@
 	
 	/* Mark */
 	.brand-mark {
-	  display: grid; place-items: center;
-	  width: 40px; height: 40px;
+	  display: grid; 
+	  place-items: center;
+	  width: 40px; 
+	  height: 40px;
 	  border-radius: 12px;
 	  background: linear-gradient(135deg, var(--accent-blue-light), var(--accent-green-light));
 	  box-shadow: var(--shadow-sm);
 	  border: 1px solid var(--border-subtle);
-	}
-	.brand-mark svg {
-  display: block;
-  transform: translateY(-4px);  /* adjust -2, -3, -4px until it feels right */
-	}
-
+	  position: relative;
+	  top: -2px;   /* 👈 nudge the whole square upward */
+		}
 	/* Wordmark */
 	.brand-title {
 	  margin: 0;
