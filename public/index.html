@@ -54,8 +54,15 @@
 	  box-shadow: var(--shadow-sm);
 	  border: 1px solid var(--border-subtle);
 	  position: relative;
-	  top: -2px;   /* 👈 nudge the whole square upward */
-		}
+	  top: -2px;   /* nudge the whole square upward */
+	}
+	
+	/* Adjust the drop itself inside the box */
+	.brand-mark svg {
+	  display: block;
+	  transform: translate(2px, -1px); /* move right 2px, up 1px */
+	}
+
 	/* Wordmark */
 	.brand-title {
 	  margin: 0;
