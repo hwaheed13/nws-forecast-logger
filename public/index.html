@@ -232,14 +232,18 @@
   /* Cards & grids */
   .metrics-grid,
   .prediction-grid,
-  .kalshi-grid,
-  .stats-grid       { grid-template-columns: 1fr; gap: 10px; }
+  .kalshi-grid      { grid-template-columns: 1fr; gap: 10px; }
   .metric-card      { padding: 14px; border-radius: 14px; }
   .metric-label     { font-size: 13px; }
   .metric-value     { line-height: 1.05; }
   .metric-subtitle  { font-size: 12px; }
   .prediction-card  { padding: 14px; }
-  .stat-card        { padding: 12px; }
+
+  /* ✅ Stats: 2 per row */
+  .stats-grid       { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .stat-card        { padding: 10px; }
+  .stat-label       { font-size: 11px; }
+  .stat-value       { font-size: 22px; }
 
   /* Mini forecast chips */
   .mini-forecasts   { gap: 4px; }
@@ -268,6 +272,7 @@
   .brand-right      { gap: 6px; }
   .pill .dot        { width: 5px; height: 5px; }
 }
+
 
 /* === Small phones (≤ 400px) — nudge once more === */
 @media (max-width: 400px) {
