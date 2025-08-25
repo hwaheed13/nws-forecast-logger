@@ -34,10 +34,69 @@
 	  background-clip: text;
 	  text-shadow: 0 2px 6px rgba(0,0,0,0.08);
 	}
-    .logo-text h1{margin:0; font-size:28px; font-weight:800; letter-spacing:.2px}
-    .logo-subtitle{font-size:13px; color:var(--text-muted); margin:0}
-    .status-badge{background:var(--accent-green-light); color:var(--accent-green); padding:6px 12px; border-radius:999px; font-size:12px; font-weight:700; display:flex; align-items:center; gap:6px}
-    .status-dot{width:6px;height:6px;background:var(--accent-green);border-radius:50%;animation:pulse 2s infinite}
+   /* Brand header layout */
+	.brand {
+	  display: flex;
+	  align-items: center;
+	  justify-content: space-between;
+	  gap: 14px;
+	}
+	.brand-left { display: flex; align-items: center; gap: 12px; }
+	
+	/* Mark */
+	.brand-mark {
+	  display: grid; place-items: center;
+	  width: 40px; height: 40px;
+	  border-radius: 12px;
+	  background: linear-gradient(135deg, var(--accent-blue-light), var(--accent-green-light));
+	  box-shadow: var(--shadow-sm);
+	  border: 1px solid var(--border-subtle);
+	}
+	
+	/* Wordmark */
+	.brand-title {
+	  margin: 0;
+	  font-weight: 800;
+	  letter-spacing: .2px;
+	  font-size: 24px;
+	  line-height: 1.15;
+	  color: var(--text-primary);
+	}
+	.brand-title .thin { font-weight: 600; color: var(--text-secondary); }
+	.brand-sub {
+	  margin: 2px 0 0;
+	  font-size: 13px;
+	  color: var(--text-muted);
+	}
+	
+	/* Meta pills */
+	.brand-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+	.pill {
+	  display: inline-flex; align-items: center; gap: 6px;
+	  padding: 6px 10px;
+	  font-size: 12px; font-weight: 700;
+	  color: var(--text-secondary);
+	  background: var(--bg-accent);
+	  border: 1px solid var(--border-subtle);
+	  border-radius: 999px;
+	}
+	.pill.live { 
+	  background: var(--accent-green-light);
+	  color: var(--accent-green);
+	  border-color: transparent;
+	}
+	.pill.live .dot {
+	  width: 6px; height: 6px; border-radius: 50%;
+	  background: var(--accent-green);
+	  animation: pulse 2s infinite;
+	}
+	
+	/* Mobile tweaks */
+	@media (max-width: 768px){
+	  .brand { flex-direction: column; align-items: flex-start; gap: 10px; }
+	  .brand-right { gap: 6px; }
+	  .brand-title { font-size: 22px; }
+	}
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
 
     .container{max-width:1400px;margin:0 auto;padding:24px}
@@ -139,22 +198,39 @@
   </style>
 </head>
 <body>
-  <header class="header">
-    <div class="header-content">
-      <div class="logo-section">
-        <div class="logo-icon">🌡️</div>
-        <div class="logo-text">
-          <h1>Daily Dew Point</h1>
-          <p class="logo-subtitle">Automatically logs every NWS forecast update for Central Park and compares to the official daily high</p>
-        </div>
+ <header class="header">
+  <div class="header-content brand">
+    <div class="brand-left">
+      <!-- Brand mark (SVG dew drop) -->
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 64 64" width="38" height="38" role="img">
+          <defs>
+            <linearGradient id="dpGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%"  stop-color="var(--accent-blue)" />
+              <stop offset="100%" stop-color="var(--accent-green)" />
+            </linearGradient>
+          </defs>
+          <!-- Dew drop shape -->
+          <path fill="url(#dpGrad)"
+                d="M32 6c6 10 16 18 16 30 0 9.94-8.06 18-18 18s-18-8.06-18-18C12 24 26 16 32 6z"/>
+        </svg>
       </div>
-      <div class="status-badge">
-        <div class="status-dot"></div>
-        Live Dashboard
+
+      <!-- Wordmark -->
+      <div class="brand-copy">
+        <h1 class="brand-title"><span class="thin">Daily</span> Dew&nbsp;Point</h1>
+        <p class="brand-sub">Central Park · NWS forecasts vs. official daily high</p>
       </div>
     </div>
-  </header>
 
+    <!-- Meta pills -->
+    <div class="brand-right">
+      <span class="pill live"><span class="dot"></span> Live</span>
+      <span class="pill">NYC</span>
+      <span class="pill">KNYC</span>
+    </div>
+  </div>
+</header>
   <div class="container">
     <div class="last-update">
       <div class="last-update-label">Latest Forecast Update</div>
