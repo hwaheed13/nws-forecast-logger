@@ -294,11 +294,13 @@
   document.addEventListener("DOMContentLoaded", () => {
     const gate = document.createElement("div");
     gate.id = "ms-fallback-gate";
-    gate.style.cssText = `
-      display:none; position:fixed; inset:0; background:#fff; z-index:9999;
-      display:flex; flex-direction:column; align-items:center; justify-content:center;
-      font-family:Inter,system-ui,sans-serif; text-align:center; padding:24px;
-    `;
+	gate.style.cssText = `
+	  position:fixed; inset:0; background:#fff; z-index:9999;
+	  display:none; /* hidden by default */
+	  flex-direction:column; align-items:center; justify-content:center;
+	  font-family:Inter,system-ui,sans-serif; text-align:center; padding:24px;
+	`;
+
     gate.innerHTML = `
       <h2 style="margin-bottom:12px;">Membership check failed</h2>
       <p style="margin-bottom:20px; max-width:400px;">
