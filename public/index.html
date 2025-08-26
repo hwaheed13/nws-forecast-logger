@@ -282,25 +282,59 @@
   .chart-container  { height: 230px; }
 }
   </style>
+</style>
 <script data-memberstack-app="pk_4c8a0984142eb153e6c3" src="https://api.memberstack.io/static/memberstack.js"></script>
+
+<!-- 🔽 Replace everything between here and </style> below with the new code -->
 <script>
-  // Fail-safe: hide page until Memberstack checks status
+  // Hide until MS check finishes
   document.documentElement.classList.add('ms-checking');
+
+  // Add fallback gate UI (hidden by default)
+  document.addEventListener("DOMContentLoaded", () => {
+    const gate = document.createElement("div");
+    gate.id = "ms-fallback-gate";
+    gate.style.cssText = `
+      display:none; position:fixed; inset:0; background:#fff; z-index:9999;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      font-family:Inter,system-ui,sans-serif; text-align:center; padding:24px;
+    `;
+    gate.innerHTML = `
+      <h2 style="margin-bottom:12px;">Membership check failed</h2>
+      <p style="margin-bottom:20px; max-width:400px;">
+        We couldn’t reach Memberstack to verify your access.
+      </p>
+      <div style="display:flex; gap:12px;">
+        <a href="/" style="padding:10px 16px; border:1px solid #ccc; border-radius:8px;">Back to site</a>
+        <button id="continueAnyway" style="padding:10px 16px; background:#2563eb; color:#fff; border:none; border-radius:8px; cursor:pointer;">
+          Continue to dashboard
+        </button>
+      </div>
+    `;
+    document.body.appendChild(gate);
+    document.getElementById("continueAnyway").onclick = () => {
+      gate.style.display = "none";
+      document.documentElement.classList.remove("ms-checking");
+    };
+  });
+
   (function waitForMS(retries=50){
     if (window.Memberstack?.onReady) {
       window.Memberstack.onReady.then(async (ms)=>{
-        try{
+        try {
           const { data: member } = await ms.getCurrentMember();
-          if(!member){ ms.openModal("SIGNUP"); return; }  // block non-members
+          if(!member){ ms.openModal("SIGNUP"); return; }
         } finally {
           document.documentElement.classList.remove('ms-checking');
         }
       });
-    } else if (retries>0) {
+    } else if (retries > 0) {
       setTimeout(()=>waitForMS(retries-1), 100);
     } else {
-      // If MS never loads, fail-closed back to landing
-      window.location.href = "/";
+      // If MS never loads, show fallback gate
+      document.documentElement.classList.remove('ms-checking');
+      const gate = document.getElementById("ms-fallback-gate");
+      if (gate) gate.style.display = "flex";
     }
   })();
 </script>
