@@ -320,7 +320,7 @@
     };
   });
 
-  (function waitForMS(retries=50){
+  (function waitForMS(retries=30){
     if (window.Memberstack?.onReady) {
       window.Memberstack.onReady.then(async (ms)=>{
         try {
