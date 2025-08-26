@@ -3,8 +3,26 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
   <title>🌡️ Daily Dew Point Dashboard</title>
+
+  <!-- Performance: help the browser connect to Memberstack quickly -->
+  <link rel="preconnect" href="https://api.memberstack.io" crossorigin>
+
+  <!-- Optional CSP for quick testing (prefer server headers in production) -->
+  <!--
+  <meta http-equiv="Content-Security-Policy"
+        content="
+          default-src 'self';
+          script-src 'self' https://api.memberstack.io https://*.memberstack.com 'unsafe-inline';
+          connect-src 'self' https://api.memberstack.io https://*.memberstack.com https://kalshi-proxy-theta.vercel.app https://raw.githubusercontent.com;
+          img-src 'self' data: https:;
+          style-src 'self' 'unsafe-inline';
+          frame-src https://api.memberstack.io https://*.memberstack.com;">
+  -->
+
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
   <style>
     :root{
       --bg-primary:#fafbfc; --bg-secondary:#ffffff; --bg-tertiary:#f8f9fa; --bg-accent:#f1f5f9;
@@ -16,97 +34,44 @@
       --shadow-sm:0 1px 2px rgba(0,0,0,.05);
       --shadow-md:0 6px 18px rgba(0,0,0,.08);
       --radius-sm:10px; --radius-md:12px; --radius-lg:16px;
-	    }
-	    *{box-sizing:border-box}
-	    body{
-	      font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
-	      background:var(--bg-primary); color:var(--text-primary); margin:0; line-height:1.6;
-	      font-feature-settings:"tnum" 1,"lnum" 1;
-	    }
-	    .header{background:var(--bg-secondary); border-bottom:1px solid var(--border-subtle); padding:20px 0; position:sticky; top:0; z-index:10; backdrop-filter:blur(8px)}
-	    .header-content{max-width:1400px; margin:0 auto; padding:0 20px; display:flex; align-items:center; justify-content:space-between}
-	    .logo-section{display:flex; align-items:center; gap:12px}
-	  .logo-icon {
-	  font-size: 38px;
-	  background: linear-gradient(135deg, var(--accent-blue), var(--accent-green));
-	  -webkit-background-clip: text;
-	  -webkit-text-fill-color: transparent;
-	  background-clip: text;
-	  text-shadow: 0 2px 6px rgba(0,0,0,0.08);
-	}
-   /* Brand header layout */
-	.brand {
-	  display: flex;
-	  align-items: center;
-	  justify-content: space-between;
-	  gap: 14px;
-	}
-	.brand-left { display: flex; align-items: center; gap: 12px; }
-	
-	/* Mark */
-	.brand-mark {
-	  display: grid; 
-	  place-items: center;
-	  width: 40px; 
-	  height: 40px;
-	  border-radius: 12px;
-	  background: linear-gradient(135deg, var(--accent-blue-light), var(--accent-green-light));
-	  box-shadow: var(--shadow-sm);
-	  border: 1px solid var(--border-subtle);
-	  position: relative;
-	  top: -3px;   /* nudge the whole square upward */
-	}
-	
-	/* Adjust the drop itself inside the box */
-	.brand-mark svg {
-	  display: block;
-	  transform: translate(1px, 1px); /* move right 2px, up 1px */
-	}
+    }
+    *{box-sizing:border-box}
+    body{
+      font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
+      background:var(--bg-primary); color:var(--text-primary); margin:0; line-height:1.6;
+      font-feature-settings:"tnum" 1,"lnum" 1;
+    }
+    .header{background:var(--bg-secondary); border-bottom:1px solid var(--border-subtle); padding:20px 0; position:sticky; top:0; z-index:10; backdrop-filter:blur(8px)}
+    .header-content{max-width:1400px; margin:0 auto; padding:0 20px; display:flex; align-items:center; justify-content:space-between}
+    .logo-section{display:flex; align-items:center; gap:12px}
 
-	/* Wordmark */
-	.brand-title {
-	  margin: 0;
-	  font-weight: 800;
-	  letter-spacing: .2px;
-	  font-size: 28px;
-	  line-height: 1.15;
-	  color: var(--text-primary);
-	}
-	.brand-title .thin { font-weight: 600; color: var(--text-secondary); }
-	.brand-sub {
-	  margin: 2px 0 0;
-	  font-size: 13px;
-	  color: var(--text-muted);
-	}
-	
-	/* Meta pills */
-	.brand-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-	.pill {
-	  display: inline-flex; align-items: center; gap: 6px;
-	  padding: 6px 10px;
-	  font-size: 12px; font-weight: 700;
-	  color: var(--text-secondary);
-	  background: var(--bg-accent);
-	  border: 1px solid var(--border-subtle);
-	  border-radius: 999px;
-	}
-	.pill.live { 
-	  background: var(--accent-green-light);
-	  color: var(--accent-green);
-	  border-color: transparent;
-	}
-	.pill.live .dot {
-	  width: 6px; height: 6px; border-radius: 50%;
-	  background: var(--accent-green);
-	  animation: pulse 2s infinite;
-	}
-	
-	/* Mobile tweaks */
-	@media (max-width: 768px){
-	  .brand { flex-direction: column; align-items: flex-start; gap: 10px; }
-	  .brand-right { gap: 6px; }
-	  .brand-title { font-size: 22px; }
-	}
+    /* Brand header layout */
+    .brand { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+    .brand-left { display: flex; align-items: center; gap: 12px; }
+
+    .brand-mark {
+      display: grid; place-items: center;
+      width: 40px; height: 40px; border-radius: 12px;
+      background: linear-gradient(135deg, var(--accent-blue-light), var(--accent-green-light));
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-subtle);
+      position: relative; top: -3px;
+    }
+    .brand-mark svg { display:block; transform: translate(1px, 1px); }
+
+    .brand-title { margin: 0; font-weight: 800; letter-spacing: .2px; font-size: 28px; line-height: 1.15; color: var(--text-primary); }
+    .brand-title .thin { font-weight: 600; color: var(--text-secondary); }
+    .brand-sub { margin: 2px 0 0; font-size: 13px; color: var(--text-muted); }
+
+    .brand-right { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .pill {
+      display:inline-flex; align-items:center; gap:6px;
+      padding:6px 10px; font-size:12px; font-weight:700;
+      color:var(--text-secondary); background:var(--bg-accent);
+      border:1px solid var(--border-subtle); border-radius:999px;
+    }
+    .pill.live { background:var(--accent-green-light); color:var(--accent-green); border-color:transparent; }
+    .pill.live .dot { width:6px; height:6px; border-radius:50%; background:var(--accent-green); animation:pulse 2s infinite; }
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
 
     .container{max-width:1400px;margin:0 auto;padding:24px}
@@ -171,12 +136,7 @@
     .forecast-row{background:var(--accent-blue-light) !important}
     .actual-row{background:var(--accent-green-light) !important}
     .best{box-shadow:inset 0 0 0 2px var(--accent-green)}
-	details.table-wrap summary {
-	  background: var(--bg-accent); /* or var(--accent-blue-light) */
-	  border-bottom: 1px solid var(--border-subtle);
-	  border-top-left-radius: 16px;
-	  border-top-right-radius: 16px;
-	}
+    details.table-wrap summary { background: var(--bg-accent); border-bottom: 1px solid var(--border-subtle); border-top-left-radius: 16px; border-top-right-radius: 16px; }
 
     .skel td::before{content:""; display:block; height:12px; margin:4px 0; width:70%; background:linear-gradient(90deg,var(--bg-accent),var(--bg-tertiary),var(--bg-accent)); background-size:200% 100%; animation:shimmer 1.5s infinite; border-radius:4px}
     @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
@@ -184,11 +144,8 @@
     .footer{margin-top:28px; padding:18px 24px; background:var(--bg-tertiary); border-top:1px solid var(--border-subtle); text-align:center; font-size:12px; color:var(--text-light)}
     .footer a{color:var(--accent-blue); text-decoration:none}
 
-    /* Collapsible table for mobile */
     details.table-wrap{border-top:1px solid var(--border-subtle)}
-    details.table-wrap summary{
-      list-style:none; cursor:pointer; padding:16px 18px; font-weight:800; display:flex; align-items:center; justify-content:space-between
-    }
+    details.table-wrap summary{ list-style:none; cursor:pointer; padding:16px 18px; font-weight:800; display:flex; align-items:center; justify-content:space-between }
     details.table-wrap summary::-webkit-details-marker{display:none}
     .caret{transition:transform .2s ease}
     details[open] .caret{transform:rotate(90deg)}
@@ -205,179 +162,156 @@
       .chart-container{height:320px}
       .header-content{flex-direction:column; gap:8px}
     }
- /* === Fluid sizing (works on all viewports) === */
-.brand-title        { font-size: clamp(18px, 2.2vw, 28px); }
-.metric-value       { font-size: clamp(22px, 3vw, 36px); }
-.prediction-value   { font-size: clamp(20px, 2.6vw, 28px); }
-.stat-value         { font-size: clamp(18px, 2.4vw, 28px); }
-.kalshi-badge       { font-size: clamp(11px, 1.8vw, 14px); padding: 6px 10px; }
-.pill               { font-size: clamp(10px, 1.6vw, 12px); padding: 4px 8px; }
 
-/* Make the main chart height fluid instead of fixed */
-.chart-container { height: clamp(220px, 38vh, 380px); }
+    /* === Fluid sizing === */
+    .brand-title        { font-size: clamp(18px, 2.2vw, 28px); }
+    .metric-value       { font-size: clamp(22px, 3vw, 36px); }
+    .prediction-value   { font-size: clamp(20px, 2.6vw, 28px); }
+    .stat-value         { font-size: clamp(18px, 2.4vw, 28px); }
+    .kalshi-badge       { font-size: clamp(11px, 1.8vw, 14px); padding: 6px 10px; }
+    .pill               { font-size: clamp(10px, 1.6vw, 12px); padding: 4px 8px; }
 
-/* === Phone tweaks (≤ 600px) === */
-@media (max-width: 600px) {
-  .container        { padding: 12px; }
-  .header           { padding: 12px 0; }
-  .header-content   { gap: 6px; }
+    .chart-container { height: clamp(220px, 38vh, 380px); }
 
-  /* Brand block */
-  .brand            { gap: 8px; }
-  .brand-left       { gap: 8px; }
-  .brand-mark       { width: 32px; height: 32px; border-radius: 10px; top: -2px; }
-  .brand-mark svg   { width: 28px; height: 28px; transform: translate(0, 0); }
-  .brand-sub        { font-size: 12px; line-height: 1.35; }
-
-  /* Cards & grids */
-  .metrics-grid,
-  .prediction-grid,
-  .kalshi-grid      { grid-template-columns: 1fr; gap: 10px; }
-  .metric-card      { padding: 14px; border-radius: 14px; }
-  .metric-label     { font-size: 13px; }
-  .metric-value     { line-height: 1.05; }
-  .metric-subtitle  { font-size: 12px; }
-  .prediction-card  { padding: 14px; }
-
-  /* ✅ Stats: 2 per row */
-  .stats-grid       { grid-template-columns: repeat(2, 1fr); gap: 8px; }
-  .stat-card        { padding: 10px; }
-  .stat-label       { font-size: 11px; }
-  .stat-value       { font-size: 22px; }
-
-  /* Mini forecast chips */
-  .mini-forecasts   { gap: 4px; }
-  .mini-chip        { font-size: 11px; padding: 3px 8px; }
-
-  /* Controls */
-  .controls-section { padding: 12px; }
-  .controls         { gap: 8px; }
-  .control-label    { font-size: 12px; }
-  input[type="date"]{ font-size: 13px; padding: 7px 8px; border-radius: 8px; }
-  .btn              { font-size: 13px; padding: 8px 12px; border-radius: 8px; }
-
-  /* Chart */
-  .chart-section    { padding: 14px; }
-  .chart-title      { font-size: 14px; margin-bottom: 10px; }
-  .chart-container  { height: 260px; }
-
-  /* Table */
-  .table-title      { font-size: 14px; padding: 12px 14px; }
-  .table-container  { padding: 0 12px 12px; }
-  #dataTable        { font-size: 12px; }
-  #dataTable th     { font-size: 11px; padding: 10px 8px; }
-  #dataTable td     { padding: 10px 8px; }
-
-  /* Pills (top-right) */
-  .brand-right      { gap: 6px; }
-  .pill .dot        { width: 5px; height: 5px; }
-}
-
-
-/* === Small phones (≤ 400px) — nudge once more === */
-@media (max-width: 400px) {
-  .metric-card      { padding: 12px; }
-  .metric-value     { font-size: 20px; }
-  .prediction-value { font-size: 18px; }
-  .chart-container  { height: 230px; }
-}
-  </style>
-</style>
-<script data-memberstack-app="pk_4c8a0984142eb153e6c3" src="https://api.memberstack.io/static/memberstack.js"></script>
-
-<!-- 🔽 Replace everything between here and </style> below with the new code -->
-<script>
-  // Hide until MS check finishes
-  document.documentElement.classList.add('ms-checking');
-
-  // Add fallback gate UI (hidden by default)
-  document.addEventListener("DOMContentLoaded", () => {
-    const gate = document.createElement("div");
-    gate.id = "ms-fallback-gate";
-	gate.style.cssText = `
-	  position:fixed; inset:0; background:#fff; z-index:9999;
-	  display:none; /* hidden by default */
-	  flex-direction:column; align-items:center; justify-content:center;
-	  font-family:Inter,system-ui,sans-serif; text-align:center; padding:24px;
-	`;
-
-    gate.innerHTML = `
-      <h2 style="margin-bottom:12px;">Membership check failed</h2>
-      <p style="margin-bottom:20px; max-width:400px;">
-        We couldn’t reach Memberstack to verify your access.
-      </p>
-      <div style="display:flex; gap:12px;">
-        <a href="/" style="padding:10px 16px; border:1px solid #ccc; border-radius:8px;">Back to site</a>
-        <button id="continueAnyway" style="padding:10px 16px; background:#2563eb; color:#fff; border:none; border-radius:8px; cursor:pointer;">
-          Continue to dashboard
-        </button>
-      </div>
-    `;
-    document.body.appendChild(gate);
-    document.getElementById("continueAnyway").onclick = () => {
-      gate.style.display = "none";
-      document.documentElement.classList.remove("ms-checking");
-    };
-  });
-
-  (function waitForMS(retries=30){
-    if (window.Memberstack?.onReady) {
-      window.Memberstack.onReady.then(async (ms)=>{
-        try {
-          const { data: member } = await ms.getCurrentMember();
-          if(!member){ ms.openModal("SIGNUP"); return; }
-        } finally {
-          document.documentElement.classList.remove('ms-checking');
-        }
-      });
-    } else if (retries > 0) {
-      setTimeout(()=>waitForMS(retries-1), 100);
-    } else {
-      // If MS never loads, show fallback gate
-      document.documentElement.classList.remove('ms-checking');
-      const gate = document.getElementById("ms-fallback-gate");
-      if (gate) gate.style.display = "flex";
+    @media (max-width: 600px) {
+      .container        { padding: 12px; }
+      .header           { padding: 12px 0; }
+      .header-content   { gap: 6px; }
+      .brand            { gap: 8px; }
+      .brand-left       { gap: 8px; }
+      .brand-mark       { width: 32px; height: 32px; border-radius: 10px; top: -2px; }
+      .brand-mark svg   { width: 28px; height: 28px; transform: translate(0, 0); }
+      .brand-sub        { font-size: 12px; line-height: 1.35; }
+      .metrics-grid,
+      .prediction-grid,
+      .kalshi-grid      { grid-template-columns: 1fr; gap: 10px; }
+      .metric-card      { padding: 14px; border-radius: 14px; }
+      .metric-label     { font-size: 13px; }
+      .metric-value     { line-height: 1.05; }
+      .metric-subtitle  { font-size: 12px; }
+      .prediction-card  { padding: 14px; }
+      .stats-grid       { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+      .stat-card        { padding: 10px; }
+      .stat-label       { font-size: 11px; }
+      .stat-value       { font-size: 22px; }
+      .mini-forecasts   { gap: 4px; }
+      .mini-chip        { font-size: 11px; padding: 3px 8px; }
+      .controls-section { padding: 12px; }
+      .controls         { gap: 8px; }
+      .control-label    { font-size: 12px; }
+      input[type="date"]{ font-size: 13px; padding: 7px 8px; border-radius: 8px; }
+      .btn              { font-size: 13px; padding: 8px 12px; border-radius: 8px; }
+      .chart-section    { padding: 14px; }
+      .chart-title      { font-size: 14px; margin-bottom: 10px; }
+      .chart-container  { height: 260px; }
+      .table-title      { font-size: 14px; padding: 12px 14px; }
+      .table-container  { padding: 0 12px 12px; }
+      #dataTable        { font-size: 12px; }
+      #dataTable th     { font-size: 11px; padding: 10px 8px; }
+      #dataTable td     { padding: 10px 8px; }
+      .brand-right      { gap: 6px; }
+      .pill .dot        { width: 5px; height: 5px; }
     }
-  })();
-</script>
-<style>
-  html.ms-checking body { opacity: 0 }
-</style>
+
+    @media (max-width: 400px) {
+      .metric-card      { padding: 12px; }
+      .metric-value     { font-size: 20px; }
+      .prediction-value { font-size: 18px; }
+      .chart-container  { height: 230px; }
+    }
+
+    /* Soft pre-auth veil (prevents jank without trapping the user) */
+    html.ms-checking body { opacity: 0.01; transition: opacity .15s ease; }
+  </style>
+
+  <!-- Memberstack: keep the same app key used on the marketing site -->
+  <script src="https://api.memberstack.io/static/memberstack.js"
+          data-memberstack-app="pk_4c8a0984142eb153e6c3"></script>
+
+  <!-- Auth boot: consistent with landing page ($memberstackDom) -->
+  <script>
+    // mark "checking" to avoid initial jank
+    document.documentElement.classList.add('ms-checking');
+
+    // small, non-blocking warning ribbon if MS is unreachable
+    function showMsWarning(msg){
+      if (document.getElementById('ms-warn')) return;
+      const bar = document.createElement('div');
+      bar.id = 'ms-warn';
+      bar.style.cssText = "position:fixed;left:0;right:0;top:0;z-index:9999;padding:10px 14px;background:#fee2e2;color:#991b1b;border-bottom:1px solid #fecaca;font-weight:700;text-align:center;font-family:Inter,system-ui,sans-serif";
+      bar.textContent = msg || "We couldn’t reach Memberstack to verify access. You can still use the dashboard.";
+      document.body.appendChild(bar);
+      // nudge header down slightly when ribbon shows
+      const h = document.querySelector('.header');
+      if (h) h.style.top = (h.offsetTop + bar.offsetHeight) + 'px';
+    }
+
+    function waitForMS(tries=60, delay=100){
+      return new Promise(resolve=>{
+        (function loop(n){
+          const ms = window.$memberstackDom;
+          if (ms && typeof ms.getCurrentMember==="function") return resolve(ms);
+          if (n<=0) return resolve(null);
+          setTimeout(()=>loop(n-1), delay);
+        })(tries);
+      });
+    }
+
+    (async function bootAuth(){
+      const ms = await waitForMS();
+      if (!ms) {
+        console.warn('[MS] Memberstack failed to load on dashboard.');
+        document.documentElement.classList.remove('ms-checking');
+        showMsWarning();
+        return;
+      }
+      try{
+        const { data: member } = await ms.getCurrentMember();
+        if (!member) {
+          // not logged in → open modal, but do not hard-block page
+          console.log('[MS] No member session — opening SIGNUP modal.');
+          await ms.openModal('SIGNUP');
+        } else {
+          console.log('[MS] Member session OK:', member?.id);
+        }
+      } catch (e){
+        console.error('[MS] getCurrentMember failed:', e);
+        showMsWarning("Membership check had a network issue. You can still use the dashboard.");
+      } finally {
+        document.documentElement.classList.remove('ms-checking');
+      }
+    })();
+  </script>
 </head>
+
 <body>
- <header class="header">
-  <div class="header-content brand">
-    <div class="brand-left">
-      <!-- Brand mark (SVG dew drop) -->
-      <div class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 64 64" width="38" height="38" role="img">
-          <defs>
-            <linearGradient id="dpGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%"  stop-color="var(--accent-blue)" />
-              <stop offset="100%" stop-color="var(--accent-green)" />
-            </linearGradient>
-          </defs>
-          <!-- Dew drop shape -->
-          <path fill="url(#dpGrad)"
-                d="M32 6c6 10 16 18 16 30 0 9.94-8.06 18-18 18s-18-8.06-18-18C12 24 26 16 32 6z"/>
-        </svg>
+  <header class="header">
+    <div class="header-content brand">
+      <div class="brand-left">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 64 64" width="38" height="38" role="img">
+            <defs>
+              <linearGradient id="dpGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%"  stop-color="var(--accent-blue)" />
+                <stop offset="100%" stop-color="var(--accent-green)" />
+              </linearGradient>
+            </defs>
+            <path fill="url(#dpGrad)" d="M32 6c6 10 16 18 16 30 0 9.94-8.06 18-18 18s-18-8.06-18-18C12 24 26 16 32 6z"/>
+          </svg>
+        </div>
+        <div class="brand-copy">
+          <h1 class="brand-title"><span class="thin">Daily</span> Dew&nbsp;Point</h1>
+          <p class="brand-sub">Automatically logs every NWS forecast update for Central Park and compares to the official daily high</p>
+        </div>
       </div>
-
-      <!-- Wordmark -->
-      <div class="brand-copy">
-        <h1 class="brand-title"><span class="thin">Daily</span> Dew&nbsp;Point</h1>
-        <p class="brand-sub">Automatically logs every NWS forecast update for Central Park and compares to the official daily high</p>
+      <div class="brand-right">
+        <span class="pill live"><span class="dot"></span> Live</span>
+        <span class="pill">NYC</span>
+        <span class="pill">KNYC</span>
       </div>
     </div>
+  </header>
 
-    <!-- Meta pills -->
-    <div class="brand-right">
-      <span class="pill live"><span class="dot"></span> Live</span>
-      <span class="pill">NYC</span>
-      <span class="pill">KNYC</span>
-    </div>
-  </div>
-</header>
   <div class="container">
     <div class="last-update">
       <div class="last-update-label">Latest Forecast Update</div>
@@ -389,14 +323,14 @@
       <div class="metric-card today-forecast">
         <div class="metric-label">Today's Latest Forecast</div>
         <div id="box-today-forecast" class="metric-value">–</div>
-		<div class="metric-subtitle">Today's Forecasts</div>
+        <div class="metric-subtitle">Today's Forecasts</div>
         <div id="mini-today-forecasts" class="mini-forecasts"></div>
       </div>
 
-	   <div class="metric-card today-actual">
+      <div class="metric-card today-actual">
         <div class="metric-label">Today's Actual High</div>
         <div id="box-today-actual" class="metric-value">–</div>
-		<div id="box-today-actual-note" class="metric-subtitle">NWS daily cli report</div>
+        <div id="box-today-actual-note" class="metric-subtitle">NWS daily cli report</div>
       </div>
 
       <div class="metric-card today-obs">
@@ -406,7 +340,7 @@
 
         <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border-subtle);">
           <div class="metric-subtitle">Current Temperature</div>
-         <div id="box-today-current" class="metric-value">–</div>
+          <div id="box-today-current" class="metric-value">–</div>
           <div id="box-today-current-note" class="metric-subtitle"></div>
         </div>
       </div>
@@ -416,26 +350,22 @@
         <div id="box-tomorrow-forecast" class="metric-value">–</div>
       </div>
     </div>
-    
-	<!-- Bias-corrected -->
-<div class="prediction-grid" style="display:grid; grid-template-columns:repeat(2,1fr); gap:18px; margin-bottom:22px;">
-  <div class="prediction-card">
-    <div class="prediction-title">Today's Bias-Corrected Prediction</div>
-    <div id="correctionBoxToday" class="prediction-content">Loading...</div>
-  </div>
-  <div class="prediction-card">
-    <div class="prediction-title">Tomorrow's Bias-Corrected Prediction</div>
-    <div id="correctionBoxTomorrow" class="prediction-content">Loading...</div>
-  </div>
 
-  <!-- Note spans both columns -->
-  <div style="grid-column:1/3; font-size:12px; color:var(--text-light); margin-top:-4px;">
-    Note: “days” refers only to dates with an actual high and at least one valid forecast logged before that high.
-  </div>
-</div>
+    <!-- Bias-corrected -->
+    <div class="prediction-grid" style="display:grid; grid-template-columns:repeat(2,1fr); gap:18px; margin-bottom:22px;">
+      <div class="prediction-card">
+        <div class="prediction-title">Today's Bias-Corrected Prediction</div>
+        <div id="correctionBoxToday" class="prediction-content">Loading...</div>
+      </div>
+      <div class="prediction-card">
+        <div class="prediction-title">Tomorrow's Bias-Corrected Prediction</div>
+        <div id="correctionBoxTomorrow" class="prediction-content">Loading...</div>
+      </div>
+      <div style="grid-column:1/3; font-size:12px; color:var(--text-light); margin-top:-4px;">
+        Note: “days” refers only to dates with an actual high and at least one valid forecast logged before that high.
+      </div>
+    </div>
 
-
-	  
     <!-- Kalshi -->
     <div class="kalshi-grid">
       <div class="kalshi-card">
@@ -531,19 +461,16 @@
       return `${g('year')}-${g('month')}-${g('day')}`;
     }
 
-  /* Make Kalshi anchor like #kxhighny-25aug23 for 2025-08-23 (ET) => YYmonDD */
-function kalshiAnchorForISO(dateISO){
-  const [y, m, d] = dateISO.split('-').map(Number);
-  // Use UTC to avoid local DST/offset surprises for day/month/year pieces
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  const monthMap = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
-  const dd = String(dt.getUTCDate()).replace(/^0/, ''); // no leading zero
-  const mon = monthMap[dt.getUTCMonth()];
-  const yy = String(dt.getUTCFullYear()).slice(-2);
-  return `#kxhighny-${yy}${mon}${dd}`;
-}
-// quick sanity check:
-// kalshiAnchorForISO('2025-08-23') -> "#kxhighny-25aug23"
+    /* Make Kalshi anchor like #kxhighny-yyMonDD (lowercase mon) */
+    function kalshiAnchorForISO(dateISO){
+      const [y, m, d] = dateISO.split('-').map(Number);
+      const dt = new Date(Date.UTC(y, m - 1, d));
+      const monthMap = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+      const dd = String(dt.getUTCDate()).replace(/^0/, '');
+      const mon = monthMap[dt.getUTCMonth()];
+      const yy = String(dt.getUTCFullYear()).slice(-2);
+      return `#kxhighny-${yy}${mon}${dd}`;
+    }
 
     /* ---------------- CSV load + parsing ---------------- */
     function showSkeleton(rows=6){
@@ -567,6 +494,7 @@ function kalshiAnchorForISO(dateISO){
           showMostRecent();
           updateSummaryBoxes();
           updateCorrectionBoxes();
+          updateObservations();
         })
         .catch(err => alert("Could not load CSV. "+err));
     }
@@ -580,11 +508,11 @@ function kalshiAnchorForISO(dateISO){
         else if((c==='\n'||c==='\r') && !q){
           if(c==='\r' && n==='\n') i++;
           row.push(field); field='';
-          if(row.length && row.some(x=>x!=='')) rows.push(row);
+          if(row.length && row.some(x=>x!=='') ) rows.push(row);
           row=[];
         } else field+=c;
       }
-      if(field!==''||row.length){ row.push(field); if(row.length && row.some(x=>x!=='')) rows.push(row); }
+      if(field!==''||row.length){ row.push(field); if(row.length && row.some(x=>x!=='') ) rows.push(row); }
       return rows;
     }
 
@@ -610,7 +538,7 @@ function kalshiAnchorForISO(dateISO){
       document.getElementById('fromDate').value="";
       document.getElementById('toDate').value="";
       displayTable(); showStats(); showChart();
-      showMostRecent(); updateCorrectionBoxes();
+      showMostRecent(); updateCorrectionBoxes(); updateSummaryBoxes();
     }
 
     function applyDateFilter(){
@@ -662,7 +590,7 @@ function kalshiAnchorForISO(dateISO){
       el.textContent="";
     }
 
-    /* -------- Mini forecast chips & sparkline -------- */
+    /* -------- Mini forecast chips -------- */
     function getForecastsForDate(dateISO){
       const rows=allRows
         .filter(r=>r.forecast_or_actual==="forecast" && r.target_date===dateISO && r.predicted_high)
@@ -679,20 +607,6 @@ function kalshiAnchorForISO(dateISO){
         const label=`${r.timeHHMM||"—"} ${r.val.toFixed(0)}°`;
         const chip=document.createElement("span"); chip.className="mini-chip"; chip.textContent=label; host.appendChild(chip);
       });
-    }
-    function drawSparkline(canvasId, rows){
-      const cv=document.getElementById(canvasId); if(!cv) return;
-      const ctx=cv.getContext('2d'); ctx.clearRect(0,0,cv.width,cv.height);
-      if(!rows.length) return; const W=cv.width,H=cv.height,pad=4;
-      const vals=rows.map(r=>r.val); const min=Math.min(...vals), max=Math.max(...vals);
-      if(max===min){
-        const y=H/2; ctx.beginPath(); ctx.moveTo(pad,y); ctx.lineTo(W-pad,y); ctx.lineWidth=3; ctx.strokeStyle="#7c3aed"; ctx.stroke();
-        ctx.beginPath(); ctx.arc(W-pad,y,3,0,Math.PI*2); ctx.fillStyle="#16a34a"; ctx.fill(); return;
-      }
-      const n=vals.length; const xStep=(W-pad*2)/Math.max(1,n-1); const toY=v=>H-pad-((v-min)/(max-min))*(H-pad*2);
-      ctx.beginPath(); ctx.lineWidth=3; ctx.strokeStyle="#7c3aed";
-      vals.forEach((v,i)=>{ const x=pad+i*xStep, y=toY(v); if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); }); ctx.stroke();
-      const lastX=pad+(n-1)*xStep, lastY=toY(vals[n-1]); ctx.beginPath(); ctx.arc(lastX,lastY,3,0,Math.PI*2); ctx.fillStyle="#16a34a"; ctx.fill();
     }
 
     /* ---------------- Kalshi helpers ---------------- */
@@ -811,7 +725,7 @@ function kalshiAnchorForISO(dateISO){
             }
           }
 
-          // YESTERDAY: always construct anchor ourselves (ignore any URL from proxy)
+          // YESTERDAY: always construct anchor ourselves
           const anchor = kalshiAnchorForISO(yesterday);
           const yHref  = `${KALSHI_BASE_URL}${anchor}`;
           if(kyday && kyday.label){
@@ -904,212 +818,234 @@ function kalshiAnchorForISO(dateISO){
          <div class="prediction-subtitle">For ${tomorrow} • Historical bias: ${biasTxt}°F (${biasList.length} days)</div>`;
     }
 
-    /* ---------------- Stats ---------------- */
+    /* ---------------- Stats, chart, table ---------------- */
     function showStats(){
-      let count=0, absSum=0, bestSum=0, bestCount=0;
-      const dayMap={};
-      filteredRows.forEach(row=>{
-        const date=row.forecast_or_actual==="actual"?row.cli_date:row.target_date;
-        if(!date) return; if(!dayMap[date]) dayMap[date]=[]; dayMap[date].push(row);
-      });
-      const totalDays=Object.keys(dayMap).length;
+      const datesTracked = new Set(allRows.map(r => r.forecast_or_actual==="actual" ? r.cli_date : r.target_date).filter(Boolean));
+      const daysTracked = datesTracked.size;
 
-      Object.values(dayMap).forEach(dayRows=>{
-        const actual=dayRows.find(r=>r.forecast_or_actual==="actual");
-        const actualHigh=actual?Number(actual.actual_high):null;
-        if(!Number.isFinite(actualHigh)) return;
-        const highTime=actual?actual.high_time:"";
-        let bestErr=999;
-        dayRows.forEach(r=>{
-          if(r.forecast_or_actual!=="forecast" || !r.predicted_high) return;
-          if(highTime){
-            const fcHour=(r.forecast_time||"").substr(11,5);
-            if(fcHour && compareTimes(fcHour,highTime)>0) return;
-          }
-          const err=Math.abs(Number(r.predicted_high)-actualHigh);
-          absSum+=err; count++; if(err<bestErr) bestErr=err;
-        });
-        if(bestErr<999){ bestSum+=bestErr; bestCount++; }
-      });
-
-      const avgAbs = count? (absSum/count).toFixed(2) : "--";
-      const avgBest = bestCount? (bestSum/bestCount).toFixed(2) : "--";
-      const daysWithActual = Object.values(dayMap).filter(rows =>
-        rows.some(x => x.forecast_or_actual === "actual" && Number.isFinite(Number(x.actual_high)))
-      ).length;
-
-      const stats=document.getElementById("stats");
-      stats.innerHTML = `
-        <div class="stat-card"><div class="stat-label">Days Tracked</div><div class="stat-value">${totalDays}</div></div>
-        <div class="stat-card"><div class="stat-label">Days With Actual</div><div class="stat-value">${daysWithActual}</div></div>
-        <div class="stat-card"><div class="stat-label">Average Absolute Error</div><div class="stat-value">${avgAbs}°F</div></div>
-        <div class="stat-card"><div class="stat-label">Average Best Error</div><div class="stat-value">${avgBest}°F</div></div>
-      `;
-    }
-
-    /* ---------------- Chart (weekly x-axis labels only) ---------------- */
-    function showChart(){
-      const ctx=document.getElementById('dailyChart').getContext('2d');
-      if(window.mainChart) window.mainChart.destroy();
-      const dayMap={};
-      filteredRows.forEach(row=>{
-        const date=row.forecast_or_actual==="actual"?row.cli_date:row.target_date;
-        if(!date) return; if(!dayMap[date]) dayMap[date]=[]; dayMap[date].push(row);
-      });
-      const labels=[], actuals=[], bestForecasts=[];
-      Object.keys(dayMap).sort().forEach(date=>{
-        const dayRows=dayMap[date];
-        const actual=dayRows.find(r=>r.forecast_or_actual==="actual");
-        const actualHigh=actual?Number(actual.actual_high):null;
-        const highTime=actual?actual.high_time:"";
-        let best=null, bestErr=999;
-        dayRows.forEach(r=>{
-          if(r.forecast_or_actual!=="forecast" || !r.predicted_high) return;
-          if(highTime){
-            const fcHour=(r.forecast_time||"").substr(11,5);
-            if(fcHour && compareTimes(fcHour,highTime)>0) return;
-          }
-          const err=Math.abs(Number(r.predicted_high)-actualHigh);
-          if(err<bestErr){ bestErr=err; best=r; }
-        });
-        if(actualHigh!==null){
-          labels.push(date);
-          actuals.push(actualHigh);
-          bestForecasts.push(best?Number(best.predicted_high):null);
+      const actualByDate = new Map();
+      allRows.forEach(r=>{
+        if(r.forecast_or_actual==="actual" && r.cli_date && r.actual_high){
+          actualByDate.set(r.cli_date, Number(r.actual_high));
         }
       });
+      const daysWithActual = actualByDate.size;
 
-      window.mainChart=new Chart(ctx,{
+      // Average absolute error (all forecasts before high vs actual)
+      let aaeSum=0, aaeCnt=0;
+      const byDate = {};
+      allRows.forEach(r=>{
+        const d=r.forecast_or_actual==="actual"?r.cli_date:r.target_date;
+        if(!d) return; (byDate[d]??=[]).push(r);
+      });
+      Object.keys(byDate).forEach(d=>{
+        const actualRow = byDate[d].find(r=>r.forecast_or_actual==="actual" && r.actual_high);
+        if(!actualRow) return;
+        const actual=Number(actualRow.actual_high);
+        const highTime=actualRow.high_time||"";
+        byDate[d].forEach(r=>{
+          if(r.forecast_or_actual!=="forecast"||!r.predicted_high) return;
+          if(highTime){
+            const fcHH=(r.forecast_time||"").substr(11,5);
+            if(fcHH && compareTimes(fcHH,highTime)>0) return;
+          }
+          const err=Math.abs(Number(r.predicted_high)-actual);
+          if(Number.isFinite(err)){ aaeSum+=err; aaeCnt++; }
+        });
+      });
+
+      // Average "best" error (closest pre-high forecast per day)
+      let abeSum=0, abeCnt=0;
+      Object.keys(byDate).forEach(d=>{
+        const actualRow = byDate[d].find(r=>r.forecast_or_actual==="actual" && r.actual_high);
+        if(!actualRow) return;
+        const actual=Number(actualRow.actual_high);
+        const highTime=actualRow.high_time||"";
+        const errs = byDate[d].filter(r=>r.forecast_or_actual==="forecast"&&r.predicted_high)
+          .filter(r=>{
+            if(highTime){
+              const fcHH=(r.forecast_time||"").substr(11,5);
+              if(fcHH && compareTimes(fcHH,highTime)>0) return false;
+            }
+            return true;
+          })
+          .map(r=>Math.abs(Number(r.predicted_high)-actual))
+          .filter(Number.isFinite);
+        if(errs.length){ abeSum+=Math.min(...errs); abeCnt++; }
+      });
+
+      const statsEl=document.getElementById('stats');
+      if(statsEl){
+        statsEl.querySelectorAll('.stat-card .stat-value')[0].textContent = daysTracked;
+        statsEl.querySelectorAll('.stat-card .stat-value')[1].textContent = daysWithActual;
+        statsEl.querySelectorAll('.stat-card .stat-value')[2].textContent = aaeCnt? (aaeSum/aaeCnt).toFixed(2)+"°F" : "--°F";
+        statsEl.querySelectorAll('.stat-card .stat-value')[3].textContent = abeCnt? (abeSum/abeCnt).toFixed(2)+"°F" : "--°F";
+      }
+    }
+
+    let chartInstance=null;
+    function showChart(){
+      const labels=[], actual=[], best=[];
+      const byDate = {};
+      allRows.forEach(r=>{
+        const d=r.forecast_or_actual==="actual"?r.cli_date:r.target_date;
+        if(!d) return; (byDate[d]??=[]).push(r);
+      });
+      const days = Object.keys(byDate).sort();
+      days.forEach(d=>{
+        const rows = byDate[d];
+        const a = rows.find(r=>r.forecast_or_actual==="actual" && r.actual_high);
+        if(!a) return;
+        const actualHigh = Number(a.actual_high);
+        const highTime=a.high_time||"";
+        const pre = rows.filter(r=>r.forecast_or_actual==="forecast"&&r.predicted_high).filter(r=>{
+          if(highTime){
+            const fcHH=(r.forecast_time||"").substr(11,5);
+            if(fcHH && compareTimes(fcHH,highTime)>0) return false;
+          }
+          return true;
+        });
+        if(!pre.length) return;
+        const closest = pre.reduce((m,r)=>{
+          const e=Math.abs(Number(r.predicted_high)-actualHigh);
+          return (m==null || e<m.e)? {e, v:Number(r.predicted_high)} : m;
+        }, null);
+        labels.push(d);
+        actual.push(actualHigh);
+        best.push(closest?closest.v:null);
+      });
+
+      const ctx=document.getElementById('dailyChart').getContext('2d');
+      if(chartInstance){ chartInstance.destroy(); }
+      chartInstance=new Chart(ctx,{
         type:'line',
         data:{
           labels,
           datasets:[
-            {label:"Actual High", data:actuals, borderColor:"#16a34a", backgroundColor:"rgba(22,163,74,.12)", borderWidth:3, tension:.3, pointRadius:3, pointHoverRadius:6},
-            {label:"Best Forecast (pre-high)", data:bestForecasts, borderColor:"#7c3aed", backgroundColor:"rgba(124,58,237,.12)", borderWidth:3, tension:.3, pointRadius:3, pointHoverRadius:6}
+            {label:'Actual High', data:actual, borderWidth:2, tension:.25, pointRadius:0},
+            {label:'Best Forecast (pre-high)', data:best, borderWidth:2, tension:.25, pointRadius:0}
           ]
         },
         options:{
-          responsive:true, maintainAspectRatio:false,
-          plugins:{
-            legend:{display:true, position:"top", labels:{usePointStyle:true, padding:14, font:{size:12, weight:'700'}}},
-            title:{display:false}
-          },
+          responsive:true,
+          maintainAspectRatio:false,
           scales:{
-            x:{
-              title:{display:true, text:"Date", font:{size:12, weight:'800'}, padding:{top:8}},
-              ticks:{
-                autoSkip:false,
-                maxRotation:0, minRotation:0,
-                callback:(val, idx, ticks)=>{
-                  const d=labels[idx]; // YYYY-MM-DD
-                  const parts=d.split('-'); const jsDate=new Date(parts[0], Number(parts[1])-1, parts[2]);
-                  // Show only Mondays
-                  if(jsDate.getDay()===1){ // Monday
-                    return new Intl.DateTimeFormat('en-US',{month:'short', day:'numeric'}).format(jsDate);
-                  }
-                  return "";
-                }
-              },
-              grid:{color:'rgba(0,0,0,0.05)'}
-            },
-            y:{
-              title:{display:true, text:"Temperature (°F)", font:{size:12, weight:'800'}, padding:{bottom:6}},
-              grid:{color:'rgba(0,0,0,0.05)'}
-            }
+            x:{grid:{display:false}},
+            y:{grid:{color:'rgba(0,0,0,.05)'}}
           },
-          interaction:{intersect:false, mode:'index'}
+          plugins:{legend:{display:true}}
         }
       });
     }
 
-    /* ---------------- Table (prefetches Kalshi via proxy) ---------------- */
-    async function displayTable(){
-      const tb=document.querySelector("#dataTable tbody"); tb.innerHTML="";
-      const dayMap={};
+    function displayTable(){
+      const tb=document.querySelector("#dataTable tbody"); if(!tb) return;
+      tb.innerHTML="";
+      if(!filteredRows.length) return;
+
+      // Build best-per-day index to mark "Best?"
+      const bestMap=new Map();
+      const byDate={};
       filteredRows.forEach(r=>{
-        const date=r.forecast_or_actual==="actual"?r.cli_date:r.target_date;
-        if(!date) return; if(!dayMap[date]) dayMap[date]=[]; dayMap[date].push(r);
+        const d=r.forecast_or_actual==="actual"?r.cli_date:r.target_date;
+        if(!d) return; (byDate[d]??=[]).push(r);
+      });
+      Object.keys(byDate).forEach(d=>{
+        const rows=byDate[d];
+        const a=rows.find(r=>r.forecast_or_actual==="actual" && r.actual_high);
+        if(!a) return;
+        const actual=Number(a.actual_high);
+        const highTime=a.high_time||"";
+        let bestErr=Infinity, bestKey=null;
+        rows.forEach((r,idx)=>{
+          if(r.forecast_or_actual!=="forecast"||!r.predicted_high) return;
+          if(highTime){
+            const fcHH=(r.forecast_time||"").substr(11,5);
+            if(fcHH && compareTimes(fcHH,highTime)>0) return;
+          }
+          const err=Math.abs(Number(r.predicted_high)-actual);
+          if(err<bestErr){ bestErr=err; bestKey=idx; }
+        });
+        if(bestKey!=null) bestMap.set(d, rows[bestKey]);
       });
 
-      const isISODate=d=>/^\d{4}-\d{2}-\d{2}$/.test(d);
-      const dates=Object.keys(dayMap).filter(isISODate).sort();
+      filteredRows.forEach(r=>{
+        const tr=document.createElement('tr');
+        const isForecast=r.forecast_or_actual==="forecast";
+        tr.className = isForecast? "forecast-row" : "actual-row";
 
-      const kalshiByDate={};
-      await Promise.all(dates.map(async d=>{
-        try{ kalshiByDate[d]=await getKalshiLabel(d); }catch{ kalshiByDate[d]=null; }
-      }));
+        const pulled = r.timestamp || r.date_pulled || "";
+        const fctime = r.forecast_time || "";
+        const tdate = r.target_date || r.cli_date || "";
+        const fchigh = r.predicted_high || "";
+        const act = r.actual_high || "";
+        const htime = r.high_time || "";
 
-      dates.forEach(date=>{
-        const dayRows=dayMap[date];
-        const actual=dayRows.find(r=>r.forecast_or_actual==="actual");
-        const actualHigh=actual? rNum(actual.actual_high):null;
-        const actualHighTxt=actual && actual.actual_high? actual.actual_high+"°F":"";
-        const highTime=actual? actual.high_time:"";
-        let bestIdx=-1, bestErr=999;
-
-        dayRows.forEach((r,i)=>{
-          if(r.forecast_or_actual!=="forecast" || !r.predicted_high || actualHigh===null) return;
-          if(highTime){
-            const fcHour=(r.forecast_time||"").substr(11,5);
-            if(fcHour && compareTimes(fcHour,highTime)>0) return;
-          }
-          const err=Math.abs(Number(r.predicted_high)-actualHigh);
-          if(err<bestErr){ bestErr=err; bestIdx=i; }
-        });
-
-        const k=kalshiByDate[date];
-        const label=k && k.label? k.label:"";
-        const exact=k && k.exactTemp!=null? ` (${k.exactTemp.toFixed(1)}°F)`:"";
-
-        // Build Kalshi cell: if date === yesterday, force anchor link
-        const yISO = nycISODate(-1);
-        let kalshiCell="";
-        if(date===yISO){
-          const yHref=`${KALSHI_BASE_URL}${kalshiAnchorForISO(yISO)}`;
-          kalshiCell = `<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer" title="Kalshi settled range">${label||"Open market"}${exact}</a>`;
-        }else if(date===nycISODate(0)){
-          kalshiCell = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer" title="Kalshi market">${label||"Open market"}</a>`;
-        }else{
-          kalshiCell = label
-            ? `<span class="kalshi-badge" title="Kalshi settled range">${label}${exact}</span>`
-            : `<span style="color: var(--text-light); font-size: 12px;">—</span>`;
+        let err = "";
+        if(isForecast && r.predicted_high && act){
+          err = (Math.abs(Number(r.predicted_high) - Number(act)).toFixed(1));
         }
 
-        dayRows.forEach((r,i)=>{
-          if(r.forecast_or_actual!=="forecast" && r.forecast_or_actual!=="actual") return;
-          let cls=r.forecast_or_actual==="actual"?"actual-row":"forecast-row";
-          if(i===bestIdx && r.forecast_or_actual==="forecast") cls+=" best";
-          const pred=r.predicted_high? r.predicted_high+"°F":"";
-          const act=r.actual_high? r.actual_high+"°F":actualHighTxt;
-          const fTime=r.forecast_time? r.forecast_time.substr(11,5):"";
-          const errTxt=(r.forecast_or_actual==="forecast" && r.predicted_high && actualHigh!==null)
-            ? (Number(r.predicted_high)-actualHigh).toFixed(1) : "";
-          tb.innerHTML += `
-            <tr class="${cls}">
-              <td>${r.timestamp ? r.timestamp.substr(0,10) : ""}</td>
-              <td>${fTime}</td>
-              <td>${date}</td>
-              <td>${pred}</td>
-              <td>${act}</td>
-              <td>${highTime}</td>
-              <td>${errTxt}</td>
-             <td>${(i===bestIdx && r.forecast_or_actual==="forecast") ? "✓" : ""}</td>
-			<td>${r.forecast_or_actual==="actual" ? kalshiCell : ""}</td>
-		</tr>`;
-        });
+        const isBest = isForecast && bestMap.get(tdate) === r;
 
+        tr.innerHTML = `
+          <td>${pulled}</td>
+          <td>${fctime}</td>
+          <td>${tdate}</td>
+          <td>${fchigh}</td>
+          <td>${act}</td>
+          <td>${htime}</td>
+          <td>${err}</td>
+          <td>${isBest? "✅" : ""}</td>
+          <td>${r.kalshi_range||""}</td>
+        `;
+        if(isBest) tr.classList.add('best');
+        tb.appendChild(tr);
       });
     }
 
-    /* ---------------- Init ---------------- */
-    document.addEventListener("DOMContentLoaded", () => {
-      reloadCSV();                 // load table/chart/boxes
-      updateObservations();        // high-so-far + current temp
-      // refresh obs every 5 minutes
-      setInterval(updateObservations, 5 * 60 * 1000);
-    });
+    /* ===== Boot ===== */
+    reloadCSV();
+
+    // refresh obs periodically
+    setInterval(updateObservations, 5*60*1000);
   </script>
+
+  <!-- ===== Robust CTA wiring (example if you add CTA IDs later) ===== -->
+  <script>
+  (function(){
+    const DASHBOARD = location.href; // you are on the dashboard already
+
+    function waitForMS(tries=60, delay=100){
+      return new Promise(resolve=>{
+        (function loop(n){
+          const ms = window.$memberstackDom;
+          if (ms && typeof ms.getCurrentMember==="function") return resolve(ms);
+          if (n<=0) return resolve(null);
+          setTimeout(()=>loop(n-1), delay);
+        })(tries);
+      });
+    }
+
+    ["cta-explore","cta-explore-2"].forEach((id)=>{
+      const btn = document.getElementById(id);
+      if(!btn) return;
+
+      btn.addEventListener("click", async (e)=>{
+        e.preventDefault();
+        const ms = await waitForMS();
+        if(!ms){ location.href = DASHBOARD; return; }
+        try{
+          const { data: member } = await ms.getCurrentMember();
+          if(member) location.href = DASHBOARD;
+          else await ms.openModal("SIGNUP");
+        }catch{
+          location.href = DASHBOARD;
+        }
+      });
+    });
+  })();
+  </script>
+
 </body>
 </html>
-
-
