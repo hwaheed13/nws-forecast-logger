@@ -730,78 +730,80 @@
       }
     }
 
-    /* Chart — weekly ticks only (stepSize=7; Monday labels only) */
-    function showChart(){
-      const labels=[], actual=[], best=[];
-      const byDate={};
-      filteredRows.forEach(r=>{
-        const d=r.forecast_or_actual==="actual"?r.cli_date:r.target_date;
-        if(!d) return; (byDate[d]??=[]).push(r);
-      });
-      const days=Object.keys(byDate).sort(); // ascending like old page
-      days.forEach(d=>{
-        const rows=byDate[d];
-        const a=rows.find(r=>r.forecast_or_actual==="actual" && r.actual_high);
-        if(!a) return;
-        const actualHigh=Number(a.actual_high);
-        const highTime=a.high_time||"";
-        const pre=rows.filter(r=>r.forecast_or_actual==="forecast"&&r.predicted_high).filter(r=>{
-          if(highTime){
-            const fcHH=(r.forecast_time||"").substr(11,5);
-            if(fcHH && compareTimes(fcHH,highTime)>0) return false;
-          }
-          return true;
-        });
-        if(!pre.length) return;
-        const closest=pre.reduce((m,r)=>{
-          const e=Math.abs(Number(r.predicted_high)-actualHigh);
-          return (m==null || e<m.e)? {e, v:Number(r.predicted_high)} : m;
-        }, null);
-        labels.push(d);
-        actual.push(actualHigh);
-        best.push(closest?closest.v:null);
-      });
+   /* Chart — cleaner weekly ticks + axis titles */
+function showChart(){
+  const labels=[], actual=[], best=[];
+  const byDate={};
+  filteredRows.forEach(r=>{
+    const d=r.forecast_or_actual==="actual"?r.cli_date:r.target_date;
+    if(!d) return; (byDate[d]??=[]).push(r);
+  });
+  const days=Object.keys(byDate).sort();
+  days.forEach(d=>{
+    const rows=byDate[d];
+    const a=rows.find(r=>r.forecast_or_actual==="actual" && r.actual_high);
+    if(!a) return;
+    const actualHigh=Number(a.actual_high);
+    const highTime=a.high_time||"";
+    const pre=rows.filter(r=>r.forecast_or_actual==="forecast"&&r.predicted_high).filter(r=>{
+      if(highTime){
+        const fcHH=(r.forecast_time||"").substr(11,5);
+        if(fcHH && compareTimes(fcHH,highTime)>0) return false;
+      }
+      return true;
+    });
+    if(!pre.length) return;
+    const closest=pre.reduce((m,r)=>{
+      const e=Math.abs(Number(r.predicted_high)-actualHigh);
+      return (m==null || e<m.e)? {e, v:Number(r.predicted_high)} : m;
+    }, null);
+    labels.push(d);
+    actual.push(actualHigh);
+    best.push(closest?closest.v:null);
+  });
 
-      const ctx=document.getElementById('dailyChart').getContext('2d');
-      if(chartInstance) chartInstance.destroy();
-      chartInstance=new Chart(ctx,{
-        type:'line',
-        data:{
-          labels,
-          datasets:[
-            {label:'Actual High', data:actual, borderWidth:3, tension:.3, pointRadius:0},
-            {label:'Best Forecast (pre-high)', data:best, borderWidth:3, tension:.3, pointRadius:0}
-          ]
-        },
-        options:{
-          responsive:true,
-          maintainAspectRatio:false,
-          scales:{
-            x:{
-              grid:{color:'rgba(0,0,0,0.05)'},
-              ticks:{
-                autoSkip:true,
-                stepSize:7,               // ✅ only every 7th tick
-                maxRotation:0, minRotation:0,
-                callback:(val, idx)=>{
-                  const d=labels[idx];
-                  const [Y,M,D]=d.split('-').map(Number);
-                  const jsDate=new Date(Y, M-1, D);
-                  // Label only Mondays (others still skipped by stepSize)
-                  if(jsDate.getDay()===1){
-                    return new Intl.DateTimeFormat('en-US',{month:'short', day:'numeric'}).format(jsDate);
-                  }
-                  return '';
-                }
+  const ctx=document.getElementById('dailyChart').getContext('2d');
+  if(chartInstance) chartInstance.destroy();
+  chartInstance=new Chart(ctx,{
+    type:'line',
+    data:{
+      labels,
+      datasets:[
+        {label:'Actual High', data:actual, borderWidth:3, tension:.3, pointRadius:0, borderColor:'#2563eb'},
+        {label:'Best Forecast (pre-high)', data:best, borderWidth:3, tension:.3, pointRadius:0, borderColor:'#059669'}
+      ]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      scales:{
+        x:{
+          title:{display:true, text:'Day'},
+          grid:{color:'rgba(0,0,0,0.05)'},
+          ticks:{
+            autoSkip:true,
+            maxRotation:0, minRotation:0,
+            callback:(val, idx)=>{
+              const d=labels[idx];
+              const [Y,M,D]=d.split('-').map(Number);
+              const jsDate=new Date(Y, M-1, D);
+              // only label Mondays
+              if(jsDate.getDay()===1){
+                return new Intl.DateTimeFormat('en-US',{month:'short', day:'numeric'}).format(jsDate);
               }
-            },
-            y:{grid:{color:'rgba(0,0,0,.05)'}}
-          },
-          plugins:{legend:{display:true}}
+              return '';
+            }
+          }
+        },
+        y:{
+          title:{display:true, text:'Temperature (°F)'},
+          grid:{color:'rgba(0,0,0,.05)'}
         }
-      });
+      },
+      plugins:{legend:{display:true}}
     }
-
+  });
+}
     /* Table — restore OLD ordering + only the BEST gets border, and Kalshi shows on actual row */
     async function displayTable(){
       const tb=document.querySelector("#dataTable tbody"); if(!tb) return;
