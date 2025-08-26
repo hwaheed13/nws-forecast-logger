@@ -6,8 +6,16 @@
 
   <title>🌡️ Daily Dew Point Dashboard</title>
 
-  <!-- Performance: help the browser connect to Memberstack quickly -->
-  <link rel="preconnect" href="https://api.memberstack.io" crossorigin>
+ <!-- Performance: help the browser connect to Memberstack quickly -->
+<link rel="preconnect" href="https://static.memberstack.com" crossorigin>
+
+<!-- Memberstack v1 (same as landing page) -->
+<script
+  src="https://static.memberstack.com/scripts/v1/memberstack.js"
+  data-memberstack-app="app_cmervlzlv00070wtm9ptvetm4"
+  data-memberstack-use-cookies="true">
+</script>
+
 
   <!-- Optional CSP for quick testing (prefer server headers in production) -->
   <!--
@@ -224,9 +232,13 @@
     html.ms-checking body { opacity: 0.01; transition: opacity .15s ease; }
   </style>
 
-  <!-- Memberstack: keep the same app key used on the marketing site -->
-  <script src="https://api.memberstack.io/static/memberstack.js"
-          data-memberstack-app="pk_4c8a0984142eb153e6c3"></script>
+  <!-- Memberstack v1 (same as landing page) -->
+  <script
+  src="https://static.memberstack.com/scripts/v1/memberstack.js"
+  data-memberstack-app="app_cmervlzlv00070wtm9ptvetm4"
+  data-memberstack-use-cookies="true">
+  </script>
+
 
   <!-- Auth boot: consistent with landing page ($memberstackDom) -->
   <script>
