@@ -6,31 +6,17 @@
 
   <title>🌡️ Daily Dew Point Dashboard</title>
 
- <!-- Performance: help the browser connect to Memberstack quickly -->
-<link rel="preconnect" href="https://static.memberstack.com" crossorigin>
+  <!-- Performance -->
+  <link rel="preconnect" href="https://static.memberstack.com" crossorigin>
 
-<!-- Memberstack v1 (same as landing page) -->
-<script
-  src="https://static.memberstack.com/scripts/v1/memberstack.js"
-  data-memberstack-app="app_cmervlzlv00070wtm9ptvetm4"
-  data-memberstack-use-cookies="true">
-</script>
-
-
-  <!-- Optional CSP for quick testing (prefer server headers in production) -->
-  <!--
-  <meta http-equiv="Content-Security-Policy"
-        content="
-          default-src 'self';
-          script-src 'self' https://api.memberstack.io https://*.memberstack.com 'unsafe-inline';
-          connect-src 'self' https://api.memberstack.io https://*.memberstack.com https://kalshi-proxy-theta.vercel.app https://raw.githubusercontent.com;
-          img-src 'self' data: https:;
-          style-src 'self' 'unsafe-inline';
-          frame-src https://api.memberstack.io https://*.memberstack.com;">
-  -->
+  <!-- Memberstack v1 -->
+  <script
+    src="https://static.memberstack.com/scripts/v1/memberstack.js"
+    data-memberstack-app="app_cmervlzlv00070wtm9ptvetm4"
+    data-memberstack-use-cookies="true">
+  </script>
 
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-
   <style>
     :root{
       --bg-primary:#fafbfc; --bg-secondary:#ffffff; --bg-tertiary:#f8f9fa; --bg-accent:#f1f5f9;
@@ -40,8 +26,6 @@
       --accent-green:#059669; --accent-green-light:#d1fae5;
       --accent-amber:#d97706; --accent-amber-light:#fef3c7;
       --shadow-sm:0 1px 2px rgba(0,0,0,.05);
-      --shadow-md:0 6px 18px rgba(0,0,0,.08);
-      --radius-sm:10px; --radius-md:12px; --radius-lg:16px;
     }
     *{box-sizing:border-box}
     body{
@@ -51,39 +35,23 @@
     }
     .header{background:var(--bg-secondary); border-bottom:1px solid var(--border-subtle); padding:20px 0; position:sticky; top:0; z-index:10; backdrop-filter:blur(8px)}
     .header-content{max-width:1400px; margin:0 auto; padding:0 20px; display:flex; align-items:center; justify-content:space-between}
-    .logo-section{display:flex; align-items:center; gap:12px}
 
-    /* Brand header layout */
-    .brand { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
-    .brand-left { display: flex; align-items: center; gap: 12px; }
-
-    .brand-mark {
-      display: grid; place-items: center;
-      width: 40px; height: 40px; border-radius: 12px;
-      background: linear-gradient(135deg, var(--accent-blue-light), var(--accent-green-light));
-      box-shadow: var(--shadow-sm);
-      border: 1px solid var(--border-subtle);
-      position: relative; top: -3px;
-    }
-    .brand-mark svg { display:block; transform: translate(1px, 1px); }
-
-    .brand-title { margin: 0; font-weight: 800; letter-spacing: .2px; font-size: 28px; line-height: 1.15; color: var(--text-primary); }
-    .brand-title .thin { font-weight: 600; color: var(--text-secondary); }
-    .brand-sub { margin: 2px 0 0; font-size: 13px; color: var(--text-muted); }
-
-    .brand-right { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-    .pill {
-      display:inline-flex; align-items:center; gap:6px;
-      padding:6px 10px; font-size:12px; font-weight:700;
-      color:var(--text-secondary); background:var(--bg-accent);
-      border:1px solid var(--border-subtle); border-radius:999px;
-    }
-    .pill.live { background:var(--accent-green-light); color:var(--accent-green); border-color:transparent; }
-    .pill.live .dot { width:6px; height:6px; border-radius:50%; background:var(--accent-green); animation:pulse 2s infinite; }
+    /* Brand */
+    .brand{display:flex; align-items:center; justify-content:space-between; gap:14px}
+    .brand-left{display:flex; align-items:center; gap:12px}
+    .brand-mark{display:grid; place-items:center; width:40px; height:40px; border-radius:12px; background:linear-gradient(135deg,var(--accent-blue-light),var(--accent-green-light)); box-shadow:var(--shadow-sm); border:1px solid var(--border-subtle); position:relative; top:-3px}
+    .brand-mark svg{display:block; transform:translate(1px,1px)}
+    .brand-title{margin:0; font-weight:800; letter-spacing:.2px; font-size:28px; line-height:1.15; color:var(--text-primary)}
+    .brand-title .thin{font-weight:600; color:var(--text-secondary)}
+    .brand-sub{margin:2px 0 0; font-size:13px; color:var(--text-muted)}
+    .brand-right{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+    .pill{display:inline-flex; align-items:center; gap:6px; padding:6px 10px; font-size:12px; font-weight:700; color:var(--text-secondary); background:var(--bg-accent); border:1px solid var(--border-subtle); border-radius:999px}
+    .pill.live{background:var(--accent-green-light); color:var(--accent-green); border-color:transparent}
+    .pill.live .dot{width:6px; height:6px; border-radius:50%; background:var(--accent-green); animation:pulse 2s infinite}
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
 
     .container{max-width:1400px;margin:0 auto;padding:24px}
-    .last-update{background:var(--bg-secondary); border:1px solid var(--border-subtle); border-radius:var(--radius-md); padding:18px 20px; margin-bottom:20px; box-shadow:var(--shadow-sm)}
+    .last-update{background:var(--bg-secondary); border:1px solid var(--border-subtle); border-radius:12px; padding:18px 20px; margin-bottom:20px; box-shadow:var(--shadow-sm)}
     .last-update-label{font-size:12px; color:var(--text-muted); letter-spacing:.06em; text-transform:uppercase; margin-bottom:4px; font-weight:600}
     .last-update-content{font-size:15px; color:var(--text-secondary); font-weight:600}
 
@@ -100,8 +68,6 @@
     .metric-subtitle{font-size:13px; color:var(--text-light)}
     .mini-forecasts{display:flex; flex-wrap:wrap; gap:6px; margin-top:6px}
     .mini-chip{background:var(--bg-accent); color:var(--text-secondary); padding:4px 10px; border-radius:999px; font-size:12px; font-weight:700; border:1px solid var(--border-subtle)}
-    .sparkline-container{height:40px; margin-top:8px}
-    .sparkline{width:100%; height:40px; display:block}
 
     .kalshi-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:18px; margin-bottom:22px}
     .kalshi-card{background:var(--bg-secondary); border:1px solid var(--border-subtle); border-radius:16px; padding:22px}
@@ -132,10 +98,9 @@
 
     .chart-section{background:var(--bg-secondary); border:1px solid var(--border-subtle); border-radius:16px; padding:24px; margin-bottom:22px}
     .chart-title{font-size:16px; font-weight:800; margin-bottom:14px}
-    .chart-container{position:relative; height:380px; width:100%}
+    .chart-container{position:relative; height:clamp(220px,38vh,380px); width:100%}
 
     .table-section{background:var(--bg-secondary); border:1px solid var(--border-subtle); border-radius:16px; padding:0; overflow:hidden}
-    .table-title{font-size:16px; font-weight:800; margin:0; padding:16px 18px}
     .table-container{overflow-x:auto; border-top:1px solid var(--border-subtle); padding:0 18px 18px}
     #dataTable{width:100%; border-collapse:collapse; font-size:14px; background:var(--bg-secondary)}
     #dataTable th{background:var(--bg-tertiary); color:var(--text-primary); padding:12px 10px; text-align:left; font-weight:800; font-size:12px; letter-spacing:.06em; text-transform:uppercase; border-bottom:2px solid var(--border-default); position:sticky; top:0; z-index:1}
@@ -143,8 +108,13 @@
     #dataTable tbody tr:hover{background:var(--bg-accent)}
     .forecast-row{background:var(--accent-blue-light) !important}
     .actual-row{background:var(--accent-green-light) !important}
-    .best{box-shadow:inset 0 0 0 2px var(--accent-green)}
-    details.table-wrap summary { background: var(--bg-accent); border-bottom: 1px solid var(--border-subtle); border-top-left-radius: 16px; border-top-right-radius: 16px; }
+    .best{box-shadow:inset 0 0 0 2px var(--accent-green)} /* ✅ only best gets the border */
+
+    details.table-wrap{border-top:1px solid var(--border-subtle)}
+    details.table-wrap summary{ background:var(--bg-accent); border-bottom:1px solid var(--border-subtle); list-style:none; cursor:pointer; padding:16px 18px; font-weight:800; display:flex; align-items:center; justify-content:space-between }
+    details.table-wrap summary::-webkit-details-marker{display:none}
+    .caret{transition:transform .2s ease}
+    details[open] .caret{transform:rotate(90deg)}
 
     .skel td::before{content:""; display:block; height:12px; margin:4px 0; width:70%; background:linear-gradient(90deg,var(--bg-accent),var(--bg-tertiary),var(--bg-accent)); background-size:200% 100%; animation:shimmer 1.5s infinite; border-radius:4px}
     @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
@@ -152,150 +122,53 @@
     .footer{margin-top:28px; padding:18px 24px; background:var(--bg-tertiary); border-top:1px solid var(--border-subtle); text-align:center; font-size:12px; color:var(--text-light)}
     .footer a{color:var(--accent-blue); text-decoration:none}
 
-    details.table-wrap{border-top:1px solid var(--border-subtle)}
-    details.table-wrap summary{ list-style:none; cursor:pointer; padding:16px 18px; font-weight:800; display:flex; align-items:center; justify-content:space-between }
-    details.table-wrap summary::-webkit-details-marker{display:none}
-    .caret{transition:transform .2s ease}
-    details[open] .caret{transform:rotate(90deg)}
+    /* Fluid sizes + mobile */
+    .brand-title{font-size:clamp(18px,2.2vw,28px)}
+    .metric-value{font-size:clamp(22px,3vw,36px)}
+    .prediction-value{font-size:clamp(20px,2.6vw,28px)}
+    .stat-value{font-size:clamp(18px,2.4vw,28px)}
+    .kalshi-badge{font-size:clamp(11px,1.8vw,14px); padding:6px 10px}
+    .pill{font-size:clamp(10px,1.6vw,12px); padding:4px 8px}
 
-    /* Mobile tweaks */
-    @media (max-width: 768px){
-      .container{padding:16px}
-      .metrics-grid{grid-template-columns:1fr; gap:12px}
-      .metric-card{padding:18px; border-radius:16px}
-      .metric-label{font-size:15px}
-      .metric-value{font-size:34px}
-      .prediction-grid{grid-template-columns:1fr}
-      .kalshi-grid{grid-template-columns:1fr}
-      .chart-container{height:320px}
-      .header-content{flex-direction:column; gap:8px}
+    @media (max-width:600px){
+      .container{padding:12px}
+      .header{padding:12px 0}
+      .brand{gap:8px}
+      .brand-left{gap:8px}
+      .brand-mark{width:32px; height:32px; border-radius:10px; top:-2px}
+      .brand-mark svg{width:28px; height:28px; transform:translate(0,0)}
+      .brand-sub{font-size:12px; line-height:1.35}
+      .metrics-grid,.prediction-grid,.kalshi-grid{grid-template-columns:1fr; gap:10px}
+      .metric-card{padding:14px; border-radius:14px}
+      .metric-label{font-size:13px}
+      .metric-subtitle{font-size:12px}
+      .prediction-card{padding:14px}
+      .stats-grid{grid-template-columns:repeat(2,1fr); gap:8px}
+      .stat-card{padding:10px}
+      .stat-label{font-size:11px}
+      .stat-value{font-size:22px}
+      .mini-forecasts{gap:4px}
+      .mini-chip{font-size:11px; padding:3px 8px}
+      .controls-section{padding:12px}
+      .controls{gap:8px}
+      .control-label{font-size:12px}
+      input[type="date"]{font-size:13px; padding:7px 8px; border-radius:8px}
+      .btn{font-size:13px; padding:8px 12px; border-radius:8px}
+      .chart-section{padding:14px}
+      .chart-title{font-size:14px; margin-bottom:10px}
+      .chart-container{height:260px}
+      .table-container{padding:0 12px 12px}
+      #dataTable{font-size:12px}
+      #dataTable th{font-size:11px; padding:10px 8px}
+      #dataTable td{padding:10px 8px}
+      .brand-right{gap:6px}
+      .pill .dot{width:5px; height:5px}
     }
 
-    /* === Fluid sizing === */
-    .brand-title        { font-size: clamp(18px, 2.2vw, 28px); }
-    .metric-value       { font-size: clamp(22px, 3vw, 36px); }
-    .prediction-value   { font-size: clamp(20px, 2.6vw, 28px); }
-    .stat-value         { font-size: clamp(18px, 2.4vw, 28px); }
-    .kalshi-badge       { font-size: clamp(11px, 1.8vw, 14px); padding: 6px 10px; }
-    .pill               { font-size: clamp(10px, 1.6vw, 12px); padding: 4px 8px; }
-
-    .chart-container { height: clamp(220px, 38vh, 380px); }
-
-    @media (max-width: 600px) {
-      .container        { padding: 12px; }
-      .header           { padding: 12px 0; }
-      .header-content   { gap: 6px; }
-      .brand            { gap: 8px; }
-      .brand-left       { gap: 8px; }
-      .brand-mark       { width: 32px; height: 32px; border-radius: 10px; top: -2px; }
-      .brand-mark svg   { width: 28px; height: 28px; transform: translate(0, 0); }
-      .brand-sub        { font-size: 12px; line-height: 1.35; }
-      .metrics-grid,
-      .prediction-grid,
-      .kalshi-grid      { grid-template-columns: 1fr; gap: 10px; }
-      .metric-card      { padding: 14px; border-radius: 14px; }
-      .metric-label     { font-size: 13px; }
-      .metric-value     { line-height: 1.05; }
-      .metric-subtitle  { font-size: 12px; }
-      .prediction-card  { padding: 14px; }
-      .stats-grid       { grid-template-columns: repeat(2, 1fr); gap: 8px; }
-      .stat-card        { padding: 10px; }
-      .stat-label       { font-size: 11px; }
-      .stat-value       { font-size: 22px; }
-      .mini-forecasts   { gap: 4px; }
-      .mini-chip        { font-size: 11px; padding: 3px 8px; }
-      .controls-section { padding: 12px; }
-      .controls         { gap: 8px; }
-      .control-label    { font-size: 12px; }
-      input[type="date"]{ font-size: 13px; padding: 7px 8px; border-radius: 8px; }
-      .btn              { font-size: 13px; padding: 8px 12px; border-radius: 8px; }
-      .chart-section    { padding: 14px; }
-      .chart-title      { font-size: 14px; margin-bottom: 10px; }
-      .chart-container  { height: 260px; }
-      .table-title      { font-size: 14px; padding: 12px 14px; }
-      .table-container  { padding: 0 12px 12px; }
-      #dataTable        { font-size: 12px; }
-      #dataTable th     { font-size: 11px; padding: 10px 8px; }
-      #dataTable td     { padding: 10px 8px; }
-      .brand-right      { gap: 6px; }
-      .pill .dot        { width: 5px; height: 5px; }
-    }
-
-    @media (max-width: 400px) {
-      .metric-card      { padding: 12px; }
-      .metric-value     { font-size: 20px; }
-      .prediction-value { font-size: 18px; }
-      .chart-container  { height: 230px; }
-    }
-
-    /* Soft pre-auth veil (prevents jank without trapping the user) */
-    html.ms-checking body { opacity: 0.01; transition: opacity .15s ease; }
+    /* Soft pre-auth veil to avoid jank */
+    html.ms-checking body{opacity:.01; transition:opacity .15s ease}
   </style>
-
-  <!-- Memberstack v1 (same as landing page) -->
-  <script
-  src="https://static.memberstack.com/scripts/v1/memberstack.js"
-  data-memberstack-app="app_cmervlzlv00070wtm9ptvetm4"
-  data-memberstack-use-cookies="true">
-  </script>
-
-
-  <!-- Auth boot: consistent with landing page ($memberstackDom) -->
-  <script>
-    // mark "checking" to avoid initial jank
-    document.documentElement.classList.add('ms-checking');
-
-    // small, non-blocking warning ribbon if MS is unreachable
-    function showMsWarning(msg){
-      if (document.getElementById('ms-warn')) return;
-      const bar = document.createElement('div');
-      bar.id = 'ms-warn';
-      bar.style.cssText = "position:fixed;left:0;right:0;top:0;z-index:9999;padding:10px 14px;background:#fee2e2;color:#991b1b;border-bottom:1px solid #fecaca;font-weight:700;text-align:center;font-family:Inter,system-ui,sans-serif";
-      bar.textContent = msg || "We couldn’t reach Memberstack to verify access. You can still use the dashboard.";
-      document.body.appendChild(bar);
-      // nudge header down slightly when ribbon shows
-      const h = document.querySelector('.header');
-      if (h) h.style.top = (h.offsetTop + bar.offsetHeight) + 'px';
-    }
-
-    function waitForMS(tries=60, delay=100){
-      return new Promise(resolve=>{
-        (function loop(n){
-          const ms = window.$memberstackDom;
-          if (ms && typeof ms.getCurrentMember==="function") return resolve(ms);
-          if (n<=0) return resolve(null);
-          setTimeout(()=>loop(n-1), delay);
-        })(tries);
-      });
-    }
-
-    (async function bootAuth(){
-      const ms = await waitForMS();
-      if (!ms) {
-        console.warn('[MS] Memberstack failed to load on dashboard.');
-        document.documentElement.classList.remove('ms-checking');
-        showMsWarning();
-        return;
-      }
-      try{
-        const { data: member } = await ms.getCurrentMember();
-        if (!member) {
-          // not logged in → open modal, but do not hard-block page
-          console.log('[MS] No member session — opening SIGNUP modal.');
-          await ms.openModal('SIGNUP');
-        } else {
-          console.log('[MS] Member session OK:', member?.id);
-        }
-      } catch (e){
-        console.error('[MS] getCurrentMember failed:', e);
-        showMsWarning("Membership check had a network issue. You can still use the dashboard.");
-      } finally {
-        document.documentElement.classList.remove('ms-checking');
-      }
-    })();
-  </script>
 </head>
-
 <body>
   <header class="header">
     <div class="header-content brand">
@@ -462,77 +335,83 @@
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
-    let allRows = [];
-    let filteredRows = [];
+    /* ===== Memberstack boot (non-blocking) ===== */
+    document.documentElement.classList.add('ms-checking');
+    function showMsWarning(msg){
+      if (document.getElementById('ms-warn')) return;
+      const bar = document.createElement('div');
+      bar.id='ms-warn';
+      bar.style.cssText="position:fixed;left:0;right:0;top:0;z-index:9999;padding:10px 14px;background:#fee2e2;color:#991b1b;border-bottom:1px solid #fecaca;font-weight:700;text-align:center;font-family:Inter,system-ui,sans-serif";
+      bar.textContent = msg || "We couldn’t reach Memberstack to verify access. You can still use the dashboard.";
+      document.body.appendChild(bar);
+      const h=document.querySelector('.header'); if(h) h.style.top=(h.offsetTop+bar.offsetHeight)+'px';
+    }
+    function waitForMS(tries=60, delay=100){
+      return new Promise(resolve=>{
+        (function loop(n){
+          const ms=window.$memberstackDom;
+          if(ms && typeof ms.getCurrentMember==="function") return resolve(ms);
+          if(n<=0) return resolve(null);
+          setTimeout(()=>loop(n-1),delay);
+        })(tries);
+      });
+    }
+    (async function bootAuth(){
+      const ms=await waitForMS();
+      if(!ms){ document.documentElement.classList.remove('ms-checking'); showMsWarning(); return; }
+      try{
+        const {data:member}=await ms.getCurrentMember();
+        if(!member){ await ms.openModal('SIGNUP'); }
+      }catch(e){ showMsWarning("Membership check had a network issue. You can still use the dashboard."); }
+      finally{ document.documentElement.classList.remove('ms-checking'); }
+    })();
 
-    /* NYC-local ISO date helper (YYYY-MM-DD) */
+    /* ===== Data + UI logic ===== */
+    let allRows=[], filteredRows=[], chartInstance=null;
+
     function nycISODate(offsetDays=0){
-      const fmt = new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'});
-      const parts = fmt.formatToParts(new Date(Date.now()+offsetDays*86400000));
-      const g = k => parts.find(p => p.type === k).value;
+      const fmt=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'});
+      const parts=fmt.formatToParts(new Date(Date.now()+offsetDays*86400000));
+      const g=k=>parts.find(p=>p.type===k).value;
       return `${g('year')}-${g('month')}-${g('day')}`;
     }
 
-    /* Make Kalshi anchor like #kxhighny-yyMonDD (lowercase mon) */
     function kalshiAnchorForISO(dateISO){
-      const [y, m, d] = dateISO.split('-').map(Number);
-      const dt = new Date(Date.UTC(y, m - 1, d));
-      const monthMap = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
-      const dd = String(dt.getUTCDate()).replace(/^0/, '');
-      const mon = monthMap[dt.getUTCMonth()];
-      const yy = String(dt.getUTCFullYear()).slice(-2);
+      const [y,m,d]=dateISO.split('-').map(Number);
+      const dt=new Date(Date.UTC(y,m-1,d));
+      const mon=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'][dt.getUTCMonth()];
+      const dd=String(dt.getUTCDate()).replace(/^0/,''); const yy=String(dt.getUTCFullYear()).slice(-2);
       return `#kxhighny-${yy}${mon}${dd}`;
     }
 
-    /* ---------------- CSV load + parsing ---------------- */
+    /* CSV */
     function showSkeleton(rows=6){
-      const tb=document.querySelector("#dataTable tbody");
-      tb.innerHTML="";
-      for(let i=0;i<rows;i++){
-        const tr=document.createElement("tr");
-        tr.className="skel";
-        tr.innerHTML="<td></td>".repeat(9);
-        tb.appendChild(tr);
-      }
+      const tb=document.querySelector("#dataTable tbody"); tb.innerHTML="";
+      for(let i=0;i<rows;i++){ const tr=document.createElement("tr"); tr.className="skel"; tr.innerHTML="<td></td>".repeat(9); tb.appendChild(tr); }
     }
-
     function reloadCSV(){
       showSkeleton();
       fetch("https://raw.githubusercontent.com/hwaheed13/nws-forecast-logger/main/nws_forecast_log.csv?"+Date.now())
-        .then(r => r.text())
-        .then(parseCSV)
-        .then(() => {
-          resetFilter();
-          showMostRecent();
-          updateSummaryBoxes();
-          updateCorrectionBoxes();
-          updateObservations();
+        .then(r=>r.text()).then(parseCSV).then(()=>{
+          resetFilter(); showMostRecent(); updateSummaryBoxes(); updateCorrectionBoxes(); updateObservations();
         })
-        .catch(err => alert("Could not load CSV. "+err));
+        .catch(err=>alert("Could not load CSV. "+err));
     }
-
     function csvToRows(text){
       const rows=[]; let row=[], field='', q=false;
       for(let i=0;i<text.length;i++){
         const c=text[i], n=text[i+1];
         if(c==='"'){ if(q && n==='"'){ field+='"'; i++; } else q=!q; }
         else if(c===',' && !q){ row.push(field); field=''; }
-        else if((c==='\n'||c==='\r') && !q){
-          if(c==='\r' && n==='\n') i++;
-          row.push(field); field='';
-          if(row.length && row.some(x=>x!=='') ) rows.push(row);
-          row=[];
-        } else field+=c;
+        else if((c==='\n'||c==='\r') && !q){ if(c==='\r'&&n==='\n') i++; row.push(field); field=''; if(row.length&&row.some(x=>x!=='')) rows.push(row); row=[]; }
+        else field+=c;
       }
-      if(field!==''||row.length){ row.push(field); if(row.length && row.some(x=>x!=='') ) rows.push(row); }
+      if(field!==''||row.length){ row.push(field); if(row.length&&row.some(x=>x!=='')) rows.push(row); }
       return rows;
     }
-
     function parseCSV(text){
-      const rows=csvToRows(text);
-      if(!rows.length) return;
-      const header=rows[0].map(h=>h.trim());
-      allRows=[];
+      const rows=csvToRows(text); if(!rows.length) return;
+      const header=rows[0].map(h=>h.trim()); allRows=[];
       for(let i=1;i<rows.length;i++){
         const vals=rows[i]; const rec={};
         for(let j=0;j<header.length;j++){
@@ -544,49 +423,22 @@
       }
     }
 
-    /* ---------------- Filters & helpers ---------------- */
-    function resetFilter(){
-      filteredRows=allRows.slice();
-      document.getElementById('fromDate').value="";
-      document.getElementById('toDate').value="";
-      displayTable(); showStats(); showChart();
-      showMostRecent(); updateCorrectionBoxes(); updateSummaryBoxes();
-    }
-
-    function applyDateFilter(){
-      const from=document.getElementById('fromDate').value;
-      const to=document.getElementById('toDate').value;
-      filteredRows=allRows.filter(row=>{
-        const date=row.forecast_or_actual==="actual"?row.cli_date:row.target_date;
-        if(!date) return false;
-        if(from && date<from) return false;
-        if(to && date>to) return false;
-        return true;
-      });
-      displayTable(); showStats(); showChart();
-      showMostRecent(); updateCorrectionBoxes(); updateSummaryBoxes();
-    }
-
+    /* Helpers */
     function rNum(x){ const n=Number(x); return Number.isFinite(n)?n:null; }
-
     function toDateObj(t){
       if(!t) return null;
       const clean=String(t).trim().replace(/:(\d{2})(?=\s*[AP]M)/i,'');
       if(/[AP]M/i.test(clean)){
-        const m=clean.match(/(\d{1,2}):(\d{2})\s*([AP]M)/i);
-        if(!m) return null;
-        const [,h,mn,amp]=m;
-        const hour=(Number(h)%12)+(amp.toUpperCase()==="PM"?12:0);
+        const m=clean.match(/(\d{1,2}):(\d{2})\s*([AP]M)/i); if(!m) return null;
+        const [,h,mn,amp]=m; const hour=(Number(h)%12)+(amp.toUpperCase()==="PM"?12:0);
         return new Date(2020,1,1,hour,Number(mn));
       }
-      if(/^\d{2}:\d{2}$/.test(clean)){
-        const [h,mn]=clean.split(":"); return new Date(2020,1,1,Number(h),Number(mn));
-      }
+      if(/^\d{2}:\d{2}$/.test(clean)){ const [h,mn]=clean.split(":"); return new Date(2020,1,1,Number(h),Number(mn)); }
       return null;
     }
     function compareTimes(t1,t2){ const d1=toDateObj(t1), d2=toDateObj(t2); return (d1&&d2)?d1-d2:0; }
 
-    /* -------- Last logged forecast -------- */
+    /* Last logged forecast */
     function showMostRecent(){
       const el=document.getElementById("recentForecast");
       if(!allRows.length){ el.textContent=""; return; }
@@ -594,15 +446,15 @@
         const r=allRows[i];
         if(r && r.forecast_or_actual==="forecast" && r.predicted_high && r.target_date){
           const iso=r.timestamp;
-          const when = iso ? new Intl.DateTimeFormat("en-US",{timeZone:"America/New_York",hour:"numeric",minute:"2-digit",month:"short",day:"numeric"}).format(new Date(iso)) : (r.forecast_time||"(time unknown)");
-          el.innerHTML = `<strong>${when} ET</strong> — <strong>${r.predicted_high}°F</strong> for <strong>${r.target_date}</strong>`;
+          const when=iso ? new Intl.DateTimeFormat("en-US",{timeZone:"America/New_York",hour:"numeric",minute:"2-digit",month:"short",day:"numeric"}).format(new Date(iso)) : (r.forecast_time||"(time unknown)");
+          el.innerHTML=`<strong>${when} ET</strong> — <strong>${r.predicted_high}°F</strong> for <strong>${r.target_date}</strong>`;
           return;
         }
       }
       el.textContent="";
     }
 
-    /* -------- Mini forecast chips -------- */
+    /* Mini chips */
     function getForecastsForDate(dateISO){
       const rows=allRows
         .filter(r=>r.forecast_or_actual==="forecast" && r.target_date===dateISO && r.predicted_high)
@@ -621,18 +473,18 @@
       });
     }
 
-    /* ---------------- Kalshi helpers ---------------- */
-    const KALSHI_PROXY_BASE = "https://kalshi-proxy-theta.vercel.app/api/kalshi";
-    const KALSHI_LIVE_BASE  = "https://kalshi-proxy-theta.vercel.app/api/kalshi-live";
-    const KALSHI_BASE_URL   = "https://kalshi.com/markets/kxhighny/highest-temperature-in-nyc";
+    /* Proxies */
+    const KALSHI_PROXY_BASE="https://kalshi-proxy-theta.vercel.app/api/kalshi";
+    const KALSHI_LIVE_BASE ="https://kalshi-proxy-theta.vercel.app/api/kalshi-live";
+    const KALSHI_BASE_URL  ="https://kalshi.com/markets/kxhighny/highest-temperature-in-nyc";
+    const NWS_OBS_BASE="https://kalshi-proxy-theta.vercel.app/api/nws-high-so-far";
+    const NWS_CURRENT_BASE="https://kalshi-proxy-theta.vercel.app/api/nws-current-temp";
 
     async function fetchKalshiWinningRange(dateISO){
       try{
         let r=await fetch(`${KALSHI_PROXY_BASE}?date=${encodeURIComponent(dateISO)}`,{mode:"cors",headers:{Accept:"application/json"},cache:"no-cache"});
         if(r.status===204) return null;
-        if(r.status===304){
-          r=await fetch(`${KALSHI_PROXY_BASE}?date=${encodeURIComponent(dateISO)}&cb=${Date.now()}`,{mode:"cors",headers:{Accept:"application/json"}});
-        }
+        if(r.status===304){ r=await fetch(`${KALSHI_PROXY_BASE}?date=${encodeURIComponent(dateISO)}&cb=${Date.now()}`,{mode:"cors",headers:{Accept:"application/json"}}); }
         if(!r.ok) return null; return await r.json();
       }catch{return null;}
     }
@@ -653,42 +505,34 @@
       const data=await fetchKalshiWinningRange(dateISO); kalshiCache.set(dateISO,data); return data;
     }
 
-    /* NWS obs (high so far + current) */
-    const NWS_OBS_BASE="https://kalshi-proxy-theta.vercel.app/api/nws-high-so-far";
-    const NWS_CURRENT_BASE="https://kalshi-proxy-theta.vercel.app/api/nws-current-temp";
     async function fetchNwsHighSoFar(station="KNYC"){ try{ const r=await fetch(`${NWS_OBS_BASE}?station=${encodeURIComponent(station)}`,{mode:"cors",headers:{Accept:"application/json"},cache:"no-cache"}); if(!r.ok) return null; return await r.json(); }catch{return null;} }
     async function fetchNwsCurrentTemp(station="KNYC"){ try{ const r=await fetch(`${NWS_CURRENT_BASE}?station=${encodeURIComponent(station)}&cb=${Date.now()}`,{mode:"cors",headers:{Accept:"application/json"},cache:"no-cache"}); if(!r.ok) return null; return await r.json(); }catch{return null;} }
-
     function updateObservations(){
       fetchNwsHighSoFar("KNYC").then(obs=>{
-        const el=document.getElementById("box-today-obs");
-        const note=document.getElementById("box-today-obs-note");
+        const el=document.getElementById("box-today-obs"); const note=document.getElementById("box-today-obs-note");
         if(!el||!note) return;
         if(obs && obs.highF!=null){
           el.textContent=`${Number(obs.highF).toFixed(1)}°F`;
           const ts=obs.atISO?new Date(obs.atISO):null;
-          const tNY=ts? new Intl.DateTimeFormat("en-US",{timeZone:"America/New_York",hour:"numeric",minute:"2-digit"}).format(ts) : "";
-          note.textContent = tNY ? `as of ${tNY} ET • station ${obs.station}` : `station ${obs.station}`;
-        } else { el.textContent="–"; note.textContent=""; }
+          const tNY=ts? new Intl.DateTimeFormat("en-US",{timeZone:"America/New_York",hour:"numeric",minute:"2-digit"}).format(ts):"";
+          note.textContent=tNY?`as of ${tNY} ET • station ${obs.station}`:`station ${obs.station}`;
+        }else{ el.textContent="–"; note.textContent=""; }
       });
       fetchNwsCurrentTemp("KNYC").then(cur=>{
-        const el=document.getElementById("box-today-current");
-        const note=document.getElementById("box-today-current-note");
+        const el=document.getElementById("box-today-current"); const note=document.getElementById("box-today-current-note");
         if(!el||!note) return;
         if(cur && cur.currentF!=null){
           el.textContent=`${Number(cur.currentF).toFixed(1)}°F`;
           const ts=cur.atISO?new Date(cur.atISO):null;
           const tNY=ts? new Intl.DateTimeFormat("en-US",{timeZone:"America/New_York",hour:"numeric",minute:"2-digit"}).format(ts):"";
-          note.textContent = tNY ? `as of ${tNY} ET • station ${cur.station}` : `station ${cur.station}`;
-        } else { el.textContent="–"; note.textContent=""; }
+          note.textContent=tNY?`as of ${tNY} ET • station ${cur.station}`:`station ${cur.station}`;
+        }else{ el.textContent="–"; note.textContent=""; }
       });
     }
 
-    /* ---------------- Summary boxes (incl. Kalshi) ---------------- */
+    /* Summary boxes (incl. Kalshi) */
     function updateSummaryBoxes(){
-      const today=nycISODate(0);
-      const tomorrow=nycISODate(1);
-      const yesterday=nycISODate(-1);
+      const today=nycISODate(0), tomorrow=nycISODate(1), yesterday=nycISODate(-1);
 
       const latestForDate=(date)=>{
         const rows=allRows.filter(r=>r.forecast_or_actual==="forecast" && r.target_date===date && r.predicted_high);
@@ -713,7 +557,6 @@
       const todayRows=getForecastsForDate(today);
       renderMiniForecastChips(todayRows,"mini-today-forecasts");
 
-      // KALSHI CARDS
       Promise.all([ getKalshiLabel(today), getKalshiLabel(yesterday) ])
         .then(async ([ktoday, kyday])=>{
           const tBox=document.getElementById('box-today-kalshi');
@@ -721,39 +564,35 @@
           const yBox=document.getElementById('box-yday-kalshi');
           const yNote=document.getElementById('box-yday-kalshi-note');
 
-          // TODAY: always link to BASE URL (no anchor)
           if(ktoday && ktoday.label){
-            tBox.innerHTML = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${ktoday.label}</a>`;
+            tBox.innerHTML=`<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${ktoday.label}</a>`;
             tNote.textContent = ktoday.exactTemp!=null ? `Settled at ${ktoday.exactTemp.toFixed(1)}°F.` : "";
           }else{
             const live=await fetchKalshiLiveLeader(today);
             if(live && live.leadingLabel){
               const pct=(live.leadingProb!=null)?` (${Math.round(live.leadingProb*100)}%)`:"";
-              tBox.innerHTML = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${live.leadingLabel}${pct}</a>`;
-              tNote.textContent = "Live leader (can flip before settlement).";
+              tBox.innerHTML=`<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${live.leadingLabel}${pct}</a>`;
+              tNote.textContent="Live leader (can flip before settlement).";
             }else{
-              tBox.innerHTML = `<span class="kalshi-pending">Pending settlement</span>`;
-              tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
+              tBox.innerHTML=`<span class="kalshi-pending">Pending settlement</span>`;
+              tNote.textContent="Closes 11:59 PM ET; settles after NWS daily report.";
             }
           }
 
-          // YESTERDAY: always construct anchor ourselves
-          const anchor = kalshiAnchorForISO(yesterday);
-          const yHref  = `${KALSHI_BASE_URL}${anchor}`;
+          const anchor=kalshiAnchorForISO(yesterday);
+          const yHref=`${KALSHI_BASE_URL}${anchor}`;
           if(kyday && kyday.label){
-            const exact = kyday.exactTemp!=null ? ` (settled ${kyday.exactTemp.toFixed(1)}°F)` : "";
-            yBox.innerHTML = `<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">${kyday.label}${exact}</a>`;
-            yNote.textContent = "Links directly to yesterday’s contract.";
+            const exact=kyday.exactTemp!=null? ` (settled ${kyday.exactTemp.toFixed(1)}°F)`:"";
+            yBox.innerHTML=`<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">${kyday.label}${exact}</a>`;
+            yNote.textContent="Links directly to yesterday’s contract.";
           }else{
-            yBox.innerHTML = `<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">Open yesterday’s market</a>`;
-            yNote.textContent = "No proxy data; linking via anchor.";
+            yBox.innerHTML=`<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">Open yesterday’s market</a>`;
+            yNote.textContent="No proxy data; linking via anchor.";
           }
         })
         .catch(()=>{
-          const tBox=document.getElementById('box-today-kalshi');
-          const tNote=document.getElementById('box-today-kalshi-note');
-          const yBox=document.getElementById('box-yday-kalshi');
-          const yNote=document.getElementById('box-yday-kalshi-note');
+          const tBox=document.getElementById('box-today-kalshi'); const tNote=document.getElementById('box-today-kalshi-note');
+          const yBox=document.getElementById('box-yday-kalshi'); const yNote=document.getElementById('box-yday-kalshi-note');
           if(tBox) tBox.innerHTML=`<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">Open market</a>`;
           if(tNote) tNote.textContent="Could not load proxy data.";
           const yHref=`${KALSHI_BASE_URL}${kalshiAnchorForISO(nycISODate(-1))}`;
@@ -762,7 +601,7 @@
         });
     }
 
-    /* ---------------- Bias calc & corrected predictions ---------------- */
+    /* Bias-corrected */
     function calcBiases(){
       const biasList=[], dayMap={};
       allRows.forEach(r=>{
@@ -778,7 +617,7 @@
         const highTime=actual.high_time||"";
         const fcVals=[];
         rows.forEach(r=>{
-          if(r.forecast_or_actual!=="forecast" || !r.predicted_high) return;
+          if(r.forecast_or_actual!=="forecast"||!r.predicted_high) return;
           if(highTime){
             const fcHH=(r.forecast_time||"").substr(11,5);
             if(fcHH && compareTimes(fcHH,highTime)>0) return;
@@ -792,12 +631,10 @@
       });
       return biasList;
     }
-
     function updateCorrectionBoxes(){
       const biasList=calcBiases();
       const avgBias=biasList.length? (biasList.reduce((a,b)=>a+b,0)/biasList.length):0;
-      const today=nycISODate(0);
-      const tomorrow=nycISODate(1);
+      const today=nycISODate(0), tomorrow=nycISODate(1);
 
       const meanForecastForDate=(date)=>{
         const actual=allRows.find(r=>r.forecast_or_actual==="actual" && r.cli_date===date && r.actual_high);
@@ -830,7 +667,7 @@
          <div class="prediction-subtitle">For ${tomorrow} • Historical bias: ${biasTxt}°F (${biasList.length} days)</div>`;
     }
 
-    /* ---------------- Stats, chart, table ---------------- */
+    /* Stats */
     function showStats(){
       const datesTracked = new Set(allRows.map(r => r.forecast_or_actual==="actual" ? r.cli_date : r.target_date).filter(Boolean));
       const daysTracked = datesTracked.size;
@@ -843,15 +680,14 @@
       });
       const daysWithActual = actualByDate.size;
 
-      // Average absolute error (all forecasts before high vs actual)
       let aaeSum=0, aaeCnt=0;
-      const byDate = {};
+      const byDate={};
       allRows.forEach(r=>{
         const d=r.forecast_or_actual==="actual"?r.cli_date:r.target_date;
         if(!d) return; (byDate[d]??=[]).push(r);
       });
       Object.keys(byDate).forEach(d=>{
-        const actualRow = byDate[d].find(r=>r.forecast_or_actual==="actual" && r.actual_high);
+        const actualRow=byDate[d].find(r=>r.forecast_or_actual==="actual" && r.actual_high);
         if(!actualRow) return;
         const actual=Number(actualRow.actual_high);
         const highTime=actualRow.high_time||"";
@@ -866,14 +702,13 @@
         });
       });
 
-      // Average "best" error (closest pre-high forecast per day)
       let abeSum=0, abeCnt=0;
       Object.keys(byDate).forEach(d=>{
-        const actualRow = byDate[d].find(r=>r.forecast_or_actual==="actual" && r.actual_high);
+        const actualRow=byDate[d].find(r=>r.forecast_or_actual==="actual" && r.actual_high);
         if(!actualRow) return;
         const actual=Number(actualRow.actual_high);
         const highTime=actualRow.high_time||"";
-        const errs = byDate[d].filter(r=>r.forecast_or_actual==="forecast"&&r.predicted_high)
+        const errs=byDate[d].filter(r=>r.forecast_or_actual==="forecast"&&r.predicted_high)
           .filter(r=>{
             if(highTime){
               const fcHH=(r.forecast_time||"").substr(11,5);
@@ -895,22 +730,22 @@
       }
     }
 
-    let chartInstance=null;
+    /* Chart — weekly ticks only (stepSize=7; Monday labels only) */
     function showChart(){
       const labels=[], actual=[], best=[];
-      const byDate = {};
-      allRows.forEach(r=>{
+      const byDate={};
+      filteredRows.forEach(r=>{
         const d=r.forecast_or_actual==="actual"?r.cli_date:r.target_date;
         if(!d) return; (byDate[d]??=[]).push(r);
       });
-      const days = Object.keys(byDate).sort();
+      const days=Object.keys(byDate).sort(); // ascending like old page
       days.forEach(d=>{
-        const rows = byDate[d];
-        const a = rows.find(r=>r.forecast_or_actual==="actual" && r.actual_high);
+        const rows=byDate[d];
+        const a=rows.find(r=>r.forecast_or_actual==="actual" && r.actual_high);
         if(!a) return;
-        const actualHigh = Number(a.actual_high);
+        const actualHigh=Number(a.actual_high);
         const highTime=a.high_time||"";
-        const pre = rows.filter(r=>r.forecast_or_actual==="forecast"&&r.predicted_high).filter(r=>{
+        const pre=rows.filter(r=>r.forecast_or_actual==="forecast"&&r.predicted_high).filter(r=>{
           if(highTime){
             const fcHH=(r.forecast_time||"").substr(11,5);
             if(fcHH && compareTimes(fcHH,highTime)>0) return false;
@@ -918,7 +753,7 @@
           return true;
         });
         if(!pre.length) return;
-        const closest = pre.reduce((m,r)=>{
+        const closest=pre.reduce((m,r)=>{
           const e=Math.abs(Number(r.predicted_high)-actualHigh);
           return (m==null || e<m.e)? {e, v:Number(r.predicted_high)} : m;
         }, null);
@@ -928,21 +763,38 @@
       });
 
       const ctx=document.getElementById('dailyChart').getContext('2d');
-      if(chartInstance){ chartInstance.destroy(); }
+      if(chartInstance) chartInstance.destroy();
       chartInstance=new Chart(ctx,{
         type:'line',
         data:{
           labels,
           datasets:[
-            {label:'Actual High', data:actual, borderWidth:2, tension:.25, pointRadius:0},
-            {label:'Best Forecast (pre-high)', data:best, borderWidth:2, tension:.25, pointRadius:0}
+            {label:'Actual High', data:actual, borderWidth:3, tension:.3, pointRadius:0},
+            {label:'Best Forecast (pre-high)', data:best, borderWidth:3, tension:.3, pointRadius:0}
           ]
         },
         options:{
           responsive:true,
           maintainAspectRatio:false,
           scales:{
-            x:{grid:{display:false}},
+            x:{
+              grid:{color:'rgba(0,0,0,0.05)'},
+              ticks:{
+                autoSkip:true,
+                stepSize:7,               // ✅ only every 7th tick
+                maxRotation:0, minRotation:0,
+                callback:(val, idx)=>{
+                  const d=labels[idx];
+                  const [Y,M,D]=d.split('-').map(Number);
+                  const jsDate=new Date(Y, M-1, D);
+                  // Label only Mondays (others still skipped by stepSize)
+                  if(jsDate.getDay()===1){
+                    return new Intl.DateTimeFormat('en-US',{month:'short', day:'numeric'}).format(jsDate);
+                  }
+                  return '';
+                }
+              }
+            },
             y:{grid:{color:'rgba(0,0,0,.05)'}}
           },
           plugins:{legend:{display:true}}
@@ -950,114 +802,172 @@
       });
     }
 
-    function displayTable(){
+    /* Table — restore OLD ordering + only the BEST gets border, and Kalshi shows on actual row */
+    async function displayTable(){
       const tb=document.querySelector("#dataTable tbody"); if(!tb) return;
       tb.innerHTML="";
-      if(!filteredRows.length) return;
 
-      // Build best-per-day index to mark "Best?"
-      const bestMap=new Map();
-      const byDate={};
+      // Group by day
+      const dayMap={};
       filteredRows.forEach(r=>{
-        const d=r.forecast_or_actual==="actual"?r.cli_date:r.target_date;
-        if(!d) return; (byDate[d]??=[]).push(r);
+        const date=r.forecast_or_actual==="actual"?r.cli_date:r.target_date;
+        if(!date) return; (dayMap[date]??=[]).push(r);
       });
-      Object.keys(byDate).forEach(d=>{
-        const rows=byDate[d];
-        const a=rows.find(r=>r.forecast_or_actual==="actual" && r.actual_high);
-        if(!a) return;
-        const actual=Number(a.actual_high);
-        const highTime=a.high_time||"";
-        let bestErr=Infinity, bestKey=null;
-        rows.forEach((r,idx)=>{
-          if(r.forecast_or_actual!=="forecast"||!r.predicted_high) return;
+
+      // Ascending ISO dates like the old page
+      const dates=Object.keys(dayMap).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+
+      // Prefetch Kalshi per date (used on ACTUAL row only)
+      const kalshiByDate={};
+      await Promise.all(dates.map(async d=>{
+        try{ kalshiByDate[d]=await getKalshiLabel(d); }catch{ kalshiByDate[d]=null; }
+      }));
+
+      // Render
+      dates.forEach(date=>{
+        const rows=dayMap[date];
+
+        // Split forecasts vs actual; sort forecasts by time ascending; show actual last.
+        const forecasts = rows.filter(r=>r.forecast_or_actual==="forecast");
+        const actual    = rows.find(r=>r.forecast_or_actual==="actual") || null;
+
+        // Sort forecasts by timestamp -> forecast_time (ascending)
+        forecasts.sort((a,b)=>{
+          const A=(a.timestamp||a.forecast_time||"");
+          const B=(b.timestamp||b.forecast_time||"");
+          return A.localeCompare(B);
+        });
+
+        // Compute BEST forecast (pre-high only)
+        let bestIdx=-1, bestErr=Infinity;
+        const actualHigh = actual && actual.actual_high ? Number(actual.actual_high) : null;
+        const highTime   = actual && actual.high_time ? actual.high_time : "";
+
+        forecasts.forEach((r,i)=>{
+          if(!r.predicted_high || actualHigh==null) return;
           if(highTime){
             const fcHH=(r.forecast_time||"").substr(11,5);
-            if(fcHH && compareTimes(fcHH,highTime)>0) return;
+            if(fcHH && compareTimes(fcHH,highTime)>0) return; // post-high → ignore
           }
-          const err=Math.abs(Number(r.predicted_high)-actual);
-          if(err<bestErr){ bestErr=err; bestKey=idx; }
+          const err=Math.abs(Number(r.predicted_high)-actualHigh);
+          if(err<bestErr){ bestErr=err; bestIdx=i; }
         });
-        if(bestKey!=null) bestMap.set(d, rows[bestKey]);
-      });
 
-      filteredRows.forEach(r=>{
-        const tr=document.createElement('tr');
-        const isForecast=r.forecast_or_actual==="forecast";
-        tr.className = isForecast? "forecast-row" : "actual-row";
+        // Render forecast rows first (only BEST gets .best)
+        forecasts.forEach((r,i)=>{
+          const cls="forecast-row"+(i===bestIdx?" best":"");
+          const pulled=r.timestamp||r.date_pulled||"";
+          const fcTime=(r.forecast_time||"").substr(11,5);
+          const pred=r.predicted_high? `${r.predicted_high}°F`:"";
+          const actTxt = actual && actual.actual_high ? `${actual.actual_high}°F` : "";
+          const errTxt = (r.predicted_high && actualHigh!=null) ? (Math.abs(Number(r.predicted_high)-actualHigh)).toFixed(1) : "";
+          tb.insertAdjacentHTML("beforeend", `
+            <tr class="${cls}">
+              <td>${pulled}</td>
+              <td>${fcTime}</td>
+              <td>${date}</td>
+              <td>${pred}</td>
+              <td>${actTxt}</td>
+              <td>${highTime||""}</td>
+              <td>${errTxt}</td>
+              <td>${i===bestIdx?"✅":""}</td>
+              <td></td>
+            </tr>
+          `);
+        });
 
-        const pulled = r.timestamp || r.date_pulled || "";
-        const fctime = r.forecast_time || "";
-        const tdate = r.target_date || r.cli_date || "";
-        const fchigh = r.predicted_high || "";
-        const act = r.actual_high || "";
-        const htime = r.high_time || "";
+        // Render actual row last, with Kalshi “winning range” if present
+        if(actual){
+          const pulled=actual.timestamp||actual.date_pulled||"";
+          const actTxt=actual.actual_high? `${actual.actual_high}°F`:"";
+          const k=kalshiByDate[date];
+          const label=k && k.label ? k.label : "";
+          const exact=(k && k.exactTemp!=null) ? ` (${k.exactTemp.toFixed(1)}°F)` : "";
+          const yISO=nycISODate(-1);
+          let kalshiCell="—";
+          if(date===yISO){
+            kalshiCell = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}${kalshiAnchorForISO(yISO)}" target="_blank" rel="noopener noreferrer">${label||"Open market"}${exact}</a>`;
+          }else if(date===nycISODate(0)){
+            kalshiCell = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${label||"Open market"}</a>`;
+          }else if(label){
+            kalshiCell = `<span class="kalshi-badge">${label}${exact}</span>`;
+          }
 
-        let err = "";
-        if(isForecast && r.predicted_high && act){
-          err = (Math.abs(Number(r.predicted_high) - Number(act)).toFixed(1));
+          tb.insertAdjacentHTML("beforeend", `
+            <tr class="actual-row">
+              <td>${pulled}</td>
+              <td></td>
+              <td>${date}</td>
+              <td></td>
+              <td>${actTxt}</td>
+              <td>${actual.high_time||""}</td>
+              <td></td>
+              <td></td>
+              <td>${kalshiCell}</td>
+            </tr>
+          `);
         }
-
-        const isBest = isForecast && bestMap.get(tdate) === r;
-
-        tr.innerHTML = `
-          <td>${pulled}</td>
-          <td>${fctime}</td>
-          <td>${tdate}</td>
-          <td>${fchigh}</td>
-          <td>${act}</td>
-          <td>${htime}</td>
-          <td>${err}</td>
-          <td>${isBest? "✅" : ""}</td>
-          <td>${r.kalshi_range||""}</td>
-        `;
-        if(isBest) tr.classList.add('best');
-        tb.appendChild(tr);
       });
     }
 
-    /* ===== Boot ===== */
-    reloadCSV();
+    /* Filters */
+    function resetFilter(){
+      filteredRows=allRows.slice();
+      document.getElementById('fromDate').value="";
+      document.getElementById('toDate').value="";
+      displayTable(); showStats(); showChart();
+      showMostRecent(); updateCorrectionBoxes(); updateSummaryBoxes();
+    }
+    function applyDateFilter(){
+      const from=document.getElementById('fromDate').value;
+      const to=document.getElementById('toDate').value;
+      filteredRows=allRows.filter(row=>{
+        const date=row.forecast_or_actual==="actual"?row.cli_date:row.target_date;
+        if(!date) return false;
+        if(from && date<from) return false;
+        if(to && date>to) return false;
+        return true;
+      });
+      displayTable(); showStats(); showChart();
+      showMostRecent(); updateCorrectionBoxes(); updateSummaryBoxes();
+    }
 
-    // refresh obs periodically
-    setInterval(updateObservations, 5*60*1000);
+    /* Boot */
+    document.addEventListener("DOMContentLoaded", ()=>{
+      reloadCSV();
+      setInterval(updateObservations, 5*60*1000);
+    });
   </script>
 
-  <!-- ===== Robust CTA wiring (example if you add CTA IDs later) ===== -->
+  <!-- Optional CTA wiring (if you add IDs later) -->
   <script>
   (function(){
-    const DASHBOARD = location.href; // you are on the dashboard already
-
+    const DASHBOARD = location.href;
     function waitForMS(tries=60, delay=100){
       return new Promise(resolve=>{
         (function loop(n){
-          const ms = window.$memberstackDom;
-          if (ms && typeof ms.getCurrentMember==="function") return resolve(ms);
-          if (n<=0) return resolve(null);
-          setTimeout(()=>loop(n-1), delay);
+          const ms=window.$memberstackDom;
+          if(ms && typeof ms.getCurrentMember==="function") return resolve(ms);
+          if(n<=0) return resolve(null);
+          setTimeout(()=>loop(n-1),delay);
         })(tries);
       });
     }
-
     ["cta-explore","cta-explore-2"].forEach((id)=>{
-      const btn = document.getElementById(id);
+      const btn=document.getElementById(id);
       if(!btn) return;
-
       btn.addEventListener("click", async (e)=>{
         e.preventDefault();
-        const ms = await waitForMS();
-        if(!ms){ location.href = DASHBOARD; return; }
+        const ms=await waitForMS();
+        if(!ms){ location.href=DASHBOARD; return; }
         try{
-          const { data: member } = await ms.getCurrentMember();
-          if(member) location.href = DASHBOARD;
+          const {data:member}=await ms.getCurrentMember();
+          if(member) location.href=DASHBOARD;
           else await ms.openModal("SIGNUP");
-        }catch{
-          location.href = DASHBOARD;
-        }
+        }catch{ location.href=DASHBOARD; }
       });
     });
   })();
   </script>
-
 </body>
 </html>
