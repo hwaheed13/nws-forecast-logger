@@ -1149,12 +1149,18 @@ async function updateDSM(){
       showMostRecent(); updateCorrectionBoxes(); updateSummaryBoxes();
     }
 
-    function bootApp(){
+      function bootApp(){
       // load CSV only after auth-confirmed UI
       reloadCSV();
+    
       // live obs refresh
       setInterval(updateObservations, 5*60*1000);
+    
+      // 🚀 DSM: fetch immediately and then every 10 minutes
+      updateDSM();
+      setInterval(updateDSM, 10*60*1000);
     }
+
 
     // Kick off auth + app init
     (function(){ requireAuthAndBoot(); })();
