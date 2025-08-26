@@ -283,6 +283,30 @@
 }
   </style>
 <script data-memberstack-app="pk_4c8a0984142eb153e6c3" src="https://api.memberstack.io/static/memberstack.js"></script>
+<script>
+  // Fail-safe: hide page until Memberstack checks status
+  document.documentElement.classList.add('ms-checking');
+  (function waitForMS(retries=50){
+    if (window.Memberstack?.onReady) {
+      window.Memberstack.onReady.then(async (ms)=>{
+        try{
+          const { data: member } = await ms.getCurrentMember();
+          if(!member){ ms.openModal("SIGNUP"); return; }  // block non-members
+        } finally {
+          document.documentElement.classList.remove('ms-checking');
+        }
+      });
+    } else if (retries>0) {
+      setTimeout(()=>waitForMS(retries-1), 100);
+    } else {
+      // If MS never loads, fail-closed back to landing
+      window.location.href = "/";
+    }
+  })();
+</script>
+<style>
+  html.ms-checking body { opacity: 0 }
+</style>
 </head>
 <body>
  <header class="header">
