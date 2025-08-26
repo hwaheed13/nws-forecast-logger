@@ -230,11 +230,13 @@
         </div>
       </div>
 
-      <div class="metric-card tomorrow-forecast">
-        <div class="metric-label">Tomorrow's Forecast</div>
-        <div id="box-tomorrow-forecast" class="metric-value">–</div>
-      </div>
+    <div class="metric-card tomorrow-forecast">
+      <div class="metric-label">Tomorrow's Latest Forecast</div>
+      <div id="box-tomorrow-forecast" class="metric-value">–</div>
+      <div class="metric-subtitle">Tomorrow's Forecasts</div>
+      <div id="mini-tomorrow-forecasts" class="mini-forecasts"></div>
     </div>
+   </div> <!-- ← closes .metrics-grid -->
 
     <!-- Bias-corrected -->
     <div class="prediction-grid" style="display:grid; grid-template-columns:repeat(2,1fr); gap:18px; margin-bottom:22px;">
@@ -531,75 +533,85 @@
     }
 
     /* Summary boxes (incl. Kalshi) */
-    function updateSummaryBoxes(){
-      const today=nycISODate(0), tomorrow=nycISODate(1), yesterday=nycISODate(-1);
+  function updateSummaryBoxes(){
+  const today    = nycISODate(0);
+  const tomorrow = nycISODate(1);
+  const yesterday= nycISODate(-1);
 
-      const latestForDate=(date)=>{
-        const rows=allRows.filter(r=>r.forecast_or_actual==="forecast" && r.target_date===date && r.predicted_high);
-        if(!rows.length) return null;
-        rows.sort((a,b)=>{const A=a.timestamp||a.forecast_time||"", B=b.timestamp||b.forecast_time||""; return B.localeCompare(A);});
-        return Number(rows[0].predicted_high);
-      };
-      const avgForDate=(date)=>{
-        const vals=allRows.filter(r=>r.forecast_or_actual==="forecast" && r.target_date===date && r.predicted_high).map(r=>Number(r.predicted_high));
-        if(!vals.length) return null; return vals.reduce((a,b)=>a+b,0)/vals.length;
-      };
+  const latestForDate = (date)=>{
+    const rows = allRows
+      .filter(r=>r.forecast_or_actual==="forecast" && r.target_date===date && r.predicted_high);
+    if(!rows.length) return null;
+    rows.sort((a,b)=>{
+      const A=a.timestamp||a.forecast_time||"";
+      const B=b.timestamp||b.forecast_time||"";
+      return B.localeCompare(A);
+    });
+    return Number(rows[0].predicted_high);
+  };
 
-      const tLatest=latestForDate(today);
-      const tActRow=allRows.find(r=>r.forecast_or_actual==="actual" && r.cli_date===today && r.actual_high);
-      const tActual=tActRow? Number(tActRow.actual_high):null;
-      const tmAvg=avgForDate(tomorrow);
+  const tLatest = latestForDate(today);
+  const tActRow = allRows.find(r=>r.forecast_or_actual==="actual" && r.cli_date===today && r.actual_high);
+  const tActual = tActRow ? Number(tActRow.actual_high) : null;
+  const tmLatest = latestForDate(tomorrow);
 
-      document.getElementById("box-today-forecast").textContent=(tLatest==null)?"–":tLatest.toFixed(1)+"°F";
-      document.getElementById("box-today-actual").textContent=(tActual==null)?"–":tActual.toFixed(1)+"°F";
-      document.getElementById("box-tomorrow-forecast").textContent=(tmAvg==null)?"–":tmAvg.toFixed(1)+"°F";
+  // headline numbers
+  document.getElementById("box-today-forecast").textContent   = (tLatest==null) ? "–" : tLatest.toFixed(1)+"°F";
+  document.getElementById("box-today-actual").textContent     = (tActual==null) ? "–" : tActual.toFixed(1)+"°F";
+  document.getElementById("box-tomorrow-forecast").textContent= (tmLatest==null)? "–" : tmLatest.toFixed(1)+"°F";
 
-      const todayRows=getForecastsForDate(today);
-      renderMiniForecastChips(todayRows,"mini-today-forecasts");
+  // chips
+  const todayRows    = getForecastsForDate(today);
+  const tomorrowRows = getForecastsForDate(tomorrow);
+  renderMiniForecastChips(todayRows, "mini-today-forecasts");
+  renderMiniForecastChips(tomorrowRows, "mini-tomorrow-forecasts");
 
-      Promise.all([ getKalshiLabel(today), getKalshiLabel(yesterday) ])
-        .then(async ([ktoday, kyday])=>{
-          const tBox=document.getElementById('box-today-kalshi');
-          const tNote=document.getElementById('box-today-kalshi-note');
-          const yBox=document.getElementById('box-yday-kalshi');
-          const yNote=document.getElementById('box-yday-kalshi-note');
+  // Kalshi summaries
+  Promise.all([ getKalshiLabel(today), getKalshiLabel(yesterday) ])
+    .then(async ([ktoday, kyday])=>{
+      const tBox = document.getElementById('box-today-kalshi');
+      const tNote= document.getElementById('box-today-kalshi-note');
+      const yBox = document.getElementById('box-yday-kalshi');
+      const yNote= document.getElementById('box-yday-kalshi-note');
 
-          if(ktoday && ktoday.label){
-            tBox.innerHTML=`<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${ktoday.label}</a>`;
-            tNote.textContent = ktoday.exactTemp!=null ? `Settled at ${ktoday.exactTemp.toFixed(1)}°F.` : "";
-          }else{
-            const live=await fetchKalshiLiveLeader(today);
-            if(live && live.leadingLabel){
-              const pct=(live.leadingProb!=null)?` (${Math.round(live.leadingProb*100)}%)`:"";
-              tBox.innerHTML=`<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${live.leadingLabel}${pct}</a>`;
-              tNote.textContent="Live leader (can flip before settlement).";
-            }else{
-              tBox.innerHTML=`<span class="kalshi-pending">Pending settlement</span>`;
-              tNote.textContent="Closes 11:59 PM ET; settles after NWS daily report.";
-            }
-          }
+      if(ktoday && ktoday.label){
+        tBox.innerHTML=`<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${ktoday.label}</a>`;
+        tNote.textContent = ktoday.exactTemp!=null ? `Settled at ${ktoday.exactTemp.toFixed(1)}°F.` : "";
+      }else{
+        const live=await fetchKalshiLiveLeader(today);
+        if(live && live.leadingLabel){
+          const pct=(live.leadingProb!=null)?` (${Math.round(live.leadingProb*100)}%)`:"";
+          tBox.innerHTML=`<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${live.leadingLabel}${pct}</a>`;
+          tNote.textContent="Live leader (can flip before settlement).";
+        }else{
+          tBox.innerHTML=`<span class="kalshi-pending">Pending settlement</span>`;
+          tNote.textContent="Closes 11:59 PM ET; settles after NWS daily report.";
+        }
+      }
 
-          const anchor=kalshiAnchorForISO(yesterday);
-          const yHref=`${KALSHI_BASE_URL}${anchor}`;
-          if(kyday && kyday.label){
-            const exact=kyday.exactTemp!=null? ` (settled ${kyday.exactTemp.toFixed(1)}°F)`:"";
-            yBox.innerHTML=`<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">${kyday.label}${exact}</a>`;
-            yNote.textContent="Links directly to yesterday’s contract.";
-          }else{
-            yBox.innerHTML=`<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">Open yesterday’s market</a>`;
-            yNote.textContent="No proxy data; linking via anchor.";
-          }
-        })
-        .catch(()=>{
-          const tBox=document.getElementById('box-today-kalshi'); const tNote=document.getElementById('box-today-kalshi-note');
-          const yBox=document.getElementById('box-yday-kalshi'); const yNote=document.getElementById('box-yday-kalshi-note');
-          if(tBox) tBox.innerHTML=`<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">Open market</a>`;
-          if(tNote) tNote.textContent="Could not load proxy data.";
-          const yHref=`${KALSHI_BASE_URL}${kalshiAnchorForISO(nycISODate(-1))}`;
-          if(yBox) yBox.innerHTML=`<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">Open yesterday’s market</a>`;
-          if(yNote) yNote.textContent="Proxy error; using anchor link.";
-        });
-    }
+      const anchor=kalshiAnchorForISO(yesterday);
+      const yHref=`${KALSHI_BASE_URL}${anchor}`;
+      if(kyday && kyday.label){
+        const exact=kyday.exactTemp!=null? ` (settled ${kyday.exactTemp.toFixed(1)}°F)`:"";
+        yBox.innerHTML=`<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">${kyday.label}${exact}</a>`;
+        yNote.textContent="Links directly to yesterday’s contract.";
+      }else{
+        yBox.innerHTML=`<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">Open yesterday’s market</a>`;
+        yNote.textContent="No proxy data; linking via anchor.";
+      }
+    })
+    .catch(()=>{
+      const tBox=document.getElementById('box-today-kalshi');
+      const tNote=document.getElementById('box-today-kalshi-note');
+      const yBox=document.getElementById('box-yday-kalshi');
+      const yNote=document.getElementById('box-yday-kalshi-note');
+      if(tBox) tBox.innerHTML=`<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">Open market</a>`;
+      if(tNote) tNote.textContent="Could not load proxy data.";
+      const yHref=`${KALSHI_BASE_URL}${kalshiAnchorForISO(nycISODate(-1))}`;
+      if(yBox) yBox.innerHTML=`<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">Open yesterday’s market</a>`;
+      if(yNote) yNote.textContent="Proxy error; using anchor link.";
+    });
+}
 
     /* Bias-corrected */
     function calcBiases(){
@@ -730,65 +742,136 @@
       }
     }
 
-   /* Chart — cleaner weekly ticks + axis titles */
+/* Chart — start on prior Monday + rich tooltip */
 function showChart(){
-  const labels=[], actual=[], best=[];
-  const byDate={};
+  // --- group rows by date (ISO)
+  const byDate = {};
   filteredRows.forEach(r=>{
-    const d=r.forecast_or_actual==="actual"?r.cli_date:r.target_date;
-    if(!d) return; (byDate[d]??=[]).push(r);
-  });
-  const days=Object.keys(byDate).sort();
-  days.forEach(d=>{
-    const rows=byDate[d];
-    const a=rows.find(r=>r.forecast_or_actual==="actual" && r.actual_high);
-    if(!a) return;
-    const actualHigh=Number(a.actual_high);
-    const highTime=a.high_time||"";
-    const pre=rows.filter(r=>r.forecast_or_actual==="forecast"&&r.predicted_high).filter(r=>{
-      if(highTime){
-        const fcHH=(r.forecast_time||"").substr(11,5);
-        if(fcHH && compareTimes(fcHH,highTime)>0) return false;
-      }
-      return true;
-    });
-    if(!pre.length) return;
-    const closest=pre.reduce((m,r)=>{
-      const e=Math.abs(Number(r.predicted_high)-actualHigh);
-      return (m==null || e<m.e)? {e, v:Number(r.predicted_high)} : m;
-    }, null);
-    labels.push(d);
-    actual.push(actualHigh);
-    best.push(closest?closest.v:null);
+    const d = (r.forecast_or_actual==="actual" ? r.cli_date : r.target_date);
+    if(!d) return; (byDate[d] ??= []).push(r);
   });
 
-  const ctx=document.getElementById('dailyChart').getContext('2d');
+  // --- find first/last dates we actually have
+  const haveDays = Object.keys(byDate).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+  if(!haveDays.length){
+    // nothing to plot; clear any existing chart
+    const ctx=document.getElementById('dailyChart').getContext('2d');
+    if(chartInstance) chartInstance.destroy();
+    chartInstance = new Chart(ctx,{type:'line',data:{labels:[],datasets:[]},options:{}});
+    return;
+  }
+
+  // --- helper: ISO <-> Date and stepping
+  const isoToDate = (iso)=>{ const [Y,M,D]=iso.split('-').map(Number); return new Date(Y, M-1, D); };
+  const dateToISO = (dt)=>{
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth()+1).padStart(2,'0');
+    const d = String(dt.getDate()).padStart(2,'0');
+    return `${y}-${m}-${d}`;
+  };
+  const addDays = (dt, n)=>{ const d=new Date(dt); d.setDate(d.getDate()+n); return d; };
+
+  // --- compute prior Monday from first data day
+  const first = isoToDate(haveDays[0]);
+  const dow   = first.getDay();            // 0=Sun...6=Sat
+  const back  = (dow+6)%7;                 // days to go back to Monday
+  const start = addDays(first, -back);
+  const end   = isoToDate(haveDays[haveDays.length-1]);
+
+  // --- build continuous daily labels from start (Mon) to end
+  const labels = [];
+  for(let d=new Date(start); d<=end; d=addDays(d,1)){
+    labels.push(dateToISO(d));
+  }
+
+  // --- compute per-day Actual and Best(pre-high) maps
+  const actualMap = new Map();
+  const bestMap   = new Map();
+  labels.forEach(d=>{
+    const rows = byDate[d] || [];
+    const a    = rows.find(r=>r.forecast_or_actual==="actual" && r.actual_high);
+    if(a){
+      const actualHigh = Number(a.actual_high);
+      actualMap.set(d, Number.isFinite(actualHigh) ? actualHigh : null);
+      // best forecast strictly before high time (if known)
+      const highTime = a.high_time || "";
+      const pre = rows
+        .filter(r=>r.forecast_or_actual==="forecast" && r.predicted_high)
+        .filter(r=>{
+          if(highTime){
+            const fcHH=(r.forecast_time||"").substr(11,5);
+            if(fcHH && compareTimes(fcHH, highTime) > 0) return false;
+          }
+          return true;
+        })
+        .map(r=>Number(r.predicted_high))
+        .filter(Number.isFinite);
+      if(pre.length){
+        // best = forecast with smallest abs error
+        const errs = pre.map(v=>({v, e: Math.abs(v-actualHigh)}));
+        errs.sort((a,b)=>a.e-b.e);
+        bestMap.set(d, errs[0].v);
+      }
+    }
+  });
+
+  // --- arrays aligned to labels (nulls where missing)
+  const actual = labels.map(d => actualMap.has(d) ? actualMap.get(d) : null);
+  const best   = labels.map(d => bestMap.has(d)   ? bestMap.get(d)   : null);
+
+  const ctx = document.getElementById('dailyChart').getContext('2d');
   if(chartInstance) chartInstance.destroy();
-  chartInstance=new Chart(ctx,{
+  chartInstance = new Chart(ctx,{
     type:'line',
     data:{
       labels,
       datasets:[
-        {label:'Actual High', data:actual, borderWidth:3, tension:.3, pointRadius:0, borderColor:'#2563eb'},
-        {label:'Best Forecast (pre-high)', data:best, borderWidth:3, tension:.3, pointRadius:0, borderColor:'#059669'}
+        {label:'Actual High', data:actual, borderWidth:3, tension:.3, pointRadius:0, pointHitRadius:10, borderColor:'#2563eb'},
+        {label:'Best Forecast (pre-high)', data:best, borderWidth:3, tension:.3, pointRadius:0, pointHitRadius:10, borderColor:'#059669'}
       ]
     },
     options:{
       responsive:true,
       maintainAspectRatio:false,
+      spanGaps:true,
+      animation:false,
+      interaction:{mode:'index', intersect:false}, // hover anywhere vertically
+      plugins:{
+        legend:{display:true},
+        tooltip:{
+          mode:'index',
+          intersect:false,
+          callbacks:{
+            title:(items)=>{
+              const iso = labels[items[0].dataIndex];
+              const [Y,M,D]=iso.split('-').map(Number);
+              const jsDate=new Date(Y, M-1, D);
+              return new Intl.DateTimeFormat('en-US',{weekday:'short', month:'short', day:'numeric'}).format(jsDate);
+            },
+            label:(ctx)=>{
+              const y = ctx.parsed.y;
+              if(y==null) return `${ctx.dataset.label}: —`;
+              return `${ctx.dataset.label}: ${Number(y).toFixed(1)}°F`;
+            }
+          }
+        }
+      },
       scales:{
         x:{
           title:{display:true, text:'Day'},
           grid:{color:'rgba(0,0,0,0.05)'},
+          offset:true,
           ticks:{
             autoSkip:true,
+            autoSkipPadding:8,
             maxRotation:0, minRotation:0,
             callback:(val, idx)=>{
-              const d=labels[idx];
-              const [Y,M,D]=d.split('-').map(Number);
+              const iso = labels[idx];
+              if(!iso) return '';
+              const [Y,M,D]=iso.split('-').map(Number);
               const jsDate=new Date(Y, M-1, D);
-              // only label Mondays
-              if(jsDate.getDay()===1){
+              // First/last, 1st of month, and Mondays
+              if(idx===0 || idx===labels.length-1 || jsDate.getDate()===1 || jsDate.getDay()===1){
                 return new Intl.DateTimeFormat('en-US',{month:'short', day:'numeric'}).format(jsDate);
               }
               return '';
@@ -799,11 +882,11 @@ function showChart(){
           title:{display:true, text:'Temperature (°F)'},
           grid:{color:'rgba(0,0,0,.05)'}
         }
-      },
-      plugins:{legend:{display:true}}
+      }
     }
   });
 }
+
     /* Table — restore OLD ordering + only the BEST gets border, and Kalshi shows on actual row */
     async function displayTable(){
       const tb=document.querySelector("#dataTable tbody"); if(!tb) return;
