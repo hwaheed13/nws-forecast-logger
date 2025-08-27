@@ -247,7 +247,7 @@
         </div>
 
       <div class="metric-card today-actual">
-      <div class="metric-label">Today's DSM (Max so far)</div>
+      <div class="metric-label">Today's Daily Summary Message</div>
       <div id="box-dsm-max" class="metric-value">–</div>
       <div id="box-dsm-note" class="metric-subtitle"></div>
     
@@ -639,7 +639,7 @@ async function updateDSM(){
   const parsed = parseDSM(txt);
   if(parsed){
     el.textContent = `${parsed.tempF.toFixed(0)}°F`;
-    note.textContent = `as of ${parsed.timeET} ET • DSM product (NYC)`;
+    note.textContent = `as of ${parsed.timeET} ET • DSM (NYC)`;
   }else{
     // Quiet failure: keep DSM blank; nothing else breaks.
     el.textContent = "–";
