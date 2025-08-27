@@ -426,13 +426,6 @@
           bootApp();
           return;
         }
-        if (authed){
-  try { await ms.hideModal?.(); } catch {}
-  showApp();
-  bootApp();
-} else {
-  showGate("Still waiting for login… You can close and try again.");
-}
 
         // Not logged in → open modal and poll until they complete
         await ms.openModal('SIGNUP');
