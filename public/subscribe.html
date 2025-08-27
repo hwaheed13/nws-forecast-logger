@@ -37,6 +37,27 @@
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
   );
 
+  // 🚦 Guard: if already subscribed, skip straight to dashboard
+  (async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      // not logged in → force login
+      window.location.href = "/login.html";
+      return;
+    }
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("subscription_status")
+      .eq("id", session.user.id)
+      .single();
+
+    if (profile && profile.subscription_status === "active") {
+      window.location.href = "/index.html"; // already subscribed
+      return;
+    }
+  })();
+
   let selectedPlan = null;
   document.querySelectorAll(".plan").forEach(el => {
     el.addEventListener("click", () => {
