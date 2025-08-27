@@ -1108,34 +1108,26 @@ async function updateDSM(){
   const supabase = createClient(
     "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
-  , 
-    {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false
-    }
+  );
+  // 🚪 Heartbeat-based logout on tab close
+const HEARTBEAT_KEY = "dashboard_heartbeat";
+
+async function enforceFreshSession() {
+  const last = parseInt(localStorage.getItem(HEARTBEAT_KEY) || "0", 10);
+  if (Date.now() - last > 10000) {
+    // heartbeat is stale → must have closed tab
+    await supabase.auth.signOut();
+    localStorage.removeItem(HEARTBEAT_KEY);
   }
-);
+}
 
-  // 🚪 Heartbeat-based logout: ensures closing tab logs you out, refresh keeps you logged in
-  const HEARTBEAT_KEY = "dashboard_heartbeat";
+// Update heartbeat every 5s while this tab is open
+setInterval(() => {
+  localStorage.setItem(HEARTBEAT_KEY, Date.now().toString());
+}, 5000);
 
-  async function enforceFreshSession() {
-    const last = parseInt(localStorage.getItem(HEARTBEAT_KEY) || "0", 10);
-    if (Date.now() - last > 10000) {
-      // heartbeat is stale → must have closed tab
-      await supabase.auth.signOut();
-      localStorage.removeItem(HEARTBEAT_KEY);
-    }
-  }
-
-  // update heartbeat every 5s while this tab is open
-  setInterval(() => {
-    localStorage.setItem(HEARTBEAT_KEY, Date.now().toString());
-  }, 5000);
-
-  // run the freshness check immediately
-  await enforceFreshSession();
+// Run freshness check immediately
+await enforceFreshSession();
 
   async function checkAccess() {
     const { data: { session } } = await supabase.auth.getSession();
