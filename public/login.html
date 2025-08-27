@@ -33,38 +33,29 @@
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
   );
 
-  // 🚪 Always clear stale heartbeat when starting fresh
-  localStorage.removeItem("dashboard_heartbeat");
+  // always clear stale heartbeat on login page load
+localStorage.removeItem("dashboard_heartbeat");
 
-  document.getElementById("btn-login").addEventListener("click", async () => {
-    const email = document.getElementById("email").value;
-    const password = document.getElementById("password").value;
-    if (!email || !password) return alert("Enter email and password");
+document.getElementById("btn-login").addEventListener("click", async () => {
+  const email = document.getElementById("email").value;
+  const password = document.getElementById("password").value;
+  if (!email || !password) return alert("Enter email and password");
 
-    // try login
-    let { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      // fallback: sign up
-      let { error: signUpError } = await supabase.auth.signUp({ email, password });
-      if (signUpError) return alert(signUpError.message);
-    }
+  // try login
+  let { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) {
+    // if login fails, try signup
+    let { error: signUpError } = await supabase.auth.signUp({ email, password });
+    if (signUpError) return alert(signUpError.message);
+  }
 
-    // check subscription
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return alert("Login failed, try again");
+  // ✅ wait for session to exist
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return alert("Could not establish session, try again.");
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("subscription_status")
-      .eq("id", user.id)
-      .single();
-
-    if (profile && profile.subscription_status === "active") {
-      window.location.href = "/index.html";
-    } else {
-      window.location.href = "/subscribe.html";
-    }
-  });
+  // redirect after session exists
+  window.location.href = "/index.html";
+});
 </script>
 </body>
 </html>
