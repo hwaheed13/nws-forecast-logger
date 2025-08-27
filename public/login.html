@@ -33,41 +33,42 @@
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
   );
 
-// Always clear stale heartbeat marker on login page load
-localStorage.removeItem("dashboard_heartbeat");
+ // Always clear stale heartbeat marker on login page load
+  localStorage.removeItem("dashboard_heartbeat");
 
-document.getElementById("btn-login").addEventListener("click", async () => {
-  const email = document.getElementById("email").value;
-  const password = document.getElementById("password").value;
-  if (!email || !password) return alert("Enter email and password");
+  document.getElementById("btn-login").addEventListener("click", async () => {
+    const email = document.getElementById("email").value.trim();
+    const password = document.getElementById("password").value.trim();
+    if (!email || !password) return alert("Enter email and password");
 
-  // Try login
-  let { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) {
-    // Fallback: sign up
-    let { error: signUpError } = await supabase.auth.signUp({ email, password });
-    if (signUpError) return alert(signUpError.message);
-  }
+    // Try login
+    let { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      // Fallback: sign up
+      let { error: signUpError } = await supabase.auth.signUp({ email, password });
+      if (signUpError) return alert(signUpError.message);
+    }
 
-  // ✅ Ensure session exists
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) return alert("Could not establish session, try again.");
+    // 👀 Don’t redirect yet — wait for session
+    supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session) {
+        console.log("Got session:", session);
 
-  // Now check subscription
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("subscription_status")
-    .eq("id", session.user.id)
-    .single();
+        // Now check subscription
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("subscription_status")
+          .eq("id", session.user.id)
+          .single();
 
-  if (profile && profile.subscription_status === "active") {
-    // Existing subscriber → dashboard
-    window.location.href = "/index.html";
-  } else {
-    // New or inactive → subscription page
-    window.location.href = "/subscribe.html";
-  }
-});
+        if (profile && profile.subscription_status === "active") {
+          window.location.href = "/index.html";
+        } else {
+          window.location.href = "/subscribe.html";
+        }
+      }
+    });
+  });
 </script>
 </body>
 </html>
