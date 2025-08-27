@@ -1093,12 +1093,13 @@ async function updateDSM(){
   }
 }
     
-    function bootApp(){
-      reloadCSV();
-      setInterval(updateObservations, 5*60*1000);
-      updateDSM();
-      setInterval(updateDSM, 10*60*1000);
-    }
+   function bootApp(){
+  reloadCSV();
+  setInterval(updateObservations, 5*60*1000);
+  updateDSM();
+  setInterval(updateDSM, 10*60*1000);
+}
+</script>
 
   <script type="module">
   import { createClient } from "https://esm.sh/@supabase/supabase-js";
