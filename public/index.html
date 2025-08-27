@@ -550,7 +550,7 @@ function parseDSM(text){
       const parsed = parseDSM(txt);
       if(parsed){
         el.textContent = `${parsed.tempF.toFixed(0)}°F`;
-        note.textContent = `as of ${parsed.timeET} ET • DSM (NYC)`;
+        note.textContent = `as of ${parsed.timeET} ET • daily summary message`;
       }else{
         el.textContent = "–";
         note.textContent = "DSM unavailable";
