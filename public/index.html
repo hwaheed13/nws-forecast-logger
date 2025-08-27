@@ -1109,58 +1109,60 @@ async function updateDSM(){
     "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
   );
+
 // 🚪 Heartbeat logout on tab close
-  const HEARTBEAT_KEY = "dashboard_heartbeat";
+const HEARTBEAT_KEY = "dashboard_heartbeat";
 
-  async function enforceFreshSession() {
-    const last = parseInt(localStorage.getItem(HEARTBEAT_KEY) || "0", 10);
-    if (Date.now() - last > 10000) {
-      // stale → must have closed tab
-      await supabase.auth.signOut();
-      localStorage.removeItem(HEARTBEAT_KEY);
-    }
-  }
-
-  // Update heartbeat every 5s while this tab is open
-  setInterval(() => {
-    localStorage.setItem(HEARTBEAT_KEY, Date.now().toString());
-  }, 5000);
-
-  // Run freshness check immediately
-  await enforceFreshSession();
-
-  // 🔒 Gatekeeper
-  async function checkAccess() {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      showGate("Redirecting to login…");
-      return window.location.href = "/login.html";
-    }
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("subscription_status")
-      .eq("id", session.user.id)
-      .single();
-
-    if (!profile || profile.subscription_status !== "active") {
-      showGate("Redirecting to subscribe…");
-      return window.location.href = "/subscribe.html";
-    }
-
-    // ✅ allowed in
-    showApp();
-    bootApp();
-  }
-
-  checkAccess();
-
-  // 🔘 Logout button
-  document.getElementById("btn-logout")?.addEventListener("click", async () => {
+async function enforceFreshSession() {
+  const last = parseInt(localStorage.getItem(HEARTBEAT_KEY) || "0", 10);
+  if (Date.now() - last > 10000) {
+    // stale → must have closed tab
     await supabase.auth.signOut();
-    localStorage.removeItem("dashboard_heartbeat");
-    window.location.href = "/login.html";
-  });
+    localStorage.removeItem(HEARTBEAT_KEY);
+  }
+}
+
+// Update heartbeat every 5s while this tab is open
+setInterval(() => {
+  localStorage.setItem(HEARTBEAT_KEY, Date.now().toString());
+}, 5000);
+
+// 🔒 Gatekeeper
+async function checkAccess() {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    showGate("Redirecting to login…");
+    return (window.location.href = "/login.html");
+  }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("subscription_status")
+    .eq("id", session.user.id)
+    .single();
+
+  if (!profile || profile.subscription_status !== "active") {
+    showGate("Redirecting to subscribe…");
+    return (window.location.href = "/subscribe.html");
+  }
+
+  // ✅ allowed in
+  showApp();
+  bootApp();
+}
+
+// 🔘 Logout button
+document.getElementById("btn-logout")?.addEventListener("click", async () => {
+  await supabase.auth.signOut();
+  localStorage.removeItem("dashboard_heartbeat");
+  window.location.href = "/login.html";
+});
+
+// 🚀 Kick off freshness + access check safely
+(async () => {
+  await enforceFreshSession();
+  checkAccess();
+})();
 </script>
 </body>
 </html>
