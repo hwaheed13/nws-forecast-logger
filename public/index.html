@@ -6,19 +6,9 @@
 
   <title>🌡️ Daily Dew Point Dashboard</title>
 
-  <!-- Performance hints -->
-  <link rel="preconnect" href="https://static.memberstack.com" crossorigin>
-  <link rel="dns-prefetch" href="https://static.memberstack.com">
+  <!-- Performance hints (Memberstack preconnects removed) -->
   <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
   <link rel="dns-prefetch" href="https://fonts.googleapis.com">
-
-  <!-- Memberstack v1 (async) -->
-  <script
-    async
-    src="https://static.memberstack.com/scripts/v1/memberstack.js"
-    data-memberstack-app="app_cmervlzlv00070wtm9ptvetm4"
-    data-memberstack-use-cookies="true">
-  </script>
 
   <!-- Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -35,7 +25,7 @@
     }
     *{box-sizing:border-box}
 
-    /* Gate (shows immediately) */
+    /* Gate (shows immediately, then hidden on boot) */
     #gate{
       display:flex; align-items:center; justify-content:center;
       min-height:100vh; background:var(--bg-primary); color:var(--text-primary);
@@ -102,6 +92,7 @@
     .prediction-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(360px,1fr)); gap:18px; margin-bottom:22px}
     .prediction-card{background:linear-gradient(135deg,var(--accent-blue-light),var(--accent-green-light)); border:1px solid var(--border-subtle); border-radius:16px; padding:24px}
     .prediction-title{font-size:15px; font-weight:800; margin-bottom:12px}
+    .prediction-content{}
     .prediction-value{font-size:28px; font-weight:800; color:#1f2937}
     .prediction-subtitle{font-size:13px; color:var(--text-secondary)}
 
@@ -192,17 +183,17 @@
 </head>
 <body>
 
-  <!-- ====== LOGIN GATE (visible immediately) ====== -->
+  <!-- ====== LOGIN GATE (kept for UX; hidden immediately) ====== -->
   <div id="gate" role="status" aria-live="polite">
     <div class="gate-card">
-      <div class="gate-title">Checking membership…</div>
-      <div class="gate-sub">Hang tight while we verify your access.</div>
+      <div class="gate-title">Checking access…</div>
+      <div class="gate-sub">Loading the dashboard.</div>
       <div class="gate-spinner" aria-hidden="true"></div>
-      <div class="gate-note">If you’re not logged in, a sign-in dialog will appear.</div>
+      <div class="gate-note">This will update automatically.</div>
     </div>
   </div>
 
-  <!-- ====== APP (hidden until login confirmed) ====== -->
+  <!-- ====== APP ====== -->
   <div id="app" style="display:none">
     <header class="header">
       <div class="header-content brand">
@@ -246,23 +237,21 @@
           <div id="mini-today-forecasts" class="mini-forecasts"></div>
         </div>
 
-      <div class="metric-card today-actual">
-      <div class="metric-label">Today's Daily Summary Message</div>
-      <div id="box-dsm-max" class="metric-value">–</div>
-      <div id="box-dsm-note" class="metric-subtitle"></div>
-    
-        <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border-subtle);">
-        <div class="metric-label" style="margin-bottom:6px;">Today's Actual High (CLI)</div>
-        <div id="box-today-actual" class="metric-value">–</div>
-        <div id="box-today-actual-note" class="metric-subtitle">NWS daily cli report</div>
-        </div>
+        <div class="metric-card today-actual">
+          <div class="metric-label">Today's Daily Summary Message</div>
+          <div id="box-dsm-max" class="metric-value">–</div>
+          <div id="box-dsm-note" class="metric-subtitle"></div>
+          <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border-subtle);">
+            <div class="metric-label" style="margin-bottom:6px;">Today's Actual High (CLI)</div>
+            <div id="box-today-actual" class="metric-value">–</div>
+            <div id="box-today-actual-note" class="metric-subtitle">NWS daily cli report</div>
+          </div>
         </div>
 
         <div class="metric-card today-obs">
           <div class="metric-label">Today's High So Far</div>
           <div id="box-today-obs" class="metric-value">–</div>
           <div id="box-today-obs-note" class="metric-subtitle"></div>
-
           <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border-subtle);">
             <div class="metric-subtitle">Current Temperature</div>
             <div id="box-today-current" class="metric-value">–</div>
@@ -276,7 +265,7 @@
           <div class="metric-subtitle">Tomorrow's Forecasts</div>
           <div id="mini-tomorrow-forecasts" class="mini-forecasts"></div>
         </div>
-      </div> <!-- /metrics-grid -->
+      </div>
 
       <!-- Bias-corrected -->
       <div class="prediction-grid" style="display:grid; grid-template-columns:repeat(2,1fr); gap:18px; margin-bottom:22px;">
@@ -381,7 +370,7 @@
 
   <!-- App scripts (deferred) -->
   <script>
-    /* ========= AUTH GATE LOGIC ========= */
+    /* ========= SIMPLE GATE (no Memberstack) ========= */
     const $gate = ()=>document.getElementById('gate');
     const $app  = ()=>document.getElementById('app');
 
@@ -390,7 +379,6 @@
       if(g) g.style.display='none';
       if(a) a.style.display='';
     }
-
     function showGate(msg){
       const g=$gate();
       if(!g) return;
@@ -402,57 +390,7 @@
       }
     }
 
-    async function waitForMS(tries=120, delay=500){
-      return new Promise(resolve=>{
-        (function loop(n){
-          const ms = window.$memberstackDom;
-          if(ms && typeof ms.getCurrentMember==="function") return resolve(ms);
-          if(n<=0) return resolve(null);
-          setTimeout(()=>loop(n-1), delay);
-        })(tries);
-      });
-    }
-
-    async function requireAuthAndBoot(){
-      const ms = await waitForMS();
-      if(!ms){ showGate("Couldn’t reach Memberstack. You can try refreshing."); return; }
-
-      try{
-        // Check current member
-        const { data: member } = await ms.getCurrentMember();
-
-        if(member){
-          // Auth ok → show app & boot data
-          showApp();
-          bootApp();
-          return;
-        }
-
-        // Not logged in → open modal and poll until they complete
-        await ms.openModal('SIGNUP');
-
-        let authed = false;
-        for(let i=0;i<240;i++){ // up to ~2 minutes
-          try{
-            const { data:m2 } = await ms.getCurrentMember();
-            if(m2){ authed = true; break; }
-          }catch{}
-          await new Promise(r=>setTimeout(r, 500));
-        }
-
-        if(authed){
-          showApp();
-          bootApp();
-        }else{
-          showGate("Still waiting for login… You can close and try again.");
-        }
-
-      }catch(e){
-        showGate("Membership check had a network issue. Please refresh.");
-      }
-    }
-
-    /* ========= DATA + UI ========= */
+    /* ========= DATA + UI (unchanged) ========= */
     let allRows=[], filteredRows=[], chartInstance=null;
 
     function nycISODate(offsetDays=0){
@@ -461,7 +399,6 @@
       const g=k=>parts.find(p=>p.type===k).value;
       return `${g('year')}-${g('month')}-${g('day')}`;
     }
-
     function kalshiAnchorForISO(dateISO){
       const [y,m,d]=dateISO.split('-').map(Number);
       const dt=new Date(Date.UTC(y,m-1,d));
@@ -567,86 +504,54 @@
     const NWS_DSM_PROXY = "https://kalshi-proxy-theta.vercel.app/api/nws-dsm?issuedby=NYC";
 
     async function fetchTextWithFallback(urls){
-  for (const u of urls){
-    try{
-      const r = await fetch(u, {mode:"cors", cache:"no-cache"});
-      if (r.ok) return await r.text();
-    }catch(_) {}
-  }
-  return null;
-}
-
-/* Parse DSM “Daily Summary Message” like:
-   KNYC DS 1600 26/08 791504/ 630618// 79/ 63//9930105/...
-   We extract date (DD/MM) and first 6-digit block after it:
-     791504 -> temp=79, time=15:04 ET
-*/
-function parseDSM(text){
-  if(!text) return null;
-
-  // Grab the first DSM block (strip tags if present)
-  const t = text.replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim();
-
-  // Find date token (DD/MM or D/MM etc.)
-  const dateMatch = t.match(/\b(\d{1,2})\/(\d{2})\b/);
-  if(!dateMatch) return null;
-
-  // Find first 6-digit block after the date (max temp + time)
-  const after = t.slice(t.indexOf(dateMatch[0]) + dateMatch[0].length);
-  const hiBlock = after.match(/\b(\d{6})\b/);
-  if(!hiBlock) return null;
-
-  const block = hiBlock[1];
-  const tempF = Number(block.slice(0,2));
-  const hh    = block.slice(2,4);
-  const mm    = block.slice(4,6);
-
-  if(!Number.isFinite(tempF)) return null;
-
-  // Build a pretty time in ET using today's date (year inferred)
-  const now = new Date();
-  const year = now.getFullYear();
-  const dd = String(dateMatch[1]).padStart(2,"0");
-  const mmMon = String(dateMatch[2]).padStart(2,"0");
-
-  // Create a Date in ET for display
-  const isoLocal = `${year}-${mmMon}-${dd}T${hh}:${mm}:00`;
-  const when = new Date(isoLocal);
-  const fmtET = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    hour: "numeric", minute: "2-digit"
-  }).format(when);
-
-  return {
-    tempF,
-    timeET: fmtET,
-    iso: isoLocal,
-    raw: block
-  };
-}
-
-async function updateDSM(){
-  const el = document.getElementById("box-dsm-max");
-  const note = document.getElementById("box-dsm-note");
-  if(!el || !note) return;
-
-  el.textContent = "–";
-  note.textContent = "";
-
-  // Try proxy first (if you add it), then public page
-  const txt = await fetchTextWithFallback([NWS_DSM_PROXY, NWS_DSM_URL]);
-
-  const parsed = parseDSM(txt);
-  if(parsed){
-    el.textContent = `${parsed.tempF.toFixed(0)}°F`;
-    note.textContent = `as of ${parsed.timeET} ET • DSM (NYC)`;
-  }else{
-    // Quiet failure: keep DSM blank; nothing else breaks.
-    el.textContent = "–";
-    note.textContent = "DSM unavailable";
-  }
-}
-
+      for (const u of urls){
+        try{
+          const r = await fetch(u, {mode:"cors", cache:"no-cache"});
+          if (r.ok) return await r.text();
+        }catch(_) {}
+      }
+      return null;
+    }
+    function parseDSM(text){
+      if(!text) return null;
+      const t = text.replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim();
+      const dateMatch = t.match(/\b(\d{1,2})\/(\d{2})\b/);
+      if(!dateMatch) return null;
+      const after = t.slice(t.indexOf(dateMatch[0]) + dateMatch[0].length);
+      const hiBlock = after.match(/\b(\d{6})\b/);
+      if(!hiBlock) return null;
+      const block = hiBlock[1];
+      const tempF = Number(block.slice(0,2));
+      const hh    = block.slice(2,4);
+      const mm    = block.slice(4,6);
+      if(!Number.isFinite(tempF)) return null;
+      const now = new Date();
+      const year = now.getFullYear();
+      const dd = String(dateMatch[1]).padStart(2,"0");
+      const mmMon = String(dateMatch[2]).padStart(2,"0");
+      const isoLocal = `${year}-${mmMon}-${dd}T${hh}:${mm}:00`;
+      const when = new Date(isoLocal);
+      const fmtET = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        hour: "numeric", minute: "2-digit"
+      }).format(when);
+      return { tempF, timeET: fmtET, iso: isoLocal, raw: block };
+    }
+    async function updateDSM(){
+      const el = document.getElementById("box-dsm-max");
+      const note = document.getElementById("box-dsm-note");
+      if(!el || !note) return;
+      el.textContent = "–"; note.textContent = "";
+      const txt = await fetchTextWithFallback([NWS_DSM_PROXY, NWS_DSM_URL]);
+      const parsed = parseDSM(txt);
+      if(parsed){
+        el.textContent = `${parsed.tempF.toFixed(0)}°F`;
+        note.textContent = `as of ${parsed.timeET} ET • DSM (NYC)`;
+      }else{
+        el.textContent = "–";
+        note.textContent = "DSM unavailable";
+      }
+    }
 
     async function fetchKalshiWinningRange(dateISO){
       try{
@@ -902,7 +807,6 @@ async function updateDSM(){
       }
     }
 
-    /* Chart — start on prior Monday + rich tooltip */
     function showChart(){
       const byDate = {};
       filteredRows.forEach(r=>{
@@ -923,8 +827,8 @@ async function updateDSM(){
       const addDays = (dt, n)=>{ const d=new Date(dt); d.setDate(d.getDate()+n); return d; };
 
       const first = isoToDate(haveDays[0]);
-      const dow   = first.getDay();            // 0=Sun...6=Sat
-      const back  = (dow+6)%7;                 // days to go back to Monday
+      const dow   = first.getDay();
+      const back  = (dow+6)%7;
       const start = addDays(first, -back);
       const end   = isoToDate(haveDays[haveDays.length-1]);
 
@@ -1149,49 +1053,17 @@ async function updateDSM(){
       showMostRecent(); updateCorrectionBoxes(); updateSummaryBoxes();
     }
 
-      function bootApp(){
-      // load CSV only after auth-confirmed UI
+    function bootApp(){
       reloadCSV();
-    
-      // live obs refresh
       setInterval(updateObservations, 5*60*1000);
-    
-      // 🚀 DSM: fetch immediately and then every 10 minutes
       updateDSM();
       setInterval(updateDSM, 10*60*1000);
     }
 
-
-    // Kick off auth + app init
-    (function(){ requireAuthAndBoot(); })();
-
-    /* Optional CTA wiring (IDs can be added later) */
+    // Kick off app immediately (no Memberstack gating)
     (function(){
-      const DASHBOARD = location.href;
-      function waitForMSQuick(tries=60, delay=100){
-        return new Promise(resolve=>{
-          (function loop(n){
-            const ms=window.$memberstackDom;
-            if(ms && typeof ms.getCurrentMember==="function") return resolve(ms);
-            if(n<=0) return resolve(null);
-            setTimeout(()=>loop(n-1),delay);
-          })(tries);
-        });
-      }
-      ["cta-explore","cta-explore-2"].forEach((id)=>{
-        const btn=document.getElementById(id);
-        if(!btn) return;
-        btn.addEventListener("click", async (e)=>{
-          e.preventDefault();
-          const ms=await waitForMSQuick();
-          if(!ms){ location.href=DASHBOARD; return; }
-          try{
-            const {data:member}=await ms.getCurrentMember();
-            if(member) location.href=DASHBOARD;
-            else await ms.openModal("SIGNUP");
-          }catch{ location.href=DASHBOARD; }
-        });
-      });
+      showApp();
+      bootApp();
     })();
   </script>
 </body>
