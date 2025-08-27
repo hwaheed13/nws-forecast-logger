@@ -28,16 +28,18 @@
 <script type="module">
   import { createClient } from "https://esm.sh/@supabase/supabase-js";
 
-  const supabase = createClient(
-    "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
+  const supabase = createClient( "https://ztjtuhkjkqchsiuuvmzs.supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
   );
+
+  // 🚪 Always clear any old session on load
+  await supabase.auth.signOut();
 
   document.getElementById("btn-login").addEventListener("click", async () => {
     const email = document.getElementById("email").value;
     const password = document.getElementById("password").value;
     if (!email || !password) return alert("Enter email and password");
 
+    // try login
     let { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       // if login fails, try signup
@@ -45,12 +47,10 @@
       if (signUpError) return alert(signUpError.message);
     }
 
-    // ✅ at this point the user is logged in (or signed up)
+    // check subscription status
     const { data: { user } } = await supabase.auth.getUser();
-
     if (!user) return alert("Login failed, please try again.");
 
-    // look up subscription status
     const { data: profile } = await supabase
       .from("profiles")
       .select("subscription_status")
@@ -58,11 +58,9 @@
       .single();
 
     if (profile && profile.subscription_status === "active") {
-      // already subscribed → straight to dashboard
-      window.location.href = "/index.html";
+      window.location.href = "/index.html";   // straight to dashboard
     } else {
-      // not subscribed yet → go to subscribe page
-      window.location.href = "/subscribe.html";
+      window.location.href = "/subscribe.html"; // go pick a plan
     }
   });
 </script>
