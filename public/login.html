@@ -33,7 +33,7 @@
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
   );
 
-  // always clear stale heartbeat on login page load
+// Always clear stale heartbeat marker on login page load
 localStorage.removeItem("dashboard_heartbeat");
 
 document.getElementById("btn-login").addEventListener("click", async () => {
@@ -41,20 +41,32 @@ document.getElementById("btn-login").addEventListener("click", async () => {
   const password = document.getElementById("password").value;
   if (!email || !password) return alert("Enter email and password");
 
-  // try login
+  // Try login
   let { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
-    // if login fails, try signup
+    // Fallback: sign up
     let { error: signUpError } = await supabase.auth.signUp({ email, password });
     if (signUpError) return alert(signUpError.message);
   }
 
-  // ✅ wait for session to exist
+  // ✅ Ensure session exists
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) return alert("Could not establish session, try again.");
 
-  // redirect after session exists
-  window.location.href = "/index.html";
+  // Now check subscription
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("subscription_status")
+    .eq("id", session.user.id)
+    .single();
+
+  if (profile && profile.subscription_status === "active") {
+    // Existing subscriber → dashboard
+    window.location.href = "/index.html";
+  } else {
+    // New or inactive → subscription page
+    window.location.href = "/subscribe.html";
+  }
 });
 </script>
 </body>
