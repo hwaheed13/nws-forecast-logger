@@ -218,6 +218,7 @@
           <span class="pill live"><span class="dot"></span> Live</span>
           <span class="pill">NYC</span>
           <span class="pill">KNYC</span>
+          <button id="btn-logout" class="pill" style="cursor:pointer">Log out</button>
         </div>
       </div>
     </header>
@@ -1159,8 +1160,13 @@ async function updateDSM(){
     showApp();
     bootApp();
   }
-
   checkAccess();
+   // 🔘 Logout button
+document.getElementById("btn-logout")?.addEventListener("click", async () => {
+  await supabase.auth.signOut();
+  localStorage.removeItem("dashboard_heartbeat");
+  window.location.href = "/login.html";
+});
 </script>
 </body>
 </html>
