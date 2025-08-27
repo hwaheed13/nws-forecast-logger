@@ -1100,19 +1100,39 @@ async function updateDSM(){
       setInterval(updateDSM, 10*60*1000);
     }
 
-    // Kick off app immediately (no Memberstack gating)
-    (function(){
-      showApp();
-      bootApp();
-    })();
-
- <script type="module">
+  <script type="module">
   import { createClient } from "https://esm.sh/@supabase/supabase-js";
 
- const supabase = createClient(
-  "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
-);
-  </script>
+  const supabase = createClient(
+    "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
+  );
+
+  async function checkAccess() {
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (!session) {
+      showGate("Redirecting to login…");
+      return window.location.href = "/login.html";
+    }
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("subscription_status")
+      .eq("id", session.user.id)
+      .single();
+
+    if (!profile || profile.subscription_status !== "active") {
+      showGate("Redirecting to subscribe…");
+      return window.location.href = "/subscribe.html";
+    }
+
+    // ✅ Access granted
+    showApp();
+    bootApp();
+  }
+
+  checkAccess();
+</script>
 </body>
 </html>
