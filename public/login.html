@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Login – Daily Dew Point</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -40,12 +40,13 @@
 
     let { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
-      // If login fails, try signup
+      // if login fails, try signup
       let { error: signUpError } = await supabase.auth.signUp({ email, password });
       if (signUpError) return alert(signUpError.message);
     }
-    // success → dashboard
-    window.location.href = "/index.html";
+
+    // ✅ always go to subscribe.html next
+    window.location.href = "/subscribe.html";
   });
 </script>
 </body>
