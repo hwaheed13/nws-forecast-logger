@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Subscribe – Daily Dew Point</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family:'Inter',sans-serif; display:flex; align-items:center; justify-content:center;
+           height:100vh; margin:0; background:#f8fafc; color:#0f172a; }
+    .card { background:white; padding:32px; border-radius:12px; box-shadow:0 4px 16px rgba(0,0,0,.08); width:100%; max-width:420px; text-align:center; }
+    h1 { font-size:22px; margin:0 0 18px; }
+    .plans { display:flex; gap:12px; justify-content:center; margin:24px 0; flex-wrap:wrap; }
+    .plan { flex:1; padding:16px; border:2px solid #cbd5e1; border-radius:10px; cursor:pointer; }
+    .plan.active { border-color:#2563eb; background:#eff6ff; }
+    button { width:100%; padding:14px; border:none; border-radius:8px; background:#2563eb; color:white; font-weight:600; font-size:15px; cursor:pointer; margin-top:20px; }
+    button:hover { background:#1e40af; }
+    .note { font-size:13px; margin-top:16px; color:#64748b; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Choose your plan</h1>
+    <div class="plans">
+      <div class="plan" data-plan="monthly">$3 / month</div>
+      <div class="plan" data-plan="yearly">$30 / year</div>
+    </div>
+    <button id="btn-subscribe">Subscribe</button>
+    <div class="note">You’ll be redirected to the dashboard after subscribing.</div>
+  </div>
+
+<script type="module">
+  import { createClient } from "https://esm.sh/@supabase/supabase-js";
+
+  const supabase = createClient(
+    "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
+  );
+
+  let selectedPlan = null;
+  document.querySelectorAll(".plan").forEach(el => {
+    el.addEventListener("click", () => {
+      document.querySelectorAll(".plan").forEach(p => p.classList.remove("active"));
+      el.classList.add("active");
+      selectedPlan = el.dataset.plan;
+    });
+  });
+
+  document.getElementById("btn-subscribe").addEventListener("click", async () => {
+    if (!selectedPlan) return alert("Select a plan first.");
+
+    const { data: { user }, error } = await supabase.auth.getUser();
+    if (error || !user) {
+      return (window.location.href = "/login.html");
+    }
+
+    // For now: write subscription record (mock Stripe)
+    const periodEnd = new Date();
+    if (selectedPlan === "monthly") periodEnd.setMonth(periodEnd.getMonth() + 1);
+    if (selectedPlan === "yearly") periodEnd.setFullYear(periodEnd.getFullYear() + 1);
+
+    const { error: upErr } = await supabase.from("profiles").upsert({
+      id: user.id,
+      email: user.email,
+      plan: selectedPlan,
+      subscription_status: "active",
+      current_period_end: periodEnd.toISOString()
+    });
+
+    if (upErr) return alert("Could not save subscription: " + upErr.message);
+
+    // Redirect to dashboard
+    window.location.href = "/index.html";
+  });
+</script>
+</body>
+</html>
