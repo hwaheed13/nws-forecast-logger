@@ -44,9 +44,12 @@
     // Try login
     let { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
-      // Fallback: sign up
-      let { error: signUpError } = await supabase.auth.signUp({ email, password });
-      if (signUpError) return alert(signUpError.message);
+  // Fallback: sign up with redirect URL
+let { error: signUpError } = await supabase.auth.signUp(
+  { email, password },
+  { emailRedirectTo: "https://waheedweather.dewdropventures.com/login.html" }
+);
+if (signUpError) return alert(signUpError.message);
     }
 
     // 👀 Don’t redirect yet — wait for session
