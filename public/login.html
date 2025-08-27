@@ -45,8 +45,25 @@
       if (signUpError) return alert(signUpError.message);
     }
 
-    // ✅ always go to subscribe.html next
-    window.location.href = "/subscribe.html";
+    // ✅ at this point the user is logged in (or signed up)
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) return alert("Login failed, please try again.");
+
+    // look up subscription status
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("subscription_status")
+      .eq("id", user.id)
+      .single();
+
+    if (profile && profile.subscription_status === "active") {
+      // already subscribed → straight to dashboard
+      window.location.href = "/index.html";
+    } else {
+      // not subscribed yet → go to subscribe page
+      window.location.href = "/subscribe.html";
+    }
   });
 </script>
 </body>
