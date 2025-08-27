@@ -435,7 +435,11 @@
         for(let i=0;i<240;i++){ // up to ~2 minutes
           try{
             const { data:m2 } = await ms.getCurrentMember();
-            if(m2){ authed = true; break; }
+       if (m2 && m2.planConnections?.some(pc => pc.status === "active")) {
+  authed = true;
+  break;
+}
+
           }catch{}
           await new Promise(r=>setTimeout(r, 500));
         }
