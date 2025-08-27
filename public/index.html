@@ -440,9 +440,12 @@
           await new Promise(r=>setTimeout(r, 500));
         }
 
-        if(authed){
-          showApp();
-          bootApp();
+   if (authed){
+  try { await ms.hideModal?.(); } catch(e) {}
+  showApp();
+  bootApp();
+}
+
         }else{
           showGate("Still waiting for login… You can close and try again.");
         }
