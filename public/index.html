@@ -512,31 +512,35 @@
       }
       return null;
     }
-    function parseDSM(text){
-      if(!text) return null;
-      const t = text.replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim();
-      const dateMatch = t.match(/\b(\d{1,2})\/(\d{2})\b/);
-      if(!dateMatch) return null;
-      const after = t.slice(t.indexOf(dateMatch[0]) + dateMatch[0].length);
-      const hiBlock = after.match(/\b(\d{6})\b/);
-      if(!hiBlock) return null;
-      const block = hiBlock[1];
-      const tempF = Number(block.slice(0,2));
-      const hh    = block.slice(2,4);
-      const mm    = block.slice(4,6);
-      if(!Number.isFinite(tempF)) return null;
-      const now = new Date();
-      const year = now.getFullYear();
-      const dd = String(dateMatch[1]).padStart(2,"0");
-      const mmMon = String(dateMatch[2]).padStart(2,"0");
-      const isoLocal = `${year}-${mmMon}-${dd}T${hh}:${mm}:00`;
-      const when = new Date(isoLocal);
-      const fmtET = new Intl.DateTimeFormat("en-US", {
-        timeZone: "America/New_York",
-        hour: "numeric", minute: "2-digit"
-      }).format(when);
-      return { tempF, timeET: fmtET, iso: isoLocal, raw: block };
-    }
+function parseDSM(text){
+  if(!text) return null;
+  const t = text.replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim();
+  const dateMatch = t.match(/\b(\d{1,2})\/(\d{2})\b/);
+  if(!dateMatch) return null;
+  const after = t.slice(t.indexOf(dateMatch[0]) + dateMatch[0].length);
+  const hiBlock = after.match(/\b(\d{6})\b/);
+  if(!hiBlock) return null;
+  const block = hiBlock[1];
+  const tempF = Number(block.slice(0,2));
+  const hh    = block.slice(2,4);
+  const mm    = block.slice(4,6);
+  if(!Number.isFinite(tempF)) return null;
+
+  const now = new Date();
+  const year = now.getFullYear();
+  const dd = String(dateMatch[1]).padStart(2,"0");
+  const mmMon = String(dateMatch[2]).padStart(2,"0");
+  const isoLocal = `${year}-${mmMon}-${dd}T${hh}:${mm}:00`;
+  const dayISO   = `${year}-${mmMon}-${dd}`;
+
+  const when = new Date(isoLocal);
+  const fmtET = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric", minute: "2-digit"
+  }).format(when);
+
+  return { tempF, timeET: fmtET, iso: isoLocal, dayISO, raw: block };
+}
     async function updateDSM(){
       const el = document.getElementById("box-dsm-max");
       const note = document.getElementById("box-dsm-note");
@@ -1052,7 +1056,43 @@
       displayTable(); showStats(); showChart();
       showMostRecent(); updateCorrectionBoxes(); updateSummaryBoxes();
     }
+// put near your other module-level vars
+let lastDSMDay = nycISODate(0);
 
+// reuse your existing clear helper or add this:
+function clearDSMOnly(){
+  const max = document.getElementById("box-dsm-max");
+  const note = document.getElementById("box-dsm-note");
+  if (max)  max.textContent  = "–";
+  if (note) note.textContent = "";
+}
+
+async function updateDSM(){
+  const el = document.getElementById("box-dsm-max");
+  const note = document.getElementById("box-dsm-note");
+  if(!el || !note) return;
+
+  const today = nycISODate(0);
+  // if the calendar day flipped since last run, clear DSM immediately
+  if (today !== lastDSMDay){
+    clearDSMOnly();
+    lastDSMDay = today;
+  }
+
+  // fetch as you already do
+  el.textContent = "–"; note.textContent = "";
+  const txt = await fetchTextWithFallback([NWS_DSM_PROXY, NWS_DSM_URL]);
+  const parsed = parseDSM(txt);
+
+  // only show if the DSM’s own date matches *today*
+  if(parsed && parsed.dayISO === today){
+    el.textContent = `${parsed.tempF.toFixed(0)}°F`;
+    note.textContent = `as of ${parsed.timeET} ET • DSM (NYC)`;
+  }else{
+    clearDSMOnly(); // keep it blank while waiting for today's DSM
+  }
+}
+    
     function bootApp(){
       reloadCSV();
       setInterval(updateObservations, 5*60*1000);
