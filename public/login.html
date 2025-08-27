@@ -30,18 +30,10 @@
 
   const supabase = createClient(
     "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
-  ,
-     {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false
-    }
-  }
-);
+    "YOUR-ANON-KEY"
+  );
 
-  // 🚪 Always clear any old session + heartbeat on load
-  await supabase.auth.signOut();
+  // 🚪 Always clear stale heartbeat when starting fresh
   localStorage.removeItem("dashboard_heartbeat");
 
   document.getElementById("btn-login").addEventListener("click", async () => {
@@ -49,17 +41,17 @@
     const password = document.getElementById("password").value;
     if (!email || !password) return alert("Enter email and password");
 
-    // Try login
+    // try login
     let { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
-      // If login fails, try signup
+      // fallback: sign up
       let { error: signUpError } = await supabase.auth.signUp({ email, password });
       if (signUpError) return alert(signUpError.message);
     }
 
-    // Check subscription status
+    // check subscription
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return alert("Login failed, please try again.");
+    if (!user) return alert("Login failed, try again");
 
     const { data: profile } = await supabase
       .from("profiles")
@@ -68,9 +60,9 @@
       .single();
 
     if (profile && profile.subscription_status === "active") {
-      window.location.href = "/index.html";   // straight to dashboard
+      window.location.href = "/index.html";
     } else {
-      window.location.href = "/subscribe.html"; // go pick a plan
+      window.location.href = "/subscribe.html";
     }
   });
 </script>
