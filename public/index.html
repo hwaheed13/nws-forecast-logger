@@ -12,12 +12,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
   <link rel="dns-prefetch" href="https://fonts.googleapis.com">
 
- <!-- ✅ Memberstack 2.0 DOM/Webflow package -->
-<script
-  data-memberstack-app="app_cmervlzlv00070wtm9ptvetm4"
-  src="https://static.memberstack.com/scripts/memberstack.js">
-</script>
-
+  <!-- Memberstack v1 (async) -->
+  <script
+    async
+    src="https://static.memberstack.com/scripts/v1/memberstack.js"
+    data-memberstack-app="app_cmervlzlv00070wtm9ptvetm4"
+    data-memberstack-use-cookies="true">
+  </script>
 
   <!-- Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -1148,18 +1149,12 @@ async function updateDSM(){
       showMostRecent(); updateCorrectionBoxes(); updateSummaryBoxes();
     }
 
-      function bootApp(){
+    function bootApp(){
       // load CSV only after auth-confirmed UI
       reloadCSV();
-    
       // live obs refresh
       setInterval(updateObservations, 5*60*1000);
-    
-      // 🚀 DSM: fetch immediately and then every 10 minutes
-      updateDSM();
-      setInterval(updateDSM, 10*60*1000);
     }
-
 
     // Kick off auth + app init
     (function(){ requireAuthAndBoot(); })();
@@ -1193,24 +1188,5 @@ async function updateDSM(){
       });
     })();
   </script>
-  <!-- Auto-close Memberstack modal on successful login/signup -->
-<script>
-(async () => {
-  const ms = await window.$memberstackDom;
-  if (!ms) return;
-
-  const close = () => ms.hideModal?.();
-
-  ms.on?.("member:login", close);
-  ms.on?.("member:signup", close);
-
-  // Safety: if member is already logged in (e.g. page refresh), close any stray modal
-  try {
-    const { data: member } = await ms.getCurrentMember();
-    if (member) close();
-  } catch {}
-})();
-</script>
-
 </body>
 </html>
