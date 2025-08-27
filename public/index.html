@@ -1109,6 +1109,11 @@ async function updateDSM(){
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
   );
 
+// 🚪 logout automatically when tab/window is closed
+  window.addEventListener("beforeunload", async () => {
+    await supabase.auth.signOut();
+  });
+
   async function checkAccess() {
     const { data: { session } } = await supabase.auth.getSession();
 
@@ -1128,7 +1133,6 @@ async function updateDSM(){
       return window.location.href = "/subscribe.html";
     }
 
-    // ✅ Access granted
     showApp();
     bootApp();
   }
