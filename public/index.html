@@ -428,36 +428,16 @@
           return;
         }
 
-        // Not logged in → open modal and poll until they complete
-        await ms.openModal('SIGNUP');
-
-        let authed = false;
-        for(let i=0;i<240;i++){ // up to ~2 minutes
-          try{
-            const { data:m2 } = await ms.getCurrentMember();
-       if (m2 && m2.planConnections?.some(pc => pc.status === "active")) {
-  authed = true;
-  break;
-}
-
-          }catch{}
-          await new Promise(r=>setTimeout(r, 500));
-        }
-
-   if (authed){
-  try { await ms.hideModal?.(); } catch(e) {}
-  showApp();
-  bootApp();
-}
-
-        }else{
-          showGate("Still waiting for login… You can close and try again.");
-        }
-
-      }catch(e){
-        showGate("Membership check had a network issue. Please refresh.");
+    // Not logged in → open modal and let Memberstack handle login
+    await ms.openModal('SIGNUP');
+    
+    // Listen once: when they complete login, get member + boot app
+    ms.getCurrentMember().then(({ data: member }) => {
+      if (member && member.planConnections?.some(pc => pc.status === "active")) {
+        showApp();
+        bootApp();
       }
-    }
+    });
 
     /* ========= DATA + UI ========= */
     let allRows=[], filteredRows=[], chartInstance=null;
