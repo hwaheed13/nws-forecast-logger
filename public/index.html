@@ -210,11 +210,21 @@
   color:var(--text-secondary);
   border:1px solid var(--border-default);
 }
+@media (min-width: 601px) {
+  .pill.logout-btn {
+    margin-top: 10px;              /* moves it lower */
+    background: #e5e7eb;           /* darker background */
+    color: var(--text-primary);
+    border: 1px solid var(--border-default);
 
+    font-size: 14px;               /* a bit bigger text */
+    padding: 8px 14px;             /* more padding */
+    border-radius: 12px;           /* rounder corners */
+  }
+}
   </style>
 </head>
 <body>
-
 
   <!-- ====== LOGIN GATE (kept for UX; hidden immediately) ====== -->
   <div id="gate" role="status" aria-live="polite">
