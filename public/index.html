@@ -630,20 +630,21 @@ function parseDSM(text){
 function parse6hrMaxFromJson(txt) {
   if (!txt) return null;
   try {
-    // NOAA obs.js looks like: var obs = {...};
-    const match = txt.match(/var\s+obs\s*=\s*(\{[\s\S]*\})\s*;/);
+    // NOAA obs.js looks like: var DATA = {...};
+    const match = txt.match(/var\s+DATA\s*=\s*(\{[\s\S]*\})\s*;/);
     if (!match) {
-      console.error("Could not locate obs block. First 200 chars:", txt.slice(0,200));
+      console.error("Could not locate DATA block. First 200 chars:", txt.slice(0,200));
       return null;
     }
 
-    const data = JSON.parse(match[1]);  // parse JSON inside
+    const data = JSON.parse(match[1]);
     if (!data?.STATION?.[0]?.OBSERVATIONS) return null;
 
     const obs   = data.STATION[0].OBSERVATIONS;
     const times = obs.date_time || [];
     const highs = obs.air_temp_high_6_hour_set_1 || [];
 
+    // walk backwards to find most recent non-null
     for (let i = highs.length - 1; i >= 0; i--) {
       if (highs[i] != null) {
         return { value: Math.round(highs[i]), time: times[i] || null };
