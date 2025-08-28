@@ -222,16 +222,16 @@
     border-radius: 12px;           /* rounder corners */
   }
 }
-    /* Mobile-only tweaks */
+/* Mobile-only fine-tune */
 @media (max-width: 600px) {
-  /* Pull the 3 pills (Live, NYC, KNYC) up closer to the title */
+  /* Pull 3 pills (Live / NYC / KNYC) higher */
   .brand-right .pill-group {
-    margin-top: -4px;   /* tweak between -2px and -6px until it feels right */
+    margin-top: -6px;   /* moves them closer to the brand title */
   }
 
-  /* Nudge the logout pill a little lower */
+  /* Push logout pill further down */
   .pill.logout-btn {
-    margin-top: 6px;    /* creates breathing room below the pill group */
+    margin-top: 12px;   /* creates breathing room under the group */
   }
 }
 
