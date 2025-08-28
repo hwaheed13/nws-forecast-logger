@@ -655,22 +655,6 @@ function parse6hrMaxFromJson(txt) {
   return null;
 }
 
-  if (!data?.STATION?.[0]?.OBSERVATIONS) return null;
-  const obs = data.STATION[0].OBSERVATIONS;
-  const times = obs.date_time || [];
-  const highs = obs.air_temp_high_6_hour_set_1 || [];
-
-  for (let i = highs.length - 1; i >= 0; i--) {
-    if (highs[i] != null) {
-      return {
-        value: Math.round(highs[i]),
-        time: times[i] || null
-      };
-    }
-  }
-  return null;
-}
-
 async function updateSixHourMax(){
   const el   = document.getElementById("box-6hr-max");
   const note = document.getElementById("box-6hr-max-note");
@@ -1247,25 +1231,37 @@ async function updateDSM(){
   );
 
 // 🔒 Gatekeeper
-  async function checkAccess() {
-    const { data: { session } } = await supabase.auth.getSession();
-    console.log("Index sees session:", session);
-    if (!session) {
-      showGate("Redirecting to login…");
-      return (window.location.href = "/login.html");
-    }
+async function checkAccess() {
+  const { data: { session } } = await supabase.auth.getSession();
+  console.log("Index sees session:", session);
+  if (!session) {
+    showGate("Redirecting to login…");
+    return (window.location.href = "/login.html");
+  }
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("subscription_status")
-      .eq("id", session.user.id)
-      .single();
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("subscription_status")
+    .eq("id", session.user.id)
+    .single();
 
-    if (!profile || profile.subscription_status !== "active") {
-      showGate("Redirecting to subscribe…");
-      return (window.location.href = "/subscribe.html");
-    }
-  function bootApp(){
+  if (!profile || profile.subscription_status !== "active") {
+    showGate("Redirecting to subscribe…");
+    return (window.location.href = "/subscribe.html");
+  }
+
+  // ✅ allowed in
+  showApp();
+  bootApp();
+}
+
+  // 🔘 Logout button
+  document.getElementById("btn-logout")?.addEventListener("click", async () => {
+    await supabase.auth.signOut();
+    localStorage.removeItem("dashboard_heartbeat");
+    window.location.href = "/login.html";
+  });
+ function bootApp(){
   reloadCSV();
   setInterval(updateObservations, 5*60*1000);
 
@@ -1276,19 +1272,6 @@ async function updateDSM(){
   updateSixHourMax();
   setInterval(updateSixHourMax, 10*60*1000);
 }
-
-    // ✅ allowed in
-    showApp();
-    bootApp();
-  }
-
-  // 🔘 Logout button
-  document.getElementById("btn-logout")?.addEventListener("click", async () => {
-    await supabase.auth.signOut();
-    localStorage.removeItem("dashboard_heartbeat");
-    window.location.href = "/login.html";
-  });
-
   // 🚀 Kick off
   checkAccess();
 </script>
