@@ -633,25 +633,21 @@ function parse6hrMaxFromJson(txt) {
 
   let data;
   try {
-    data = JSON.parse(txt); // try plain JSON
-  } catch (e) {
-    try {
-      // NOAA sometimes wraps in JS assignment — eval as fallback
-      data = eval("(" + txt + ")");
-    } catch (err) {
-      console.error("6HR parse JSON failed");
-      return null;
-    }
+    // Strip leading "var obs = " and trailing semicolon
+    const cleaned = txt.replace(/^var\s+\w+\s*=\s*/, "").replace(/;$/, "");
+    data = JSON.parse(cleaned);
+  } catch (err) {
+    console.error("6HR parse JSON failed", err);
+    return null;
   }
-  if (!data || !data.STATION || !data.STATION[0]) return null;
 
+  if (!data || !data.STATION || !data.STATION[0]) return null;
   const obs = data.STATION[0].OBSERVATIONS;
   if (!obs || !obs.air_temp_high_6_hour_set_1) return null;
 
   const times = obs.date_time || [];
   const highs = obs.air_temp_high_6_hour_set_1 || [];
 
-  // walk backward to get most recent non-null 6-hr max
   for (let i = highs.length - 1; i >= 0; i--) {
     if (highs[i] != null) {
       return {
