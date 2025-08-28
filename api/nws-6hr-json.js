@@ -1,39 +1,50 @@
 export default async function handler(req, res) {
   const station = req.query.station || "KNYC";
-  const url = `https://www.weather.gov/data/obhistory/${station}.html`;
+  const url = `https://www.weather.gov/source/wrh/timeseries/obs.js?site=${station}`;
 
   try {
-    const resp = await fetch(url);
-    if (!resp.ok) {
-      res.status(resp.status).send(`Fetch error: ${resp.statusText}`);
+    const r = await fetch(url);
+    if (!r.ok) {
+      res.status(r.status).send(`Upstream error: ${r.statusText}`);
       return;
     }
-    const html = await resp.text();
+    const txt = await r.text();
 
-    // Use regex to capture "6 hr" header position and the same column value
-    // First, find the "6 hr" column index
-    const headerMatch = html.match(/<th>6 hr(?:<br>)?Max(?:<br>\(&deg;F\))?<\/th>/);
-    if (!headerMatch) {
-      res.status(500).send("Could not find 6 hr Max header");
-      return;
-    }
-
-    // Then get rows with that column's value
-    const rowMatch = html.match(new RegExp(
-      `<td>\\d{1,2}</td>\\s*<td>\\d{2}:\\d{2}</td>\\s*` +  // date & time columns
-      `(?:[\\s\\S]*?)<td><font color="red">(\\d{1,3})<\\/font><\\/td>`
-    ));
-    if (!rowMatch) {
-      res.status(500).send("Could not extract 6 hr Max value");
+    // Try to locate the DATA object in obs.js
+    const match = txt.match(/var\s+DATA\s*=\s*(\{[\s\S]*?\});/);
+    if (!match) {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.status(500).json({ error: "Could not locate DATA block" });
       return;
     }
 
-    const maxVal = Number(rowMatch[1]);
+    let data;
+    try {
+      data = JSON.parse(match[1]);
+    } catch (err) {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.status(500).json({ error: "Parse failed", raw: match[1].slice(0,200) });
+      return;
+    }
+
+    const obs = data?.STATION?.[0]?.OBSERVATIONS;
+    const highs = obs?.air_temp_high_6_hour_set_1 || [];
+    const times = obs?.date_time || [];
+
+    let latest = null;
+    for (let i = highs.length - 1; i >= 0; i--) {
+      if (highs[i] != null) {
+        latest = { value: Math.round(highs[i]), time: times[i] || null };
+        break;
+      }
+    }
 
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Content-Type", "application/json; charset=utf-8");
-    res.json({ value: maxVal });
+    res.setHeader("Content-Type", "application/json");
+    res.json(latest || { value: null });
+
   } catch (err) {
-    res.status(500).send("Error parsing HTML: " + err.message);
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.status(500).json({ error: "Proxy fetch error", detail: err.message });
   }
 }
