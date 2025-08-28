@@ -650,25 +650,20 @@ function parse6hrMaxFromJson(txt) {
 
 
 async function updateSixHourMax(){
-  const el   = document.getElementById("box-6hr-max");
+  const el = document.getElementById("box-6hr-max");
   const note = document.getElementById("box-6hr-max-note");
-  if(!el || !note) return;
+  if (!el || !note) return;
 
   el.textContent = "–"; 
   note.textContent = "";
-  try {
-    const txt = await fetchTextWithFallback([NWS_6HR_JSON_PROXY, NWS_6HR_JSON_URL]);
-    const parsed = parse6hrMaxFromJson(txt);
-    console.log("6HR parse result:", parsed);
 
-    if (parsed) {
-      el.textContent = `${parsed.value}°F`;
-      note.textContent = parsed.time
-        ? `as of ${new Date(parsed.time).toLocaleString("en-US", {
-            timeZone:"America/New_York",
-            hour:"numeric", minute:"2-digit"
-          })} ET • 6-hr max`
-        : "Latest 6-hr max";
+  try {
+    const txt = await fetchTextWithFallback([NWS_6HR_JSON_PROXY]);
+    const data = JSON.parse(txt);
+
+    if (data.value != null) {
+      el.textContent = `${data.value.toFixed(0)}°F`;
+      note.textContent = "Latest 6-hr max";
     } else {
       note.textContent = "6-Hr Max not available";
     }
