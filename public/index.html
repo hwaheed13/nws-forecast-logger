@@ -574,7 +574,6 @@
     const NWS_6HR_JSON_URL   = "https://www.weather.gov/source/wrh/timeseries/obs.js?site=KNYC";
     const NWS_6HR_JSON_PROXY = "https://kalshi-proxy-theta.vercel.app/api/nws-6hr-json?station=KNYC";
 
-
     async function fetchTextWithFallback(urls){
       for (const u of urls){
         try{
@@ -630,20 +629,31 @@ function parseDSM(text){
     }
 function parse6hrMaxFromJson(txt) {
   if (!txt) return null;
-
-  let data;
   try {
-    // Extract object from "var obs = {...};"
-    const match = txt.match(/var\s+obs\s*=\s*({[\s\S]*});/);
+    // NOAA obs.js looks like: var obs = {...};
+    const match = txt.match(/var\s+obs\s*=\s*(\{[\s\S]*\})\s*;/);
     if (!match) {
-      console.error("Could not locate var obs = {...} in obs.js");
+      console.error("Could not locate obs block. First 200 chars:", txt.slice(0,200));
       return null;
     }
-    data = JSON.parse(match[1]);
+
+    const data = JSON.parse(match[1]);  // parse JSON inside
+    if (!data?.STATION?.[0]?.OBSERVATIONS) return null;
+
+    const obs   = data.STATION[0].OBSERVATIONS;
+    const times = obs.date_time || [];
+    const highs = obs.air_temp_high_6_hour_set_1 || [];
+
+    for (let i = highs.length - 1; i >= 0; i--) {
+      if (highs[i] != null) {
+        return { value: Math.round(highs[i]), time: times[i] || null };
+      }
+    }
   } catch (err) {
     console.error("6HR parse JSON failed", err);
-    return null;
   }
+  return null;
+}
 
   if (!data?.STATION?.[0]?.OBSERVATIONS) return null;
   const obs = data.STATION[0].OBSERVATIONS;
@@ -669,9 +679,7 @@ async function updateSixHourMax(){
   el.textContent = "–"; 
   note.textContent = "";
   try {
-    // pull from JSON endpoint instead of HTML
     const txt = await fetchTextWithFallback([NWS_6HR_JSON_PROXY, NWS_6HR_JSON_URL]);
-
     const parsed = parse6hrMaxFromJson(txt);
     console.log("6HR parse result:", parsed);
 
