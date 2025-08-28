@@ -233,7 +233,7 @@
   }
     .brand-mark {
     position: relative;
-    top: -20px;   /* lift the entire logo box (droplet + background) higher */
+    top: -17px;   /* lift the entire logo box (droplet + background) higher */
   }
     .last-update-label {
     font-size: 10px;     /* shrink the "Latest Forecast Update" heading */
@@ -242,36 +242,6 @@
   .last-update-content {
     font-size: 13px;     /* shrink the date/forecast text */
     line-height: 1.35;   /* tighter spacing so it doesn’t look bulky */
-  }
-   .brand-left {
-    flex: 1 1 75%;
-  }
-
-  .brand-sub {
-    flex-shrink: 0;
-    min-width: 70%;
-  }
-
-  .brand-right {
-    flex: 1 1 auto;
-  }
- .header-content {
-    flex-direction: row;     /* keep them side by side */
-    align-items: flex-start;
-  }
-
-  .brand-left {
-    flex: 1 1 auto;          /* let logo+blurb take more space */
-    min-width: 0;
-  }
-
-  .brand-sub {
-    flex-shrink: 1;          /* allow natural wrapping */
-    min-width: 0;            /* avoid early wrap */
-  }
-
-  .brand-right {
-    flex: 0 0 auto;          /* pills shrink/wrap earlier instead */
   }
 }
   </style>
