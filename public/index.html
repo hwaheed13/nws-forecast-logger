@@ -176,8 +176,12 @@
   #dataTable{font-size:12px}
   #dataTable th{font-size:11px; padding:10px 8px}
   #dataTable td{padding:10px 8px}
-  .brand-right{gap:6px; flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch;}
-  .brand-right::-webkit-scrollbar{display:none} /* hide scrollbar for cleaner look */
+   .brand-right{
+    gap:6px;
+    flex-wrap:wrap;     /* allow wrapping instead of scrolling */
+    justify-content:flex-start;
+  }
+  .pill{flex:0 1 auto;} /* let pills shrink and wrap nicely */
   .pill .dot{width:5px; height:5px}
 }
 .brand-right .pill-sep{
