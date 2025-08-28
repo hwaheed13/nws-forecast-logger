@@ -5,50 +5,68 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
 
   const station = req.query.station || "KNYC";
-  const url = `https://www.weather.gov/wrh/timeseries?site=${station}`;
+  const url = `https://forecast.weather.gov/data/obhistory/${station}.html`;
 
   try {
-    const r = await fetch(url);   // native fetch
+    const r = await fetch(url);
     if (!r.ok) {
-      console.error("Upstream error:", r.status, r.statusText);
       return res.status(r.status).json({ error: `Upstream error: ${r.statusText}` });
     }
     const html = await r.text();
     const $ = cheerio.load(html);
 
-    const headers = [];
-    $("table thead tr th").each((i, th) => {
-      headers.push($(th).text().replace(/\s+/g, " ").trim());
-    });
-    console.log("Parsed headers:", headers);
+    const now = new Date();
+    const cutoff = new Date(now.getTime() - 6 * 60 * 60 * 1000); // 6 hours ago
 
-    const colIndex = headers.findIndex(h =>
-      h.replace(/\s+/g," ").toLowerCase().includes("6 hr max")
-    );
-    if (colIndex === -1) {
-      return res.status(404).json({ error: "Could not locate 6 Hr Max column", headers });
-    }
-
-    let sixHrMax = null, sixHrTime = null;
-    $("table tbody tr").each((i, tr) => {
+    const rows = [];
+    $("table tr").each((i, tr) => {
       const cells = $(tr).find("td");
-      if (cells.length > colIndex) {
-        const dateTime = $(cells[0]).text().trim();
-        const val = $(cells[colIndex]).text().trim();
-        if (/^\d+$/.test(val)) {
-          sixHrMax = parseInt(val, 10);
-          sixHrTime = dateTime;
+      if (cells.length >= 8) {
+        const timeStr = $(cells[0]).text().trim(); // e.g. "28 Aug 4:51 pm"
+        const maxStr  = $(cells[7]).text().trim();
+
+        const max = parseFloat(maxStr);
+        if (!isNaN(max) && timeStr) {
+          const dt = parseObsTime(timeStr, now);
+          if (dt) {
+            rows.push({ time: timeStr, dt, max });
+          }
         }
       }
     });
 
-    if (!sixHrMax) {
-      return res.status(404).json({ error: "No 6 Hr Max found", headers });
+    // Filter rows within last 6 hours
+    const recent = rows.filter(r => r.dt >= cutoff);
+    if (!recent.length) {
+      return res.status(404).json({ error: "No rows in past 6 hours" });
     }
 
-    res.json({ value: sixHrMax, time: sixHrTime, columnIndex: colIndex, headers });
+    const sixHrMax = Math.max(...recent.map(r => r.max));
+    const latestTime = recent[0].time;
+
+    res.json({ value: sixHrMax, time: latestTime, count: recent.length });
   } catch (err) {
     console.error("Proxy fetch error:", err);
     res.status(500).json({ error: "Proxy fetch error", detail: err.message });
   }
+}
+
+/**
+ * Parse time strings from obhistory table into JS Date.
+ * Example cell: "28 Aug 4:51 pm"
+ */
+function parseObsTime(str, nowRef) {
+  const match = str.match(/(\d{1,2}) (\w{3}) (\d{1,2}):(\d{2}) (am|pm)/i);
+  if (!match) return null;
+  const [ , day, mon, hh, mm, ampm ] = match;
+  const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const month = monthNames.findIndex(m => m.toLowerCase() === mon.toLowerCase());
+  if (month === -1) return null;
+
+  let hour = parseInt(hh, 10);
+  if (ampm.toLowerCase() === "pm" && hour < 12) hour += 12;
+  if (ampm.toLowerCase() === "am" && hour === 12) hour = 0;
+
+  const year = nowRef.getFullYear();
+  return new Date(year, month, parseInt(day,10), hour, parseInt(mm,10));
 }
