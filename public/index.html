@@ -631,20 +631,23 @@ function parseDSM(text){
 function parse6hrMaxFromTable(html) {
   if (!html) return null;
 
+  // Find all table rows (case-insensitive)
   const rowMatches = html.match(/<tr[\s\S]*?<\/tr>/gi);
   if (!rowMatches) {
-    console.log("No <tr> matches found");
+    console.log("No <tr> matches found in HTML length", html.length);
     return null;
   }
 
   for (let row of rowMatches) {
+    // Extract all table cells
     const cells = [...row.matchAll(/<t[dh][^>]*>(.*?)<\/t[dh]>/gi)]
                    .map(m => m[1].replace(/<[^>]+>/g,"").trim());
 
     if (!cells.length) continue;
 
+    // First cell is a date like "Aug 28, 1:51 pm"
     if (/^[A-Z][a-z]{2}\s+\d{1,2},/.test(cells[0])) {
-      console.log("Row cells:", cells); // 🔍 debug: dump row contents
+      console.log("Row cells:", cells);
       const sixMax = cells[10]; // 11th column
       if (sixMax && /^\d+$/.test(sixMax)) {
         return Number(sixMax);
@@ -662,9 +665,10 @@ async function updateSixHourMax(){
   el.textContent="–"; note.textContent="";
   try {
     const txt = await fetchTextWithFallback([NWS_6HR_PROXY, NWS_6HR_URL]);
-
-    // 🔍 DEBUG: log the first 500 chars so we can see what came back
-    console.log("6HR HTML snippet:", txt ? txt.slice(0,500) : "(no response)");
+  console.log("6HR HTML length:", txt?.length);
+  console.log("Index of <tr>:", txt ? txt.toLowerCase().indexOf("<tr") : -1);
+  console.log("6HR HTML snippet:", txt ? txt.slice(0,500) : "(no response)");
+   
 
     const max = parse6hrMaxFromTable(txt);
 
