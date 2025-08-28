@@ -24,7 +24,7 @@ export default async function handler(req, res) {
       if (cells.length >= 9) {
         const dayStr  = $(cells[0]).text().trim();   // e.g. "28"
         const timeStr = $(cells[1]).text().trim();   // e.g. "17:51"
-        const maxStr  = $(cells[8]).text().trim();   // 6-hour Max
+        const maxStr  = $(cells[9]).text().trim();   // 6-hour Max
         const airStr  = $(cells[6]).text().trim();   // fallback = Air temp
 
         const tempVal = parseFloat(maxStr) || parseFloat(airStr);
