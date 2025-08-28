@@ -621,7 +621,7 @@ function parseDSM(text){
       const parsed = parseDSM(txt);
       if(parsed){
         el.textContent = `${parsed.tempF.toFixed(0)}°F`;
-        note.textContent = `as of ${parsed.timeET} ET • daily summary message`;
+        note.textContent = `${parsed.timeET} ET • daily summary message`;
       }else{
         el.textContent = "–";
         note.textContent = "DSM unavailable";
@@ -1216,7 +1216,7 @@ async function updateDSM(){
   // only show if the DSM’s own date matches *today*
   if(parsed && parsed.dayISO === today){
     el.textContent = `${parsed.tempF.toFixed(0)}°F`;
-    note.textContent = `as of ${parsed.timeET} ET • daily summary message`;
+    note.textContent = `${parsed.timeET} ET • daily summary message`;
   }else{
     clearDSMOnly(); // keep it blank while waiting for today's DSM
   }
