@@ -8,20 +8,25 @@ export default async function handler(req, res) {
       res.status(r.status).send(`Upstream error: ${r.statusText}`);
       return;
     }
+
     const txt = await r.text();
 
-    // Extract the var DATA = { ... };
-    const match = txt.match(/var\s+DATA\s*=\s*(\{[\s\S]*?\});/);
+    // 🔍 Extract DATA block
+    const match = txt.match(/var\s+DATA\s*=\s*(\{[\s\S]*\});/);
     if (!match) {
-      res.status(500).send("Could not locate DATA block");
+      console.error("Proxy: Could not locate DATA block");
+      res.status(500).send("Proxy could not locate DATA block");
       return;
     }
 
-    // Send just the JSON
+    const json = match[1];
+
+    // ✅ Serve pure JSON
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Content-Type", "application/json; charset=utf-8");
-    res.send(match[1]); // pure JSON now
+    res.send(json);
   } catch (err) {
+    console.error("Proxy fetch error", err);
     res.status(500).send("Proxy fetch error: " + err.message);
   }
 }
