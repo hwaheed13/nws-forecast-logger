@@ -1,11 +1,11 @@
 // /api/nws-6hr-json.js
 import fetch from "node-fetch";
-import * as cheerio from "cheerio"; // npm install cheerio
+import * as cheerio from "cheerio";
 
 export default async function handler(req, res) {
   const station = req.query.station || "KNYC";
   const url = `https://www.weather.gov/wrh/timeseries?site=${station}`;
-  
+
   try {
     const r = await fetch(url);
     if (!r.ok) {
@@ -15,20 +15,31 @@ export default async function handler(req, res) {
     const html = await r.text();
     const $ = cheerio.load(html);
 
-    // Find the last row that has a 6 Hr Max value
-    let sixHrMax = null;
-    let sixHrTime = null;
-    $("table tr").each((i, tr) => {
+    let sixHrMax = null, sixHrTime = null;
+
+    // Find index of "6 Hr Max" header
+    const headers = $("table tr").first().find("th").map((i, th) => $(th).text().trim()).get();
+    const sixHrIndex = headers.findIndex(h => h.includes("6 Hr") && h.includes("Max"));
+
+    if (sixHrIndex === -1) {
+      res.status(500).json({ error: "Could not locate 6 Hr Max column" });
+      return;
+    }
+
+    // Look bottom-up for last valid 6 Hr Max
+    const rows = $("table tr").get().reverse();
+    for (const tr of rows) {
       const cells = $(tr).find("td");
-      if (cells.length > 10) {
+      if (cells.length > sixHrIndex) {
         const dateTime = $(cells[0]).text().trim();
-        const maxVal   = $(cells[11]).text().trim(); // 12th column = 6 Hr Max
+        const maxVal   = $(cells[sixHrIndex]).text().trim();
         if (/^\d+$/.test(maxVal)) {
-          sixHrMax = parseInt(maxVal, 10);
+          sixHrMax  = parseInt(maxVal, 10);
           sixHrTime = dateTime;
+          break;
         }
       }
-    });
+    }
 
     if (!sixHrMax) {
       res.status(404).json({ error: "No 6 Hr Max found" });
