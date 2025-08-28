@@ -4,7 +4,7 @@ import * as cheerio from "cheerio";
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
 
-  const station = req.query.station || "KNYC"; 
+  const station = req.query.station || "KNYC";
   const url = `https://forecast.weather.gov/data/obhistory/${station}.html`;
 
   try {
@@ -24,10 +24,9 @@ export default async function handler(req, res) {
       if (cells.length >= 9) {
         const dayStr  = $(cells[0]).text().trim();   // e.g. "28"
         const timeStr = $(cells[1]).text().trim();   // e.g. "17:51"
-        const maxStr  = $(cells[8]).text().trim();   // 6-hour Max
-        const airStr  = $(cells[6]).text().trim();   // fallback = Air temp
+        const maxStr  = $(cells[8]).text().trim();   // ✅ 6-hour Max only
 
-        const tempVal = parseFloat(maxStr) || parseFloat(airStr);
+        const tempVal = parseFloat(maxStr);
         if (!isNaN(tempVal) && dayStr && timeStr) {
           const dt = parseObsTime(dayStr, timeStr, now);
           if (dt) {
@@ -38,11 +37,11 @@ export default async function handler(req, res) {
               hour12: true
             }).format(dt);
 
-            rows.push({ 
-              dt, 
+            rows.push({
+              dt,
               value: tempVal,
               timeStr: fmtTime + " ET",
-              source: maxStr ? "6hrMax" : "Air"
+              source: "6hrMax"
             });
           }
         }
@@ -51,20 +50,16 @@ export default async function handler(req, res) {
 
     const recent = rows.filter(r => r.dt >= cutoff);
     if (!recent.length) {
-      return res.status(404).json({ error: "No observations in past 6 hours" });
+      return res.status(404).json({ error: "No 6-Hr Max values found in past 6 hours" });
     }
 
-    let maxRow = recent[0];
-    for (const r of recent) {
-      if (r.value > maxRow.value) {
-        maxRow = r;
-      }
-    }
+    // Take the most recent valid 6-Hr Max
+    const latest = recent[recent.length - 1];
 
     res.json({
-      value: maxRow.value,
-      time: maxRow.timeStr, // 👈 only "5:51 PM ET"
-      source: maxRow.source,
+      value: latest.value,
+      time: latest.timeStr,
+      source: latest.source,
       count: recent.length,
       station,
     });
