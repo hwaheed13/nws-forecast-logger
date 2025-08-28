@@ -4,7 +4,7 @@ import * as cheerio from "cheerio";
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
 
-  const station = req.query.station || "KNYC";
+  const station = req.query.station || "KNYC"; 
   const url = `https://forecast.weather.gov/data/obhistory/${station}.html`;
 
   try {
