@@ -22,29 +22,39 @@ export default async function handler(req, res) {
     $("table tr").each((i, tr) => {
       const cells = $(tr).find("td");
       if (cells.length >= 8) {
-        const timeStr = $(cells[0]).text().trim(); // e.g. "28 Aug 4:51 pm"
-        const maxStr  = $(cells[7]).text().trim();
+        const timeStr = $(cells[0]).text().trim();   // e.g. "28 Aug 4:51 pm"
+        const maxStr  = $(cells[7]).text().trim();   // "Max" column
+        const maxVal  = parseFloat(maxStr);
 
-        const max = parseFloat(maxStr);
-        if (!isNaN(max) && timeStr) {
+        if (!isNaN(maxVal) && timeStr) {
           const dt = parseObsTime(timeStr, now);
           if (dt) {
-            rows.push({ time: timeStr, dt, max });
+            rows.push({ timeStr, dt, maxVal });
           }
         }
       }
     });
 
-    // Filter rows within last 6 hours
+    // Only keep rows within the last 6 hours
     const recent = rows.filter(r => r.dt >= cutoff);
     if (!recent.length) {
-      return res.status(404).json({ error: "No rows in past 6 hours" });
+      return res.status(404).json({ error: "No observations in past 6 hours" });
     }
 
-    const sixHrMax = Math.max(...recent.map(r => r.max));
-    const latestTime = recent[0].time;
+    // Find the max value and the row it came from
+    let maxRow = recent[0];
+    for (const r of recent) {
+      if (r.maxVal > maxRow.maxVal) {
+        maxRow = r;
+      }
+    }
 
-    res.json({ value: sixHrMax, time: latestTime, count: recent.length });
+    res.json({
+      value: maxRow.maxVal,
+      time: maxRow.timeStr,
+      count: recent.length,
+      station,
+    });
   } catch (err) {
     console.error("Proxy fetch error:", err);
     res.status(500).json({ error: "Proxy fetch error", detail: err.message });
@@ -52,12 +62,13 @@ export default async function handler(req, res) {
 }
 
 /**
- * Parse time strings from obhistory table into JS Date.
- * Example cell: "28 Aug 4:51 pm"
+ * Parse obhistory time string into a Date.
+ * Example: "28 Aug 4:51 pm"
  */
 function parseObsTime(str, nowRef) {
-  const match = str.match(/(\d{1,2}) (\w{3}) (\d{1,2}):(\d{2}) (am|pm)/i);
+  const match = str.match(/(\d{1,2}) (\w{3}) (\d{1,2}):(\d{2})\s*(am|pm)/i);
   if (!match) return null;
+
   const [ , day, mon, hh, mm, ampm ] = match;
   const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const month = monthNames.findIndex(m => m.toLowerCase() === mon.toLowerCase());
@@ -68,5 +79,5 @@ function parseObsTime(str, nowRef) {
   if (ampm.toLowerCase() === "am" && hour === 12) hour = 0;
 
   const year = nowRef.getFullYear();
-  return new Date(year, month, parseInt(day,10), hour, parseInt(mm,10));
+  return new Date(year, month, parseInt(day, 10), hour, parseInt(mm, 10));
 }
