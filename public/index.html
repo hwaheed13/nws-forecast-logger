@@ -571,8 +571,8 @@
     const NWS_CURRENT_BASE="https://kalshi-proxy-theta.vercel.app/api/nws-current-temp";
     const NWS_DSM_URL   = "https://forecast.weather.gov/product.php?site=NWS&issuedby=NYC&product=DSM&format=CI&version=1&glossary=1";
     const NWS_DSM_PROXY = "https://kalshi-proxy-theta.vercel.app/api/nws-dsm?issuedby=NYC";
-    const NWS_6HR_URL   = "https://www.weather.gov/wrh/LowTimeseries?site=knyc";
-    const NWS_6HR_PROXY = "https://kalshi-proxy-theta.vercel.app/api/nws-6hr?station=KNYC";
+    const NWS_6HR_JSON_URL   = "https://www.weather.gov/source/wrh/timeseries/obs.js?site=KNYC";
+    const NWS_6HR_JSON_PROXY = "https://kalshi-proxy-theta.vercel.app/api/nws-6hr-json?station=KNYC";
 
 
     async function fetchTextWithFallback(urls){
@@ -628,30 +628,36 @@ function parseDSM(text){
         note.textContent = "DSM unavailable";
       }
     }
-function parse6hrMaxFromTable(html) {
-  if (!html) return null;
+function parse6hrMaxFromJson(txt) {
+  if (!txt) return null;
 
-  // Find all table rows (case-insensitive)
-  const rowMatches = html.match(/<tr[\s\S]*?<\/tr>/gi);
-  if (!rowMatches) {
-    console.log("No <tr> matches found in HTML length", html.length);
-    return null;
+  let data;
+  try {
+    data = JSON.parse(txt); // try plain JSON
+  } catch (e) {
+    try {
+      // NOAA sometimes wraps in JS assignment — eval as fallback
+      data = eval("(" + txt + ")");
+    } catch (err) {
+      console.error("6HR parse JSON failed");
+      return null;
+    }
   }
+  if (!data || !data.STATION || !data.STATION[0]) return null;
 
-  for (let row of rowMatches) {
-    // Extract all table cells
-    const cells = [...row.matchAll(/<t[dh][^>]*>(.*?)<\/t[dh]>/gi)]
-                   .map(m => m[1].replace(/<[^>]+>/g,"").trim());
+  const obs = data.STATION[0].OBSERVATIONS;
+  if (!obs || !obs.air_temp_high_6_hour_set_1) return null;
 
-    if (!cells.length) continue;
+  const times = obs.date_time || [];
+  const highs = obs.air_temp_high_6_hour_set_1 || [];
 
-    // First cell is a date like "Aug 28, 1:51 pm"
-    if (/^[A-Z][a-z]{2}\s+\d{1,2},/.test(cells[0])) {
-      console.log("Row cells:", cells);
-      const sixMax = cells[10]; // 11th column
-      if (sixMax && /^\d+$/.test(sixMax)) {
-        return Number(sixMax);
-      }
+  // walk backward to get most recent non-null 6-hr max
+  for (let i = highs.length - 1; i >= 0; i--) {
+    if (highs[i] != null) {
+      return {
+        value: Math.round(highs[i]),
+        time: times[i] || null
+      };
     }
   }
   return null;
@@ -662,21 +668,23 @@ async function updateSixHourMax(){
   const note = document.getElementById("box-6hr-max-note");
   if(!el || !note) return;
 
-  el.textContent="–"; note.textContent="";
+  el.textContent = "–"; 
+  note.textContent = "";
   try {
-    const txt = await fetchTextWithFallback([NWS_6HR_PROXY, NWS_6HR_URL]);
-  console.log("6HR HTML length:", txt?.length);
-  console.log("Index of <tr>:", txt ? txt.toLowerCase().indexOf("<tr") : -1);
-  console.log("6HR HTML snippet:", txt ? txt.slice(0,500) : "(no response)");
-   
+    // pull from JSON endpoint instead of HTML
+    const txt = await fetchTextWithFallback([NWS_6HR_JSON_PROXY, NWS_6HR_JSON_URL]);
 
-    const max = parse6hrMaxFromTable(txt);
+    const parsed = parse6hrMaxFromJson(txt);
+    console.log("6HR parse result:", parsed);
 
-    console.log("6HR parse result:", max);  // 🔍 DEBUG result
-
-    if(max != null){
-      el.textContent = `${max}°F`;
-      note.textContent = "Official NWS 6-Hr Max (Low Timeseries)";
+    if (parsed) {
+      el.textContent = `${parsed.value}°F`;
+      note.textContent = parsed.time
+        ? `as of ${new Date(parsed.time).toLocaleString("en-US", {
+            timeZone:"America/New_York",
+            hour:"numeric", minute:"2-digit"
+          })} ET • 6-hr max`
+        : "Latest 6-hr max";
     } else {
       note.textContent = "6-Hr Max not available";
     }
