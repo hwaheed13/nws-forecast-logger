@@ -628,11 +628,24 @@ function parseDSM(text){
         note.textContent = "DSM unavailable";
       }
     }
-    function parse6hrMaxFromTable(text) {
-  if (!text) return null;
-  const clean = text.replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim();
-  const m = clean.match(/\b6\s*Hr\s*Max\s+(\d{1,3})\b/i);
-  return m ? Number(m[1]) : null;
+ function parse6hrMaxFromTable(html) {
+  if (!html) return null;
+  // Split into table rows
+  const rows = html.split(/<\/tr>/i);
+  for (let row of rows) {
+    const cells = row.replace(/<[^>]+>/g, " ").trim().split(/\s+/);
+    if (!cells.length) continue;
+    // Sanity check: only process rows that look like they start with a date
+    if (/^[A-Z][a-z]{2}\s+\d{1,2},/.test(row)) {
+      // Last 4 numbers are: 6HrMax, 6HrMin, 24HrMax, 24HrMin
+      const nums = cells.filter(c => /^\d+$/.test(c));
+      if (nums.length >= 4) {
+        const [sixMax, sixMin, dailyMax, dailyMin] = nums.slice(-4).map(Number);
+        if (sixMax) return sixMax;
+      }
+    }
+  }
+  return null;
 }
 
 async function updateSixHourMax(){
