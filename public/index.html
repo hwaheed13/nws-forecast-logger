@@ -627,30 +627,9 @@ function parseDSM(text){
         note.textContent = "DSM unavailable";
       }
     }
-function parse6hrMaxFromJson(txt) {
-  if (!txt) return null;
-  try {
-    const data = JSON.parse(txt); // now always pure JSON
-    if (!data?.STATION?.[0]?.OBSERVATIONS) return null;
 
-    const obs   = data.STATION[0].OBSERVATIONS;
-    const times = obs.date_time || [];
-    const highs = obs.air_temp_high_6_hour_set_1 || [];
-
-    for (let i = highs.length - 1; i >= 0; i--) {
-      if (highs[i] != null) {
-        return { value: Math.round(highs[i]), time: times[i] || null };
-      }
-    }
-  } catch (err) {
-    console.error("6HR parse JSON failed", err);
-  }
-  return null;
-}
-
-
-async function updateSixHourMax(){
-  const el = document.getElementById("box-6hr-max");
+async function updateSixHourMax() {
+  const el   = document.getElementById("box-6hr-max");
   const note = document.getElementById("box-6hr-max-note");
   if (!el || !note) return;
 
@@ -658,12 +637,16 @@ async function updateSixHourMax(){
   note.textContent = "";
 
   try {
-    const txt = await fetchTextWithFallback([NWS_6HR_JSON_PROXY]);
-    const data = JSON.parse(txt);
+    const r = await fetch(NWS_6HR_JSON_PROXY, { cache: "no-cache" });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const parsed = await r.json();
+    console.log("6HR parse result:", parsed);
 
-    if (data.value != null) {
-      el.textContent = `${data.value.toFixed(0)}°F`;
-      note.textContent = "Latest 6-hr max";
+    if (parsed && parsed.value != null) {
+      el.textContent = `${parsed.value}°F`;
+      note.textContent = parsed.time
+        ? `as of ${parsed.time} • 6-hr max`
+        : "Latest 6-hr max";
     } else {
       note.textContent = "6-Hr Max not available";
     }
