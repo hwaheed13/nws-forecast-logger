@@ -317,11 +317,16 @@
         </div>
 
         <div class="metric-card today-obs">
-          <div class="metric-label">Recent Observed Temperature</div>
-          <div id="box-today-current" class="metric-value">–</div>
-          <div id="box-today-current-note" class="metric-subtitle"></div>
-        </div>
+  <div class="metric-label">6 Hr Max</div>
+  <div id="box-6hr-max" class="metric-value">–</div>
+  <div id="box-6hr-max-note" class="metric-subtitle"></div>
 
+    <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border-subtle);">
+    <div class="metric-label">Recent Observed Temperature</div>
+    <div id="box-today-current" class="metric-value">–</div>
+    <div id="box-today-current-note" class="metric-subtitle"></div>
+    </div>
+    </div>
 
         <div class="metric-card tomorrow-forecast">
           <div class="metric-label">Tomorrow's Latest Forecast</div>
@@ -566,6 +571,9 @@
     const NWS_CURRENT_BASE="https://kalshi-proxy-theta.vercel.app/api/nws-current-temp";
     const NWS_DSM_URL   = "https://forecast.weather.gov/product.php?site=NWS&issuedby=NYC&product=DSM&format=CI&version=1&glossary=1";
     const NWS_DSM_PROXY = "https://kalshi-proxy-theta.vercel.app/api/nws-dsm?issuedby=NYC";
+    const NWS_6HR_URL   = "https://www.weather.gov/wrh/LowTimeseries?site=knyc";
+    const NWS_6HR_PROXY = "https://kalshi-proxy-theta.vercel.app/api/nws-6hr?station=KNYC";
+
 
     async function fetchTextWithFallback(urls){
       for (const u of urls){
@@ -620,6 +628,32 @@ function parseDSM(text){
         note.textContent = "DSM unavailable";
       }
     }
+    function parse6hrMaxFromTable(text) {
+  if (!text) return null;
+  const clean = text.replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim();
+  const m = clean.match(/\b6\s*Hr\s*Max\s+(\d{1,3})\b/i);
+  return m ? Number(m[1]) : null;
+}
+
+async function updateSixHourMax(){
+  const el   = document.getElementById("box-6hr-max");
+  const note = document.getElementById("box-6hr-max-note");
+  if(!el || !note) return;
+
+  el.textContent="–"; note.textContent="";
+  try {
+    const txt = await fetchTextWithFallback([NWS_6HR_PROXY, NWS_6HR_URL]);
+    const max = parse6hrMaxFromTable(txt);
+    if(max != null){
+      el.textContent = `${max}°F`;
+      note.textContent = "Official NWS 6-Hr Max (Low Timeseries)";
+    } else {
+      note.textContent = "6-Hr Max not available";
+    }
+  } catch {
+    note.textContent = "6-Hr Max unavailable";
+  }
+}
 
     async function fetchKalshiWinningRange(dateISO){
       try{
@@ -1192,6 +1226,17 @@ async function updateDSM(){
       showGate("Redirecting to subscribe…");
       return (window.location.href = "/subscribe.html");
     }
+  function bootApp(){
+  reloadCSV();
+  setInterval(updateObservations, 5*60*1000);
+
+  updateDSM();
+  setInterval(updateDSM, 10*60*1000);
+
+  // NEW: 6 Hr Max
+  updateSixHourMax();
+  setInterval(updateSixHourMax, 10*60*1000);
+}
 
     // ✅ allowed in
     showApp();
