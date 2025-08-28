@@ -629,16 +629,8 @@ function parseDSM(text){
     }
 function parse6hrMaxFromJson(txt) {
   if (!txt) return null;
-
   try {
-    // Find the first "var DATA = { ... };" block anywhere in the file
-    const match = txt.match(/var\s+DATA\s*=\s*(\{[\s\S]*?\});/);
-    if (!match) {
-      console.error("Could not locate DATA block. Sample:", txt.slice(0,200));
-      return null;
-    }
-
-    const data = JSON.parse(match[1]);
+    const data = JSON.parse(txt); // now always pure JSON
     if (!data?.STATION?.[0]?.OBSERVATIONS) return null;
 
     const obs   = data.STATION[0].OBSERVATIONS;
@@ -655,6 +647,7 @@ function parse6hrMaxFromJson(txt) {
   }
   return null;
 }
+
 
 async function updateSixHourMax(){
   const el   = document.getElementById("box-6hr-max");
