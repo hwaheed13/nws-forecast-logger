@@ -4,17 +4,14 @@ import * as cheerio from "cheerio";
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
 
-  const station = req.query.station || "KNYC";
+  const station = req.query.station || "KNYC"; 
   const url = `https://forecast.weather.gov/data/obhistory/${station}.html`;
 
   try {
     const r = await fetch(url);
     if (!r.ok) {
-      return res
-        .status(r.status)
-        .json({ error: `Upstream error: ${r.statusText}` });
+      return res.status(r.status).json({ error: `Upstream error: ${r.statusText}` });
     }
-
     const html = await r.text();
     const $ = cheerio.load(html);
 
@@ -22,59 +19,54 @@ export default async function handler(req, res) {
     const cutoff = new Date(now.getTime() - 6 * 60 * 60 * 1000); // last 6 hours
 
     const rows = [];
-
     $("table tr").each((i, tr) => {
       const cells = $(tr).find("td");
       if (cells.length >= 9) {
         const dayStr  = $(cells[0]).text().trim();   // e.g. "28"
         const timeStr = $(cells[1]).text().trim();   // e.g. "17:51"
-        const maxStr  = $(cells[8]).text().trim();   // ✅ 6-hr Max col
-
-        // 🔒 skip row unless 6-hr Max cell is populated
-        if (!maxStr) return;
+        const maxStr  = $(cells[8]).text().trim();   // ✅ 6-hr Max only
 
         const tempVal = parseFloat(maxStr);
+        // ✅ only push if 6-hr Max is actually populated
         if (!isNaN(tempVal) && dayStr && timeStr) {
           const dt = parseObsTime(dayStr, timeStr, now);
-          if (dt && dt >= cutoff) {
+          if (dt) {
             const fmtTime = new Intl.DateTimeFormat("en-US", {
               timeZone: "America/New_York",
               hour: "numeric",
               minute: "2-digit",
-              hour12: true,
+              hour12: true
             }).format(dt);
 
-            rows.push({
-              dt,
+            rows.push({ 
+              dt, 
               value: tempVal,
               timeStr: fmtTime + " ET",
-              source: "6hrMax",
+              source: "6hrMax"
             });
           }
         }
       }
     });
 
-    if (!rows.length) {
-      return res
-        .status(404)
-        .json({ error: "No 6-Hr Max values found in past 6 hours" });
+    const recent = rows.filter(r => r.dt >= cutoff);
+    if (!recent.length) {
+      return res.status(404).json({ error: "No 6-Hr Max values found in past 6 hours" });
     }
 
-    // ✅ most recent row with a real 6-hr Max
-    const latest = rows[rows.length - 1];
+    // pick the most recent row that had a real Max
+    const latest = recent[recent.length - 1];
 
     res.json({
       value: latest.value,
       time: latest.timeStr,
       source: latest.source,
+      count: recent.length,
       station,
     });
   } catch (err) {
     console.error("Proxy fetch error:", err);
-    res
-      .status(500)
-      .json({ error: "Proxy fetch error", detail: err.message });
+    res.status(500).json({ error: "Proxy fetch error", detail: err.message });
   }
 }
 
@@ -82,10 +74,10 @@ function parseObsTime(dayStr, timeStr, nowRef) {
   const day = parseInt(dayStr, 10);
   if (isNaN(day)) return null;
 
-  const [hh, mm] = timeStr.split(":").map((x) => parseInt(x, 10));
+  const [hh, mm] = timeStr.split(":").map(x => parseInt(x, 10));
   if (isNaN(hh) || isNaN(mm)) return null;
 
-  const year = nowRef.getFullYear();
+  const year  = nowRef.getFullYear();
   const month = nowRef.getMonth();
   return new Date(year, month, day, hh, mm);
 }
