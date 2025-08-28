@@ -628,20 +628,23 @@ function parseDSM(text){
         note.textContent = "DSM unavailable";
       }
     }
- function parse6hrMaxFromTable(html) {
+function parse6hrMaxFromTable(html) {
   if (!html) return null;
-  // Split into table rows
-  const rows = html.split(/<\/tr>/i);
-  for (let row of rows) {
-    const cells = row.replace(/<[^>]+>/g, " ").trim().split(/\s+/);
+
+  const rowMatches = html.match(/<tr[\s\S]*?<\/tr>/gi);
+  if (!rowMatches) return null;
+
+  for (let row of rowMatches) {
+    const cells = [...row.matchAll(/<t[dh][^>]*>(.*?)<\/t[dh]>/gi)]
+                   .map(m => m[1].replace(/<[^>]+>/g,"").trim());
+
     if (!cells.length) continue;
-    // Sanity check: only process rows that look like they start with a date
-    if (/^[A-Z][a-z]{2}\s+\d{1,2},/.test(row)) {
-      // Last 4 numbers are: 6HrMax, 6HrMin, 24HrMax, 24HrMin
-      const nums = cells.filter(c => /^\d+$/.test(c));
-      if (nums.length >= 4) {
-        const [sixMax, sixMin, dailyMax, dailyMin] = nums.slice(-4).map(Number);
-        if (sixMax) return sixMax;
+
+    // Must look like a data row
+    if (/^[A-Z][a-z]{2}\s+\d{1,2},/.test(cells[0])) {
+      const sixMax = cells[10]; // 11th col
+      if (sixMax && /^\d+$/.test(sixMax)) {
+        return Number(sixMax); // ✅ first non-empty value
       }
     }
   }
