@@ -633,21 +633,26 @@ function parse6hrMaxFromJson(txt) {
 
   let data;
   try {
-    // Strip leading "var obs = " and trailing semicolon
-    const cleaned = txt.replace(/^var\s+\w+\s*=\s*/, "").replace(/;$/, "");
-    data = JSON.parse(cleaned);
+    // Find the first `{` and last `}` and slice to just the JSON object
+    const start = txt.indexOf("{");
+    const end   = txt.lastIndexOf("}");
+    if (start === -1 || end === -1) {
+      console.error("No JSON object found in obs.js");
+      return null;
+    }
+    const jsonStr = txt.slice(start, end + 1);
+    data = JSON.parse(jsonStr);
   } catch (err) {
     console.error("6HR parse JSON failed", err);
     return null;
   }
 
-  if (!data || !data.STATION || !data.STATION[0]) return null;
+  if (!data?.STATION?.[0]?.OBSERVATIONS) return null;
   const obs = data.STATION[0].OBSERVATIONS;
-  if (!obs || !obs.air_temp_high_6_hour_set_1) return null;
-
   const times = obs.date_time || [];
   const highs = obs.air_temp_high_6_hour_set_1 || [];
 
+  // Walk backward to get most recent non-null 6-hr max
   for (let i = highs.length - 1; i >= 0; i--) {
     if (highs[i] != null) {
       return {
