@@ -21,37 +21,50 @@ export default async function handler(req, res) {
     const rows = [];
     $("table tr").each((i, tr) => {
       const cells = $(tr).find("td");
-      if (cells.length >= 8) {
-        const timeStr = $(cells[0]).text().trim();   // e.g. "28 Aug 4:51 pm"
-        const maxStr  = $(cells[7]).text().trim();   // "Max" column
-        const maxVal  = parseFloat(maxStr);
+      if (cells.length >= 9) {
+        const dayStr  = $(cells[0]).text().trim();   // e.g. "28"
+        const timeStr = $(cells[1]).text().trim();   // e.g. "17:51"
+        const maxStr  = $(cells[8]).text().trim();   // 6-hour Max
+        const airStr  = $(cells[6]).text().trim();   // fallback = Air temp
 
-        if (!isNaN(maxVal) && timeStr) {
-          const dt = parseObsTime(timeStr, now);
+        const tempVal = parseFloat(maxStr) || parseFloat(airStr);
+        if (!isNaN(tempVal) && dayStr && timeStr) {
+          const dt = parseObsTime(dayStr, timeStr, now);
           if (dt) {
-            rows.push({ timeStr, dt, maxVal });
+            const fmtTime = new Intl.DateTimeFormat("en-US", {
+              timeZone: "America/New_York",
+              hour: "numeric",
+              minute: "2-digit",
+              hour12: true
+            }).format(dt);
+
+            rows.push({ 
+              dt, 
+              value: tempVal,
+              timeStr: fmtTime + " ET",
+              source: maxStr ? "6hrMax" : "Air"
+            });
           }
         }
       }
     });
 
-    // Only keep rows within the last 6 hours
     const recent = rows.filter(r => r.dt >= cutoff);
     if (!recent.length) {
       return res.status(404).json({ error: "No observations in past 6 hours" });
     }
 
-    // Find the max value and the row it came from
     let maxRow = recent[0];
     for (const r of recent) {
-      if (r.maxVal > maxRow.maxVal) {
+      if (r.value > maxRow.value) {
         maxRow = r;
       }
     }
 
     res.json({
-      value: maxRow.maxVal,
-      time: maxRow.timeStr,
+      value: maxRow.value,
+      time: maxRow.timeStr, // 👈 only "5:51 PM ET"
+      source: maxRow.source,
       count: recent.length,
       station,
     });
@@ -61,23 +74,14 @@ export default async function handler(req, res) {
   }
 }
 
-/**
- * Parse obhistory time string into a Date.
- * Example: "28 Aug 4:51 pm"
- */
-function parseObsTime(str, nowRef) {
-  const match = str.match(/(\d{1,2}) (\w{3}) (\d{1,2}):(\d{2})\s*(am|pm)/i);
-  if (!match) return null;
+function parseObsTime(dayStr, timeStr, nowRef) {
+  const day = parseInt(dayStr, 10);
+  if (isNaN(day)) return null;
 
-  const [ , day, mon, hh, mm, ampm ] = match;
-  const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const month = monthNames.findIndex(m => m.toLowerCase() === mon.toLowerCase());
-  if (month === -1) return null;
+  const [hh, mm] = timeStr.split(":").map(x => parseInt(x, 10));
+  if (isNaN(hh) || isNaN(mm)) return null;
 
-  let hour = parseInt(hh, 10);
-  if (ampm.toLowerCase() === "pm" && hour < 12) hour += 12;
-  if (ampm.toLowerCase() === "am" && hour === 12) hour = 0;
-
-  const year = nowRef.getFullYear();
-  return new Date(year, month, parseInt(day, 10), hour, parseInt(mm, 10));
+  const year  = nowRef.getFullYear();
+  const month = nowRef.getMonth();
+  return new Date(year, month, day, hh, mm);
 }
