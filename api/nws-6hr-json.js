@@ -1,3 +1,7 @@
+// /api/nws-6hr-json.js
+import fetch from "node-fetch";
+import * as cheerio from "cheerio";
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*"); // always first
 
@@ -6,7 +10,9 @@ export default async function handler(req, res) {
 
   try {
     const r = await fetch(url);
-    if (!r.ok) return res.status(r.status).send(`Upstream error: ${r.statusText}`);
+    if (!r.ok) {
+      return res.status(r.status).send(`Upstream error: ${r.statusText}`);
+    }
     const html = await r.text();
     const $ = cheerio.load(html);
 
@@ -17,7 +23,9 @@ export default async function handler(req, res) {
     });
     console.log("Parsed headers:", headers);
 
-    const colIndex = headers.findIndex(h => h.replace(/\s+/g," ").toLowerCase().includes("6 hr max"));
+    const colIndex = headers.findIndex(h =>
+      h.replace(/\s+/g, " ").toLowerCase().includes("6 hr max")
+    );
     if (colIndex === -1) {
       return res.status(404).json({ error: "Could not locate 6 Hr Max column", headers });
     }
