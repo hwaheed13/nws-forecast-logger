@@ -656,14 +656,22 @@ async function updateSixHourMax(){
   el.textContent="–"; note.textContent="";
   try {
     const txt = await fetchTextWithFallback([NWS_6HR_PROXY, NWS_6HR_URL]);
+
+    // 🔍 DEBUG: log the first 500 chars so we can see what came back
+    console.log("6HR HTML snippet:", txt ? txt.slice(0,500) : "(no response)");
+
     const max = parse6hrMaxFromTable(txt);
+
+    console.log("6HR parse result:", max);  // 🔍 DEBUG result
+
     if(max != null){
       el.textContent = `${max}°F`;
       note.textContent = "Official NWS 6-Hr Max (Low Timeseries)";
     } else {
       note.textContent = "6-Hr Max not available";
     }
-  } catch {
+  } catch (err) {
+    console.error("6HR fetch error:", err);
     note.textContent = "6-Hr Max unavailable";
   }
 }
