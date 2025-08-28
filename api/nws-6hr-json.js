@@ -1,6 +1,5 @@
 // /api/nws-6hr-json.js
-import fetch from "node-fetch";
-import * as cheerio from "cheerio";
+import * as cheerio from "cheerio"; // only dep you need
 
 export default async function handler(req, res) {
   const station = req.query.station || "KNYC";
@@ -17,7 +16,7 @@ export default async function handler(req, res) {
 
     let sixHrMax = null, sixHrTime = null;
 
-    // Find index of "6 Hr Max" header
+    // Find header index for "6 Hr Max"
     const headers = $("table tr").first().find("th").map((i, th) => $(th).text().trim()).get();
     const sixHrIndex = headers.findIndex(h => h.includes("6 Hr") && h.includes("Max"));
 
@@ -26,7 +25,7 @@ export default async function handler(req, res) {
       return;
     }
 
-    // Look bottom-up for last valid 6 Hr Max
+    // Walk bottom-up rows for last numeric 6 Hr Max
     const rows = $("table tr").get().reverse();
     for (const tr of rows) {
       const cells = $(tr).find("td");
@@ -49,6 +48,7 @@ export default async function handler(req, res) {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.json({ value: sixHrMax, time: sixHrTime });
   } catch (err) {
+    console.error("Proxy crash:", err);
     res.status(500).send("Proxy fetch error: " + err.message);
   }
 }
