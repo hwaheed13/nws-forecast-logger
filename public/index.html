@@ -255,6 +255,20 @@
   .brand-right {
     flex: 1 1 auto;
   }
+  .header-content {
+    flex-direction: column;   /* stack logo+blurb above pills */
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .brand-left,
+  .brand-right {
+    width: 100%;              /* both full width */
+  }
+
+  .brand-right {
+    justify-content: flex-start; /* pills align left below blurb */
+  }
 }
   </style>
 </head>
