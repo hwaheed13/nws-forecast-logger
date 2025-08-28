@@ -255,19 +255,23 @@
   .brand-right {
     flex: 1 1 auto;
   }
-  .header-content {
-    flex-direction: column;   /* stack logo+blurb above pills */
+ .header-content {
+    flex-direction: row;     /* keep them side by side */
     align-items: flex-start;
-    gap: 8px;
   }
 
-  .brand-left,
-  .brand-right {
-    width: 100%;              /* both full width */
+  .brand-left {
+    flex: 1 1 auto;          /* let logo+blurb take more space */
+    min-width: 0;
+  }
+
+  .brand-sub {
+    flex-shrink: 1;          /* allow natural wrapping */
+    min-width: 0;            /* avoid early wrap */
   }
 
   .brand-right {
-    justify-content: flex-start; /* pills align left below blurb */
+    flex: 0 0 auto;          /* pills shrink/wrap earlier instead */
   }
 }
   </style>
