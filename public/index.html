@@ -572,7 +572,7 @@
     const NWS_DSM_URL   = "https://forecast.weather.gov/product.php?site=NWS&issuedby=NYC&product=DSM&format=CI&version=1&glossary=1";
     const NWS_DSM_PROXY = "https://kalshi-proxy-theta.vercel.app/api/nws-dsm?issuedby=NYC";
     const NWS_6HR_JSON_URL   = "https://www.weather.gov/source/wrh/timeseries/obs.js?site=KNYC";
-    const NWS_6HR_JSON_PROXY = "https://waheedweather.dewdropventures.com/api/nws-6hr-json?station=KNYC";
+    const NWS_6HR_JSON_PROXY = "https://nws-forecast-logger.vercel.app/api/nws-6hr-json?station=KNYC";
 
     async function fetchTextWithFallback(urls){
       for (const u of urls){
