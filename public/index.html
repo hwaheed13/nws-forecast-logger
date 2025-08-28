@@ -222,6 +222,19 @@
     border-radius: 12px;           /* rounder corners */
   }
 }
+    /* Mobile-only tweaks */
+@media (max-width: 600px) {
+  /* Pull the 3 pills (Live, NYC, KNYC) up closer to the title */
+  .brand-right .pill-group {
+    margin-top: -4px;   /* tweak between -2px and -6px until it feels right */
+  }
+
+  /* Nudge the logout pill a little lower */
+  .pill.logout-btn {
+    margin-top: 6px;    /* creates breathing room below the pill group */
+  }
+}
+
   </style>
 </head>
 <body>
