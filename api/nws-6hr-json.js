@@ -1,50 +1,43 @@
+// /api/nws-6hr-json.js
+import fetch from "node-fetch";
+import * as cheerio from "cheerio"; // npm install cheerio
+
 export default async function handler(req, res) {
   const station = req.query.station || "KNYC";
-  const url = `https://www.weather.gov/source/wrh/timeseries/obs.js?site=${station}`;
-
+  const url = `https://www.weather.gov/wrh/timeseries?site=${station}`;
+  
   try {
     const r = await fetch(url);
     if (!r.ok) {
       res.status(r.status).send(`Upstream error: ${r.statusText}`);
       return;
     }
-    const txt = await r.text();
+    const html = await r.text();
+    const $ = cheerio.load(html);
 
-    // Try to locate the DATA object in obs.js
-    const match = txt.match(/var\s+DATA\s*=\s*(\{[\s\S]*?\});/);
-    if (!match) {
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      res.status(500).json({ error: "Could not locate DATA block" });
-      return;
-    }
-
-    let data;
-    try {
-      data = JSON.parse(match[1]);
-    } catch (err) {
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      res.status(500).json({ error: "Parse failed", raw: match[1].slice(0,200) });
-      return;
-    }
-
-    const obs = data?.STATION?.[0]?.OBSERVATIONS;
-    const highs = obs?.air_temp_high_6_hour_set_1 || [];
-    const times = obs?.date_time || [];
-
-    let latest = null;
-    for (let i = highs.length - 1; i >= 0; i--) {
-      if (highs[i] != null) {
-        latest = { value: Math.round(highs[i]), time: times[i] || null };
-        break;
+    // Find the last row that has a 6 Hr Max value
+    let sixHrMax = null;
+    let sixHrTime = null;
+    $("table tr").each((i, tr) => {
+      const cells = $(tr).find("td");
+      if (cells.length > 10) {
+        const dateTime = $(cells[0]).text().trim();
+        const maxVal   = $(cells[11]).text().trim(); // 12th column = 6 Hr Max
+        if (/^\d+$/.test(maxVal)) {
+          sixHrMax = parseInt(maxVal, 10);
+          sixHrTime = dateTime;
+        }
       }
+    });
+
+    if (!sixHrMax) {
+      res.status(404).json({ error: "No 6 Hr Max found" });
+      return;
     }
 
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Content-Type", "application/json");
-    res.json(latest || { value: null });
-
+    res.json({ value: sixHrMax, time: sixHrTime });
   } catch (err) {
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.status(500).json({ error: "Proxy fetch error", detail: err.message });
+    res.status(500).send("Proxy fetch error: " + err.message);
   }
 }
