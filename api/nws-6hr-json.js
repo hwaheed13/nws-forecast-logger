@@ -10,12 +10,17 @@ export default async function handler(req, res) {
     }
     const txt = await r.text();
 
-    // Add CORS headers so browser can call this
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET");
-    res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+    // Extract the var DATA = { ... };
+    const match = txt.match(/var\s+DATA\s*=\s*(\{[\s\S]*?\});/);
+    if (!match) {
+      res.status(500).send("Could not locate DATA block");
+      return;
+    }
 
-    res.send(txt);
+    // Send just the JSON
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.send(match[1]); // pure JSON now
   } catch (err) {
     res.status(500).send("Proxy fetch error: " + err.message);
   }
