@@ -145,43 +145,54 @@
     .kalshi-badge{font-size:clamp(11px,1.8vw,14px); padding:6px 10px}
     .pill{font-size:clamp(10px,1.6vw,12px); padding:4px 8px}
 
-    @media (max-width:600px){
-      .container{padding:12px}
-      .header{padding:12px 0}
-      .brand{gap:8px}
-      .brand-left{gap:8px}
-      .brand-mark{width:32px; height:32px; border-radius:10px; top:-2px}
-      .brand-mark svg{width:28px; height:28px; transform:translate(0,0)}
-      .brand-sub{font-size:12px; line-height:1.35}
-      .metrics-grid,.prediction-grid,.kalshi-grid{grid-template-columns:1fr; gap:10px}
-      .metric-card{padding:14px; border-radius:14px}
-      .metric-label{font-size:13px}
-      .metric-subtitle{font-size:12px}
-      .prediction-card{padding:14px}
-      .stats-grid{grid-template-columns:repeat(2,1fr); gap:8px}
-      .stat-card{padding:10px}
-      .stat-label{font-size:11px}
-      .stat-value{font-size:22px}
-      .mini-forecasts{gap:4px}
-      .mini-chip{font-size:11px; padding:3px 8px}
-      .controls-section{padding:12px}
-      .controls{gap:8px}
-      .control-label{font-size:12px}
-      input[type="date"]{font-size:13px; padding:7px 8px; border-radius:8px}
-      .btn{font-size:13px; padding:8px 12px; border-radius:8px}
-      .chart-section{padding:14px}
-      .chart-title{font-size:14px; margin-bottom:10px}
-      .chart-container{height:260px}
-      .table-container{padding:0 12px 12px}
-      #dataTable{font-size:12px}
-      #dataTable th{font-size:11px; padding:10px 8px}
-      #dataTable td{padding:10px 8px}
-      .brand-right{gap:6px}
-      .pill .dot{width:5px; height:5px}
-    }
+@media (max-width:600px){
+  .container{padding:12px}
+  .header{padding:12px 0}
+  .brand{gap:8px}
+  .brand-left{gap:8px}
+  .brand-mark{width:32px; height:32px; border-radius:10px; top:-2px}
+  .brand-mark svg{width:28px; height:28px; transform:translate(0,0)}
+  .brand-sub{font-size:12px; line-height:1.35}
+  .metrics-grid,.prediction-grid,.kalshi-grid{grid-template-columns:1fr; gap:10px}
+  .metric-card{padding:14px; border-radius:14px}
+  .metric-label{font-size:13px}
+  .metric-subtitle{font-size:12px}
+  .prediction-card{padding:14px}
+  .stats-grid{grid-template-columns:repeat(2,1fr); gap:8px}
+  .stat-card{padding:10px}
+  .stat-label{font-size:11px}
+  .stat-value{font-size:22px}
+  .mini-forecasts{gap:4px}
+  .mini-chip{font-size:11px; padding:3px 8px}
+  .controls-section{padding:12px}
+  .controls{gap:8px}
+  .control-label{font-size:12px}
+  input[type="date"]{font-size:13px; padding:7px 8px; border-radius:8px}
+  .btn{font-size:13px; padding:8px 12px; border-radius:8px}
+  .chart-section{padding:14px}
+  .chart-title{font-size:14px; margin-bottom:10px}
+  .chart-container{height:260px}
+  .table-container{padding:0 12px 12px}
+  #dataTable{font-size:12px}
+  #dataTable th{font-size:11px; padding:10px 8px}
+  #dataTable td{padding:10px 8px}
+  .brand-right{gap:6px; flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch;}
+  .brand-right::-webkit-scrollbar{display:none} /* hide scrollbar for cleaner look */
+  .pill .dot{width:5px; height:5px}
+}
+.brand-right .pill-sep{
+  flex:0 0 12px; /* just acts like a spacer */
+}
+
+.pill.logout-btn{
+  background:var(--bg-tertiary);
+  color:var(--text-secondary);
+  border:1px solid var(--border-default);
+}    
   </style>
 </head>
 <body>
+
 
   <!-- ====== LOGIN GATE (kept for UX; hidden immediately) ====== -->
   <div id="gate" role="status" aria-live="polite">
@@ -214,12 +225,13 @@
             <p class="brand-sub">Automatically logs every NWS forecast update for Central Park and compares to the official daily high</p>
           </div>
         </div>
-        <div class="brand-right">
-          <span class="pill live"><span class="dot"></span> Live</span>
-          <span class="pill">NYC</span>
-          <span class="pill">KNYC</span>
-          <button id="btn-logout" class="pill" style="cursor:pointer">Log out</button>
-        </div>
+      <div class="brand-right">
+        <span class="pill live"><span class="dot"></span> Live</span>
+        <span class="pill">NYC</span>
+        <span class="pill">KNYC</span>
+        <div class="pill-sep"></div>
+        <button id="btn-logout" class="pill logout-btn" style="cursor:pointer">Log out</button>
+      </div>
       </div>
     </header>
 
@@ -274,9 +286,9 @@
           <div class="prediction-title">Tomorrow's Bias-Corrected Prediction</div>
           <div id="correctionBoxTomorrow" class="prediction-content">Loading...</div>
         </div>
-        <div style="grid-column:1/2 span; font-size:12px; color:var(--text-light); margin-top:-4px;">
-          Note: “days” refers only to dates with an actual high and at least one valid forecast logged before that high.
-        </div>
+      <div style="grid-column:1 / span 2; font-size:12px; color:var(--text-light); margin-top:-4px;">
+        Note: “days” refers only to dates with an actual high and at least one valid forecast logged before that high.
+      </div>
       </div>
 
       <!-- Kalshi -->
