@@ -179,7 +179,11 @@
     if (!isValidEmail(email)) return alert("Enter your email first.");
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: "https://waheedweather.dewdropventures.com/login.html" }
+     // in login.html, inside supabase.auth.signUp(...)
+  options: {
+  emailRedirectTo: "https://waheedweather.dewdropventures.com/subscribe.html"
+  }
+
     });
     if (error) return alert(error.message);
     alert("Check your inbox for a magic link.");
