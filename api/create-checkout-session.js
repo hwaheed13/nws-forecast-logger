@@ -72,7 +72,8 @@ export default async function handler(req, res) {
           { onConflict: "id" }
         );
     }
-
+   await stripe.customers.update(customerId, { metadata: { supabase_user_id: user.id } });
+   
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: customerId,
