@@ -16,7 +16,7 @@ export default async function handler(req, res) {
     const $ = cheerio.load(html);
 
     const now = new Date();
-    const cutoff = new Date(now.getTime() - 12 * 60 * 60 * 1000); // look back 12 hrs
+    const cutoff = new Date(now.getTime() - 12 * 60 * 60 * 1000); // last 12 hours
 
     const targetTimes = new Set(["01:51", "07:51", "13:51", "19:51"]);
     const rows = [];
@@ -25,9 +25,9 @@ export default async function handler(req, res) {
       const cells = $(tr).find("td");
       if (cells.length < 9) return;
 
-      const dayStr  = $(cells[0]).text().trim();  // "28"
-      const timeStr = $(cells[1]).text().trim();  // "13:51"
-      const maxStr  = $(cells[8]).text().trim();  // 6-Hr Max
+      const dayStr  = $(cells[0]).text().trim();
+      const timeStr = $(cells[1]).text().trim();   // "13:51"
+      const maxStr  = $(cells[8]).text().trim();   // 6-Hr Max
 
       if (!targetTimes.has(timeStr)) return;
       if (!maxStr) return;
@@ -39,17 +39,13 @@ export default async function handler(req, res) {
       if (!dt) return;
 
       if (dt >= cutoff) {
-        const fmtTime = new Intl.DateTimeFormat("en-US", {
-          timeZone: "America/New_York",
-          hour: "numeric",
-          minute: "2-digit",
-          hour12: true
-        }).format(dt);
+        const [hh, mm] = timeStr.split(":").map(n => parseInt(n, 10));
+        const fmtTime = formatAsETClock(hh, mm);
 
         rows.push({
           dt,
           value: tempVal,
-          time: fmtTime + " ET",
+          time: fmtTime,   // 👈 Always “1:51 PM ET” / “7:51 PM ET”
           source: "6hrMax"
         });
       }
@@ -68,7 +64,6 @@ export default async function handler(req, res) {
   }
 }
 
-// ✅ Treat timeStr as local ET (not UTC)
 function parseObsTime(dayStr, timeStr, nowRef) {
   const day = parseInt(dayStr, 10);
   if (isNaN(day) || !timeStr) return null;
@@ -76,6 +71,7 @@ function parseObsTime(dayStr, timeStr, nowRef) {
   const [hh, mm] = timeStr.split(":").map((x) => parseInt(x, 10));
   if (isNaN(hh) || isNaN(mm)) return null;
 
+  // Treat hh:mm as ET-local clock time
   return new Date(
     nowRef.getFullYear(),
     nowRef.getMonth(),
@@ -83,4 +79,10 @@ function parseObsTime(dayStr, timeStr, nowRef) {
     hh,
     mm
   );
+}
+
+function formatAsETClock(hh, mm) {
+  const hour12 = (hh % 12) || 12;
+  const ampm = hh < 12 ? "AM" : "PM";
+  return `${hour12}:${String(mm).padStart(2, "0")} ${ampm} ET`;
 }
