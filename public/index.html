@@ -1221,8 +1221,9 @@ async function displayTable(){
     if(!tr) return;
     const mk = tr.dataset.month;
     const collapsed = tr.classList.toggle("collapsed");
-    tb.querySelectorAll(`tr[data-month="${mk}"]`)
-      .forEach(r => r.classList.toggle("is-hidden", collapsed));
+   tb.querySelectorAll(`tr[data-month="${mk}"]:not(.month-row)`)
+  .forEach(r => r.classList.toggle("is-hidden", collapsed));
+
   };
 
   // Start fully collapsed (done by adding 'is-hidden' above)
