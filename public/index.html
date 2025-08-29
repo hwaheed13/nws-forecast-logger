@@ -288,15 +288,6 @@
       <div class="gate-note">This will update automatically.</div>
     </div>
   </div>
-   <script>
-    window.appBooted = false;
-    setTimeout(function(){
-      if(!window.appBooted){
-        try { window.location.assign("/login.html"); }
-        catch(_) { window.location.href = "login.html"; }
-      }
-    }, 3500);
-  </script>
 
   <!-- ====== APP ====== -->
   <div id="app" style="display:none">
@@ -1299,124 +1290,111 @@ async function updateDSM(){
     
 </script>
 
-<script type="module">
-  // Use jsDelivr (esm.sh can be blocked by some hosts/CSPs)
-  import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+ <script type="module">
+  import { createClient } from "https://esm.sh/@supabase/supabase-js";
 
-  // ✅ Your project + anon key
   const supabase = createClient(
     "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw",
-    { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
   );
+  function showTodayDate(){
+  const el = document.getElementById("todayDate");
+  if(!el) return;
+  const today = new Date();
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  });
+  el.textContent = fmt.format(today);
+}
+function scheduleMidnightUpdate(){
+  function msUntilMidnightET(){
+    const now = new Date();
+    const tzNow = new Date(new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "numeric", minute: "numeric", second: "numeric", hour12: false
+    }).format(now).replace(
+      /(\d{4})-(\d{2})-(\d{2}).(\d{2}):(\d{2}):(\d{2})/,
+      "$1-$2-$3T$4:$5:$6"
+    ));
 
-  // Small helpers
-  const $gate = () => document.getElementById("gate");
-  const $app  = () => document.getElementById("app");
-  function showApp(){ const g=$gate(), a=$app(); if(g) g.style.display='none'; if(a) a.style.display=''; }
-  function showGate(msg){
-    const g=$gate(); if(!g) return; g.style.display='';
-    const sub=g.querySelector('.gate-sub'); if(sub && msg) sub.textContent=msg;
-  }
-  function toLogin(why=""){ console.warn("→ login:", why); showGate("Redirecting to login…"); try{location.assign("/login.html")}catch{location.href="login.html"} }
-  function toSubscribe(why=""){ console.warn("→ subscribe:", why); showGate("Redirecting to subscribe…"); try{location.assign("/subscribe.html")}catch{location.href="subscribe.html"} }
+    // midnight next day ET
+    const nextMidnight = new Date(tzNow);
+    nextMidnight.setDate(nextMidnight.getDate() + 1);
+    nextMidnight.setHours(0,0,0,0);
 
-  // Your app boot (calls you already have elsewhere)
-  function bootApp(){
-    // mark as booted for the fail-safe
-    window.appBooted = true;
-
-    reloadCSV();
-    showTodayDate();
-    setInterval(updateObservations, 5*60*1000);
-    updateDSM();
-    setInterval(updateDSM, 10*60*1000);
-    updateSixHourMax();
-    setInterval(updateSixHourMax, 10*60*1000);
-  }
-
-  // Gatekeeper with a watchdog
-  async function checkAccess(){
-    const watchdog = setTimeout(() => toLogin("watchdog timeout"), 4000);
-
-    try {
-      const { data: { session }, error: sessErr } = await supabase.auth.getSession();
-      clearTimeout(watchdog);
-
-         if (sessErr) {
-      console.error("getSession error:", sessErr);
-      return toLogin("getSession error");
-    }
-
-    if (!session || !session.user || !session.access_token) {
-      console.warn("No session returned");
-      return toLogin("no/invalid session");
-    }
-
-    const { data: profile, error: profErr } = await supabase
-      .from("profiles")
-      .select("subscription_status, current_period_end")
-      .eq("id", session.user.id)
-      .maybeSingle();
-
-    if (profErr) {
-      console.error("profile read error:", profErr);
-      return toLogin("profile read error");
-    }
-
-    if (!profile) {
-      console.warn("No profile row found");
-      return toLogin("no profile row");
-    }
-
-      const ALLOW = ["active", "trialing"];
-      if (!ALLOW.includes(profile.subscription_status)) return toSubscribe("not active/trialing");
-
-      // Add “trial ends” pill
-      if (profile.subscription_status === "trialing" && profile.current_period_end){
-        const pillGrp = document.querySelector(".brand-right .pill-group");
-        if (pillGrp){
-          const end = new Date(profile.current_period_end);
-          const fmt = new Intl.DateTimeFormat("en-US",{ month:"short", day:"numeric" });
-          const p = document.createElement("span");
-          p.className = "pill"; p.textContent = `Trial ends ${fmt.format(end)}`;
-          pillGrp.appendChild(p);
-        }
-      }
-
-      showApp();
-      bootApp();
-    } catch (e) {
-      console.error("checkAccess exception:", e);
-      toLogin("exception");
-    }
+    return nextMidnight - tzNow;
   }
 
-  // Header buttons
+  setTimeout(function run(){
+    showTodayDate();                 // flip the date
+    setInterval(showTodayDate, 24*60*60*1000); // repeat every 24h
+  }, msUntilMidnightET());
+}
+
+// 🔒 Gatekeeper
+async function checkAccess() {
+  const { data: { session } } = await supabase.auth.getSession();
+  console.log("Index sees session:", session);
+  if (!session) {
+    showGate("Redirecting to login…");
+    return (window.location.href = "/login.html");
+  }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("subscription_status")
+    .eq("id", session.user.id)
+    .single();
+
+  if (!profile || profile.subscription_status !== "active") {
+    showGate("Redirecting to subscribe…");
+    return (window.location.href = "/subscribe.html");
+  }
+  
+
+  // ✅ allowed in
+  showApp();
+  bootApp();
+}
+
+  // 🔘 Logout button
   document.getElementById("btn-logout")?.addEventListener("click", async () => {
-    try { await supabase.auth.signOut(); } catch(e){ console.warn("signOut:", e); }
+    await supabase.auth.signOut();
     localStorage.removeItem("dashboard_heartbeat");
-    toLogin("manual logout");
+    window.location.href = "/login.html";
   });
+  // 🔘 Manage billing button
+document.getElementById("btn-billing")?.addEventListener("click", async ()=>{
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return (window.location.href = "/login.html");
 
-  document.getElementById("btn-billing")?.addEventListener("click", async ()=>{
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return toLogin("no session on billing");
-    try{
-      const r = await fetch("/api/create-portal-session", {
-        method:"POST", headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({ supabaseAccessToken: session.access_token })
-      });
-      const j = await r.json();
-      if(!r.ok) return alert(j.error || "Could not open billing portal");
-      window.location.href = j.url;
-    }catch(err){
-      console.error("billing portal:", err);
-      alert("Billing portal unavailable.");
-    }
+  const r = await fetch("/api/create-portal-session", {
+    method: "POST",
+    headers: { "Content-Type":"application/json" },
+    body: JSON.stringify({ supabaseAccessToken: session.access_token })
   });
+  const j = await r.json();
+  if (!r.ok) return alert(j.error || "Could not open billing portal");
+  window.location.href = j.url;
+});
+ function bootApp(){
+  reloadCSV();
+  showTodayDate();
+  setInterval(updateObservations, 5*60*1000);
 
-  // Go
+  updateDSM();
+  setInterval(updateDSM, 10*60*1000);
+
+  // NEW: 6 Hr Max
+  updateSixHourMax();
+  setInterval(updateSixHourMax, 10*60*1000);
+}
+  // 🚀 Kick off
   checkAccess();
 </script>
 </body>
