@@ -69,11 +69,12 @@
     .last-update-label{font-size:12px; color:var(--text-muted); letter-spacing:.06em; text-transform:uppercase; margin-bottom:4px; font-weight:600}
     .last-update-content{font-size:15px; color:var(--text-secondary); font-weight:600}
     .last-update-date {
-    font-size:14px;
+    font-size:13px;
     font-weight:600;
-    color:var(--text-secondary);
-    white-space:nowrap;
+    color:var(--text-muted);
+    margin-bottom:6px;
   }
+
 
     .metrics-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:18px; margin-bottom:22px}
     .metric-card{background:var(--bg-secondary); border:1.5px solid var(--border-subtle); border-radius:18px; padding:24px; box-shadow:var(--shadow-sm); position:relative; overflow:hidden}
@@ -296,14 +297,11 @@
       </div>
     </header>
 
-    <div class="last-update">
-     <div class="last-update-label">Latest Forecast Update</div>
-  <div style="display:flex; justify-content:space-between; align-items:center;">
-    <div id="recentForecast" class="last-update-content">Loading latest forecast data...</div>
-    <div id="todayDate" class="last-update-date"></div>
-      </div>
-      </div>
-
+  <div class="last-update">
+  <div id="todayDate" class="last-update-date"></div>
+  <div class="last-update-label">Latest Forecast Update</div>
+  <div id="recentForecast" class="last-update-content">Loading latest forecast data...</div>
+  </div>
 
       <!-- Metrics -->
       <div class="metrics-grid">
