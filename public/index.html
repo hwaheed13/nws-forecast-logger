@@ -68,13 +68,6 @@
     .last-update{background:var(--bg-secondary); border:1px solid var(--border-subtle); border-radius:12px; padding:18px 20px; margin-bottom:20px; box-shadow:var(--shadow-sm)}
     .last-update-label{font-size:12px; color:var(--text-muted); letter-spacing:.06em; text-transform:uppercase; margin-bottom:4px; font-weight:600}
     .last-update-content{font-size:15px; color:var(--text-secondary); font-weight:600}
-    .last-update-date {
-    font-size:13px;
-    font-weight:600;
-    color:var(--text-muted);
-    margin-bottom:6px;
-  }
-
 
     .metrics-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:18px; margin-bottom:22px}
     .metric-card{background:var(--bg-secondary); border:1.5px solid var(--border-subtle); border-radius:18px; padding:24px; box-shadow:var(--shadow-sm); position:relative; overflow:hidden}
@@ -297,11 +290,11 @@
       </div>
     </header>
 
-  <div class="last-update">
-  <div id="todayDate" class="last-update-date"></div>
-  <div class="last-update-label">Latest Forecast Update</div>
-  <div id="recentForecast" class="last-update-content">Loading latest forecast data...</div>
-  </div>
+    <div class="container">
+      <div class="last-update">
+        <div class="last-update-label">Latest Forecast Update</div>
+        <div id="recentForecast" class="last-update-content">Loading latest forecast data...</div>
+      </div>
 
       <!-- Metrics -->
       <div class="metrics-grid">
@@ -474,15 +467,6 @@
       const parts=fmt.formatToParts(new Date(Date.now()+offsetDays*86400000));
       const g=k=>parts.find(p=>p.type===k).value;
       return `${g('year')}-${g('month')}-${g('day')}`;
-    }
-        function showTodayDate(){
-      const el=document.getElementById("todayDate");
-      if(!el) return;
-      const now=new Date();
-      el.textContent=new Intl.DateTimeFormat("en-US",{
-        timeZone:"America/New_York",
-        weekday:"short", month:"short", day:"numeric", year:"numeric"
-      }).format(now);
     }
     function kalshiAnchorForISO(dateISO){
       const [y,m,d]=dateISO.split('-').map(Number);
@@ -1250,7 +1234,6 @@ async function checkAccess() {
     window.location.href = "/login.html";
   });
  function bootApp(){
-  showTodayDate();
   reloadCSV();
   setInterval(updateObservations, 5*60*1000);
 
