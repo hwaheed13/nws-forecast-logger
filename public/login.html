@@ -8,38 +8,38 @@
   <style>
     body {
       font-family:'Inter',sans-serif; display:flex; align-items:center; justify-content:center;
-      height:100vh; margin:0; background:#f1f5f9; color:#0f172a;
+      min-height:100vh; margin:0; background:#f1f5f9; color:#0f172a;
+      padding:16px;
     }
     .card {
-      background:white; padding:32px; border-radius:16px; box-shadow:0 8px 28px rgba(0,0,0,.12);
-      width:100%; max-width:420px; animation:fadeIn .4s ease;
+      background:white; padding:28px; border-radius:16px; box-shadow:0 8px 28px rgba(0,0,0,.12);
+      width:100%; max-width:440px; animation:fadeIn .4s ease;
+      border:1px solid #e2e8f0;
     }
-    h1 { font-size:24px; margin:0 0 20px; text-align:center; font-weight:700; }
+    h1 { font-size:24px; margin:0 0 18px; text-align:center; font-weight:700; }
     input {
       width:100%; padding:12px; margin:8px 0; border:1px solid #cbd5e1; border-radius:8px; font-size:14px;
     }
+    .row { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:4px; }
+    .row .left { display:flex; align-items:center; gap:8px; }
+    label.inline { display:flex; align-items:center; gap:8px; font-size:13px; color:#334155; cursor:pointer; user-select:none; }
+    input[type="checkbox"] { width:16px; height:16px; }
     button {
       width:100%; padding:12px; margin-top:12px; border:none; border-radius:8px;
       background:#2563eb; color:white; font-weight:600; font-size:15px; cursor:pointer;
       transition:background .2s;
     }
     button:hover { background:#1e40af; }
-    .note { font-size:13px; margin-top:12px; text-align:center; color:#64748b; }
+    button[disabled]{ opacity:.6; cursor:default; }
 
-    /* Tabs */
-    .tabs { display:flex; border-bottom:1px solid #e2e8f0; margin-bottom:20px; }
+    .tabs { display:flex; border-bottom:1px solid #e2e8f0; margin-bottom:14px; }
     .tab { flex:1; text-align:center; padding:10px; font-weight:600; cursor:pointer; border-bottom:3px solid transparent; }
     .tab.active { color:#2563eb; border-color:#2563eb; }
     .hidden { display:none; }
 
-    /* Toast + inline help */
-    .toast { margin-top:12px; font-size:13px; padding:10px 12px; border-radius:8px; border:1px solid #cbd5e1; color:#334155; background:#f1f5f9; display:none }
-    .toast.ok { border-color:#a7f3d0; color:#065f46; background:#ecfdf5; display:block }
-    .toast.err{ border-color:#fecaca; color:#7f1d1d; background:#fef2f2; display:block }
-    .help { margin-top:10px; font-size:13px; color:#475569; display:none }
-    .help.show { display:block }
-    .link-btn { background:none; border:none; padding:0; color:#2563eb; cursor:pointer; font-size:13px; }
-    .link-btn:hover { text-decoration:underline; }
+    .note { font-size:13px; margin-top:12px; text-align:center; color:#64748b; }
+    .err { color:#b91c1c; font-size:13px; margin-top:4px; display:none; }
+    .ok { color:#065f46; font-size:13px; margin-top:6px; display:none; }
 
     @keyframes fadeIn { from{opacity:0; transform:translateY(8px)} to{opacity:1; transform:translateY(0)} }
   </style>
@@ -47,106 +47,192 @@
 <body>
   <div class="card">
     <h1>Daily Dew Point</h1>
+
     <div class="tabs">
       <div id="tab-login" class="tab active">Login</div>
       <div id="tab-signup" class="tab">Sign Up</div>
     </div>
 
     <!-- Login Form -->
-    <form id="form-login">
-      <input id="login-email" type="email" placeholder="Email" required />
-      <input id="login-password" type="password" placeholder="Password" required />
-      <button type="submit">Log in</button>
+    <form id="form-login" autocomplete="on" novalidate>
+      <input
+        id="login-email"
+        name="email"
+        type="email"
+        placeholder="Email"
+        required
+        autocomplete="email"
+        autocapitalize="none"
+        spellcheck="false"
+        inputmode="email"
+      />
+      <div id="login-email-err" class="err">Enter a valid, non-disposable email.</div>
+
+      <input
+        id="login-password"
+        name="password"
+        type="password"
+        placeholder="Password"
+        required
+        minlength="6"
+        autocomplete="current-password"
+      />
+
+      <div class="row">
+        <label class="inline">
+          <input id="remember-me" type="checkbox" />
+          Remember me (email only)
+        </label>
+
+        <label class="inline">
+          <input id="login-showpass" type="checkbox" />
+          Show password
+        </label>
+      </div>
+
+      <button type="submit" id="btn-login">Log in</button>
+      <div id="login-msg" class="ok">You’re in! Redirecting…</div>
     </form>
 
     <!-- Signup Form -->
-    <form id="form-signup" class="hidden">
-      <input id="signup-email" type="email" placeholder="Email" required />
-      <input id="signup-password" type="password" placeholder="Password (min 6 chars)" required />
-      <button type="submit">Create account</button>
-      <div id="signup-help" class="help"></div>
+    <form id="form-signup" class="hidden" autocomplete="on" novalidate>
+      <input
+        id="signup-email"
+        name="email"
+        type="email"
+        placeholder="Email"
+        required
+        autocomplete="email"
+        autocapitalize="none"
+        spellcheck="false"
+        inputmode="email"
+      />
+      <div id="signup-email-err" class="err">Enter a valid, non-disposable email.</div>
+
+      <input
+        id="signup-password"
+        name="password"
+        type="password"
+        placeholder="Password (min 6 chars)"
+        required
+        minlength="6"
+        autocomplete="new-password"
+      />
+
+      <div class="row">
+        <span></span>
+        <label class="inline">
+          <input id="signup-showpass" type="checkbox" />
+          Show password
+        </label>
+      </div>
+
+      <button type="submit" id="btn-signup">Create account</button>
+      <div id="signup-ok" class="ok">Check your inbox to confirm your email.</div>
+      <div id="signup-resend" class="hidden">
+        <button type="button" id="btn-resend" style="margin-top:8px;background:#0ea5e9">Resend verification email</button>
+      </div>
     </form>
 
-    <div id="toast" class="toast"></div>
     <div class="note">Access is for subscribers only.</div>
   </div>
 
 <script type="module">
   import { createClient } from "https://esm.sh/@supabase/supabase-js";
 
-  // Supabase client
+  // ⚙️ Supabase client
   const supabase = createClient(
     "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
   );
 
-  const emailRedirectTo = "https://waheedweather.dewdropventures.com/login.html";
-
-  // Helpers
+  // 🧩 Helpers
   const $ = (s,p=document)=>p.querySelector(s);
-  const toast = $("#toast");
-  function showToast(msg, kind="err"){ toast.textContent = msg; toast.className = "toast "+kind; }
-
-  // Tabs
-  const tabLogin   = $("#tab-login");
-  const tabSignup  = $("#tab-signup");
-  const formLogin  = $("#form-login");
-  const formSignup = $("#form-signup");
-  const helpBox    = $("#signup-help");
-
-  function clearMessages(){
-    toast.className = "toast";
-    toast.style.display = "none";
-    helpBox.classList.remove("show");
-    helpBox.innerHTML = "";
+  const emailRx =
+    /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i; // decent format check
+  const blockedDisposable = new Set([
+    "mailinator.com","yopmail.com","guerrillamail.com","10minutemail.com",
+    "tempmail.com","dispostable.com","trashmail.com","fakeinbox.com"
+  ]);
+  function isValidEmail(str){
+    if(!emailRx.test(str)) return false;
+    const domain = (str.split("@")[1]||"").toLowerCase();
+    return !blockedDisposable.has(domain);
+  }
+  function toggleType(input, checked){
+    if(!input) return;
+    input.type = checked ? "text" : "password";
   }
 
-  tabLogin.onclick = () => {
-    tabLogin.classList.add("active");
-    tabSignup.classList.remove("active");
-    formLogin.classList.remove("hidden");
-    formSignup.classList.add("hidden");
-    clearMessages();
-  };
+  // 🗂️ Tabs
+  const tabLogin = $("#tab-login");
+  const tabSignup = $("#tab-signup");
+  const formLogin = $("#form-login");
+  const formSignup = $("#form-signup");
+  tabLogin.onclick = ()=>{ tabLogin.classList.add("active"); tabSignup.classList.remove("active"); formLogin.classList.remove("hidden"); formSignup.classList.add("hidden"); };
+  tabSignup.onclick = ()=>{ tabSignup.classList.add("active"); tabLogin.classList.remove("active"); formSignup.classList.remove("hidden"); formLogin.classList.add("hidden"); };
 
-  tabSignup.onclick = () => {
-    tabSignup.classList.add("active");
-    tabLogin.classList.remove("active");
-    formSignup.classList.remove("hidden");
-    formLogin.classList.add("hidden");
-    clearMessages();
-  };
+  // 👁️ Show password toggles
+  $("#login-showpass").addEventListener("change", (e)=> toggleType($("#login-password"), e.target.checked));
+  $("#signup-showpass").addEventListener("change", (e)=> toggleType($("#signup-password"), e.target.checked));
 
-  // If already logged in, route appropriately
-  (async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return;
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("subscription_status")
-      .eq("id", session.user.id)
-      .single();
-    if (profile?.subscription_status === "active") {
-      window.location.href = "/index.html";
+  // 🧠 Remember me (email only)
+  const REMEMBER_KEY = "ddp_remember_email";
+  const rememberBox = $("#remember-me");
+  const loginEmail = $("#login-email");
+  // Prefill saved email (and mark checkbox)
+  const savedEmail = localStorage.getItem(REMEMBER_KEY);
+  if(savedEmail){
+    loginEmail.value = savedEmail;
+    rememberBox.checked = true;
+  }
+  rememberBox.addEventListener("change", ()=>{
+    if(rememberBox.checked && loginEmail.value) {
+      localStorage.setItem(REMEMBER_KEY, loginEmail.value);
     } else {
-      window.location.href = "/subscribe.html";
+      localStorage.removeItem(REMEMBER_KEY);
     }
-  })();
+  });
+  // Keep email stored in sync while typing
+  loginEmail.addEventListener("input", ()=>{
+    if(rememberBox.checked) localStorage.setItem(REMEMBER_KEY, loginEmail.value || "");
+  });
 
-  // Login
+  // ✅ Email validation on both forms
+  function hookEmailValidation(inputEl, errEl){
+    const validate = ()=>{
+      const ok = isValidEmail(inputEl.value.trim());
+      errEl.style.display = ok || !inputEl.value ? "none" : "block";
+      return ok;
+    };
+    inputEl.addEventListener("input", validate);
+    return validate;
+  }
+  const validateLoginEmail  = hookEmailValidation($("#login-email"),  $("#login-email-err"));
+  const validateSignupEmail = hookEmailValidation($("#signup-email"), $("#signup-email-err"));
+
+  // 🔐 Login submit
   formLogin.addEventListener("submit", async (e)=>{
     e.preventDefault();
-    clearMessages();
+    if(!validateLoginEmail()) return;
 
     const email = $("#login-email").value.trim();
     const password = $("#login-password").value;
 
+    // let the browser manager handle password saving; we do not store it
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) return showToast(error.message, "err");
+    if(error){
+      alert(error.message);
+      return;
+    }
 
-    const { data: userRes } = await supabase.auth.getUser();
-    const userId = userRes?.user?.id;
-    if (!userId) return (window.location.href = "/subscribe.html");
+    // Optional: keep remembered email
+    if(rememberBox.checked) localStorage.setItem(REMEMBER_KEY, email);
+
+    // Check subscription gate → route
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData?.user?.id;
+    if(!userId) return (window.location.href = "/login.html");
 
     const { data: profile } = await supabase
       .from("profiles")
@@ -154,73 +240,73 @@
       .eq("id", userId)
       .single();
 
-    window.location.href = (profile && profile.subscription_status === "active")
-      ? "/index.html"
-      : "/subscribe.html";
+    if (profile && profile.subscription_status === "active") {
+      $("#login-msg").style.display = "block";
+      window.location.href = "/index.html";
+    } else {
+      window.location.href = "/subscribe.html";
+    }
   });
 
-  // Signup (duplicate-safe)
-  formSignup.addEventListener("submit", async (e)=>{
-    e.preventDefault();
-    clearMessages();
+  // 📝 Signup submit (with “already registered” handling + optional resend)
+  const resendWrap = $("#signup-resend");
+  const signupOk = $("#signup-ok");
 
-    const email    = $("#signup-email").value.trim();
+  $("#form-signup").addEventListener("submit", async (e)=>{
+    e.preventDefault();
+    if(!validateSignupEmail()) return;
+
+    const email = $("#signup-email").value.trim();
     const password = $("#signup-password").value;
 
+    // Try sign up
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo }
+      options: {
+        emailRedirectTo: "https://waheedweather.dewdropventures.com/login.html"
+      }
     });
 
-    // Case A: API explicitly says already registered (usually verified accounts)
-    if (error) {
-      const msg = (error.message || "").toLowerCase();
-      const already = msg.includes("already") || msg.includes("registered") || msg.includes("exists");
-      if (already) {
-        helpBox.innerHTML = `
-          This email is already registered. <button type="button" class="link-btn" id="go-login">Log in</button>.
-          <br><small>If you never received a verification email, you can <button type="button" class="link-btn" id="resend-link">resend it</button>.</small>
-        `;
-        helpBox.classList.add("show");
-        // Wire up the inline buttons
-        $("#go-login").onclick = () => tabLogin.click();
-        $("#resend-link").onclick = async () => {
-          await supabase.auth.resend({ type: "signup", email, options: { emailRedirectTo } });
-          showToast("If the account is unverified, we sent a fresh confirmation email.", "ok");
-        };
-        return;
-      }
-      return showToast(error.message, "err");
-    }
-
-    // Case B: Supabase quirk — existing unverified user => user.identities = []
-    const alreadyRegisteredUnverified =
-      !!data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0;
-
-    if (alreadyRegisteredUnverified) {
-      // Auto-resend because we know they're unverified
-      try {
-        await supabase.auth.resend({ type: "signup", email, options: { emailRedirectTo } });
-        showToast("You're already registered but not verified. We sent a new verification email.", "ok");
-      } catch {
-        showToast("You're registered but not verified. Try the resend link below.", "err");
-      }
-      helpBox.innerHTML = `
-        Didn’t get it? <button type="button" class="link-btn" id="resend-again">Resend again</button> or
-        <button type="button" class="link-btn" id="go-login-2">go to Login</button>.
-      `;
-      helpBox.classList.add("show");
-      $("#resend-again").onclick = async () => {
-        await supabase.auth.resend({ type: "signup", email, options: { emailRedirectTo } });
-        showToast("Sent a fresh verification email.", "ok");
-      };
-      $("#go-login-2").onclick = () => tabLogin.click();
+    if(!error){
+      resendWrap.classList.add("hidden");
+      signupOk.style.display = "block";
+      alert("Check your inbox to confirm your email!");
       return;
     }
 
-    // Case C: brand new user
-    showToast("Check your inbox to confirm your email!", "ok");
+    // If the user already exists, show a friendlier message + resend option
+    const msg = (error?.message || "").toLowerCase();
+    const already =
+      msg.includes("already registered") ||
+      msg.includes("user already") ||
+      error.status === 422;
+
+    if (already) {
+      alert("Looks like you’re already registered with that email.");
+      resendWrap.classList.remove("hidden");
+    } else {
+      alert(error.message);
+    }
+  });
+
+  // 🔁 Resend verification (for existing but unverified users)
+  $("#btn-resend").addEventListener("click", async ()=>{
+    const email = $("#signup-email").value.trim();
+    if(!isValidEmail(email)) return alert("Enter a valid email first.");
+    try{
+      const { data, error } = await supabase.auth.resend({
+        type: "signup",
+        email,
+        options: {
+          emailRedirectTo: "https://waheedweather.dewdropventures.com/login.html"
+        }
+      });
+      if(error) return alert(error.message);
+      alert("Verification email sent again. Check your inbox.");
+    }catch(err){
+      alert("Could not resend verification right now.");
+    }
   });
 </script>
 </body>
