@@ -2,12 +2,10 @@
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2023-10-16",
-});
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2023-10-16" });
 
 export default async function handler(req, res) {
-  // (Optional) CORS — helps if you ever call from a different origin or via preflight
+  // (Optional) CORS / preflight
   if (req.method === "OPTIONS") {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -15,64 +13,38 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
   res.setHeader("Access-Control-Allow-Origin", "*");
-
   if (req.method !== "POST") return res.status(405).end();
 
   try {
-    // Be tolerant: sometimes req.body is a string
     const body = typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {});
-    const { priceId: rawPriceId, plan, supabaseAccessToken } = body;
-
-    // Helpful logs while debugging (remove later)
-    console.log("BODY:", body);
-    console.log("plan:", plan, "rawPriceId:", rawPriceId ? "[present]" : null);
+    const { priceId: rawPriceId, plan, supabaseAccessToken, trial } = body;
 
     if (!supabaseAccessToken) {
       return res.status(400).json({ error: "Missing supabaseAccessToken" });
     }
 
-    // Prefer explicit priceId; fall back to envs via plan
-    const priceId =
-      rawPriceId ||
-      (plan === "monthly"
-        ? process.env.PRICE_ID_MONTHLY
-        : plan === "yearly"
-        ? process.env.PRICE_ID_YEARLY
-        : null);
+    // User-scoped Supabase client
+    const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const SUPABASE_ANON = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-    if (!priceId) {
-      console.error("Resolved priceId is empty. plan:", plan, "rawPriceId:", rawPriceId);
-      return res.status(400).json({ error: "Missing or invalid plan/priceId" });
-    }
+    const supabaseUser = createClient(SUPABASE_URL, SUPABASE_ANON, {
+      global: { headers: { Authorization: `Bearer ${supabaseAccessToken}` } },
+    });
 
-    // User-scoped supabase client (auth)
-    const supabaseUser = createClient(
-      process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-      { global: { headers: { Authorization: `Bearer ${supabaseAccessToken}` } } }
-    );
-
-    const {
-      data: { user },
-      error: userErr,
-    } = await supabaseUser.auth.getUser();
+    const { data: { user }, error: userErr } = await supabaseUser.auth.getUser();
     if (userErr || !user) return res.status(401).json({ error: "Not authenticated" });
 
-    // Admin supabase (service role — server only!)
-    const supabaseAdmin = createClient(
-      process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY
-    );
+    // Admin client (service role)
+    const supabaseAdmin = createClient(SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
-    // Fetch profile (may not exist yet)
+    // Get or create Stripe customer; upsert to profiles
     const { data: profile } = await supabaseAdmin
       .from("profiles")
-      .select("id, email, stripe_customer_id")
+      .select("id, email, stripe_customer_id, free_trial_used")
       .eq("id", user.id)
-      .single();
+      .maybeSingle();
 
     let customerId = profile?.stripe_customer_id;
-
     if (!customerId) {
       const customer = await stripe.customers.create({
         email: user.email ?? profile?.email ?? undefined,
@@ -85,6 +57,47 @@ export default async function handler(req, res) {
         email: user.email ?? profile?.email ?? null,
         stripe_customer_id: customerId,
       });
+    }
+
+    // ── Free trial flow ────────────────────────────────────────────────────────
+    if (trial) {
+      // Server-side enforcement (even if UI hides the button)
+      if (profile?.free_trial_used) {
+        return res.status(400).json({ error: "trial_already_used" });
+      }
+
+      // Use your monthly price for the trial (or a dedicated TRIAL price if you prefer)
+      const monthlyPriceId = process.env.PRICE_ID_MONTHLY;
+      if (!monthlyPriceId) {
+        return res.status(500).json({ error: "server_misconfigured: PRICE_ID_MONTHLY" });
+      }
+
+      const session = await stripe.checkout.sessions.create({
+        mode: "subscription",
+        customer: customerId,
+        line_items: [{ price: monthlyPriceId, quantity: 1 }],
+        // 3-day trial; Checkout will still collect a payment method
+        subscription_data: {
+          trial_period_days: 3,
+          metadata: { free_trial: "true" },
+        },
+        allow_promotion_codes: true,
+        success_url: `${process.env.DASHBOARD_URL}?checkout=success`,
+        cancel_url: `${process.env.SUBSCRIBE_URL}?checkout=cancel`,
+        metadata: { supabase_user_id: user.id, plan: "trial" },
+      });
+
+      return res.status(200).json({ id: session.id, url: session.url });
+    }
+
+    // ── Regular paid flow (monthly / yearly) ──────────────────────────────────
+    const priceId =
+      rawPriceId ||
+      (plan === "monthly" ? process.env.PRICE_ID_MONTHLY :
+       plan === "yearly"  ? process.env.PRICE_ID_YEARLY  : null);
+
+    if (!priceId) {
+      return res.status(400).json({ error: "Missing or invalid plan/priceId" });
     }
 
     const session = await stripe.checkout.sessions.create({
