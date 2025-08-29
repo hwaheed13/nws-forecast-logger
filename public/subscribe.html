@@ -63,32 +63,41 @@
 <script type="module">
   import { createClient } from "https://esm.sh/@supabase/supabase-js";
 
+  // --- Supabase ---
   const supabase = createClient(
-  "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw",
-  { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }
+    "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw",
+    { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }
   );
 
+  // --- Config ---
   const PRICE_IDS = {
     monthly: "price_1S1U96JZv8wNnhLtlNWL0gqK",
     yearly:  "price_1S1U7hJZv8wNnhLtRLRLoVf3"
   };
 
+  // --- Dom utils ---
   const $ = (s,p=document)=>p.querySelector(s);
   const $$= (s,p=document)=>Array.from(p.querySelectorAll(s));
   const toast = $("#toast");
   function showToast(msg, kind="err"){ toast.textContent = msg; toast.className = "alert " + kind; }
 
-  // Return messages
+  // --- Global error surfacing ---
+  window.addEventListener("error", (e) => {
+    console.error("Runtime error:", e.error || e.message);
+    showToast((e?.error?.message || e.message || "Script error"), "err");
+  });
+
+  // --- Return messages / welcome toast ---
   const params = new URLSearchParams(location.search);
   if (params.get("success")) showToast("Payment succeeded. Finalizing…", "ok");
   if (params.get("canceled")) showToast("Checkout canceled.", "err");
   const hash = new URLSearchParams(location.hash.slice(1));
-if (params.get("welcome") || hash.get("type") === "signup") {
-  showToast("Email confirmed — pick a plan to continue.", "ok");
-}
+  if (params.get("welcome") || hash.get("type") === "signup") {
+    showToast("Email confirmed — pick a plan to continue.", "ok");
+  }
 
-  // Plan selection
+  // --- Plan selection (bind early so UI works even if async redirects later) ---
   let selectedPlan = null;
   function setActivePlan(el){
     $$(".plan").forEach(p => { p.classList.remove("active"); p.setAttribute("aria-checked","false"); });
@@ -103,28 +112,35 @@ if (params.get("welcome") || hash.get("type") === "signup") {
     });
   });
 
-  // Gate + trial visibility
+  // --- Gate + trial visibility (single, hardened IIFE) ---
   (async ()=>{
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session }, error: sessErr } = await supabase.auth.getSession();
+    if (sessErr) { console.error("getSession err:", sessErr); return (window.location.href="/login.html"); }
     if (!session) return (window.location.href="/login.html");
 
-    const { data: profile } = await supabase
+    const { data: profile, error: profErr } = await supabase
       .from("profiles")
       .select("subscription_status, free_trial_used")
       .eq("id", session.user.id)
       .single();
 
+    if (profErr) {
+      console.error("profiles select error:", profErr);
+      // Let new users see the trial even if select fails (RLS/missing row)
+      document.getElementById("btn-trial").style.display = "block";
+      return;
+    }
+
     if (profile?.subscription_status === "active") {
       return (window.location.href = "/index.html");
     }
 
-    // Show trial button only if NOT active and NOT used before
-    if (!profile?.free_trial_used && profile?.subscription_status !== "active") {
+    if (!profile?.free_trial_used) {
       document.getElementById("btn-trial").style.display = "block";
     }
   })();
 
-  // Subscribe
+  // --- Subscribe flow ---
   $("#btn-subscribe").addEventListener("click", async ()=>{
     if (!selectedPlan) return showToast("Select a plan first.");
     $("#btn-subscribe").disabled = true; showToast("Creating checkout session…", "ok");
@@ -154,7 +170,7 @@ if (params.get("welcome") || hash.get("type") === "signup") {
     }
   });
 
-  // Free trial
+  // --- Free trial flow ---
   $("#btn-trial").addEventListener("click", async ()=>{
     const btn = $("#btn-trial");
     btn.disabled = true; showToast("Starting your free trial…", "ok");
