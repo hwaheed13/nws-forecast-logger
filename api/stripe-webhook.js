@@ -30,7 +30,8 @@ export default async function handler(req, res) {
 
   try {
     // ✅ server-only env names
-    const admin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+    const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const admin = createClient(SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
     if (event.type === "checkout.session.completed") {
       const session = event.data.object;
