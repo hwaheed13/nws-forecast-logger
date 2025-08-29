@@ -45,10 +45,9 @@
           <input id="show-login-pw" type="checkbox"> Show
         </label>
       </div>
-      <div class="row">
-        <label class="left"><input id="remember-me" type="checkbox"> Keep me signed in</label>
-        <a class="link" href="#" id="forgot-link" title="Use magic link if you forgot your password">Magic link</a>
-      </div>
+       <div class="row">
+  <label class="left"><input id="remember-me" type="checkbox"> Keep me signed in</label>
+ </div>
       <button type="submit">Log in</button>
       <div id="login-error" class="error"></div>
     </form>
@@ -169,20 +168,6 @@
       : "/subscribe.html";
   });
 
-  // Magic link helper (if they forgot password)
-  $("#forgot-link").addEventListener("click", async (e)=>{
-    e.preventDefault();
-    const email = $("#login-email").value.trim();
-    if (!isValidEmail(email)) return alert("Enter your email first.");
-   const { error } = await supabase.auth.signInWithOtp({
-   email,
-  options: { emailRedirectTo: "https://waheedweather.dewdropventures.com/subscribe.html?welcome=1" }
-   });
-
-    });
-    if (error) return alert(error.message);
-    alert("Check your inbox for a magic link.");
-  });
 
   // Signup (handle already-registered + resend verification)
   formSignup.addEventListener("submit", async (e)=>{
