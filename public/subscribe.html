@@ -129,10 +129,12 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          priceId: PRICE_IDS[selectedPlan],
+          priceId: PRICE_IDS[selectedPlan],   // e.g. "price_1S1U96…"
+          plan: selectedPlan,                 // e.g. "monthly" or "yearly"
           supabaseAccessToken: session.access_token
         })
       });
+
       const data = await r.json();
       if (!r.ok || !data?.url) {
         btn.disabled = false;
