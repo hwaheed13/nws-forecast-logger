@@ -221,51 +221,115 @@
     alert("Check your inbox for a magic link.");
   });
 
-  // Signup (handles “already registered” -> resend)
-  formSignup.addEventListener("submit", async (e)=>{
-    e.preventDefault();
-    const okBox = $("#signup-ok");
-    const errBox = $("#signup-error");
-    okBox.style.display = "none";
-    errBox.style.display = "none";
+// Signup (friendly "account exists" flow)
+formSignup.addEventListener("submit", async (e)=>{
+  e.preventDefault();
+  const okBox = $("#signup-ok");
+  const errBox = $("#signup-error");
+  okBox.style.display = "none";
+  errBox.style.display = "none";
 
-    const email = $("#signup-email").value.trim();
-    const password = $("#signup-password").value;
-    if (!isValidEmail(email)) {
-      errBox.textContent = "Please enter a valid email address.";
+  const email = $("#signup-email").value.trim();
+  const password = $("#signup-password").value;
+
+  if (!isValidEmail(email)) {
+    errBox.textContent = "Please enter a valid email address.";
+    errBox.style.display = "block";
+    return;
+  }
+
+  // If already signed in as this email, don't sign up again
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session?.user?.email && session.user.email.toLowerCase() === email.toLowerCase()) {
+    errBox.textContent = "You're already signed in with this email. Use Login or go to Subscribe.";
+    errBox.style.display = "block";
+    return;
+  }
+
+  const { error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { emailRedirectTo: "https://waheedweather.dewdropventures.com/login.html" }
+  });
+
+  if (error) {
+    const msg = (error.message || "").toLowerCase();
+
+    // Show "account exists" UX with quick actions
+    if (msg.includes("already registered") || msg.includes("already exists")) {
+      errBox.innerHTML = `An account with <strong>${email}</strong> already exists.`;
       errBox.style.display = "block";
-      return;
-    }
 
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { emailRedirectTo: "https://waheedweather.dewdropventures.com/login.html" }
-    });
+      let actions = document.getElementById("signup-actions");
+      if (!actions) {
+        actions = document.createElement("div");
+        actions.id = "signup-actions";
+        actions.style.marginTop = "8px";
+        actions.style.display = "flex";
+        actions.style.gap = "8px";
 
-    if (error) {
-      const msg = (error.message || "").toLowerCase();
-      if (msg.includes("already registered") || msg.includes("already exists")) {
-        if (confirm("You're already registered. Resend verification email?")) {
-          const { error: resendErr } = await supabase.auth.resend({ type: "signup", email });
-          if (resendErr) {
-            errBox.textContent = resendErr.message;
-            errBox.style.display = "block";
+        // Go to Login (prefill email)
+        const toLogin = document.createElement("button");
+        toLogin.type = "button";
+        toLogin.textContent = "Go to Login";
+        toLogin.onclick = () => {
+          $("#login-email").value = email;
+          tabLogin.click(); // switch tabs
+        };
+
+        // Send Magic Link
+        const magic = document.createElement("button");
+        magic.type = "button";
+        magic.textContent = "Send Magic Link";
+        magic.onclick = async () => {
+          const { error: otpErr } = await supabase.auth.signInWithOtp({
+            email,
+            options: { emailRedirectTo: "https://waheedweather.dewdropventures.com/login.html" }
+          });
+          if (otpErr) {
+            errBox.textContent = otpErr.message;
           } else {
-            okBox.textContent = "Verification email resent. Check your inbox.";
+            okBox.textContent = "Magic link sent. Check your inbox.";
             okBox.style.display = "block";
           }
-        }
-        return;
+        };
+
+        // (Optional) Reset Password
+        const reset = document.createElement("button");
+        reset.type = "button";
+        reset.textContent = "Reset Password";
+        reset.onclick = async () => {
+          const { error: rErr } = await supabase.auth.resetPasswordForEmail(email, {
+            redirectTo: "https://waheedweather.dewdropventures.com/login.html"
+          });
+          if (rErr) {
+            errBox.textContent = rErr.message;
+            errBox.style.display = "block";
+          } else {
+            okBox.textContent = "Password reset email sent.";
+            okBox.style.display = "block";
+          }
+        };
+
+        actions.appendChild(toLogin);
+        actions.appendChild(magic);
+        actions.appendChild(reset);
+        errBox.parentNode.insertBefore(actions, errBox.nextSibling);
       }
-      errBox.textContent = error.message;
-      errBox.style.display = "block";
       return;
     }
 
-    okBox.textContent = "Check your inbox to confirm your email!";
-    okBox.style.display = "block";
-  });
+    // Other errors
+    errBox.textContent = error.message;
+    errBox.style.display = "block";
+    return;
+  }
+
+  // Fresh signup path
+  okBox.textContent = "Check your inbox to confirm your email!";
+  okBox.style.display = "block";
+});
+
 </script>
 </body>
 </html>
