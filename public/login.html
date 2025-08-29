@@ -6,38 +6,26 @@
   <title>Access – Daily Dew Point</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
-    body {
-      font-family:'Inter',sans-serif; display:flex; align-items:center; justify-content:center;
-      height:100vh; margin:0; background:#f1f5f9; color:#0f172a;
-    }
-    .card {
-      background:white; padding:32px; border-radius:16px; box-shadow:0 8px 28px rgba(0,0,0,.12);
-      width:100%; max-width:420px; animation:fadeIn .4s ease;
-    }
+    body { font-family:'Inter',sans-serif; display:flex; align-items:center; justify-content:center;
+      min-height:100vh; margin:0; background:#f1f5f9; color:#0f172a; padding:16px; }
+    .card { background:#fff; padding:28px; border-radius:16px; box-shadow:0 8px 28px rgba(0,0,0,.12);
+      width:100%; max-width:440px; }
     h1 { font-size:24px; margin:0 0 20px; text-align:center; font-weight:700; }
-    input {
-      width:100%; padding:12px; margin:8px 0; border:1px solid #cbd5e1; border-radius:8px; font-size:14px;
-    }
-    button {
-      width:100%; padding:12px; margin-top:12px; border:none; border-radius:8px;
-      background:#2563eb; color:white; font-weight:600; font-size:15px; cursor:pointer;
-      transition:background .2s;
-    }
+    input { width:100%; padding:12px; margin:8px 0; border:1px solid #cbd5e1; border-radius:8px; font-size:14px; }
+    .row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .row .left { display:flex; align-items:center; gap:8px; }
+    .row label { font-size:13px; color:#334155; user-select:none }
+    button { width:100%; padding:12px; margin-top:12px; border:none; border-radius:8px;
+      background:#2563eb; color:#fff; font-weight:600; font-size:15px; cursor:pointer; }
     button:hover { background:#1e40af; }
-    .note { font-size:13px; margin-top:12px; text-align:center; color:#64748b; }
-
-    /* Tabs */
     .tabs { display:flex; border-bottom:1px solid #e2e8f0; margin-bottom:20px; }
     .tab { flex:1; text-align:center; padding:10px; font-weight:600; cursor:pointer; border-bottom:3px solid transparent; }
     .tab.active { color:#2563eb; border-color:#2563eb; }
     .hidden { display:none; }
-
-    /* Toast */
-    .toast { margin-top:12px; font-size:13px; padding:10px 12px; border-radius:8px; border:1px solid #cbd5e1; color:#334155; background:#f1f5f9; display:none }
-    .toast.ok { border-color:#a7f3d0; color:#065f46; background:#ecfdf5; display:block }
-    .toast.err{ border-color:#fecaca; color:#7f1d1d; background:#fef2f2; display:block }
-
-    @keyframes fadeIn { from{opacity:0; transform:translateY(8px)} to{opacity:1; transform:translateY(0)} }
+    .help { font-size:12px; color:#64748b; margin-top:8px; text-align:center; }
+    .error { background:#fef2f2; border:1px solid #fecaca; color:#7f1d1d; padding:10px; border-radius:8px; font-size:13px; margin-top:8px; display:none; }
+    .ok { background:#ecfdf5; border:1px solid #a7f3d0; color:#065f46; padding:10px; border-radius:8px; font-size:13px; margin-top:8px; display:none; }
+    .link { color:#2563eb; text-decoration:none; }
   </style>
 </head>
 <body>
@@ -48,173 +36,204 @@
       <div id="tab-signup" class="tab">Sign Up</div>
     </div>
 
-    <!-- Login Form -->
+    <!-- Login -->
     <form id="form-login">
-      <input id="login-email" type="email" placeholder="Email" required />
-      <input id="login-password" type="password" placeholder="Password" required />
+      <input id="login-email" type="email" placeholder="Email" autocomplete="email" required />
+      <div class="row">
+        <input id="login-password" type="password" placeholder="Password" autocomplete="current-password" required style="flex:1">
+        <label class="left">
+          <input id="show-login-pw" type="checkbox"> Show
+        </label>
+      </div>
+      <div class="row">
+        <label class="left"><input id="remember-me" type="checkbox"> Keep me signed in</label>
+        <a class="link" href="#" id="forgot-link" title="Use magic link if you forgot your password">Magic link</a>
+      </div>
       <button type="submit">Log in</button>
+      <div id="login-error" class="error"></div>
     </form>
 
-    <!-- Signup Form -->
+    <!-- Signup -->
     <form id="form-signup" class="hidden">
-      <input id="signup-email" type="email" placeholder="Email" required />
-      <input id="signup-password" type="password" placeholder="Password (min 6 chars)" required />
+      <input id="signup-email" type="email" placeholder="Email" autocomplete="email" required />
+      <div class="row">
+        <input id="signup-password" type="password" placeholder="Password (min 6 chars)" autocomplete="new-password" required style="flex:1">
+        <label class="left">
+          <input id="show-signup-pw" type="checkbox"> Show
+        </label>
+      </div>
       <button type="submit">Create account</button>
+      <div id="signup-ok" class="ok"></div>
+      <div id="signup-error" class="error"></div>
+      <div class="help">You’ll get a verification email.</div>
     </form>
 
-    <div id="toast" class="toast"></div>
-    <div class="note">Access is for subscribers only.</div>
+    <div class="help">Subscribers only. <a class="link" href="/subscribe.html">Go to subscribe</a></div>
   </div>
 
 <script type="module">
   import { createClient } from "https://esm.sh/@supabase/supabase-js";
 
-  // Supabase client (public anon)
+  // Keep sessions persistent; DO NOT store passwords.
   const supabase = createClient(
     "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw",
+    { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }
   );
 
-  const emailRedirectTo = "https://waheedweather.dewdropventures.com/login.html";
-
-  // UI helpers
-  const $ = (s,p=document)=>p.querySelector(s);
-  const toast = $("#toast");
-  function showToast(msg, kind="err"){ toast.textContent = msg; toast.className = "toast "+kind; }
+  // Quick DOM helpers
+  const $  = (s,p=document)=>p.querySelector(s);
+  const $$ = (s,p=document)=>Array.from(p.querySelectorAll(s));
 
   // Tabs
-  const tabLogin   = $("#tab-login");
-  const tabSignup  = $("#tab-signup");
-  const formLogin  = $("#form-login");
-  const formSignup = $("#form-signup");
+  const tabLogin  = $("#tab-login");
+  const tabSignup = $("#tab-signup");
+  const formLogin = $("#form-login");
+  const formSignup= $("#form-signup");
+  tabLogin.onclick = ()=>{ tabLogin.classList.add("active"); tabSignup.classList.remove("active"); formLogin.classList.remove("hidden"); formSignup.classList.add("hidden"); };
+  tabSignup.onclick= ()=>{ tabSignup.classList.add("active"); tabLogin.classList.remove("active"); formSignup.classList.remove("hidden"); formLogin.classList.add("hidden"); };
 
-  tabLogin.onclick = () => {
-    tabLogin.classList.add("active");
-    tabSignup.classList.remove("active");
-    formLogin.classList.remove("hidden");
-    formSignup.classList.add("hidden");
-    showToast("", ""); toast.style.display="none";
-  };
+  // Show/hide password
+  $("#show-login-pw").addEventListener("change", (e)=>{
+    $("#login-password").type = e.target.checked ? "text" : "password";
+  });
+  $("#show-signup-pw").addEventListener("change", (e)=>{
+    $("#signup-password").type = e.target.checked ? "text" : "password";
+  });
 
-  tabSignup.onclick = () => {
-    tabSignup.classList.add("active");
-    tabLogin.classList.remove("active");
-    formSignup.classList.remove("hidden");
-    formLogin.classList.add("hidden");
-    showToast("", ""); toast.style.display="none";
-  };
+  // Remember me (email only). Keeping users signed in is handled by Supabase.
+  (function hydrateRemembered(){
+    const remembered = localStorage.getItem("remember_email");
+    if (remembered) $("#login-email").value = remembered;
+    $("#remember-me").checked = !!remembered;
+  })();
 
-  // If already logged in, route appropriately
-  (async () => {
+  function rememberEmailMaybe(email){
+    if ($("#remember-me").checked) {
+      localStorage.setItem("remember_email", email);
+    } else {
+      localStorage.removeItem("remember_email");
+    }
+  }
+
+  // Basic email validation (in addition to type="email")
+  function isValidEmail(e){
+    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(e).trim());
+  }
+
+  // If already signed in, route based on profile
+  (async ()=>{
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return;
+
     const { data: profile } = await supabase
       .from("profiles")
       .select("subscription_status")
       .eq("id", session.user.id)
       .single();
-    if (profile?.subscription_status === "active") {
-      window.location.href = "/index.html";
-    } else {
-      window.location.href = "/subscribe.html";
-    }
+
+    window.location.href = (profile?.subscription_status === "active")
+      ? "/index.html"
+      : "/subscribe.html";
   })();
 
   // Login
   formLogin.addEventListener("submit", async (e)=>{
     e.preventDefault();
-    showToast("", ""); toast.style.display="none";
+    $("#login-error").style.display = "none";
 
     const email = $("#login-email").value.trim();
     const password = $("#login-password").value;
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      showToast(error.message, "err");
+    if (!isValidEmail(email)) {
+      $("#login-error").textContent = "Please enter a valid email address.";
+      $("#login-error").style.display = "block";
       return;
     }
 
-    // Route based on subscription status
-    const { data: userRes } = await supabase.auth.getUser();
-    const userId = userRes?.user?.id;
-    if (!userId) return (window.location.href = "/subscribe.html");
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      $("#login-error").textContent = error.message;
+      $("#login-error").style.display = "block";
+      return;
+    }
 
+    rememberEmailMaybe(email);
+
+    const { data: { user }} = await supabase.auth.getUser();
     const { data: profile } = await supabase
       .from("profiles")
       .select("subscription_status")
-      .eq("id", userId)
+      .eq("id", user.id)
       .single();
 
-    window.location.href = (profile && profile.subscription_status === "active")
+    window.location.href = (profile?.subscription_status === "active")
       ? "/index.html"
       : "/subscribe.html";
   });
 
-  // Signup (duplicate-safe with resend)
+  // Magic link helper (if they forgot password)
+  $("#forgot-link").addEventListener("click", async (e)=>{
+    e.preventDefault();
+    const email = $("#login-email").value.trim();
+    if (!isValidEmail(email)) return alert("Enter your email first.");
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: "https://waheedweather.dewdropventures.com/login.html" }
+    });
+    if (error) return alert(error.message);
+    alert("Check your inbox for a magic link.");
+  });
+
+  // Signup (handle already-registered + resend verification)
   formSignup.addEventListener("submit", async (e)=>{
     e.preventDefault();
-    showToast("", ""); toast.style.display="none";
+    $("#signup-error").style.display = "none";
+    $("#signup-ok").style.display = "none";
 
-    const email    = $("#signup-email").value.trim();
+    const email = $("#signup-email").value.trim();
     const password = $("#signup-password").value;
+
+    if (!isValidEmail(email)) {
+      $("#signup-error").textContent = "Please enter a valid email address.";
+      $("#signup-error").style.display = "block";
+      return;
+    }
 
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo }
+      options: { emailRedirectTo: "https://waheedweather.dewdropventures.com/login.html" }
     });
 
-    // Explicit duplicate error from API
     if (error) {
+      // Supabase typically returns "User already registered" for duplicates
       const msg = (error.message || "").toLowerCase();
-      const looksDuplicate =
-        msg.includes("already") || msg.includes("registered") || msg.includes("exists");
-
-      if (looksDuplicate) {
-        // Offer to resend verification
-        const doResend = confirm(
-          "That email is already registered.\n\n" +
-          "• If you haven't confirmed yet, we can resend the verification link.\n" +
-          "• If you already confirmed, switch to Login.\n\nResend verification email now?"
-        );
-        if (doResend) {
-          await supabase.auth.resend({
+      if (msg.includes("already registered") || msg.includes("already exists")) {
+        // Offer resend verification instead of creating again
+        const wantResend = confirm("You're already registered. Resend verification email?");
+        if (wantResend) {
+          const { error: resendErr } = await supabase.auth.resend({
             type: "signup",
-            email,
-            options: { emailRedirectTo }
+            email
           });
-          showToast("If the account is unverified, we sent a fresh confirmation email.", "ok");
+          if (resendErr) {
+            $("#signup-error").textContent = resendErr.message;
+            $("#signup-error").style.display = "block";
+          } else {
+            $("#signup-ok").textContent = "Verification email resent. Check your inbox.";
+            $("#signup-ok").style.display = "block";
+          }
         }
         return;
       }
-
-      showToast(error.message, "err");
+      $("#signup-error").textContent = error.message;
+      $("#signup-error").style.display = "block";
       return;
     }
 
-    // Supabase quirk: user exists → identities = []
-    const alreadyRegistered =
-      !!data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0;
-
-    if (alreadyRegistered) {
-      const doResend = confirm(
-        "That email is already registered.\n\nResend the verification email now?"
-      );
-      if (doResend) {
-        await supabase.auth.resend({
-          type: "signup",
-          email,
-          options: { emailRedirectTo }
-        });
-        showToast("If the account is unverified, we sent a fresh confirmation email.", "ok");
-      } else {
-        showToast("Great — switch to the Login tab to sign in.", "ok");
-      }
-      return;
-    }
-
-    // Brand new user
-    showToast("Check your inbox to confirm your email!", "ok");
+    $("#signup-ok").textContent = "Check your inbox to confirm your email!";
+    $("#signup-ok").style.display = "block";
   });
 </script>
 </body>
