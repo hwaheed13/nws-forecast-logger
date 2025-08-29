@@ -94,10 +94,14 @@
     const email=document.getElementById("signup-email").value;
     const password=document.getElementById("signup-password").value;
 
-    let { error } = await supabase.auth.signUp(
-      { email, password },
-      { emailRedirectTo: "https://waheedweather.dewdropventures.com/login.html" }
-    );
+const { error } = await supabase.auth.signUp({
+  email,
+  password,
+  options: {
+    emailRedirectTo: "https://waheedweather.dewdropventures.com/login.html"
+  }
+});
+
     if(error) return alert(error.message);
 
     alert("Check your inbox to confirm your email!");
