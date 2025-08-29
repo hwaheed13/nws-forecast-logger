@@ -16,7 +16,7 @@ function readRawBody(req) {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).end();
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   let event;
   try {
@@ -28,77 +28,119 @@ export default async function handler(req, res) {
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
+  // Server-only Supabase client (Service Role bypasses RLS)
+  const admin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+
   try {
-    // ✅ server-only env names
-    const admin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+    switch (event.type) {
+      case "checkout.session.completed": {
+        const session = event.data.object;
 
-    if (event.type === "checkout.session.completed") {
-      const session = event.data.object;
+        if (session.subscription && session.customer) {
+          const [subscription, customer] = await Promise.all([
+            stripe.subscriptions.retrieve(session.subscription),
+            stripe.customers.retrieve(session.customer),
+          ]);
 
-      // In subscription mode, session.subscription is set
-      if (session.subscription && session.customer) {
-        const [subscription, customer] = await Promise.all([
-          stripe.subscriptions.retrieve(session.subscription),
-          stripe.customers.retrieve(session.customer),
-        ]);
+          const supabase_user_id =
+            session.metadata?.supabase_user_id ||
+            customer?.metadata?.supabase_user_id ||
+            null;
 
-        const supabase_user_id =
-          session.metadata?.supabase_user_id ||
-          (customer?.metadata?.supabase_user_id ?? null);
+          // Keep true status, but map any non-active/trialing to 'inactive'
+          const normalizedStatus =
+            subscription.status === "active" || subscription.status === "trialing"
+              ? subscription.status
+              : "inactive";
 
-        // Normalize status: treat trialing as active for your gate
-        const normalizedStatus =
-          subscription.status === "active" || subscription.status === "trialing"
-            ? "active"
-            : subscription.status;
+          if (supabase_user_id) {
+            const payload = {
+              id: supabase_user_id,
+              email: session.customer_details?.email ?? null,
+              stripe_customer_id: customer.id,
+              stripe_subscription_id: subscription.id,
+              plan: session.metadata?.plan ?? null,
+              subscription_status: normalizedStatus,
+              current_period_end: subscription.current_period_end
+                ? new Date(subscription.current_period_end * 1000).toISOString()
+                : null,
+              updated_at: new Date().toISOString(),
+            };
 
-        if (supabase_user_id) {
-          await admin.from("profiles").upsert({
-            id: supabase_user_id,
-            email: session.customer_details?.email ?? null,
-            stripe_customer_id: customer.id,
-            stripe_subscription_id: subscription.id,
-            plan: session.metadata?.plan ?? null,
-            subscription_status: normalizedStatus,
-            current_period_end: subscription.current_period_end
-              ? new Date(subscription.current_period_end * 1000).toISOString()
-              : null,
-            updated_at: new Date().toISOString(),
-          });
+            const { error } = await admin
+              .from("profiles")
+              .upsert(payload, { onConflict: "id" });
+
+            if (error) {
+              console.error("profiles upsert error (checkout.session.completed):", error);
+              return res.status(500).json({ error: "DB upsert failed" });
+            }
+          }
         }
+        break;
       }
-    }
 
-    if (
-      event.type === "customer.subscription.created" ||
-      event.type === "customer.subscription.updated" ||
-      event.type === "customer.subscription.deleted"
-    ) {
-      const sub = event.data.object;
+      case "customer.subscription.created":
+      case "customer.subscription.updated":
+      case "customer.subscription.deleted": {
+        const sub = event.data.object;
 
-      const normalizedStatus =
-        sub.status === "active" || sub.status === "trialing" ? "active" : sub.status;
+        const normalizedStatus =
+          sub.status === "active" || sub.status === "trialing" ? sub.status : "inactive";
 
-      // Find profile by stripe_customer_id (we saved it earlier)
-      const { data: prof } = await admin
-        .from("profiles")
-        .select("id")
-        .eq("stripe_customer_id", sub.customer)
-        .single();
-
-      if (prof?.id) {
-        await admin
+        // Try by stripe_customer_id first
+        const { data: profByCust } = await admin
           .from("profiles")
-          .update({
-            stripe_subscription_id: sub.id,
-            subscription_status: normalizedStatus,
-            current_period_end: sub.current_period_end
-              ? new Date(sub.current_period_end * 1000).toISOString()
-              : null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", prof.id);
+          .select("id")
+          .eq("stripe_customer_id", sub.customer)
+          .maybeSingle();
+
+        let targetId = profByCust?.id;
+
+        // Fallback: use customer.metadata.supabase_user_id
+        if (!targetId) {
+          const cust = await stripe.customers.retrieve(sub.customer);
+          targetId = cust?.metadata?.supabase_user_id ?? null;
+
+          // If we found a Supabase id here, also ensure stripe_customer_id is set
+          if (targetId) {
+            await admin
+              .from("profiles")
+              .upsert(
+                {
+                  id: targetId,
+                  stripe_customer_id: sub.customer,
+                  updated_at: new Date().toISOString(),
+                },
+                { onConflict: "id" }
+              );
+          }
+        }
+
+        if (targetId) {
+          const { error } = await admin
+            .from("profiles")
+            .update({
+              stripe_subscription_id: sub.id,
+              subscription_status: normalizedStatus,
+              current_period_end: sub.current_period_end
+                ? new Date(sub.current_period_end * 1000).toISOString()
+                : null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", targetId);
+
+          if (error) {
+            console.error("profiles update error (subscription.*):", error);
+            return res.status(500).json({ error: "DB update failed" });
+          }
+        }
+        break;
       }
+
+      default:
+        // Not relevant for profile updates
+        break;
     }
 
     return res.json({ received: true });
