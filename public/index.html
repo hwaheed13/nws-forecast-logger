@@ -1204,6 +1204,44 @@ async function updateDSM(){
     "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
   );
+  function showTodayDate(){
+  const el = document.getElementById("todayDate");
+  if(!el) return;
+  const today = new Date();
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  });
+  el.textContent = fmt.format(today);
+}
+function scheduleMidnightUpdate(){
+  function msUntilMidnightET(){
+    const now = new Date();
+    const tzNow = new Date(new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "numeric", minute: "numeric", second: "numeric", hour12: false
+    }).format(now).replace(
+      /(\d{4})-(\d{2})-(\d{2}).(\d{2}):(\d{2}):(\d{2})/,
+      "$1-$2-$3T$4:$5:$6"
+    ));
+
+    // midnight next day ET
+    const nextMidnight = new Date(tzNow);
+    nextMidnight.setDate(nextMidnight.getDate() + 1);
+    nextMidnight.setHours(0,0,0,0);
+
+    return nextMidnight - tzNow;
+  }
+
+  setTimeout(function run(){
+    showTodayDate();                 // flip the date
+    setInterval(showTodayDate, 24*60*60*1000); // repeat every 24h
+  }, msUntilMidnightET());
+}
 
 // 🔒 Gatekeeper
 async function checkAccess() {
@@ -1224,6 +1262,7 @@ async function checkAccess() {
     showGate("Redirecting to subscribe…");
     return (window.location.href = "/subscribe.html");
   }
+  
 
   // ✅ allowed in
   showApp();
