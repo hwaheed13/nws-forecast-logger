@@ -6,75 +6,189 @@
   <title>Subscribe – Daily Dew Point</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
-    body { font-family:'Inter',sans-serif; display:flex; align-items:center; justify-content:center;
-           height:100vh; margin:0; background:#f8fafc; color:#0f172a; }
-    .card { background:white; padding:32px; border-radius:12px; box-shadow:0 4px 16px rgba(0,0,0,.08); width:100%; max-width:420px; text-align:center; }
-    h1 { font-size:22px; margin:0 0 18px; }
-    .plans { display:flex; gap:12px; justify-content:center; margin:24px 0; flex-wrap:wrap; }
-    .plan { flex:1; padding:16px; border:2px solid #cbd5e1; border-radius:10px; cursor:pointer; }
-    .plan.active { border-color:#2563eb; background:#eff6ff; }
-    button { width:100%; padding:14px; border:none; border-radius:8px; background:#2563eb; color:white; font-weight:600; font-size:15px; cursor:pointer; margin-top:20px; }
-    button:hover { background:#1e40af; }
-    .note { font-size:13px; margin-top:16px; color:#64748b; }
+    :root{
+      --bg:#f8fafc; --card:#fff; --ink:#0f172a; --muted:#64748b; --brand:#2563eb; --brand-2:#1e40af; --border:#cbd5e1;
+    }
+    *{box-sizing:border-box}
+    body{
+      font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
+      margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); color:var(--ink); padding:20px;
+    }
+    .card{background:var(--card); width:100%; max-width:440px; border-radius:14px; box-shadow:0 8px 24px rgba(0,0,0,.06); border:1px solid #e2e8f0; padding:28px}
+    h1{font-size:22px; margin:0 0 4px}
+    p.sub{margin:0; color:var(--muted); font-size:14px}
+    .plans{display:flex; gap:12px; margin:20px 0; flex-wrap:wrap}
+    .plan{
+      flex:1 1 160px; padding:14px; border:2px solid var(--border); border-radius:12px; cursor:pointer; user-select:none;
+      display:flex; align-items:center; justify-content:center; gap:8px; font-weight:700;
+    }
+    .plan.active{border-color:var(--brand); background:#eff6ff}
+    .btn{width:100%; padding:14px; border:none; border-radius:10px; background:var(--brand); color:#fff; font-weight:700; font-size:15px; cursor:pointer}
+    .btn:hover{background:var(--brand-2)}
+    .btn[disabled]{opacity:.6; cursor:not-allowed}
+    .note{font-size:13px; margin-top:14px; color:var(--muted)}
+    .row{display:flex; justify-content:space-between; gap:10px; margin-top:12px}
+    .link{font-size:13px; color:var(--brand); text-decoration:none}
+    .link:hover{text-decoration:underline}
+    .alert{margin-top:12px; background:#fff7ed; border:1px solid #fed7aa; color:#9a3412; padding:10px 12px; border-radius:8px; font-size:13px; display:none}
+    .success{margin-top:12px; background:#ecfdf5; border:1px solid #a7f3d0; color:#065f46; padding:10px 12px; border-radius:8px; font-size:13px; display:none}
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Choose your plan</h1>
-    <div class="plans">
-      <div class="plan" data-plan="monthly">$3 / month</div>
-      <div class="plan" data-plan="yearly">$30 / year</div>
+    <p class="sub">You’ll be redirected to Stripe to complete checkout.</p>
+
+    <div class="plans" role="group" aria-label="Plans">
+      <button class="plan" type="button" data-plan="monthly" aria-pressed="false">$3 / month</button>
+      <button class="plan" type="button" data-plan="yearly"  aria-pressed="false">$30 / year</button>
     </div>
-    <button id="btn-subscribe">Subscribe</button>
-    <div class="note">You’ll be redirected to the dashboard after subscribing.</div>
+
+    <button id="btn-subscribe" class="btn" type="button">Subscribe</button>
+
+    <div id="msg-error" class="alert"></div>
+    <div id="msg-success" class="success"></div>
+
+    <div class="row">
+      <a class="link" href="/login.html">Back to sign in</a>
+      <button id="btn-logout" class="link" type="button" style="background:none;border:none;padding:0">Log out</button>
+    </div>
+
+    <div class="note">Already subscribed? You’ll be sent to the dashboard automatically.</div>
   </div>
 
-<script type="module">
-  import { createClient } from "https://esm.sh/@supabase/supabase-js";
+  <script type="module">
+    import { createClient } from "https://esm.sh/@supabase/supabase-js";
 
-  const supabase = createClient(
-    window?.ENV_SUPABASE_URL || "<?= ignore ?>",
-    window?.ENV_SUPABASE_ANON || "<?= ignore ?>"
-  );
+    // 🔑 Same project as your dashboard:
+    const supabase = createClient(
+      "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
+      "YOUR_SUPABASE_ANON_KEY"
+    );
 
-  // Minimal helper to keep your existing guard
-  (async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return (window.location.href = "/login.html");
-    const { data: profile } = await supabase.from("profiles").select("subscription_status").eq("id", session.user.id).single();
-    if (profile && profile.subscription_status === "active") window.location.href = "/index.html";
-  })();
+    const $ = (sel)=>document.querySelector(sel);
+    const $$ = (sel)=>Array.from(document.querySelectorAll(sel));
+    const btnSubscribe = $("#btn-subscribe");
+    const btnLogout = $("#btn-logout");
+    const errorBox = $("#msg-error");
+    const successBox = $("#msg-success");
 
-  let selectedPlan = null;
-  document.querySelectorAll(".plan").forEach(el => {
-    el.addEventListener("click", () => {
-      document.querySelectorAll(".plan").forEach(p => p.classList.remove("active"));
-      el.classList.add("active");
-      selectedPlan = el.dataset.plan; // 'monthly' or 'yearly'
+    function showError(msg){
+      if(!errorBox) return;
+      errorBox.textContent = msg;
+      errorBox.style.display = "block";
+      if(successBox){ successBox.style.display="none"; }
+    }
+    function showSuccess(msg){
+      if(!successBox) return;
+      successBox.textContent = msg;
+      successBox.style.display = "block";
+      if(errorBox){ errorBox.style.display="none"; }
+    }
+
+    // 🧭 Handle URL flags
+    const params = new URLSearchParams(location.search);
+    if(params.get("canceled")) showError("Checkout canceled.");
+    if(params.get("sub")==="success") showSuccess("Thanks! Your subscription is active.");
+
+    // 🛡️ Gate: must be logged in; if already active, send to dashboard
+    (async ()=>{
+      const { data:{ session } } = await supabase.auth.getSession();
+      if(!session){
+        location.href = "/login.html";
+        return;
+      }
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("subscription_status")
+        .eq("id", session.user.id)
+        .single();
+
+      if(profile && profile.subscription_status === "active"){
+        // already subscribed -> dashboard
+        location.href = "/index.html";
+      }
+    })().catch(console.error);
+
+    // 🔚 Logout
+    btnLogout?.addEventListener("click", async ()=>{
+      await supabase.auth.signOut();
+      location.href = "/login.html";
     });
-  });
 
-  document.getElementById("btn-subscribe").addEventListener("click", async () => {
-    if (!selectedPlan) return alert("Select a plan first.");
-
-    const { data: { session }, error } = await supabase.auth.getSession();
-    if (error || !session) return (window.location.href = "/login.html");
-
-    // Call your Vercel API to create checkout session
-    const r = await fetch("/api/create-checkout-session", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        plan: selectedPlan,
-        supabaseAccessToken: session.access_token
-      })
+    // 🪄 Plan selection
+    let selectedPlan = null;
+    $$(".plan").forEach(el=>{
+      el.addEventListener("click", ()=>{
+        $$(".plan").forEach(p=>{
+          p.classList.remove("active");
+          p.setAttribute("aria-pressed","false");
+        });
+        el.classList.add("active");
+        el.setAttribute("aria-pressed","true");
+        selectedPlan = el.dataset.plan; // 'monthly' | 'yearly'
+      });
+      // keyboard activate on Enter/Space
+      el.addEventListener("keydown", (e)=>{
+        if(e.key==="Enter" || e.key===" "){ e.preventDefault(); el.click(); }
+      });
     });
-    const data = await r.json();
-    if (!r.ok) return alert(data.error || "Could not start checkout");
 
-    // Redirect to Stripe Checkout
-    window.location.href = data.url;
-  });
-</script>
+    // If your API expects price IDs instead of labels, map here and send priceId:
+    // const PRICE_IDS = { monthly: "price_xxx_month", yearly: "price_xxx_year" };
+
+    // ▶️ Start checkout
+    btnSubscribe?.addEventListener("click", async ()=>{
+      errorBox.style.display="none";
+      successBox.style.display="none";
+
+      if(!selectedPlan){
+        showError("Select a plan first.");
+        return;
+      }
+
+      const { data:{ session } } = await supabase.auth.getSession();
+      if(!session){
+        location.href = "/login.html";
+        return;
+      }
+
+      btnSubscribe.disabled = true;
+      btnSubscribe.textContent = "Starting checkout…";
+
+      try{
+        const payload = {
+          plan: selectedPlan,                      // or: priceId: PRICE_IDS[selectedPlan]
+          supabaseAccessToken: session.access_token,
+          successUrl: `${location.origin}/?sub=success`,
+          cancelUrl: `${location.origin}/subscribe.html?canceled=1`
+        };
+
+        const res = await fetch("/api/create-checkout-session", {
+          method:"POST",
+          headers:{ "Content-Type":"application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        const json = await res.json().catch(()=> ({}));
+
+        if(!res.ok || !json.url){
+          console.error("Checkout error:", json);
+          showError(json.error || "Could not start checkout.");
+          btnSubscribe.disabled = false;
+          btnSubscribe.textContent = "Subscribe";
+          return;
+        }
+
+        // Stripe Checkout
+        window.location.href = json.url;
+      }catch(err){
+        console.error(err);
+        showError("Network error starting checkout.");
+        btnSubscribe.disabled = false;
+        btnSubscribe.textContent = "Subscribe";
+      }
+    });
+  </script>
 </body>
 </html>
