@@ -569,7 +569,7 @@
       const compact=[]; rows.forEach((r,i)=>{ if(i===0||r.val!==rows[i-1].val) compact.push(r); });
       if(!compact.length){ host.innerHTML=`<span class="mini-chip">No forecasts yet</span>`; return; }
       compact.forEach(r=>{
-        const label=`${r.timeHHMM||"—"} ${r.val.toFixed(0)}°`;
+        const label=`${r.timeHHMM||"—"}, ${r.val.toFixed(0)}°`;
         const chip=document.createElement("span"); chip.className="mini-chip"; chip.textContent=label; host.appendChild(chip);
       });
     }
