@@ -6,7 +6,7 @@
   <title>Subscribe – Daily Dew Point</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
-    :root { --bg:#f8fafc; --fg:#0f172a; --muted:#64748b; --b:#cbd5e1; --b2:#94a3b8; --blue:#2563eb; --blue2:#1e40af; --ok:#16a34a;}
+    :root { --bg:#f8fafc; --fg:#0f172a; --muted:#64748b; --b:#cbd5e1; --blue:#2563eb; --blue2:#1e40af; }
     html,body{height:100%}
     body { font-family:'Inter',system-ui,sans-serif; display:flex; align-items:center; justify-content:center;
            min-height:100%; margin:0; background:var(--bg); color:var(--fg); padding:16px; }
@@ -22,10 +22,11 @@
              font-weight:700; font-size:15px; cursor:pointer; margin-top:14px; }
     button:hover { background:var(--blue2); }
     button[disabled]{ opacity:.6; cursor:default; }
+    #btn-trial { background:#0ea5e9; display:none; } /* hidden until allowed */
     .note { font-size:12px; margin-top:10px; color:var(--muted); }
     .top-links{ display:flex; justify-content:center; gap:12px; margin-top:10px; font-size:13px }
     .top-links a{ color:var(--blue); text-decoration:none }
-    .alert{ margin-top:12px; font-size:13px; padding:10px 12px; border-radius:8px; border:1px solid var(--b); color:#334155; background:#f1f5f9; display:none}
+    .alert{ margin-top:12px; font-size:13px; padding:10px 12px; border-radius:8px; border:1px solid #cbd5e1; color:#334155; background:#f1f5f9; display:none}
     .alert.ok{ border-color:#a7f3d0; color:#065f46; background:#ecfdf5; display:block}
     .alert.err{ border-color:#fecaca; color:#7f1d1d; background:#fef2f2; display:block}
   </style>
@@ -47,6 +48,9 @@
     </div>
 
     <button id="btn-subscribe">Subscribe</button>
+    <!-- Trial button lives in DOM from the start; we just toggle display -->
+    <button id="btn-trial" type="button">Try free for 3 days</button>
+
     <div class="top-links">
       <a href="/index.html">Back to dashboard</a>
       <span>·</span>
@@ -70,12 +74,12 @@
   };
 
   // helpers
-  const $ = (s,p=document)=>p.querySelector(s);
+  const $  = (s,p=document)=>p.querySelector(s);
   const $$ = (s,p=document)=>Array.from(p.querySelectorAll(s));
   const toast = $("#toast");
-  function showToast(msg, kind="err"){ toast.textContent = msg; toast.className = "alert " + kind; }
+  const showToast = (msg, kind="err") => { toast.textContent = msg; toast.className = "alert "+kind; };
 
-  // messages on return
+  // return messages
   const params = new URLSearchParams(location.search);
   if (params.get("success")) showToast("Payment succeeded. Finalizing…", "ok");
   if (params.get("canceled")) showToast("Checkout canceled.", "err");
@@ -95,32 +99,27 @@
     });
   });
 
-  // show/hide trial button based on profile
-  const trialBtn = document.createElement("button");
-  trialBtn.id = "btn-trial";
-  trialBtn.textContent = "Try free for 3 days";
-  trialBtn.style.marginTop = "10px";
-  trialBtn.style.background = "#0ea5e9"; // cyan-ish to distinguish
-  trialBtn.style.display = "none";
-  document.querySelector(".card").appendChild(trialBtn);
-
+  // session + profile
+  const trialBtn = $("#btn-trial");
   (async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return (window.location.href = "/login.html");
 
-    const { data: profile } = await supabase
+    // We only need the two fields
+    const { data: profile /*, error*/ } = await supabase
       .from("profiles")
       .select("subscription_status, free_trial_used")
       .eq("id", session.user.id)
       .single();
 
-    // Already active? send to dashboard
     if (profile?.subscription_status === "active") {
       return (window.location.href = "/index.html");
     }
-
-    // Show trial if not used yet
-    if (!profile?.free_trial_used) {
+    // If the flag is explicitly false (or missing), show the button.
+    if (profile && profile.free_trial_used === false) {
+      trialBtn.style.display = "block";
+    } else if (!profile) {
+      // if there isn't a row yet, allow trial (server will still enforce)
       trialBtn.style.display = "block";
     }
   })();
@@ -145,15 +144,9 @@
         })
       });
       const data = await r.json();
-      if (!r.ok || !data?.url) {
-        btn.disabled = false;
-        return showToast(data?.error || "Could not start checkout. Check server logs.");
-      }
+      if (!r.ok || !data?.url) { btn.disabled = false; return showToast(data?.error || "Could not start checkout."); }
       window.location.href = data.url;
-    } catch (e) {
-      btn.disabled = false;
-      showToast(e.message || "Network error starting checkout.");
-    }
+    } catch (e) { btn.disabled = false; showToast(e.message || "Network error."); }
   });
 
   // Trial click
@@ -168,24 +161,16 @@
       const r = await fetch("/api/create-checkout-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          trial: true,
-          supabaseAccessToken: session.access_token
-        })
+        body: JSON.stringify({ trial: true, supabaseAccessToken: session.access_token })
       });
       const data = await r.json();
       if (!r.ok || !data?.url) {
         trialBtn.disabled = false;
-        if (data?.error === "trial_already_used") {
-          return showToast("You’ve already used your free trial.", "err");
-        }
-        return showToast(data?.error || "Could not start trial. Check server logs.");
+        if (data?.error === "trial_already_used") return showToast("You’ve already used your free trial.", "err");
+        return showToast(data?.error || "Could not start trial.", "err");
       }
       window.location.href = data.url;
-    } catch (e) {
-      trialBtn.disabled = false;
-      showToast(e.message || "Network error starting trial.");
-    }
+    } catch (e) { trialBtn.disabled = false; showToast(e.message || "Network error.", "err"); }
   });
 </script>
 </body>
