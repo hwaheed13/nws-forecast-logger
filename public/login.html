@@ -135,7 +135,6 @@
   if (params.get("switch") === "1") {
     await supabase.auth.signOut();
     localStorage.removeItem("remember_email");
-    // ensure login tab visible
     document.getElementById("tab-login")?.click?.();
     return;
   }
@@ -157,10 +156,24 @@
     return;
   }
 
-  // Inactive: show a small note + sign-out button (optional)
+  // Inactive: show a small note + sign-out button
   const note = document.getElementById("login-error");
   if (note) {
-    note.textContent = "You're signed in but not subscribed. Sign in with a differe
+    note.textContent = "You're signed in but not subscribed. Sign in with a different account or sign out below.";
+    note.style.display = "block";
+  }
+
+  const signout = document.createElement("button");
+  signout.type = "button";
+  signout.textContent = "Sign out";
+  signout.style.marginTop = "8px";
+  signout.onclick = async () => {
+    await supabase.auth.signOut();
+    localStorage.removeItem("remember_email");
+    location.reload();
+  };
+  document.getElementById("form-login")?.appendChild(signout);
+})();
 
 
   // Login
