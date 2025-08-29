@@ -304,25 +304,26 @@
               </defs>
               <path fill="url(#dpGrad)" d="M32 6c6 10 16 18 16 30 0 9.94-8.06 18-18 18s-18-8.06-18-18C12 24 26 16 32 6z"/>
             </svg>
-          </div>
-          <div class="brand-copy">
-            <h1 class="brand-title"><span class="thin">Daily</span> Dew&nbsp;Point</h1>
-            <p class="brand-sub">Automatically logs every NWS forecast update for Central Park and compares to the official daily high</p>
-          </div>
-        </div>
-            <div class="brand-right">
-        <div class="pill-group">
-          <span class="pill live"><span class="dot"></span> Live</span>
-          <span class="pill">NYC</span>
-          <span class="pill">KNYC</span>
-        </div>
-        <button id="btn-logout" class="pill logout-btn" style="cursor:pointer">Log out</button>
-      </div>
-      </div>
-    </header>
+    </div>
+    <div class="brand-copy">
+      <h1 class="brand-title"><span class="thin">Daily</span> Dew&nbsp;Point</h1>
+      <p class="brand-sub">Automatically logs every NWS forecast update for Central Park and compares to the official daily high</p>
+    </div>
+  </div>
+  <div class="brand-right">
+    <div class="pill-group">
+      <span class="pill live"><span class="dot"></span> Live</span>
+      <span class="pill">NYC</span>
+      <span class="pill">KNYC</span>
+    </div>
+    <button id="btn-billing" class="pill">Manage billing</button>
+    <button id="btn-logout" class="pill logout-btn" style="cursor:pointer">Log out</button>
+  </div>
+</div>
+</header>
 
-    <div class="container">
-    <div class="last-update">
+<div class="container">
+  <div class="last-update">
     <div class="last-update-label">
       <span id="todayDate"></span><br>
       Latest Forecast Update
@@ -1221,8 +1222,9 @@ async function displayTable(){
     if(!tr) return;
     const mk = tr.dataset.month;
     const collapsed = tr.classList.toggle("collapsed");
-    tb.querySelectorAll(`tr[data-month="${mk}"]`)
-      .forEach(r => r.classList.toggle("is-hidden", collapsed));
+   tb.querySelectorAll(`tr[data-month="${mk}"]:not(.month-row)`)
+  .forEach(r => r.classList.toggle("is-hidden", collapsed));
+
   };
 
   // Start fully collapsed (done by adding 'is-hidden' above)
@@ -1366,6 +1368,20 @@ async function checkAccess() {
     localStorage.removeItem("dashboard_heartbeat");
     window.location.href = "/login.html";
   });
+  // 🔘 Manage billing button
+document.getElementById("btn-billing")?.addEventListener("click", async ()=>{
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return (window.location.href = "/login.html");
+
+  const r = await fetch("/api/create-portal-session", {
+    method: "POST",
+    headers: { "Content-Type":"application/json" },
+    body: JSON.stringify({ supabaseAccessToken: session.access_token })
+  });
+  const j = await r.json();
+  if (!r.ok) return alert(j.error || "Could not open billing portal");
+  window.location.href = j.url;
+});
  function bootApp(){
   reloadCSV();
   showTodayDate();
