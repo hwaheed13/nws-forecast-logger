@@ -288,6 +288,15 @@
       <div class="gate-note">This will update automatically.</div>
     </div>
   </div>
+   <script>
+    window.appBooted = false;
+    setTimeout(function(){
+      if(!window.appBooted){
+        try { window.location.assign("/login.html"); }
+        catch(_) { window.location.href = "login.html"; }
+      }
+    }, 3500);
+  </script>
 
   <!-- ====== APP ====== -->
   <div id="app" style="display:none">
@@ -1291,16 +1300,17 @@ async function updateDSM(){
 </script>
 
 <script type="module">
-  import { createClient } from "https://esm.sh/@supabase/supabase-js";
+  // Use jsDelivr (esm.sh can be blocked by some hosts/CSPs)
+  import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
-  // 🔑 Your real project + anon key (same as you used)
+  // ✅ Your project + anon key
   const supabase = createClient(
     "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw",
     { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }
   );
 
-  // ————— small helpers —————
+  // Small helpers
   const $gate = () => document.getElementById("gate");
   const $app  = () => document.getElementById("app");
   function showApp(){ const g=$gate(), a=$app(); if(g) g.style.display='none'; if(a) a.style.display=''; }
@@ -1308,21 +1318,14 @@ async function updateDSM(){
     const g=$gate(); if(!g) return; g.style.display='';
     const sub=g.querySelector('.gate-sub'); if(sub && msg) sub.textContent=msg;
   }
-  function toLogin(reason=""){
-    console.warn("→ Redirecting to login", reason ? `(${reason})` : "");
-    showGate("Redirecting to login…");
-    // try absolute then relative, to be safe on static hosts
-    try { window.location.assign("/login.html"); } catch(_) { window.location.href = "login.html"; }
-  }
-  function toSubscribe(reason=""){
-    console.warn("→ Redirecting to subscribe", reason ? `(${reason})` : "");
-    showGate("Redirecting to subscribe…");
-    try { window.location.assign("/subscribe.html"); } catch(_) { window.location.href = "subscribe.html"; }
-  }
+  function toLogin(why=""){ console.warn("→ login:", why); showGate("Redirecting to login…"); try{location.assign("/login.html")}catch{location.href="login.html"} }
+  function toSubscribe(why=""){ console.warn("→ subscribe:", why); showGate("Redirecting to subscribe…"); try{location.assign("/subscribe.html")}catch{location.href="subscribe.html"} }
 
-  // ————— Your app boot (unchanged) —————
+  // Your app boot (calls you already have elsewhere)
   function bootApp(){
-    // your existing boot calls
+    // mark as booted for the fail-safe
+    window.appBooted = true;
+
     reloadCSV();
     showTodayDate();
     setInterval(updateObservations, 5*60*1000);
@@ -1332,83 +1335,52 @@ async function updateDSM(){
     setInterval(updateSixHourMax, 10*60*1000);
   }
 
-  // ————— Gatekeeper with watchdog & clearer rules —————
+  // Gatekeeper with a watchdog
   async function checkAccess(){
-    // 1) watchdog: if anything hangs, bail to login so UI doesn’t freeze
     const watchdog = setTimeout(() => toLogin("watchdog timeout"), 4000);
 
     try {
       const { data: { session }, error: sessErr } = await supabase.auth.getSession();
       clearTimeout(watchdog);
 
-      if (sessErr) {
-        console.error("getSession error:", sessErr);
-        return toLogin("getSession error");
-      }
+      if (sessErr) { console.error("getSession error:", sessErr); return toLogin("getSession error"); }
+      if (!session || !session.user || !session.access_token) return toLogin("no/invalid session");
 
-      // No session at all → login
-      if (!session) {
-        return toLogin("no session");
-      }
-
-      // Optional: make sure the session is actually valid (not a zombie)
-      if (!session.user || !session.access_token) {
-        return toLogin("invalid session shape");
-      }
-
-      // 2) Fetch profile
       const { data: profile, error: profErr } = await supabase
         .from("profiles")
         .select("subscription_status, current_period_end")
         .eq("id", session.user.id)
-        .maybeSingle(); // NOTE: maybeSingle → null if no row, not an error
+        .maybeSingle();
 
-      if (profErr) {
-        console.error("profile read on index:", profErr);
-        // If PostgREST 406/JSON shape error etc., send to login to reset
-        return toLogin("profile read error");
-      }
-
-      // ⚖️ Redirect rules:
-      // - If there's NO profile row yet → go to LOGIN (let them re-auth / create row via signup flow)
-      if (!profile) {
-        return toLogin("no profile row");
-      }
+      if (profErr) { console.error("profile read error:", profErr); return toLogin("profile read error"); }
+      if (!profile) return toLogin("no profile row");
 
       const ALLOW = ["active", "trialing"];
+      if (!ALLOW.includes(profile.subscription_status)) return toSubscribe("not active/trialing");
 
-      // - If profile exists but subscription not allowed → subscribe
-      if (!ALLOW.includes(profile.subscription_status)) {
-        return toSubscribe("not active/trialing");
-      }
-
-      // - If trial → add small pill in header
-      if (profile.current_period_end && profile.subscription_status === "trialing") {
+      // Add “trial ends” pill
+      if (profile.subscription_status === "trialing" && profile.current_period_end){
         const pillGrp = document.querySelector(".brand-right .pill-group");
-        if (pillGrp) {
+        if (pillGrp){
           const end = new Date(profile.current_period_end);
-          const fmt = new Intl.DateTimeFormat("en-US", { month:"short", day:"numeric" });
+          const fmt = new Intl.DateTimeFormat("en-US",{ month:"short", day:"numeric" });
           const p = document.createElement("span");
-          p.className = "pill";
-          p.textContent = `Trial ends ${fmt.format(end)}`;
+          p.className = "pill"; p.textContent = `Trial ends ${fmt.format(end)}`;
           pillGrp.appendChild(p);
         }
       }
 
-      // ✅ All good → show the app
       showApp();
       bootApp();
-
-    } catch (err) {
-      console.error("checkAccess fatal:", err);
+    } catch (e) {
+      console.error("checkAccess exception:", e);
       toLogin("exception");
     }
   }
 
-  // Wire up header buttons
+  // Header buttons
   document.getElementById("btn-logout")?.addEventListener("click", async () => {
-    try { await supabase.auth.signOut(); } catch (e) { console.warn("signOut err:", e); }
-    // clear any of your own locals too
+    try { await supabase.auth.signOut(); } catch(e){ console.warn("signOut:", e); }
     localStorage.removeItem("dashboard_heartbeat");
     toLogin("manual logout");
   });
@@ -1418,22 +1390,20 @@ async function updateDSM(){
     if (!session) return toLogin("no session on billing");
     try{
       const r = await fetch("/api/create-portal-session", {
-        method: "POST",
-        headers: { "Content-Type":"application/json" },
+        method:"POST", headers:{ "Content-Type":"application/json" },
         body: JSON.stringify({ supabaseAccessToken: session.access_token })
       });
       const j = await r.json();
-      if (!r.ok) { alert(j.error || "Could not open billing portal"); return; }
+      if(!r.ok) return alert(j.error || "Could not open billing portal");
       window.location.href = j.url;
-    }catch(e){
-      console.error("billing portal error:", e);
-      alert("Billing portal unavailable right now.");
+    }catch(err){
+      console.error("billing portal:", err);
+      alert("Billing portal unavailable.");
     }
   });
 
-  // 🚀 Start
+  // Go
   checkAccess();
 </script>
-
 </body>
 </html>
