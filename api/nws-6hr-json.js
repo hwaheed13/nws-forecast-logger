@@ -16,21 +16,21 @@ export default async function handler(req, res) {
     const $ = cheerio.load(html);
 
     const now = new Date();
-    const cutoff = new Date(now.getTime() - 12 * 60 * 60 * 1000);
+    const cutoff = new Date(now.getTime() - 12 * 60 * 60 * 1000); // look back 12 hrs
 
     const targetTimes = new Set(["01:51", "07:51", "13:51", "19:51"]);
     const rows = [];
 
     $("table tr").each((i, tr) => {
       const cells = $(tr).find("td");
-      if (cells.length < 9) return; // skip malformed rows
+      if (cells.length < 9) return;
 
-      const dayStr  = $(cells[0]).text().trim();
-      const timeStr = $(cells[1]).text().trim();
-      const maxStr  = $(cells[8]).text().trim();
+      const dayStr  = $(cells[0]).text().trim();  // "28"
+      const timeStr = $(cells[1]).text().trim();  // "13:51"
+      const maxStr  = $(cells[8]).text().trim();  // 6-Hr Max
 
-      if (!targetTimes.has(timeStr)) return; // skip if not a 6-hr marker
-      if (!maxStr) return; // skip if blank
+      if (!targetTimes.has(timeStr)) return;
+      if (!maxStr) return;
 
       const tempVal = parseFloat(maxStr);
       if (isNaN(tempVal)) return;
@@ -68,6 +68,7 @@ export default async function handler(req, res) {
   }
 }
 
+// ✅ Treat timeStr as local ET (not UTC)
 function parseObsTime(dayStr, timeStr, nowRef) {
   const day = parseInt(dayStr, 10);
   if (isNaN(day) || !timeStr) return null;
@@ -75,5 +76,11 @@ function parseObsTime(dayStr, timeStr, nowRef) {
   const [hh, mm] = timeStr.split(":").map((x) => parseInt(x, 10));
   if (isNaN(hh) || isNaN(mm)) return null;
 
-  return new Date(nowRef.getFullYear(), nowRef.getMonth(), day, hh, mm);
+  return new Date(
+    nowRef.getFullYear(),
+    nowRef.getMonth(),
+    day,
+    hh,
+    mm
+  );
 }
