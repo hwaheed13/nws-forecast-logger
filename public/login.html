@@ -1,228 +1,203 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Access – Daily Dew Point</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Dew Point — Log in / Sign up</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet" />
   <style>
-    body { font-family:'Inter',sans-serif; display:flex; align-items:center; justify-content:center;
-      min-height:100vh; margin:0; background:#f1f5f9; color:#0f172a; padding:16px; }
-    .card { background:#fff; padding:28px; border-radius:16px; box-shadow:0 8px 28px rgba(0,0,0,.12);
-      width:100%; max-width:440px; }
-    h1 { font-size:24px; margin:0 0 20px; text-align:center; font-weight:700; }
-    input { width:100%; padding:12px; margin:8px 0; border:1px solid #cbd5e1; border-radius:8px; font-size:14px; }
-    .row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
-    .row .left { display:flex; align-items:center; gap:8px; }
-    .row label { font-size:13px; color:#334155; user-select:none }
-    button { width:100%; padding:12px; margin-top:12px; border:none; border-radius:8px;
-      background:#2563eb; color:#fff; font-weight:600; font-size:15px; cursor:pointer; }
-    button:hover { background:#1e40af; }
-    .tabs { display:flex; border-bottom:1px solid #e2e8f0; margin-bottom:20px; }
-    .tab { flex:1; text-align:center; padding:10px; font-weight:600; cursor:pointer; border-bottom:3px solid transparent; }
-    .tab.active { color:#2563eb; border-color:#2563eb; }
-    .hidden { display:none; }
-    .help { font-size:12px; color:#64748b; margin-top:8px; text-align:center; }
-    .error { background:#fef2f2; border:1px solid #fecaca; color:#7f1d1d; padding:10px; border-radius:8px; font-size:13px; margin-top:8px; display:none; }
-    .ok { background:#ecfdf5; border:1px solid #a7f3d0; color:#065f46; padding:10px; border-radius:8px; font-size:13px; margin-top:8px; display:none; }
-    .link { color:#2563eb; text-decoration:none; }
+    :root{ --bg:#0b1020; --card:#0f172a; --muted:#94a3b8; --text:#e5e7eb; --accent:#2563eb; --err:#ef4444; }
+    *{ box-sizing:border-box; }
+    body{ margin:0; min-height:100vh; display:grid; place-items:center; background:radial-gradient(80% 80% at 50% 20%, #0b1b3a, #05070f), var(--bg); color:var(--text); font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif; }
+    .card{ width:100%; max-width:420px; background:rgba(15,23,42,.8); backdrop-filter: blur(8px);
+           border:1px solid rgba(148,163,184,.15); border-radius:18px; padding:24px 22px; box-shadow: 0 10px 30px rgba(0,0,0,.35);}
+    .brand{ display:flex; gap:12px; align-items:center; margin-bottom:10px;}
+    .brand h1{ font-size:22px; margin:0; font-weight:800; letter-spacing:.2px;}
+    .sub{ margin:2px 0 16px; font-size:13px; color:var(--muted);}
+    .tabs{ display:flex; gap:8px; margin-bottom:12px;}
+    .tabs button{ flex:1; padding:10px 12px; border-radius:12px; border:1px solid rgba(148,163,184,.2); background:#0b1224; color:var(--text); cursor:pointer; font-weight:700;}
+    .tabs [aria-selected="true"]{ outline:2px solid var(--accent); background:rgba(37,99,235,.08); }
+    form{ display:grid; gap:10px; }
+    label{ font-size:12px; color:var(--muted); font-weight:600; }
+    input{ width:100%; padding:10px 12px; border:1px solid rgba(148,163,184,.3); border-radius:10px; background:#0a1223; color:var(--text); font-size:14px; }
+    input:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(37,99,235,.25); }
+    .row{ display:grid; gap:6px; }
+    .actions{ display:flex; gap:8px; align-items:center; justify-content:space-between; margin-top:4px;}
+    .btn{ background:var(--accent); color:white; border:none; border-radius:10px; padding:10px 14px; font-weight:800; cursor:pointer; }
+    .btn[disabled]{ opacity:.6; cursor:default; }
+    .linkbtn{ background:transparent; color:var(--muted); border:1px solid rgba(148,163,184,.3); padding:8px 12px; border-radius:10px; cursor:pointer; }
+    .hint{ font-size:12px; color:var(--muted); }
+    .err{ color:var(--err); font-size:13px; min-height:18px; }
+    .hidden{ display:none; }
+    .footer{ margin-top:12px; text-align:center; font-size:11px; color:var(--muted);}
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1>Daily Dew Point</h1>
+  <main class="card">
+    <div class="brand">
+      <svg viewBox="0 0 64 64" width="34" height="34" aria-hidden="true">
+        <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2563eb"/><stop offset="1" stop-color="#10b981"/></linearGradient></defs>
+        <path fill="url(#g)" d="M32 6c6 10 16 18 16 30 0 9.94-8.06 18-18 18s-18-8.06-18-18C12 24 26 16 32 6z"/>
+      </svg>
+      <h1>Daily Dew Point</h1>
+    </div>
+    <p class="sub">Log in or create an account with email and password.</p>
+
     <div class="tabs">
-      <div id="tab-login" class="tab active">Login</div>
-      <div id="tab-signup" class="tab">Sign Up</div>
+      <button id="tab-login"  type="button" aria-selected="true">Log in</button>
+      <button id="tab-signup" type="button" aria-selected="false">Sign up</button>
     </div>
 
-    <!-- Login -->
-    <form id="form-login">
-      <input id="login-email" type="email" placeholder="Email" autocomplete="email" required />
+    <!-- LOGIN -->
+    <form id="form-login" novalidate>
       <div class="row">
-        <input id="login-password" type="password" placeholder="Password" autocomplete="current-password" required style="flex:1">
-        <label class="left">
-          <input id="show-login-pw" type="checkbox"> Show
-        </label>
+        <label for="login-email">Email</label>
+        <input id="login-email" type="email" autocomplete="email" required />
       </div>
-       <div class="row">
-  <label class="left"><input id="remember-me" type="checkbox"> Keep me signed in</label>
- </div>
-      <button type="submit">Log in</button>
-      <div id="login-error" class="error"></div>
+      <div class="row">
+        <label for="login-password">Password</label>
+        <input id="login-password" type="password" autocomplete="current-password" required />
+      </div>
+      <div class="actions">
+        <button id="btn-login" class="btn" type="submit">Log in</button>
+        <button id="to-signup" class="linkbtn" type="button">Create account</button>
+      </div>
+      <div id="login-error" class="err" role="alert"></div>
     </form>
 
-    <!-- Signup -->
-    <form id="form-signup" class="hidden">
-      <input id="signup-email" type="email" placeholder="Email" autocomplete="email" required />
+    <!-- SIGNUP -->
+    <form id="form-signup" class="hidden" novalidate>
       <div class="row">
-        <input id="signup-password" type="password" placeholder="Password (min 6 chars)" autocomplete="new-password" required style="flex:1">
-        <label class="left">
-          <input id="show-signup-pw" type="checkbox"> Show
-        </label>
+        <label for="signup-email">Email</label>
+        <input id="signup-email" type="email" autocomplete="email" required />
       </div>
-      <button type="submit">Create account</button>
-      <div id="signup-ok" class="ok"></div>
-      <div id="signup-error" class="error"></div>
-      <div class="help">You’ll get a verification email.</div>
+      <div class="row">
+        <label for="signup-password">Password</label>
+        <input id="signup-password" type="password" autocomplete="new-password" minlength="6" required />
+        <div class="hint">At least 6 characters.</div>
+      </div>
+      <div class="actions">
+        <button id="btn-signup" class="btn" type="submit">Create account</button>
+        <button id="to-login" class="linkbtn" type="button">I already have an account</button>
+      </div>
+      <div id="signup-error" class="err" role="alert"></div>
     </form>
 
-    <div class="help">Subscribers only. <a class="link" href="/subscribe.html">Go to subscribe</a></div>
-  </div>
+    <div class="footer">
+      Trouble logging in? <button id="hard-logout" class="linkbtn" type="button">Hard sign out</button>
+    </div>
+  </main>
 
-<script type="module">
-  import { createClient } from "https://esm.sh/@supabase/supabase-js";
+  <script type="module">
+    import { createClient } from "https://esm.sh/@supabase/supabase-js";
 
-  // Keep sessions persistent; DO NOT store passwords.
-  const supabase = createClient(
-    "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw",
-    { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }
-  );
+    // 🔑 Supabase config
+    const SUPABASE_URL = "https://ztjtuhkjkqchsiuuvmzs.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw";
 
-  // Quick DOM helpers
-  const $  = (s,p=document)=>p.querySelector(s);
-  const $$ = (s,p=document)=>Array.from(p.querySelectorAll(s));
-
-  // Tabs
-  const tabLogin  = $("#tab-login");
-  const tabSignup = $("#tab-signup");
-  const formLogin = $("#form-login");
-  const formSignup= $("#form-signup");
-  tabLogin.onclick = ()=>{ tabLogin.classList.add("active"); tabSignup.classList.remove("active"); formLogin.classList.remove("hidden"); formSignup.classList.add("hidden"); };
-  tabSignup.onclick= ()=>{ tabSignup.classList.add("active"); tabLogin.classList.remove("active"); formSignup.classList.remove("hidden"); formLogin.classList.add("hidden"); };
-
-  // Show/hide password
-  $("#show-login-pw").addEventListener("change", (e)=>{
-    $("#login-password").type = e.target.checked ? "text" : "password";
-  });
-  $("#show-signup-pw").addEventListener("change", (e)=>{
-    $("#signup-password").type = e.target.checked ? "text" : "password";
-  });
-
-  // Remember me (email only). Keeping users signed in is handled by Supabase.
-  (function hydrateRemembered(){
-    const remembered = localStorage.getItem("remember_email");
-    if (remembered) $("#login-email").value = remembered;
-    $("#remember-me").checked = !!remembered;
-  })();
-
-  function rememberEmailMaybe(email){
-    if ($("#remember-me").checked) {
-      localStorage.setItem("remember_email", email);
-    } else {
-      localStorage.removeItem("remember_email");
-    }
-  }
-
-  // Basic email validation (in addition to type="email")
-  function isValidEmail(e){
-    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(e).trim());
-  }
-
-  // If already signed in, route based on profile
-(async ()=>{
-   const { data: { session }, error: sessErr } = await supabase.auth.getSession();
-   if (sessErr || !session) return; // stay on login
-   const { data: profile, error: profErr } = await supabase
-     .from("profiles")
-     .select("subscription_status")
-    .eq("id", session.user.id)
-    .single();
-   if (profErr) return (window.location.href = "/subscribe.html");
-  window.location.href = (profile?.subscription_status === "active") ? "/index.html" : "/subscribe.html";
- })();
-
-  // Login
-  formLogin.addEventListener("submit", async (e)=>{
-    e.preventDefault();
-    $("#login-error").style.display = "none";
-
-    const email = $("#login-email").value.trim();
-    const password = $("#login-password").value;
-
-    if (!isValidEmail(email)) {
-      $("#login-error").textContent = "Please enter a valid email address.";
-      $("#login-error").style.display = "block";
-      return;
-    }
-
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      $("#login-error").textContent = error.message;
-      $("#login-error").style.display = "block";
-      return;
-    }
-
-    rememberEmailMaybe(email);
-
-    const { data: { user }} = await supabase.auth.getUser();
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("subscription_status")
-      .eq("id", user.id)
-      .single();
-
-    window.location.href = (profile?.subscription_status === "active")
-      ? "/index.html"
-      : "/subscribe.html";
-  });
-
-
-  // Signup (handle already-registered + resend verification)
-  formSignup.addEventListener("submit", async (e)=>{
-    e.preventDefault();
-    $("#signup-error").style.display = "none";
-    $("#signup-ok").style.display = "none";
-
-    const email = $("#signup-email").value.trim();
-    const password = $("#signup-password").value;
-
-    if (!isValidEmail(email)) {
-      $("#signup-error").textContent = "Please enter a valid email address.";
-      $("#signup-error").style.display = "block";
-      return;
-    }
-
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { emailRedirectTo: "https://waheedweather.dewdropventures.com/subscribe.html?welcome=1" }
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
     });
 
-    if (error) {
-      // Supabase typically returns "User already registered" for duplicates
-      const msg = (error.message || "").toLowerCase();
-      if (msg.includes("already registered") || msg.includes("already exists")) {
-        // Offer resend verification instead of creating again
-        const wantResend = confirm("You're already registered. Resend verification email?");
-        if (wantResend) {
-          const { error: resendErr } = await supabase.auth.resend({
-            type: "signup",
-            email
-          });
-          if (resendErr) {
-            $("#signup-error").textContent = resendErr.message;
-            $("#signup-error").style.display = "block";
-          } else {
-            $("#signup-ok").textContent = "Verification email resent. Check your inbox.";
-            $("#signup-ok").style.display = "block";
-          }
-        }
-        return;
+    // ⏩ if already logged in, go to app
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        window.location.replace("/");
       }
-      $("#signup-error").textContent = error.message;
-      $("#signup-error").style.display = "block";
-      return;
+    } catch (e) {
+      console.warn("getSession error:", e);
     }
 
-    $("#signup-ok").textContent = "Check your inbox to confirm your email!";
-    $("#signup-ok").style.display = "block";
-  });
-  <script>
-  window.addEventListener("error", (e)=>{
-    console.error("Runtime error:", e.error || e.message);
-  });
-</script>
+    // 🔧 helpers
+    const $ = (s) => document.querySelector(s);
+    const toggleMode = (mode) => {
+      const login = $("#form-login"), signup = $("#form-signup");
+      const tLogin = $("#tab-login"), tSignup = $("#tab-signup");
+      const loginOn = mode === "login";
+      login.classList.toggle("hidden", !loginOn);
+      signup.classList.toggle("hidden", loginOn);
+      tLogin.setAttribute("aria-selected", String(loginOn));
+      tSignup.setAttribute("aria-selected", String(!loginOn));
+      $("#login-error").textContent = "";
+      $("#signup-error").textContent = "";
+    };
+
+    // 🗂️ tab + link toggles
+    $("#tab-login").addEventListener("click", () => toggleMode("login"));
+    $("#tab-signup").addEventListener("click", () => toggleMode("signup"));
+    $("#to-signup").addEventListener("click", () => toggleMode("signup"));
+    $("#to-login").addEventListener("click", () => toggleMode("login"));
+
+    // 🧼 disable/enable helper
+    const setBusy = (btn, busy) => { btn.disabled = busy; };
+
+    // 🔐 LOGIN
+    $("#form-login").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      $("#login-error").textContent = "";
+      const email = $("#login-email").value.trim();
+      const password = $("#login-password").value;
+      const btn = $("#btn-login");
+      setBusy(btn, true);
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        // success
+        window.location.replace("/");
+      } catch (err) {
+        $("#login-error").textContent = err?.message || "Login failed.";
+      } finally {
+        setBusy(btn, false);
+      }
+    });
+
+    // ✍️ SIGN UP (password only; no magic links)
+    $("#form-signup").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      $("#signup-error").textContent = "";
+      const email = $("#signup-email").value.trim();
+      const password = $("#signup-password").value;
+      const btn = $("#btn-signup");
+      setBusy(btn, true);
+      try {
+        const { data, error } = await supabase.auth.signUp({
+          email, password,
+          options: { emailRedirectTo: undefined } // not using magic links
+        });
+        if (error) throw error;
+
+        // OPTIONAL: ensure a profiles row exists for this user so index can read it
+        // Requires RLS policy allowing insert when auth.uid() = id.
+        try {
+          const u = (await supabase.auth.getUser()).data.user;
+          if (u?.id) {
+            await supabase.from("profiles").upsert({ id: u.id }, { onConflict: "id" });
+          }
+        } catch (noop) {}
+
+        // If email confirmations are disabled, they're already signed in:
+        // If confirmations are enabled, Supabase will set session=null; send them to check their email or log in.
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          window.location.replace("/");
+        } else {
+          toggleMode("login");
+          $("#login-error").textContent = "Account created. Please log in after confirming your email.";
+        }
+      } catch (err) {
+        $("#signup-error").textContent = err?.message || "Sign up failed.";
+      } finally {
+        setBusy(btn, false);
+      }
+    });
+
+    // 🧹 Hard sign out: clears any stuck local session
+    $("#hard-logout").addEventListener("click", async () => {
+      try { await supabase.auth.signOut(); } catch {}
+      localStorage.clear(); sessionStorage.clear();
+      alert("Signed out locally. You can log in again now.");
+    });
+  </script>
 </body>
 </html>
