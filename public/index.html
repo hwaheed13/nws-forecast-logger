@@ -738,9 +738,10 @@ async function updateSixHourMax() {
       const tActual = tActRow ? Number(tActRow.actual_high) : null;
       const tmLatest = latestForDate(tomorrow);
 
-      document.getElementById("box-today-forecast").textContent   = (tLatest==null) ? "–" : tLatest.toFixed(1)+"°F";
-      document.getElementById("box-today-actual").textContent     = (tActual==null) ? "–" : tActual.toFixed(1)+"°F";
-      document.getElementById("box-tomorrow-forecast").textContent= (tmLatest==null)? "–" : tmLatest.toFixed(1)+"°F";
+    document.getElementById("box-today-forecast").textContent   = (tLatest==null) ? "–" : tLatest.toFixed(0)+"°F";
+    document.getElementById("box-today-actual").textContent     = (tActual==null) ? "–" : tActual.toFixed(0)+"°F";
+    document.getElementById("box-tomorrow-forecast").textContent= (tmLatest==null)? "–" : tmLatest.toFixed(0)+"°F";
+
 
       const todayRows    = getForecastsForDate(today);
       const tomorrowRows = getForecastsForDate(tomorrow);
