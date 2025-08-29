@@ -1338,46 +1338,56 @@ function scheduleMidnightUpdate(){
 }
 
 // 🔒 Gatekeeper
-async function checkAccess() {
-  const { data: { session } } = await supabase.auth.getSession();
-  console.log("Index sees session:", session);
-  if (!session) {
-    showGate("Redirecting to login…");
-    return (window.location.href = "/login.html");
-  }
+const { data: { session }, error: sessErr } = await supabase.auth.getSession();
+if (sessErr) {
+  console.error("getSession failed:", sessErr);
+  showGate("Redirecting to login…");
+  return (window.location.href = "/login.html");
+}
+if (!session) {
+  showGate("Redirecting to login…");
+  return (window.location.href = "/login.html");
+}
 
+// Try to read the profile for this user
 const { data: profile, error: profErr } = await supabase
   .from("profiles")
   .select("subscription_status, current_period_end")
   .eq("id", session.user.id)
   .single();
 
-if (profErr) {
-  console.error("profile read on index:", profErr);
+// If profile read fails OR there's no row yet, the safest UX is to
+// clear a possibly-stale session and send them to login.
+if (profErr || !profile) {
+  console.warn("No profile or RLS blocked profile; going to login.", profErr);
+  await supabase.auth.signOut();           // clear bad/stale local session
+  showGate("Redirecting to login…");
+  return (window.location.href = "/login.html");
 }
 
+// Only here do we decide about subscribe gate
+const ALLOW = ["active", "trialing"];
+if (!ALLOW.includes(profile.subscription_status)) {
+  showGate("Redirecting to subscribe…");
+  return (window.location.href = "/subscribe.html");
+}
 
-  const ALLOW = ["active", "trialing"]; // allow access during free trial
-  if (!profile || !ALLOW.includes(profile.subscription_status)) {
-    showGate("Redirecting to subscribe…");
-    return (window.location.href = "/subscribe.html");
-  }
-  if (profile.current_period_end && profile.subscription_status === "trialing") {
+// Optional: add the “Trial ends …” pill once
+if (profile.current_period_end && profile.subscription_status === "trialing") {
   const pillGrp = document.querySelector(".brand-right .pill-group");
-  if (pillGrp) {
+  if (pillGrp && !pillGrp.querySelector('[data-pill="trial-ends"]')) {
     const end = new Date(profile.current_period_end);
     const fmt = new Intl.DateTimeFormat("en-US",{month:"short", day:"numeric"});
     const p = document.createElement("span");
-    p.className = "pill";
+    p.className = "pill"; p.dataset.pill = "trial-ends";
     p.textContent = `Trial ends ${fmt.format(end)}`;
     pillGrp.appendChild(p);
   }
 }
-  
-  // ✅ allowed in
-  showApp();
-  bootApp();
-}
+
+showApp();
+bootApp();
+
 
   // 🔘 Logout button
   document.getElementById("btn-logout")?.addEventListener("click", async () => {
