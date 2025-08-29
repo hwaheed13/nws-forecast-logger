@@ -67,14 +67,17 @@ export default async function handler(req, res) {
               updated_at: new Date().toISOString(),
             };
 
-            const { error } = await admin
-              .from("profiles")
-              .upsert(payload, { onConflict: "id" });
+        const { error } = await admin.from("profiles").upsert(payload, { onConflict: "id" });
+        if (error) {
+          console.error("profiles upsert error (checkout.session.completed):", {
+            message: error.message,
+            details: error.details,
+            hint: error.hint,
+            code: error.code
+          });
+          return res.status(500).json({ error: "DB upsert failed" });
+        }
 
-            if (error) {
-              console.error("profiles upsert error (checkout.session.completed):", error);
-              return res.status(500).json({ error: "DB upsert failed" });
-            }
           }
         }
         break;
@@ -130,10 +133,16 @@ export default async function handler(req, res) {
             })
             .eq("id", targetId);
 
-          if (error) {
-            console.error("profiles update error (subscription.*):", error);
-            return res.status(500).json({ error: "DB update failed" });
-          }
+         if (error) {
+      console.error("profiles update error (subscription.*):", {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
+      });
+      return res.status(500).json({ error: "DB update failed" });
+}
+
         }
         break;
       }
