@@ -59,48 +59,28 @@
 <script type="module">
   import { createClient } from "https://esm.sh/@supabase/supabase-js";
 
-  // ── Supabase (use your project URL + anon key) ────────────────────────────────
   const supabase = createClient(
-  "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
+    "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
-    // If you prefer env injection:
-    // window.ENV_SUPABASE_URL, window.ENV_SUPABASE_ANON
   );
 
-  // ── Stripe Prices (your real IDs) ────────────────────────────────────────────
   const PRICE_IDS = {
-    monthly: "price_1S1U96JZv8wNnhLtlNWL0gqK", // $3/month
-    yearly:  "price_1S1U7hJZv8wNnhLtRLRLoVf3"  // $30/year
+    monthly: "price_1S1U96JZv8wNnhLtlNWL0gqK",
+    yearly:  "price_1S1U7hJZv8wNnhLtRLRLoVf3"
   };
 
-  // ── Tiny helpers ─────────────────────────────────────────────────────────────
-  const $ = (s, p=document)=>p.querySelector(s);
-  const $$ = (s, p=document)=>Array.from(p.querySelectorAll(s));
+  // helpers
+  const $ = (s,p=document)=>p.querySelector(s);
+  const $$ = (s,p=document)=>Array.from(p.querySelectorAll(s));
   const toast = $("#toast");
   function showToast(msg, kind="err"){ toast.textContent = msg; toast.className = "alert " + kind; }
 
-  // If returned from Checkout (?success or ?canceled) show a small message
+  // messages on return
   const params = new URLSearchParams(location.search);
   if (params.get("success")) showToast("Payment succeeded. Finalizing…", "ok");
   if (params.get("canceled")) showToast("Checkout canceled.", "err");
 
-  // ── Guard: must be logged in; if already active, go to dashboard ─────────────
-  (async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return (window.location.href = "/login.html");
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("subscription_status")
-      .eq("id", session.user.id)
-      .single();
-
-    if (profile && profile.subscription_status === "active") {
-      window.location.href = "/index.html";
-    }
-  })();
-
-  // ── Plan selection UI ────────────────────────────────────────────────────────
+  // plan selection
   let selectedPlan = null;
   function setActivePlan(el){
     $$(".plan").forEach(p => { p.classList.remove("active"); p.setAttribute("aria-checked","false"); });
@@ -115,7 +95,37 @@
     });
   });
 
-  // ── Subscribe button → call your API and redirect to Stripe ──────────────────
+  // show/hide trial button based on profile
+  const trialBtn = document.createElement("button");
+  trialBtn.id = "btn-trial";
+  trialBtn.textContent = "Try free for 3 days";
+  trialBtn.style.marginTop = "10px";
+  trialBtn.style.background = "#0ea5e9"; // cyan-ish to distinguish
+  trialBtn.style.display = "none";
+  document.querySelector(".card").appendChild(trialBtn);
+
+  (async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return (window.location.href = "/login.html");
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("subscription_status, free_trial_used")
+      .eq("id", session.user.id)
+      .single();
+
+    // Already active? send to dashboard
+    if (profile?.subscription_status === "active") {
+      return (window.location.href = "/index.html");
+    }
+
+    // Show trial if not used yet
+    if (!profile?.free_trial_used) {
+      trialBtn.style.display = "block";
+    }
+  })();
+
+  // Subscribe click
   const btn = $("#btn-subscribe");
   btn.addEventListener("click", async () => {
     if (!selectedPlan) return showToast("Select a plan first.");
@@ -129,22 +139,52 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          priceId: PRICE_IDS[selectedPlan],   // e.g. "price_1S1U96…"
-          plan: selectedPlan,                 // e.g. "monthly" or "yearly"
+          priceId: PRICE_IDS[selectedPlan],
+          plan: selectedPlan,
           supabaseAccessToken: session.access_token
         })
       });
-
       const data = await r.json();
       if (!r.ok || !data?.url) {
         btn.disabled = false;
         return showToast(data?.error || "Could not start checkout. Check server logs.");
       }
-      // Go to Stripe Checkout
       window.location.href = data.url;
     } catch (e) {
       btn.disabled = false;
       showToast(e.message || "Network error starting checkout.");
+    }
+  });
+
+  // Trial click
+  trialBtn.addEventListener("click", async ()=>{
+    trialBtn.disabled = true;
+    showToast("Starting your free trial…", "ok");
+
+    const { data: { session }, error } = await supabase.auth.getSession();
+    if (error || !session) { trialBtn.disabled = false; return (window.location.href = "/login.html"); }
+
+    try {
+      const r = await fetch("/api/create-checkout-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          trial: true,
+          supabaseAccessToken: session.access_token
+        })
+      });
+      const data = await r.json();
+      if (!r.ok || !data?.url) {
+        trialBtn.disabled = false;
+        if (data?.error === "trial_already_used") {
+          return showToast("You’ve already used your free trial.", "err");
+        }
+        return showToast(data?.error || "Could not start trial. Check server logs.");
+      }
+      window.location.href = data.url;
+    } catch (e) {
+      trialBtn.disabled = false;
+      showToast(e.message || "Network error starting trial.");
     }
   });
 </script>
