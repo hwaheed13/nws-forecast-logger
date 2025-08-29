@@ -83,6 +83,10 @@
   const params = new URLSearchParams(location.search);
   if (params.get("success")) showToast("Payment succeeded. Finalizing…", "ok");
   if (params.get("canceled")) showToast("Checkout canceled.", "err");
+  const hash = new URLSearchParams(location.hash.slice(1));
+if (params.get("welcome") || hash.get("type") === "signup") {
+  showToast("Email confirmed — pick a plan to continue.", "ok");
+}
 
   // Plan selection
   let selectedPlan = null;
