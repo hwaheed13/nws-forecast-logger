@@ -10,7 +10,9 @@ export default async function handler(req, res) {
   try {
     const r = await fetch(url);
     if (!r.ok) {
-      return res.status(r.status).json({ error: `Upstream error: ${r.statusText}` });
+      return res
+        .status(r.status)
+        .json({ error: `Upstream error: ${r.statusText}` });
     }
     const html = await r.text();
     const $ = cheerio.load(html);
@@ -25,9 +27,9 @@ export default async function handler(req, res) {
       const cells = $(tr).find("td");
       if (cells.length < 9) return;
 
-      const dayStr  = $(cells[0]).text().trim();
-      const timeStr = $(cells[1]).text().trim();   // "13:51"
-      const maxStr  = $(cells[8]).text().trim();   // 6-Hr Max
+      const dayStr = $(cells[0]).text().trim();
+      const timeStr = $(cells[1]).text().trim(); // e.g. "19:51"
+      const maxStr = $(cells[8]).text().trim(); // 6-Hr Max
 
       if (!targetTimes.has(timeStr)) return;
       if (!maxStr) return;
@@ -39,14 +41,14 @@ export default async function handler(req, res) {
       if (!dt) return;
 
       if (dt >= cutoff) {
-        const [hh, mm] = timeStr.split(":").map(n => parseInt(n, 10));
+        const [hh, mm] = timeStr.split(":").map((n) => parseInt(n, 10));
         const fmtTime = formatAsETClock(hh, mm);
 
         rows.push({
           dt,
           value: tempVal,
-          time: fmtTime,   // 👈 Always “1:51 PM ET” / “7:51 PM ET”
-          source: "6hrMax"
+          time: fmtTime, // “1:51 PM ET” etc.
+          source: "6hrMax",
         });
       }
     });
@@ -55,12 +57,23 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: "No 6-Hr Max rows found" });
     }
 
+    // ✅ Sort by datetime to ensure latest is selected
+    rows.sort((a, b) => a.dt - b.dt);
+
+    // Debug log: show all parsed times for visibility
+    console.log(
+      "6HrMax rows found:",
+      rows.map((r) => `${r.time} = ${r.value}`)
+    );
+
+    // Return the most recent
     const latest = rows[rows.length - 1];
     res.json(latest);
-
   } catch (err) {
     console.error("Proxy fetch error:", err);
-    res.status(500).json({ error: "Proxy fetch error", detail: err.message });
+    res
+      .status(500)
+      .json({ error: "Proxy fetch error", detail: err.message });
   }
 }
 
@@ -72,17 +85,11 @@ function parseObsTime(dayStr, timeStr, nowRef) {
   if (isNaN(hh) || isNaN(mm)) return null;
 
   // Treat hh:mm as ET-local clock time
-  return new Date(
-    nowRef.getFullYear(),
-    nowRef.getMonth(),
-    day,
-    hh,
-    mm
-  );
+  return new Date(nowRef.getFullYear(), nowRef.getMonth(), day, hh, mm);
 }
 
 function formatAsETClock(hh, mm) {
-  const hour12 = (hh % 12) || 12;
+  const hour12 = hh % 12 || 12;
   const ampm = hh < 12 ? "AM" : "PM";
   return `${hour12}:${String(mm).padStart(2, "0")} ${ampm} ET`;
 }
