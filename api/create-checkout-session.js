@@ -2,12 +2,10 @@
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2023-10-16",
-});
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2023-10-16" });
 
 export default async function handler(req, res) {
-  // (Optional) CORS — helps if you ever call from a different origin or via preflight
+  // CORS / preflight
   if (req.method === "OPTIONS") {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -15,23 +13,14 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
   res.setHeader("Access-Control-Allow-Origin", "*");
-
-  if (req.method !== "POST") return res.status(405).end();
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   try {
-    // Be tolerant: sometimes req.body is a string
     const body = typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {});
     const { priceId: rawPriceId, plan, supabaseAccessToken } = body;
 
-    // Helpful logs while debugging (remove later)
-    console.log("BODY:", body);
-    console.log("plan:", plan, "rawPriceId:", rawPriceId ? "[present]" : null);
+    if (!supabaseAccessToken) return res.status(400).json({ error: "Missing supabaseAccessToken" });
 
-    if (!supabaseAccessToken) {
-      return res.status(400).json({ error: "Missing supabaseAccessToken" });
-    }
-
-    // Prefer explicit priceId; fall back to envs via plan
     const priceId =
       rawPriceId ||
       (plan === "monthly"
@@ -40,25 +29,21 @@ export default async function handler(req, res) {
         ? process.env.PRICE_ID_YEARLY
         : null);
 
-    if (!priceId) {
-      console.error("Resolved priceId is empty. plan:", plan, "rawPriceId:", rawPriceId);
-      return res.status(400).json({ error: "Missing or invalid plan/priceId" });
-    }
+    if (!priceId) return res.status(400).json({ error: "Missing or invalid plan/priceId" });
 
-    // User-scoped supabase client (auth)
+    // User-scoped Supabase (verifies the caller)
     const supabaseUser = createClient(
       process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL,
       process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
       { global: { headers: { Authorization: `Bearer ${supabaseAccessToken}` } } }
     );
-
     const {
       data: { user },
       error: userErr,
     } = await supabaseUser.auth.getUser();
     if (userErr || !user) return res.status(401).json({ error: "Not authenticated" });
 
-    // Admin supabase (service role — server only!)
+    // Admin Supabase (service role)
     const supabaseAdmin = createClient(
       process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL,
       process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -80,11 +65,12 @@ export default async function handler(req, res) {
       });
       customerId = customer.id;
 
-      await supabaseAdmin.from("profiles").upsert({
-        id: user.id,
-        email: user.email ?? profile?.email ?? null,
-        stripe_customer_id: customerId,
-      });
+      await supabaseAdmin
+        .from("profiles")
+        .upsert(
+          { id: user.id, email: user.email ?? profile?.email ?? null, stripe_customer_id: customerId },
+          { onConflict: "id" }
+        );
     }
 
     const session = await stripe.checkout.sessions.create({
@@ -92,8 +78,8 @@ export default async function handler(req, res) {
       customer: customerId,
       line_items: [{ price: priceId, quantity: 1 }],
       allow_promotion_codes: true,
-      success_url: `${process.env.DASHBOARD_URL}?checkout=success`,
-      cancel_url: `${process.env.SUBSCRIBE_URL}?checkout=cancel`,
+      success_url: "https://waheedweather.dewdropventures.com/subscribe.html?success=1",
+      cancel_url: "https://waheedweather.dewdropventures.com/subscribe.html?canceled=1",
       metadata: { supabase_user_id: user.id, plan: plan || "by_price_id" },
     });
 
