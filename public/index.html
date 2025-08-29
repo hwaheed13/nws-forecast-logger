@@ -136,7 +136,7 @@
     details.table-wrap summary{ background:var(--bg-accent); border-bottom:1px solid var(--border-subtle); list-style:none; cursor:pointer; padding:16px 18px; font-weight:800; display:flex; align-items:center; justify-content:space-between }
     details.table-wrap summary::-webkit-details-marker{display:none}
     .caret{transition:transform .2s ease}
-    details[open] .caret{transform:rotate(90deg)}
+    details[open] summary .caret{transform:rotate(90deg)}
 
     .skel td::before{content:""; display:block; height:12px; margin:4px 0; width:70%; background:linear-gradient(90deg,var(--bg-accent),var(--bg-tertiary),var(--bg-accent)); background-size:200% 100%; animation:shimmer 1.5s infinite; border-radius:4px}
     @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
@@ -251,6 +251,30 @@
     line-height: 1.35;   /* tighter spacing so it doesn’t look bulky */
   }
 }
+/* Month group header row */
+#dataTable tr.month-row {
+  background: var(--bg-tertiary);
+  border-top: 2px solid var(--border-default);
+  cursor: pointer;
+}
+#dataTable tr.month-row td {
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  padding: 10px 10px;
+}
+#dataTable tr.month-row .caret {
+  display: inline-block;
+  transition: transform .18s ease;
+  margin-right: 6px;
+}
+#dataTable tr.month-row.collapsed .caret { transform: rotate(-90deg); }
+
+/* Hidden rows inside a collapsed month */
+#dataTable tr[data-month].is-hidden { display: none; }
+
   </style>
 </head>
 <body>
@@ -621,6 +645,16 @@ function parseDSM(text){
   }).format(when);
 
   return { tempF, timeET: fmtET, iso: isoLocal, dayISO, raw: block };
+}
+
+function monthKeyFromISO(iso /* 'YYYY-MM-DD' */){
+  const [y,m] = iso.split('-');
+  return `${y}-${m}`;
+}
+function monthLabelFromKey(key /* 'YYYY-MM' */){
+  const [y,m] = key.split('-').map(Number);
+  const d = new Date(y, m-1, 1);
+  return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(d);
 }
     async function updateDSM(){
       const el = document.getElementById("box-dsm-max");
@@ -1049,102 +1083,151 @@ async function updateSixHourMax() {
       });
     }
 
-    async function displayTable(){
-      const tb=document.querySelector("#dataTable tbody"); if(!tb) return;
-      tb.innerHTML="";
+async function displayTable(){
+  const tb = document.querySelector("#dataTable tbody");
+  if(!tb) return;
+  tb.innerHTML = "";
 
-      const dayMap={};
-      filteredRows.forEach(r=>{
-        const date=r.forecast_or_actual==="actual"?r.cli_date:r.target_date;
-        if(!date) return; (dayMap[date]??=[]).push(r);
+  // group all rows by 'day' (like before)
+  const dayMap = {};
+  filteredRows.forEach(r=>{
+    const date = (r.forecast_or_actual==="actual" ? r.cli_date : r.target_date);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(date||"")) return;
+    (dayMap[date] ??= []).push(r);
+  });
+
+  // sort dates and then group into months
+  const dates = Object.keys(dayMap).sort();
+  const months = {};
+  dates.forEach(d=>{
+    const mk = monthKeyFromISO(d);
+    (months[mk] ??= []).push(d);
+  });
+
+  // prefetch Kalshi once per date (like before)
+  const kalshiByDate = {};
+  await Promise.all(dates.map(async d=>{
+    try{ kalshiByDate[d] = await getKalshiLabel(d); }catch{ kalshiByDate[d]=null; }
+  }));
+
+  // render each month as a collapsible section (default collapsed)
+  const todayISO = nycISODate(0);
+  const yISO     = nycISODate(-1);
+
+  Object.keys(months).sort().forEach(mk=>{
+    const label = monthLabelFromKey(mk);
+
+    // Month header row (clickable)
+    const hdr = document.createElement("tr");
+    hdr.className = "month-row collapsed";
+    hdr.dataset.month = mk;
+    hdr.innerHTML = `<td colspan="9"><span class="caret">▸</span>${label}</td>`;
+    tb.appendChild(hdr);
+
+    // Render this month's daily rows (hidden by default)
+    months[mk].forEach(date=>{
+      const rows = dayMap[date];
+      const forecasts = rows.filter(r=>r.forecast_or_actual==="forecast");
+      const actual    = rows.find(r=>r.forecast_or_actual==="actual") || null;
+
+      // sort forecasts chronologically
+      forecasts.sort((a,b)=>{
+        const A=(a.timestamp||a.forecast_time||"");
+        const B=(b.timestamp||b.forecast_time||"");
+        return A.localeCompare(B);
       });
 
-      const dates=Object.keys(dayMap).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
-
-      const kalshiByDate={};
-      await Promise.all(dates.map(async d=>{
-        try{ kalshiByDate[d]=await getKalshiLabel(d); }catch{ kalshiByDate[d]=null; }
-      }));
-
-      dates.forEach(date=>{
-        const rows=dayMap[date];
-        const forecasts = rows.filter(r=>r.forecast_or_actual==="forecast");
-        const actual    = rows.find(r=>r.forecast_or_actual==="actual") || null;
-
-        forecasts.sort((a,b)=>{
-          const A=(a.timestamp||a.forecast_time||"");
-          const B=(b.timestamp||b.forecast_time||"");
-          return A.localeCompare(B);
-        });
-
-        let bestIdx=-1, bestErr=Infinity;
-        const actualHigh = actual && actual.actual_high ? Number(actual.actual_high) : null;
-        const highTime   = actual && actual.high_time ? actual.high_time : "";
-
-        forecasts.forEach((r,i)=>{
-          if(!r.predicted_high || actualHigh==null) return;
-          if(highTime){
-            const fcHH=(r.forecast_time||"").substr(11,5);
-            if(fcHH && compareTimes(fcHH,highTime)>0) return;
-          }
-          const err=Math.abs(Number(r.predicted_high)-actualHigh);
-          if(err<bestErr){ bestErr=err; bestIdx=i; }
-        });
-
-        forecasts.forEach((r,i)=>{
-          const cls="forecast-row"+(i===bestIdx?" best":"");
-          const pulled=r.timestamp||r.date_pulled||"";
-          const fcTime=(r.forecast_time||"").substr(11,5);
-          const pred=r.predicted_high? `${r.predicted_high}°F`:"";
-          const actTxt = actual && actual.actual_high ? `${actual.actual_high}°F` : "";
-          const errTxt = (r.predicted_high && actualHigh!=null) ? (Math.abs(Number(r.predicted_high)-actualHigh)).toFixed(1) : "";
-          tb.insertAdjacentHTML("beforeend", `
-            <tr class="${cls}">
-              <td>${pulled}</td>
-              <td>${fcTime}</td>
-              <td>${date}</td>
-              <td>${pred}</td>
-              <td>${actTxt}</td>
-              <td>${highTime||""}</td>
-              <td>${errTxt}</td>
-              <td>${i===bestIdx?"✅":""}</td>
-              <td></td>
-            </tr>
-          `);
-        });
-
-        if(actual){
-          const pulled=actual.timestamp||actual.date_pulled||"";
-          const actTxt=actual.actual_high? `${actual.actual_high}°F`:"";
-          const k=kalshiByDate[date];
-          const label=k && k.label ? k.label : "";
-          const exact=(k && k.exactTemp!=null) ? ` (${k.exactTemp.toFixed(1)}°F)` : "";
-          const yISO=nycISODate(-1);
-          let kalshiCell="—";
-          if(date===yISO){
-            kalshiCell = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}${kalshiAnchorForISO(yISO)}" target="_blank" rel="noopener noreferrer">${label||"Open market"}${exact}</a>`;
-          }else if(date===nycISODate(0)){
-            kalshiCell = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${label||"Open market"}</a>`;
-          }else if(label){
-            kalshiCell = `<span class="kalshi-badge">${label}${exact}</span>`;
-          }
-
-          tb.insertAdjacentHTML("beforeend", `
-            <tr class="actual-row">
-              <td>${pulled}</td>
-              <td></td>
-              <td>${date}</td>
-              <td></td>
-              <td>${actTxt}</td>
-              <td>${actual.high_time||""}</td>
-              <td></td>
-              <td></td>
-              <td>${kalshiCell}</td>
-            </tr>
-          `);
+      // find "best" forecast vs actual (like you did before)
+      let bestIdx=-1, bestErr=Infinity;
+      const actualHigh = actual && actual.actual_high ? Number(actual.actual_high) : null;
+      const highTime   = actual && actual.high_time ? actual.high_time : "";
+      forecasts.forEach((r,i)=>{
+        if(!r.predicted_high || actualHigh==null) return;
+        if(highTime){
+          const fcHH=(r.forecast_time||"").substr(11,5);
+          if(fcHH && compareTimes(fcHH,highTime)>0) return;
         }
+        const err = Math.abs(Number(r.predicted_high)-actualHigh);
+        if(err<bestErr){ bestErr=err; bestIdx=i; }
       });
-    }
+
+      // add forecast rows
+      forecasts.forEach((r,i)=>{
+        const cls = "forecast-row"+(i===bestIdx?" best":"");
+        const pulled = r.timestamp||r.date_pulled||"";
+        const fcTime = (r.forecast_time||"").substr(11,5);
+        const pred   = r.predicted_high? `${r.predicted_high}°F` : "";
+        const actTxt = (actual && actual.actual_high)? `${actual.actual_high}°F` : "";
+        const errTxt = (r.predicted_high && actualHigh!=null)
+          ? (Math.abs(Number(r.predicted_high)-actualHigh)).toFixed(1)
+          : "";
+
+        const tr = document.createElement("tr");
+        tr.className = cls + " is-hidden";
+        tr.dataset.month = mk;
+        tr.innerHTML = `
+          <td>${pulled}</td>
+          <td>${fcTime}</td>
+          <td>${date}</td>
+          <td>${pred}</td>
+          <td>${actTxt}</td>
+          <td>${highTime||""}</td>
+          <td>${errTxt}</td>
+          <td>${i===bestIdx?"✅":""}</td>
+          <td></td>
+        `;
+        tb.appendChild(tr);
+      });
+
+      // add actual row (once per day)
+      if(actual){
+        const pulled = actual.timestamp||actual.date_pulled||"";
+        const actTxt = actual.actual_high ? `${actual.actual_high}°F` : "";
+        const k = kalshiByDate[date];
+        const label = k && k.label ? k.label : "";
+        const exact = (k && k.exactTemp!=null) ? ` (${k.exactTemp.toFixed(1)}°F)` : "";
+
+        let kalshiCell="—";
+        if(date===yISO){
+          kalshiCell = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}${kalshiAnchorForISO(yISO)}" target="_blank" rel="noopener noreferrer">${label||"Open market"}${exact}</a>`;
+        }else if(date===todayISO){
+          kalshiCell = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${label||"Open market"}</a>`;
+        }else if(label){
+          kalshiCell = `<span class="kalshi-badge">${label}${exact}</span>`;
+        }
+
+        const tr = document.createElement("tr");
+        tr.className = "actual-row is-hidden";
+        tr.dataset.month = mk;
+        tr.innerHTML = `
+          <td>${pulled}</td>
+          <td></td>
+          <td>${date}</td>
+          <td></td>
+          <td>${actTxt}</td>
+          <td>${actual.high_time||""}</td>
+          <td></td>
+          <td></td>
+          <td>${kalshiCell}</td>
+        `;
+        tb.appendChild(tr);
+      }
+    });
+  });
+
+  // Click-to-toggle (set once per render; replaces old handler)
+  tb.onclick = (e) => {
+    const tr = e.target.closest("tr.month-row");
+    if(!tr) return;
+    const mk = tr.dataset.month;
+    const collapsed = tr.classList.toggle("collapsed");
+    tb.querySelectorAll(`tr[data-month="${mk}"]`)
+      .forEach(r => r.classList.toggle("is-hidden", collapsed));
+  };
+
+  // Start fully collapsed (done by adding 'is-hidden' above)
+} // <-- closes displayTable() exactly once
+
 
     function resetFilter(){
       filteredRows=allRows.slice();
