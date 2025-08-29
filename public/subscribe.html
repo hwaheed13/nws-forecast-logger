@@ -49,7 +49,7 @@
 
     <button id="btn-subscribe">Subscribe</button>
     <!-- Trial button lives in DOM; we toggle visibility in JS -->
-    <button id="btn-trial" style="display:none">Try free for 3 days</button>
+    <button id="btn-trial" style="display:none;margin-top:10px;">Try free for 3 days</button>
 
     <div class="top-links">
       <a href="/index.html">Back to dashboard</a>
@@ -119,8 +119,8 @@ if (params.get("welcome") || hash.get("type") === "signup") {
     }
 
     // Show trial button only if NOT active and NOT used before
-    if (!profile?.free_trial_used) {
-      $("#btn-trial").style.display = "";
+    if (!profile?.free_trial_used && profile?.subscription_status !== "active") {
+      document.getElementById("btn-trial").style.display = "block";
     }
   })();
 
