@@ -122,20 +122,17 @@
   }
 
   // If already signed in, route based on profile
-  (async ()=>{
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return;
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("subscription_status")
-      .eq("id", session.user.id)
-      .single();
-
-    window.location.href = (profile?.subscription_status === "active")
-      ? "/index.html"
-      : "/subscribe.html";
-  })();
+(async ()=>{
+   const { data: { session }, error: sessErr } = await supabase.auth.getSession();
+   if (sessErr || !session) return; // stay on login
+   const { data: profile, error: profErr } = await supabase
+     .from("profiles")
+     .select("subscription_status")
+    .eq("id", session.user.id)
+    .single();
+   if (profErr) return (window.location.href = "/subscribe.html");
+  window.location.href = (profile?.subscription_status === "active") ? "/index.html" : "/subscribe.html";
+ })();
 
   // Login
   formLogin.addEventListener("submit", async (e)=>{
@@ -177,12 +174,10 @@
     e.preventDefault();
     const email = $("#login-email").value.trim();
     if (!isValidEmail(email)) return alert("Enter your email first.");
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-     // in login.html, inside supabase.auth.signUp(...)
-  options: {
-  emailRedirectTo: "https://waheedweather.dewdropventures.com/subscribe.html"
-  }
+   const { error } = await supabase.auth.signInWithOtp({
+   email,
+  options: { emailRedirectTo: "https://waheedweather.dewdropventures.com/subscribe.html?welcome=1" }
+   });
 
     });
     if (error) return alert(error.message);
@@ -207,7 +202,7 @@
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: "https://waheedweather.dewdropventures.com/login.html" }
+      options: { emailRedirectTo: "https://waheedweather.dewdropventures.com/subscribe.html?welcome=1" }
     });
 
     if (error) {
@@ -238,6 +233,10 @@
 
     $("#signup-ok").textContent = "Check your inbox to confirm your email!";
     $("#signup-ok").style.display = "block";
+  });
+  <script>
+  window.addEventListener("error", (e)=>{
+    console.error("Runtime error:", e.error || e.message);
   });
 </script>
 </body>
