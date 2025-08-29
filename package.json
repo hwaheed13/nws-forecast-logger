@@ -1,24 +1,19 @@
 {
   "name": "nws-forecast-logger",
   "version": "1.0.0",
+  "private": true,
   "type": "module",
-  "description": "",
-  "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "vercel dev",
+    "build": "echo \"static site\"",
+    "start": "vercel dev"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/hwaheed13/nws-forecast-logger.git"
+  "engines": {
+    "node": ">=18"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/hwaheed13/nws-forecast-logger/issues"
-  },
-  "homepage": "https://github.com/hwaheed13/nws-forecast-logger#readme",
   "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "stripe": "^14.25.0",
     "cheerio": "^1.1.2"
   }
 }
