@@ -16,21 +16,23 @@ export default async function handler(req, res) {
     const $ = cheerio.load(html);
 
     const now = new Date();
-    const cutoff = new Date(now.getTime() - 12 * 60 * 60 * 1000); // last 12 hours
-
+    const todayDay = now.getDate();
     const targetTimes = new Set(["01:51", "07:51", "13:51", "19:51"]);
-    const rows = [];
+    const results = [];
 
     $("table tr").each((i, tr) => {
       const cells = $(tr).find("td");
       if (cells.length < 9) return;
 
       const dayStr  = $(cells[0]).text().trim();
-      const timeStr = $(cells[1]).text().trim();   // "13:51"
-      const maxStr  = $(cells[8]).text().trim();   // 6-Hr Max
+      const timeStr = $(cells[1]).text().trim();
+      const maxStr  = $(cells[8]).text().trim();
 
       if (!targetTimes.has(timeStr)) return;
       if (!maxStr) return;
+
+      const day = parseInt(dayStr, 10);
+      if (day !== todayDay) return; // only today’s 6hr maxes
 
       const tempVal = parseFloat(maxStr);
       if (isNaN(tempVal)) return;
@@ -38,25 +40,29 @@ export default async function handler(req, res) {
       const dt = parseObsTime(dayStr, timeStr, now);
       if (!dt) return;
 
-      if (dt >= cutoff) {
-        const [hh, mm] = timeStr.split(":").map(n => parseInt(n, 10));
-        const fmtTime = formatAsETClock(hh, mm);
+      const [hh, mm] = timeStr.split(":").map(n => parseInt(n, 10));
+      const fmtTime = formatAsETClock(hh, mm);
 
-        rows.push({
-          dt,
-          value: tempVal,
-          time: fmtTime,   // 👈 Always “1:51 PM ET” / “7:51 PM ET”
-          source: "6hrMax"
-        });
-      }
+      results.push({
+        dt,
+        value: tempVal,
+        time: fmtTime,
+        source: "6hrMax"
+      });
     });
 
-    if (!rows.length) {
-      return res.status(404).json({ error: "No 6-Hr Max rows found" });
+    if (!results.length) {
+      return res.status(404).json({ error: "No 6-Hr Max rows found for today" });
     }
 
-    const latest = rows[rows.length - 1];
-    res.json(latest);
+    // Return them sorted chronologically
+    results.sort((a, b) => a.dt - b.dt);
+
+    res.json({
+      station,
+      count: results.length,
+      values: results   // 👈 now you get ALL 6-hr maxes today
+    });
 
   } catch (err) {
     console.error("Proxy fetch error:", err);
@@ -71,7 +77,6 @@ function parseObsTime(dayStr, timeStr, nowRef) {
   const [hh, mm] = timeStr.split(":").map((x) => parseInt(x, 10));
   if (isNaN(hh) || isNaN(mm)) return null;
 
-  // Treat hh:mm as ET-local clock time
   return new Date(
     nowRef.getFullYear(),
     nowRef.getMonth(),
