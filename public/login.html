@@ -32,6 +32,11 @@
     .tab.active { color:#2563eb; border-color:#2563eb; }
     .hidden { display:none; }
 
+    /* Toast */
+    .toast { margin-top:12px; font-size:13px; padding:10px 12px; border-radius:8px; border:1px solid #cbd5e1; color:#334155; background:#f1f5f9; display:none }
+    .toast.ok { border-color:#a7f3d0; color:#065f46; background:#ecfdf5; display:block }
+    .toast.err{ border-color:#fecaca; color:#7f1d1d; background:#fef2f2; display:block }
+
     @keyframes fadeIn { from{opacity:0; transform:translateY(8px)} to{opacity:1; transform:translateY(0)} }
   </style>
 </head>
@@ -57,54 +62,159 @@
       <button type="submit">Create account</button>
     </form>
 
+    <div id="toast" class="toast"></div>
     <div class="note">Access is for subscribers only.</div>
   </div>
 
 <script type="module">
   import { createClient } from "https://esm.sh/@supabase/supabase-js";
+
+  // Supabase client (public anon)
   const supabase = createClient(
-   "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
+    "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
   );
 
-  // Tab toggle
-  const tabLogin=document.getElementById("tab-login"),
-        tabSignup=document.getElementById("tab-signup"),
-        formLogin=document.getElementById("form-login"),
-        formSignup=document.getElementById("form-signup");
+  const emailRedirectTo = "https://waheedweather.dewdropventures.com/login.html";
 
-  tabLogin.onclick=()=>{ tabLogin.classList.add("active"); tabSignup.classList.remove("active"); formLogin.classList.remove("hidden"); formSignup.classList.add("hidden"); }
-  tabSignup.onclick=()=>{ tabSignup.classList.add("active"); tabLogin.classList.remove("active"); formSignup.classList.remove("hidden"); formLogin.classList.add("hidden"); }
+  // UI helpers
+  const $ = (s,p=document)=>p.querySelector(s);
+  const toast = $("#toast");
+  function showToast(msg, kind="err"){ toast.textContent = msg; toast.className = "toast "+kind; }
+
+  // Tabs
+  const tabLogin   = $("#tab-login");
+  const tabSignup  = $("#tab-signup");
+  const formLogin  = $("#form-login");
+  const formSignup = $("#form-signup");
+
+  tabLogin.onclick = () => {
+    tabLogin.classList.add("active");
+    tabSignup.classList.remove("active");
+    formLogin.classList.remove("hidden");
+    formSignup.classList.add("hidden");
+    showToast("", ""); toast.style.display="none";
+  };
+
+  tabSignup.onclick = () => {
+    tabSignup.classList.add("active");
+    tabLogin.classList.remove("active");
+    formSignup.classList.remove("hidden");
+    formLogin.classList.add("hidden");
+    showToast("", ""); toast.style.display="none";
+  };
+
+  // If already logged in, route appropriately
+  (async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("subscription_status")
+      .eq("id", session.user.id)
+      .single();
+    if (profile?.subscription_status === "active") {
+      window.location.href = "/index.html";
+    } else {
+      window.location.href = "/subscribe.html";
+    }
+  })();
 
   // Login
   formLogin.addEventListener("submit", async (e)=>{
     e.preventDefault();
-    const email=document.getElementById("login-email").value;
-    const password=document.getElementById("login-password").value;
-    let { error } = await supabase.auth.signInWithPassword({ email, password });
-    if(error) return alert(error.message);
+    showToast("", ""); toast.style.display="none";
 
-    const { data: profile } = await supabase.from("profiles").select("subscription_status").eq("id", (await supabase.auth.getUser()).data.user.id).single();
-    window.location.href = (profile && profile.subscription_status==="active") ? "/index.html" : "/subscribe.html";
+    const email = $("#login-email").value.trim();
+    const password = $("#login-password").value;
+
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      showToast(error.message, "err");
+      return;
+    }
+
+    // Route based on subscription status
+    const { data: userRes } = await supabase.auth.getUser();
+    const userId = userRes?.user?.id;
+    if (!userId) return (window.location.href = "/subscribe.html");
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("subscription_status")
+      .eq("id", userId)
+      .single();
+
+    window.location.href = (profile && profile.subscription_status === "active")
+      ? "/index.html"
+      : "/subscribe.html";
   });
 
-  // Signup
+  // Signup (duplicate-safe with resend)
   formSignup.addEventListener("submit", async (e)=>{
     e.preventDefault();
-    const email=document.getElementById("signup-email").value;
-    const password=document.getElementById("signup-password").value;
+    showToast("", ""); toast.style.display="none";
 
-const { error } = await supabase.auth.signUp({
-  email,
-  password,
-  options: {
-    emailRedirectTo: "https://waheedweather.dewdropventures.com/login.html"
-  }
-});
+    const email    = $("#signup-email").value.trim();
+    const password = $("#signup-password").value;
 
-    if(error) return alert(error.message);
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo }
+    });
 
-    alert("Check your inbox to confirm your email!");
+    // Explicit duplicate error from API
+    if (error) {
+      const msg = (error.message || "").toLowerCase();
+      const looksDuplicate =
+        msg.includes("already") || msg.includes("registered") || msg.includes("exists");
+
+      if (looksDuplicate) {
+        // Offer to resend verification
+        const doResend = confirm(
+          "That email is already registered.\n\n" +
+          "• If you haven't confirmed yet, we can resend the verification link.\n" +
+          "• If you already confirmed, switch to Login.\n\nResend verification email now?"
+        );
+        if (doResend) {
+          await supabase.auth.resend({
+            type: "signup",
+            email,
+            options: { emailRedirectTo }
+          });
+          showToast("If the account is unverified, we sent a fresh confirmation email.", "ok");
+        }
+        return;
+      }
+
+      showToast(error.message, "err");
+      return;
+    }
+
+    // Supabase quirk: user exists → identities = []
+    const alreadyRegistered =
+      !!data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0;
+
+    if (alreadyRegistered) {
+      const doResend = confirm(
+        "That email is already registered.\n\nResend the verification email now?"
+      );
+      if (doResend) {
+        await supabase.auth.resend({
+          type: "signup",
+          email,
+          options: { emailRedirectTo }
+        });
+        showToast("If the account is unverified, we sent a fresh confirmation email.", "ok");
+      } else {
+        showToast("Great — switch to the Login tab to sign in.", "ok");
+      }
+      return;
+    }
+
+    // Brand new user
+    showToast("Check your inbox to confirm your email!", "ok");
   });
 </script>
 </body>
