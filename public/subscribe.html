@@ -59,44 +59,65 @@
 <script type="module">
   import { createClient } from "https://esm.sh/@supabase/supabase-js";
 
-  // ── Supabase (use your project URL + anon key) ────────────────────────────────
   const supabase = createClient(
-  "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
+    "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
-    // If you prefer env injection:
-    // window.ENV_SUPABASE_URL, window.ENV_SUPABASE_ANON
   );
 
-  // ── Stripe Prices (your real IDs) ────────────────────────────────────────────
   const PRICE_IDS = {
-    monthly: "price_1S1U96JZv8wNnhLtlNWL0gqK", // $3/month
-    yearly:  "price_1S1U7hJZv8wNnhLtRLRLoVf3"  // $30/year
+    monthly: "price_1S1U96JZv8wNnhLtlNWL0gqK",
+    yearly:  "price_1S1U7hJZv8wNnhLtRLRLoVf3"
   };
 
-  // ── Tiny helpers ─────────────────────────────────────────────────────────────
-  const $ = (s, p=document)=>p.querySelector(s);
-  const $$ = (s, p=document)=>Array.from(p.querySelectorAll(s));
+  const $ = (s,p=document)=>p.querySelector(s);
+  const $$ = (s,p=document)=>Array.from(p.querySelectorAll(s));
   const toast = $("#toast");
-  function showToast(msg, kind="err"){ toast.textContent = msg; toast.className = "alert " + kind; }
-
-  // If returned from Checkout (?success or ?canceled) show a small message
   const params = new URLSearchParams(location.search);
+  const ALLOW = new Set(["active","trialing"]);
+
+  function showToast(msg, kind="err"){
+    toast.textContent = msg;
+    toast.className = "alert " + kind;
+  }
+
+  // Show basic messages if coming back from Stripe
   if (params.get("success")) showToast("Payment succeeded. Finalizing…", "ok");
   if (params.get("canceled")) showToast("Checkout canceled.", "err");
 
-  // ── Guard: must be logged in; if already active, go to dashboard ─────────────
-  (async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return (window.location.href = "/login.html");
-
+  async function routeIfActive(userId){
     const { data: profile } = await supabase
       .from("profiles")
       .select("subscription_status")
-      .eq("id", session.user.id)
-      .single();
-
-    if (profile && profile.subscription_status === "active") {
+      .eq("id", userId)
+      .maybeSingle();
+    const status = profile?.subscription_status ?? "inactive";
+    if (ALLOW.has(status)) {
       window.location.href = "/index.html";
+      return true;
+    }
+    return false;
+  }
+
+  // Gate the page: must be logged in; if active/trialing, bounce to dashboard.
+  (async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user?.id) { window.location.href = "/login.html"; return; }
+
+    // If coming back from Stripe success, poll briefly for webhook to land.
+    if (params.get("success")) {
+      // small retry loop (about ~6s total)
+      for (let i = 0; i < 8; i++) {
+        await supabase.auth.refreshSession();
+        const done = await routeIfActive(session.user.id);
+        if (done) return;
+        await new Promise(r => setTimeout(r, 750));
+      }
+      // If still not active, we’ll fall through and show plans.
+      showToast("Almost there—your payment is processing. If this doesn’t update soon, refresh.", "ok");
+    } else {
+      // Normal load: immediately route if already active/trialing
+      const done = await routeIfActive(session.user.id);
+      if (done) return;
     }
   })();
 
@@ -115,23 +136,25 @@
     });
   });
 
-  // ── Subscribe button → call your API and redirect to Stripe ──────────────────
+  // ── Subscribe button → create Stripe Checkout session ────────────────────────
   const btn = $("#btn-subscribe");
   btn.addEventListener("click", async () => {
     if (!selectedPlan) return showToast("Select a plan first.");
     btn.disabled = true; showToast("Creating checkout session…", "ok");
 
     const { data: { session }, error } = await supabase.auth.getSession();
-    if (error || !session) { btn.disabled = false; return (window.location.href = "/login.html"); }
+    if (error || !session) { btn.disabled = false; window.location.href = "/login.html"; return; }
 
     try {
       const r = await fetch("/api/create-checkout-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          priceId: PRICE_IDS[selectedPlan],   // e.g. "price_1S1U96…"
-          plan: selectedPlan,                 // e.g. "monthly" or "yearly"
-          supabaseAccessToken: session.access_token
+          priceId: PRICE_IDS[selectedPlan],
+          plan: selectedPlan,
+          supabaseAccessToken: session.access_token,
+          // Make sure your server uses this as success_url:
+          // e.g., `${origin}/subscribe.html?success=1`
         })
       });
 
@@ -140,8 +163,7 @@
         btn.disabled = false;
         return showToast(data?.error || "Could not start checkout. Check server logs.");
       }
-      // Go to Stripe Checkout
-      window.location.href = data.url;
+      window.location.href = data.url; // Stripe Checkout
     } catch (e) {
       btn.disabled = false;
       showToast(e.message || "Network error starting checkout.");
