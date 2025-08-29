@@ -74,16 +74,14 @@
 <script type="module">
   import { createClient } from "https://esm.sh/@supabase/supabase-js";
 
-  // Keep sessions persistent; DO NOT store passwords.
   const supabase = createClient(
     "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw",
     { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }
   );
 
-  // Quick DOM helpers
+  // DOM helpers
   const $  = (s,p=document)=>p.querySelector(s);
-  const $$ = (s,p=document)=>Array.from(p.querySelectorAll(s));
 
   // Tabs
   const tabLogin  = $("#tab-login");
@@ -94,86 +92,82 @@
   tabSignup.onclick= ()=>{ tabSignup.classList.add("active"); tabLogin.classList.remove("active"); formSignup.classList.remove("hidden"); formLogin.classList.add("hidden"); };
 
   // Show/hide password
-  $("#show-login-pw").addEventListener("change", (e)=>{
+  $("#show-login-pw")?.addEventListener("change", (e)=>{
     $("#login-password").type = e.target.checked ? "text" : "password";
   });
-  $("#show-signup-pw").addEventListener("change", (e)=>{
+  $("#show-signup-pw")?.addEventListener("change", (e)=>{
     $("#signup-password").type = e.target.checked ? "text" : "password";
   });
 
-  // Remember me (email only). Keeping users signed in is handled by Supabase.
+  // Remember email (optional)
   (function hydrateRemembered(){
     const remembered = localStorage.getItem("remember_email");
     if (remembered) $("#login-email").value = remembered;
-    $("#remember-me").checked = !!remembered;
+    const cb = $("#remember-me"); if (cb) cb.checked = !!remembered;
   })();
-
   function rememberEmailMaybe(email){
-    if ($("#remember-me").checked) {
-      localStorage.setItem("remember_email", email);
-    } else {
-      localStorage.removeItem("remember_email");
-    }
+    const cb = $("#remember-me");
+    if (cb?.checked) localStorage.setItem("remember_email", email);
+    else localStorage.removeItem("remember_email");
   }
 
-  // Basic email validation (in addition to type="email")
-  function isValidEmail(e){
-    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(e).trim());
-  }
+  const isValidEmail = (e)=>/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(e).trim());
+  const ALLOW = new Set(["active","trialing"]);
 
-  // If already signed in, route based on profile
-  (async ()=>{
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return;
-
-    const { data: profile } = await supabase
+  async function routeByProfile(userId){
+    // Safe profile fetch with fallback
+    const { data: profile, error } = await supabase
       .from("profiles")
       .select("subscription_status")
-      .eq("id", session.user.id)
-      .single();
+      .eq("id", userId)
+      .maybeSingle();
 
-    window.location.href = (profile?.subscription_status === "active")
-      ? "/index.html"
-      : "/subscribe.html";
+    // If row missing or error, treat as inactive
+    const status = profile?.subscription_status ?? "inactive";
+    window.location.href = ALLOW.has(status) ? "/index.html" : "/subscribe.html";
+  }
+
+  // If already signed in, route immediately
+  (async ()=>{
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user?.id) return;
+    await routeByProfile(session.user.id);
   })();
 
   // Login
   formLogin.addEventListener("submit", async (e)=>{
     e.preventDefault();
-    $("#login-error").style.display = "none";
+    const errBox = $("#login-error");
+    errBox.style.display = "none";
 
     const email = $("#login-email").value.trim();
     const password = $("#login-password").value;
-
     if (!isValidEmail(email)) {
-      $("#login-error").textContent = "Please enter a valid email address.";
-      $("#login-error").style.display = "block";
+      errBox.textContent = "Please enter a valid email address.";
+      errBox.style.display = "block";
       return;
     }
 
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
-      $("#login-error").textContent = error.message;
-      $("#login-error").style.display = "block";
+      errBox.textContent = error.message;
+      errBox.style.display = "block";
       return;
     }
 
     rememberEmailMaybe(email);
 
-    const { data: { user }} = await supabase.auth.getUser();
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("subscription_status")
-      .eq("id", user.id)
-      .single();
-
-    window.location.href = (profile?.subscription_status === "active")
-      ? "/index.html"
-      : "/subscribe.html";
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user?.id) {
+      errBox.textContent = "Sign-in succeeded, but no user session was returned.";
+      errBox.style.display = "block";
+      return;
+    }
+    await routeByProfile(user.id);
   });
 
-  // Magic link helper (if they forgot password)
-  $("#forgot-link").addEventListener("click", async (e)=>{
+  // Magic link
+  $("#forgot-link")?.addEventListener("click", async (e)=>{
     e.preventDefault();
     const email = $("#login-email").value.trim();
     if (!isValidEmail(email)) return alert("Enter your email first.");
@@ -185,55 +179,50 @@
     alert("Check your inbox for a magic link.");
   });
 
-  // Signup (handle already-registered + resend verification)
+  // Signup (handles “already registered” -> resend)
   formSignup.addEventListener("submit", async (e)=>{
     e.preventDefault();
-    $("#signup-error").style.display = "none";
-    $("#signup-ok").style.display = "none";
+    const okBox = $("#signup-ok");
+    const errBox = $("#signup-error");
+    okBox.style.display = "none";
+    errBox.style.display = "none";
 
     const email = $("#signup-email").value.trim();
     const password = $("#signup-password").value;
-
     if (!isValidEmail(email)) {
-      $("#signup-error").textContent = "Please enter a valid email address.";
-      $("#signup-error").style.display = "block";
+      errBox.textContent = "Please enter a valid email address.";
+      errBox.style.display = "block";
       return;
     }
 
-    const { data, error } = await supabase.auth.signUp({
+    const { error } = await supabase.auth.signUp({
       email,
       password,
       options: { emailRedirectTo: "https://waheedweather.dewdropventures.com/login.html" }
     });
 
     if (error) {
-      // Supabase typically returns "User already registered" for duplicates
       const msg = (error.message || "").toLowerCase();
       if (msg.includes("already registered") || msg.includes("already exists")) {
-        // Offer resend verification instead of creating again
-        const wantResend = confirm("You're already registered. Resend verification email?");
-        if (wantResend) {
-          const { error: resendErr } = await supabase.auth.resend({
-            type: "signup",
-            email
-          });
+        if (confirm("You're already registered. Resend verification email?")) {
+          const { error: resendErr } = await supabase.auth.resend({ type: "signup", email });
           if (resendErr) {
-            $("#signup-error").textContent = resendErr.message;
-            $("#signup-error").style.display = "block";
+            errBox.textContent = resendErr.message;
+            errBox.style.display = "block";
           } else {
-            $("#signup-ok").textContent = "Verification email resent. Check your inbox.";
-            $("#signup-ok").style.display = "block";
+            okBox.textContent = "Verification email resent. Check your inbox.";
+            okBox.style.display = "block";
           }
         }
         return;
       }
-      $("#signup-error").textContent = error.message;
-      $("#signup-error").style.display = "block";
+      errBox.textContent = error.message;
+      errBox.style.display = "block";
       return;
     }
 
-    $("#signup-ok").textContent = "Check your inbox to confirm your email!";
-    $("#signup-ok").style.display = "block";
+    okBox.textContent = "Check your inbox to confirm your email!";
+    okBox.style.display = "block";
   });
 </script>
 </body>
