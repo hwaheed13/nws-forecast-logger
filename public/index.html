@@ -1293,9 +1293,9 @@ async function updateDSM(){
  <script type="module">
   import { createClient } from "https://esm.sh/@supabase/supabase-js";
 
-  const supabase = createClient(
-    "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
+  const supabase = createClient("https://ztjtuhkjkqchsiuuvmzs.supabase.co",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw", { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }})
+
   );
   function showTodayDate(){
   const el = document.getElementById("todayDate");
@@ -1345,18 +1345,34 @@ async function checkAccess() {
     return (window.location.href = "/login.html");
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("subscription_status")
-    .eq("id", session.user.id)
-    .single();
+const { data: profile, error: profErr } = await supabase
+  .from("profiles")
+  .select("subscription_status, current_period_end")
+  .eq("id", session.user.id)
+  .single();
 
-  if (!profile || profile.subscription_status !== "active") {
+if (profErr) {
+  console.error("profile read on index:", profErr);
+}
+
+
+  const ALLOW = ["active", "trialing"]; // allow access during free trial
+  if (!profile || !ALLOW.includes(profile.subscription_status)) {
     showGate("Redirecting to subscribe…");
     return (window.location.href = "/subscribe.html");
   }
+  if (profile.current_period_end && profile.subscription_status === "trialing") {
+  const pillGrp = document.querySelector(".brand-right .pill-group");
+  if (pillGrp) {
+    const end = new Date(profile.current_period_end);
+    const fmt = new Intl.DateTimeFormat("en-US",{month:"short", day:"numeric"});
+    const p = document.createElement("span");
+    p.className = "pill";
+    p.textContent = `Trial ends ${fmt.format(end)}`;
+    pillGrp.appendChild(p);
+  }
+}
   
-
   // ✅ allowed in
   showApp();
   bootApp();
