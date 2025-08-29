@@ -6,189 +6,145 @@
   <title>Subscribe – Daily Dew Point</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
-    :root{
-      --bg:#f8fafc; --card:#fff; --ink:#0f172a; --muted:#64748b; --brand:#2563eb; --brand-2:#1e40af; --border:#cbd5e1;
-    }
-    *{box-sizing:border-box}
-    body{
-      font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
-      margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); color:var(--ink); padding:20px;
-    }
-    .card{background:var(--card); width:100%; max-width:440px; border-radius:14px; box-shadow:0 8px 24px rgba(0,0,0,.06); border:1px solid #e2e8f0; padding:28px}
-    h1{font-size:22px; margin:0 0 4px}
-    p.sub{margin:0; color:var(--muted); font-size:14px}
-    .plans{display:flex; gap:12px; margin:20px 0; flex-wrap:wrap}
-    .plan{
-      flex:1 1 160px; padding:14px; border:2px solid var(--border); border-radius:12px; cursor:pointer; user-select:none;
-      display:flex; align-items:center; justify-content:center; gap:8px; font-weight:700;
-    }
-    .plan.active{border-color:var(--brand); background:#eff6ff}
-    .btn{width:100%; padding:14px; border:none; border-radius:10px; background:var(--brand); color:#fff; font-weight:700; font-size:15px; cursor:pointer}
-    .btn:hover{background:var(--brand-2)}
-    .btn[disabled]{opacity:.6; cursor:not-allowed}
-    .note{font-size:13px; margin-top:14px; color:var(--muted)}
-    .row{display:flex; justify-content:space-between; gap:10px; margin-top:12px}
-    .link{font-size:13px; color:var(--brand); text-decoration:none}
-    .link:hover{text-decoration:underline}
-    .alert{margin-top:12px; background:#fff7ed; border:1px solid #fed7aa; color:#9a3412; padding:10px 12px; border-radius:8px; font-size:13px; display:none}
-    .success{margin-top:12px; background:#ecfdf5; border:1px solid #a7f3d0; color:#065f46; padding:10px 12px; border-radius:8px; font-size:13px; display:none}
+    :root { --bg:#f8fafc; --fg:#0f172a; --muted:#64748b; --b:#cbd5e1; --b2:#94a3b8; --blue:#2563eb; --blue2:#1e40af; --ok:#16a34a;}
+    html,body{height:100%}
+    body { font-family:'Inter',system-ui,sans-serif; display:flex; align-items:center; justify-content:center;
+           min-height:100%; margin:0; background:var(--bg); color:var(--fg); padding:16px; }
+    .card { background:#fff; padding:28px; border-radius:12px; box-shadow:0 4px 16px rgba(0,0,0,.08);
+            width:100%; max-width:460px; text-align:center; border:1px solid #e2e8f0; }
+    h1 { font-size:22px; margin:0 0 6px; }
+    p.sub { margin:0 0 14px; color:var(--muted); font-size:14px; }
+    .plans { display:flex; gap:12px; justify-content:center; margin:18px 0 6px; flex-wrap:wrap; }
+    .plan { flex:1; min-width:180px; padding:16px; border:2px solid var(--b); border-radius:10px; cursor:pointer; }
+    .plan small{ display:block; margin-top:4px; color:var(--muted); }
+    .plan.active { border-color:var(--blue); background:#eff6ff; }
+    button { width:100%; padding:14px; border:none; border-radius:10px; background:var(--blue); color:white;
+             font-weight:700; font-size:15px; cursor:pointer; margin-top:14px; }
+    button:hover { background:var(--blue2); }
+    button[disabled]{ opacity:.6; cursor:default; }
+    .note { font-size:12px; margin-top:10px; color:var(--muted); }
+    .top-links{ display:flex; justify-content:center; gap:12px; margin-top:10px; font-size:13px }
+    .top-links a{ color:var(--blue); text-decoration:none }
+    .alert{ margin-top:12px; font-size:13px; padding:10px 12px; border-radius:8px; border:1px solid var(--b); color:#334155; background:#f1f5f9; display:none}
+    .alert.ok{ border-color:#a7f3d0; color:#065f46; background:#ecfdf5; display:block}
+    .alert.err{ border-color:#fecaca; color:#7f1d1d; background:#fef2f2; display:block}
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Choose your plan</h1>
-    <p class="sub">You’ll be redirected to Stripe to complete checkout.</p>
+    <p class="sub">You’ll be redirected to Stripe Checkout.</p>
 
-    <div class="plans" role="group" aria-label="Plans">
-      <button class="plan" type="button" data-plan="monthly" aria-pressed="false">$3 / month</button>
-      <button class="plan" type="button" data-plan="yearly"  aria-pressed="false">$30 / year</button>
+    <div class="plans" role="radiogroup" aria-label="Plans">
+      <div class="plan" tabindex="0" role="radio" aria-checked="false" data-plan="monthly">
+        <strong>$3 / month</strong>
+        <small>Billed monthly. Cancel anytime.</small>
+      </div>
+      <div class="plan" tabindex="0" role="radio" aria-checked="false" data-plan="yearly">
+        <strong>$30 / year</strong>
+        <small>Best value. Billed annually.</small>
+      </div>
     </div>
 
-    <button id="btn-subscribe" class="btn" type="button">Subscribe</button>
-
-    <div id="msg-error" class="alert"></div>
-    <div id="msg-success" class="success"></div>
-
-    <div class="row">
-      <a class="link" href="/login.html">Back to sign in</a>
-      <button id="btn-logout" class="link" type="button" style="background:none;border:none;padding:0">Log out</button>
+    <button id="btn-subscribe">Subscribe</button>
+    <div class="top-links">
+      <a href="/index.html">Back to dashboard</a>
+      <span>·</span>
+      <a href="/login.html">Back to login / sign-up</a>
     </div>
-
-    <div class="note">Already subscribed? You’ll be sent to the dashboard automatically.</div>
+    <div id="toast" class="alert"></div>
+    <div class="note">Already subscribed? You’ll be sent back to the dashboard automatically.</div>
   </div>
 
-  <script type="module">
-    import { createClient } from "https://esm.sh/@supabase/supabase-js";
+<script type="module">
+  import { createClient } from "https://esm.sh/@supabase/supabase-js";
 
-    // 🔑 Same project as your dashboard:
-    const supabase = createClient(
-      "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
-      "YOUR_SUPABASE_ANON_KEY"
-    );
+  // ── Supabase (use your project URL + anon key) ────────────────────────────────
+  const supabase = createClient(
+  "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
+    // If you prefer env injection:
+    // window.ENV_SUPABASE_URL, window.ENV_SUPABASE_ANON
+  );
 
-    const $ = (sel)=>document.querySelector(sel);
-    const $$ = (sel)=>Array.from(document.querySelectorAll(sel));
-    const btnSubscribe = $("#btn-subscribe");
-    const btnLogout = $("#btn-logout");
-    const errorBox = $("#msg-error");
-    const successBox = $("#msg-success");
+  // ── Stripe Prices (your real IDs) ────────────────────────────────────────────
+  const PRICE_IDS = {
+    monthly: "price_1S1U96JZv8wNnhLtlNWL0gqK", // $3/month
+    yearly:  "price_1S1U7hJZv8wNnhLtRLRLoVf3"  // $30/year
+  };
 
-    function showError(msg){
-      if(!errorBox) return;
-      errorBox.textContent = msg;
-      errorBox.style.display = "block";
-      if(successBox){ successBox.style.display="none"; }
+  // ── Tiny helpers ─────────────────────────────────────────────────────────────
+  const $ = (s, p=document)=>p.querySelector(s);
+  const $$ = (s, p=document)=>Array.from(p.querySelectorAll(s));
+  const toast = $("#toast");
+  function showToast(msg, kind="err"){ toast.textContent = msg; toast.className = "alert " + kind; }
+
+  // If returned from Checkout (?success or ?canceled) show a small message
+  const params = new URLSearchParams(location.search);
+  if (params.get("success")) showToast("Payment succeeded. Finalizing…", "ok");
+  if (params.get("canceled")) showToast("Checkout canceled.", "err");
+
+  // ── Guard: must be logged in; if already active, go to dashboard ─────────────
+  (async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return (window.location.href = "/login.html");
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("subscription_status")
+      .eq("id", session.user.id)
+      .single();
+
+    if (profile && profile.subscription_status === "active") {
+      window.location.href = "/index.html";
     }
-    function showSuccess(msg){
-      if(!successBox) return;
-      successBox.textContent = msg;
-      successBox.style.display = "block";
-      if(errorBox){ errorBox.style.display="none"; }
+  })();
+
+  // ── Plan selection UI ────────────────────────────────────────────────────────
+  let selectedPlan = null;
+  function setActivePlan(el){
+    $$(".plan").forEach(p => { p.classList.remove("active"); p.setAttribute("aria-checked","false"); });
+    el.classList.add("active");
+    el.setAttribute("aria-checked","true");
+    selectedPlan = el.dataset.plan;
+  }
+  $$(".plan").forEach(el => {
+    el.addEventListener("click", () => setActivePlan(el));
+    el.addEventListener("keydown", (e) => {
+      if (e.key === " " || e.key === "Enter") { e.preventDefault(); setActivePlan(el); }
+    });
+  });
+
+  // ── Subscribe button → call your API and redirect to Stripe ──────────────────
+  const btn = $("#btn-subscribe");
+  btn.addEventListener("click", async () => {
+    if (!selectedPlan) return showToast("Select a plan first.");
+    btn.disabled = true; showToast("Creating checkout session…", "ok");
+
+    const { data: { session }, error } = await supabase.auth.getSession();
+    if (error || !session) { btn.disabled = false; return (window.location.href = "/login.html"); }
+
+    try {
+      const r = await fetch("/api/create-checkout-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          priceId: PRICE_IDS[selectedPlan],
+          supabaseAccessToken: session.access_token
+        })
+      });
+      const data = await r.json();
+      if (!r.ok || !data?.url) {
+        btn.disabled = false;
+        return showToast(data?.error || "Could not start checkout. Check server logs.");
+      }
+      // Go to Stripe Checkout
+      window.location.href = data.url;
+    } catch (e) {
+      btn.disabled = false;
+      showToast(e.message || "Network error starting checkout.");
     }
-
-    // 🧭 Handle URL flags
-    const params = new URLSearchParams(location.search);
-    if(params.get("canceled")) showError("Checkout canceled.");
-    if(params.get("sub")==="success") showSuccess("Thanks! Your subscription is active.");
-
-    // 🛡️ Gate: must be logged in; if already active, send to dashboard
-    (async ()=>{
-      const { data:{ session } } = await supabase.auth.getSession();
-      if(!session){
-        location.href = "/login.html";
-        return;
-      }
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("subscription_status")
-        .eq("id", session.user.id)
-        .single();
-
-      if(profile && profile.subscription_status === "active"){
-        // already subscribed -> dashboard
-        location.href = "/index.html";
-      }
-    })().catch(console.error);
-
-    // 🔚 Logout
-    btnLogout?.addEventListener("click", async ()=>{
-      await supabase.auth.signOut();
-      location.href = "/login.html";
-    });
-
-    // 🪄 Plan selection
-    let selectedPlan = null;
-    $$(".plan").forEach(el=>{
-      el.addEventListener("click", ()=>{
-        $$(".plan").forEach(p=>{
-          p.classList.remove("active");
-          p.setAttribute("aria-pressed","false");
-        });
-        el.classList.add("active");
-        el.setAttribute("aria-pressed","true");
-        selectedPlan = el.dataset.plan; // 'monthly' | 'yearly'
-      });
-      // keyboard activate on Enter/Space
-      el.addEventListener("keydown", (e)=>{
-        if(e.key==="Enter" || e.key===" "){ e.preventDefault(); el.click(); }
-      });
-    });
-
-    // If your API expects price IDs instead of labels, map here and send priceId:
-    // const PRICE_IDS = { monthly: "price_xxx_month", yearly: "price_xxx_year" };
-
-    // ▶️ Start checkout
-    btnSubscribe?.addEventListener("click", async ()=>{
-      errorBox.style.display="none";
-      successBox.style.display="none";
-
-      if(!selectedPlan){
-        showError("Select a plan first.");
-        return;
-      }
-
-      const { data:{ session } } = await supabase.auth.getSession();
-      if(!session){
-        location.href = "/login.html";
-        return;
-      }
-
-      btnSubscribe.disabled = true;
-      btnSubscribe.textContent = "Starting checkout…";
-
-      try{
-        const payload = {
-          plan: selectedPlan,                      // or: priceId: PRICE_IDS[selectedPlan]
-          supabaseAccessToken: session.access_token,
-          successUrl: `${location.origin}/?sub=success`,
-          cancelUrl: `${location.origin}/subscribe.html?canceled=1`
-        };
-
-        const res = await fetch("/api/create-checkout-session", {
-          method:"POST",
-          headers:{ "Content-Type":"application/json" },
-          body: JSON.stringify(payload)
-        });
-
-        const json = await res.json().catch(()=> ({}));
-
-        if(!res.ok || !json.url){
-          console.error("Checkout error:", json);
-          showError(json.error || "Could not start checkout.");
-          btnSubscribe.disabled = false;
-          btnSubscribe.textContent = "Subscribe";
-          return;
-        }
-
-        // Stripe Checkout
-        window.location.href = json.url;
-      }catch(err){
-        console.error(err);
-        showError("Network error starting checkout.");
-        btnSubscribe.disabled = false;
-        btnSubscribe.textContent = "Subscribe";
-      }
-    });
-  </script>
+  });
+</script>
 </body>
 </html>
