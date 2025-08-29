@@ -291,10 +291,13 @@
     </header>
 
     <div class="container">
-      <div class="last-update">
-        <div class="last-update-label">Latest Forecast Update</div>
-        <div id="recentForecast" class="last-update-content">Loading latest forecast data...</div>
-      </div>
+    <div class="last-update">
+    <div class="last-update-label">
+      <span id="todayDate"></span><br>
+      Latest Forecast Update
+    </div>
+    <div id="recentForecast" class="last-update-content">Loading latest forecast data...</div>
+    </div>
 
       <!-- Metrics -->
       <div class="metrics-grid">
@@ -1235,6 +1238,7 @@ async function checkAccess() {
   });
  function bootApp(){
   reloadCSV();
+  showTodayDate();
   setInterval(updateObservations, 5*60*1000);
 
   updateDSM();
