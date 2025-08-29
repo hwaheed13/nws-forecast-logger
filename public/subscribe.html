@@ -33,29 +33,16 @@
   import { createClient } from "https://esm.sh/@supabase/supabase-js";
 
   const supabase = createClient(
-    "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
+    window?.ENV_SUPABASE_URL || "<?= ignore ?>",
+    window?.ENV_SUPABASE_ANON || "<?= ignore ?>"
   );
 
-  // 🚦 Guard: if already subscribed, skip straight to dashboard
+  // Minimal helper to keep your existing guard
   (async () => {
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      // not logged in → force login
-      window.location.href = "/login.html";
-      return;
-    }
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("subscription_status")
-      .eq("id", session.user.id)
-      .single();
-
-    if (profile && profile.subscription_status === "active") {
-      window.location.href = "/index.html"; // already subscribed
-      return;
-    }
+    if (!session) return (window.location.href = "/login.html");
+    const { data: profile } = await supabase.from("profiles").select("subscription_status").eq("id", session.user.id).single();
+    if (profile && profile.subscription_status === "active") window.location.href = "/index.html";
   })();
 
   let selectedPlan = null;
@@ -63,35 +50,30 @@
     el.addEventListener("click", () => {
       document.querySelectorAll(".plan").forEach(p => p.classList.remove("active"));
       el.classList.add("active");
-      selectedPlan = el.dataset.plan;
+      selectedPlan = el.dataset.plan; // 'monthly' or 'yearly'
     });
   });
 
   document.getElementById("btn-subscribe").addEventListener("click", async () => {
     if (!selectedPlan) return alert("Select a plan first.");
 
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error || !user) {
-      return (window.location.href = "/login.html");
-    }
+    const { data: { session }, error } = await supabase.auth.getSession();
+    if (error || !session) return (window.location.href = "/login.html");
 
-    // For now: write subscription record (mock Stripe)
-    const periodEnd = new Date();
-    if (selectedPlan === "monthly") periodEnd.setMonth(periodEnd.getMonth() + 1);
-    if (selectedPlan === "yearly") periodEnd.setFullYear(periodEnd.getFullYear() + 1);
-
-    const { error: upErr } = await supabase.from("profiles").upsert({
-      id: user.id,
-      email: user.email,
-      plan: selectedPlan,
-      subscription_status: "active",
-      current_period_end: periodEnd.toISOString()
+    // Call your Vercel API to create checkout session
+    const r = await fetch("/api/create-checkout-session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        plan: selectedPlan,
+        supabaseAccessToken: session.access_token
+      })
     });
+    const data = await r.json();
+    if (!r.ok) return alert(data.error || "Could not start checkout");
 
-    if (upErr) return alert("Could not save subscription: " + upErr.message);
-
-    // Redirect to dashboard
-    window.location.href = "/index.html";
+    // Redirect to Stripe Checkout
+    window.location.href = data.url;
   });
 </script>
 </body>
