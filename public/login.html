@@ -220,8 +220,7 @@
     if (error) return alert(error.message);
     alert("Check your inbox for a magic link.");
   });
-
-// Signup (friendly "account exists" flow)
+// Signup (friendly "account exists" flow with identities[] check)
 formSignup.addEventListener("submit", async (e)=>{
   e.preventDefault();
   const okBox = $("#signup-ok");
@@ -246,17 +245,78 @@ formSignup.addEventListener("submit", async (e)=>{
     return;
   }
 
-  const { error } = await supabase.auth.signUp({
+  // Attempt signup
+  const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: { emailRedirectTo: "https://waheedweather.dewdropventures.com/login.html" }
   });
 
+  // Detect "existing account" even if Supabase returns 200 OK
+  const identities = data?.user?.identities ?? [];
+  if (!error && identities.length === 0) {
+    errBox.innerHTML = `An account with <strong>${email}</strong> already exists.`;
+    errBox.style.display = "block";
+
+    let actions = document.getElementById("signup-actions");
+    if (!actions) {
+      actions = document.createElement("div");
+      actions.id = "signup-actions";
+      actions.style.marginTop = "8px";
+      actions.style.display = "flex";
+      actions.style.gap = "8px";
+
+      const toLogin = document.createElement("button");
+      toLogin.type = "button";
+      toLogin.textContent = "Go to Login";
+      toLogin.onclick = () => {
+        $("#login-email").value = email;
+        tabLogin.click();
+      };
+
+      const magic = document.createElement("button");
+      magic.type = "button";
+      magic.textContent = "Send Magic Link";
+      magic.onclick = async () => {
+        const { error: otpErr } = await supabase.auth.signInWithOtp({
+          email,
+          options: { emailRedirectTo: "https://waheedweather.dewdropventures.com/login.html" }
+        });
+        if (otpErr) {
+          errBox.textContent = otpErr.message;
+        } else {
+          okBox.textContent = "Magic link sent. Check your inbox.";
+          okBox.style.display = "block";
+        }
+      };
+
+      const reset = document.createElement("button");
+      reset.type = "button";
+      reset.textContent = "Reset Password";
+      reset.onclick = async () => {
+        const { error: rErr } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: "https://waheedweather.dewdropventures.com/login.html"
+        });
+        if (rErr) {
+          errBox.textContent = rErr.message;
+          errBox.style.display = "block";
+        } else {
+          okBox.textContent = "Password reset email sent.";
+          okBox.style.display = "block";
+        }
+      };
+
+      actions.append(toLogin, magic, reset);
+      errBox.insertAdjacentElement("afterend", actions);
+    }
+    return;
+  }
+
+  // If Supabase actually threw an error (some projects do)
   if (error) {
     const msg = (error.message || "").toLowerCase();
-
-    // Show "account exists" UX with quick actions
     if (msg.includes("already registered") || msg.includes("already exists")) {
+      // Same UI as above
       errBox.innerHTML = `An account with <strong>${email}</strong> already exists.`;
       errBox.style.display = "block";
 
@@ -268,16 +328,14 @@ formSignup.addEventListener("submit", async (e)=>{
         actions.style.display = "flex";
         actions.style.gap = "8px";
 
-        // Go to Login (prefill email)
         const toLogin = document.createElement("button");
         toLogin.type = "button";
         toLogin.textContent = "Go to Login";
         toLogin.onclick = () => {
           $("#login-email").value = email;
-          tabLogin.click(); // switch tabs
+          tabLogin.click();
         };
 
-        // Send Magic Link
         const magic = document.createElement("button");
         magic.type = "button";
         magic.textContent = "Send Magic Link";
@@ -294,7 +352,6 @@ formSignup.addEventListener("submit", async (e)=>{
           }
         };
 
-        // (Optional) Reset Password
         const reset = document.createElement("button");
         reset.type = "button";
         reset.textContent = "Reset Password";
@@ -311,10 +368,8 @@ formSignup.addEventListener("submit", async (e)=>{
           }
         };
 
-        actions.appendChild(toLogin);
-        actions.appendChild(magic);
-        actions.appendChild(reset);
-        errBox.parentNode.insertBefore(actions, errBox.nextSibling);
+        actions.append(toLogin, magic, reset);
+        errBox.insertAdjacentElement("afterend", actions);
       }
       return;
     }
@@ -325,11 +380,10 @@ formSignup.addEventListener("submit", async (e)=>{
     return;
   }
 
-  // Fresh signup path
+  // New signup path (not previously registered)
   okBox.textContent = "Check your inbox to confirm your email!";
   okBox.style.display = "block";
 });
-
 </script>
 </body>
 </html>
