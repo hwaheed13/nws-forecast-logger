@@ -1343,17 +1343,31 @@ async function updateDSM(){
       const { data: { session }, error: sessErr } = await supabase.auth.getSession();
       clearTimeout(watchdog);
 
-      if (sessErr) { console.error("getSession error:", sessErr); return toLogin("getSession error"); }
-      if (!session || !session.user || !session.access_token) return toLogin("no/invalid session");
+         if (sessErr) {
+      console.error("getSession error:", sessErr);
+      return toLogin("getSession error");
+    }
 
-      const { data: profile, error: profErr } = await supabase
-        .from("profiles")
-        .select("subscription_status, current_period_end")
-        .eq("id", session.user.id)
-        .maybeSingle();
+    if (!session || !session.user || !session.access_token) {
+      console.warn("No session returned");
+      return toLogin("no/invalid session");
+    }
 
-      if (profErr) { console.error("profile read error:", profErr); return toLogin("profile read error"); }
-      if (!profile) return toLogin("no profile row");
+    const { data: profile, error: profErr } = await supabase
+      .from("profiles")
+      .select("subscription_status, current_period_end")
+      .eq("id", session.user.id)
+      .maybeSingle();
+
+    if (profErr) {
+      console.error("profile read error:", profErr);
+      return toLogin("profile read error");
+    }
+
+    if (!profile) {
+      console.warn("No profile row found");
+      return toLogin("no profile row");
+    }
 
       const ALLOW = ["active", "trialing"];
       if (!ALLOW.includes(profile.subscription_status)) return toSubscribe("not active/trialing");
