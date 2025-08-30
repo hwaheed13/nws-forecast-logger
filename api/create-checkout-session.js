@@ -79,8 +79,8 @@ export default async function handler(req, res) {
       customer: customerId,
       line_items: [{ price: priceId, quantity: 1 }],
       allow_promotion_codes: true,
-      success_url: "https://waheedweather.dewdropventures.com/subscribe.html?success=1",
-      cancel_url: "https://waheedweather.dewdropventures.com/subscribe.html?canceled=1",
+      success_url: "https://dailydewpoint.com/dashboard/subscribe.html?success=1",
+      cancel_url:  "https://dailydewpoint.com/dashboard/subscribe.html?canceled=1",
       metadata: { supabase_user_id: user.id, plan: plan || "by_price_id" },
     });
 
