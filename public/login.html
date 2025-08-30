@@ -26,6 +26,20 @@
     .error { background:#fef2f2; border:1px solid #fecaca; color:#7f1d1d; padding:10px; border-radius:8px; font-size:13px; margin-top:8px; display:none; }
     .ok { background:#ecfdf5; border:1px solid #a7f3d0; color:#065f46; padding:10px; border-radius:8px; font-size:13px; margin-top:8px; display:none; }
     .link { color:#2563eb; text-decoration:none; }
+ .row { align-items: center; gap: 8px; }
+    .row .left { white-space: nowrap; }
+
+    @media (max-width: 480px) {
+      .row { flex-wrap: wrap; }
+      /* put the Show checkbox on its own line, right-aligned */
+      .row .left {
+        order: 2;
+        width: 100%;
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 4px;
+      }
+    }
   </style>
 </head>
 <body>
