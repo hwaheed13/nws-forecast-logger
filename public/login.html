@@ -2,41 +2,81 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1"
+  >
   <title>Access – Daily Dew Point</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
-    body { font-family:'Inter',sans-serif; display:flex; align-items:center; justify-content:center;
-      min-height:100vh; margin:0; background:#f1f5f9; color:#0f172a; padding:16px; }
-    .card { background:#fff; padding:28px; border-radius:16px; box-shadow:0 8px 28px rgba(0,0,0,.12);
-      width:100%; max-width:440px; }
-    h1 { font-size:24px; margin:0 0 20px; text-align:center; font-weight:700; }
-    input { width:100%; padding:12px; margin:8px 0; border:1px solid #cbd5e1; border-radius:8px; font-size:14px; }
-    .row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
-    .row .left { display:flex; align-items:center; gap:8px; }
-    .row label { font-size:13px; color:#334155; user-select:none }
-    button { width:100%; padding:12px; margin-top:12px; border:none; border-radius:8px;
-      background:#2563eb; color:#fff; font-weight:600; font-size:15px; cursor:pointer; }
-    button:hover { background:#1e40af; }
-    .tabs { display:flex; border-bottom:1px solid #e2e8f0; margin-bottom:20px; }
-    .tab { flex:1; text-align:center; padding:10px; font-weight:600; cursor:pointer; border-bottom:3px solid transparent; }
-    .tab.active { color:#2563eb; border-color:#2563eb; }
-    .hidden { display:none; }
-    .help { font-size:12px; color:#64748b; margin-top:8px; text-align:center; }
-    .error { background:#fef2f2; border:1px solid #fecaca; color:#7f1d1d; padding:10px; border-radius:8px; font-size:13px; margin-top:8px; display:none; }
-    .ok { background:#ecfdf5; border:1px solid #a7f3d0; color:#065f46; padding:10px; border-radius:8px; font-size:13px; margin-top:8px; display:none; }
-    .link { color:#2563eb; text-decoration:none; }
- .row { align-items: center; gap: 8px; }
-    .row .left { white-space: nowrap; }
+    :root { color-scheme: light; }
+    body {
+      font-family: 'Inter', sans-serif;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; margin: 0; background: #f1f5f9; color: #0f172a; padding: 16px;
+    }
+    .card {
+      background: #fff; padding: 28px; border-radius: 16px;
+      box-shadow: 0 8px 28px rgba(0,0,0,.12);
+      width: 100%; max-width: 440px;
+    }
+    h1 { font-size: 24px; margin: 0 0 20px; text-align: center; font-weight: 700; }
+    input {
+      width: 100%; padding: 12px; margin: 8px 0;
+      border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px;
+    }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .row .left { display: flex; align-items: center; gap: 8px; }
+    .row label { font-size: 13px; color: #334155; user-select: none; }
+    button {
+      width: 100%; padding: 12px; margin-top: 12px;
+      border: none; border-radius: 8px; background: #2563eb; color: #fff;
+      font-weight: 600; font-size: 15px; cursor: pointer;
+    }
+    button:hover { background: #1e40af; }
+    .tabs { display: flex; border-bottom: 1px solid #e2e8f0; margin-bottom: 20px; }
+    .tab {
+      flex: 1; text-align: center; padding: 10px; font-weight: 600;
+      cursor: pointer; border-bottom: 3px solid transparent;
+    }
+    .tab.active { color: #2563eb; border-color: #2563eb; }
+    .hidden { display: none; }
+    .help { font-size: 12px; color: #64748b; margin-top: 8px; text-align: center; }
+    .error {
+      background: #fef2f2; border: 1px solid #fecaca; color: #7f1d1d;
+      padding: 10px; border-radius: 8px; font-size: 13px; margin-top: 8px; display: none;
+    }
+    .ok {
+      background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46;
+      padding: 10px; border-radius: 8px; font-size: 13px; margin-top: 8px; display: none;
+    }
+    .link { color: #2563eb; text-decoration: none; }
 
+    /* Action button row under errors (login/signup) */
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .actions button { width: auto; padding-inline: 12px; margin-top: 0; }
+
+    /* Password-row layout (desktop) */
+    .row-password {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start; /* cancel any space-between */
+      gap: 8px;
+    }
+    .row-password .left {
+      display: flex; align-items: center; gap: 8px; white-space: nowrap;
+    }
+
+    /* Mobile: stack input above "Show" and right-align the label */
     @media (max-width: 480px) {
-      .row { flex-wrap: wrap; }
-      /* put the Show checkbox on its own line, right-aligned */
-      .row .left {
-        order: 2;
+      .row-password {
+        flex-direction: column;  /* input on top, Show below */
+        align-items: stretch;    /* input fills width */
+      }
+      .row-password .left {
+        order: 2;                /* place below the input */
         width: 100%;
-        display: flex;
-        justify-content: flex-end;
+        justify-content: flex-end; /* right-align "Show" */
         margin-top: 4px;
       }
     }
@@ -45,6 +85,7 @@
 <body>
   <div class="card">
     <h1>Daily Dew Point</h1>
+
     <div class="tabs">
       <div id="tab-login" class="tab active">Login</div>
       <div id="tab-signup" class="tab">Sign Up</div>
@@ -53,7 +94,7 @@
     <!-- Login -->
     <form id="form-login">
       <input id="login-email" type="email" placeholder="Email" autocomplete="email" required />
-      <div class="row">
+      <div class="row row-password">
         <input id="login-password" type="password" placeholder="Password" autocomplete="current-password" required style="flex:1">
         <label class="left">
           <input id="show-login-pw" type="checkbox"> Show
@@ -70,7 +111,7 @@
     <!-- Signup -->
     <form id="form-signup" class="hidden">
       <input id="signup-email" type="email" placeholder="Email" autocomplete="email" required />
-      <div class="row">
+      <div class="row row-password">
         <input id="signup-password" type="password" placeholder="Password (min 6 chars)" autocomplete="new-password" required style="flex:1">
         <label class="left">
           <input id="show-signup-pw" type="checkbox"> Show
@@ -95,31 +136,32 @@
   );
 
   // DOM helper
-  const $ = (s,p=document)=>p.querySelector(s);
+  const $ = (s, p=document) => p.querySelector(s);
 
   // Tabs
-  const tabLogin  = $("#tab-login");
-  const tabSignup = $("#tab-signup");
-  const formLogin = $("#form-login");
-  const formSignup= $("#form-signup");
+  const tabLogin   = $("#tab-login");
+  const tabSignup  = $("#tab-signup");
+  const formLogin  = $("#form-login");
+  const formSignup = $("#form-signup");
+
   tabLogin.onclick = ()=>{
     tabLogin.classList.add("active");
     tabSignup.classList.remove("active");
     formLogin.classList.remove("hidden");
     formSignup.classList.add("hidden");
   };
-  tabSignup.onclick= ()=>{
+  tabSignup.onclick = ()=>{
     tabSignup.classList.add("active");
     tabLogin.classList.remove("active");
     formSignup.classList.remove("hidden");
     formLogin.classList.add("hidden");
   };
 
-  // Show/hide password
-  $("#show-login-pw")?.addEventListener("change", (e)=>{
+  // Show/hide password toggles
+  $("#show-login-pw")?.addEventListener("change", e=>{
     $("#login-password").type = e.target.checked ? "text" : "password";
   });
-  $("#show-signup-pw")?.addEventListener("change", (e)=>{
+  $("#show-signup-pw")?.addEventListener("change", e=>{
     $("#signup-password").type = e.target.checked ? "text" : "password";
   });
 
@@ -148,22 +190,21 @@
     window.location.href = ALLOW.has(status) ? "/index.html" : "/subscribe.html";
   }
 
-  // ── Password recovery detection (single source of truth) ─────────────────────
+  // Password recovery detection (type=recovery via hash or query)
   const urlNow = new URL(window.location.href);
   const isRecovery =
     urlNow.hash.includes("type=recovery") || urlNow.searchParams.get("type") === "recovery";
 
-  // ── Inline reset-password UI used after clicking recovery link ──────────────
+  // Inline reset-password UI
   async function showRecoveryUI() {
-    // make sure magic link created a session
     const { data: { session } } = await supabase.auth.getSession();
 
     // Hide normal UI
     document.querySelector(".tabs")?.classList.add("hidden");
-    document.getElementById("form-login")?.classList.add("hidden");
-    document.getElementById("form-signup")?.classList.add("hidden");
+    $("#form-login")?.classList.add("hidden");
+    $("#form-signup")?.classList.add("hidden");
 
-    const card = document.querySelector(".card");
+    const card = $(".card");
     const box = document.createElement("div");
     box.style.marginTop = "8px";
     box.innerHTML = `
@@ -206,7 +247,7 @@
     };
   }
 
-  // ── Auto-route / switch logic ────────────────────────────────────────────────
+  // Auto-route / switch logic
   (async ()=>{
     const params = new URLSearchParams(location.search);
 
@@ -242,8 +283,8 @@
       return;
     }
 
-    // Inactive: show note and a Sign out button to let user switch accounts
-    const note = document.getElementById("login-error");
+    // Inactive: show note and Sign out button
+    const note = $("#login-error");
     if (note) {
       note.textContent = "You're signed in but not subscribed. Sign in with a different account or sign out below.";
       note.style.display = "block";
@@ -258,113 +299,93 @@
       localStorage.removeItem("remember_email");
       location.reload();
     };
-    document.getElementById("form-login")?.appendChild(signout);
+    $("#form-login")?.appendChild(signout);
   })();
 
-// ── Login submit (with inline recovery actions when it fails) ────────────────
-formLogin.addEventListener("submit", async (e)=>{
-  e.preventDefault();
-  const errBox = $("#login-error");
-  errBox.style.display = "none";
+  // Login submit (with inline recovery actions when it fails)
+  formLogin.addEventListener("submit", async (e)=>{
+    e.preventDefault();
+    const errBox = $("#login-error");
+    errBox.style.display = "none";
+    document.getElementById("login-actions")?.remove(); // clear old actions
 
-  // remove any prior action buttons to avoid duplicates
-  document.getElementById("login-actions")?.remove();
-
-  const email = $("#login-email").value.trim();
-  const password = $("#login-password").value;
-  if (!isValidEmail(email)) {
-    errBox.textContent = "Please enter a valid email address.";
-    errBox.style.display = "block";
-    return;
-  }
-
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) {
-    const msg = (error.message || "").toLowerCase();
-
-    // friendlier copy for common case
-    errBox.textContent = msg.includes("invalid login credentials")
-      ? "Wrong email or password."
-      : error.message;
-    errBox.style.display = "block";
-
-    // build action buttons under the error
-    const actions = document.createElement("div");
-    actions.id = "login-actions";
-    actions.style.marginTop = "8px";
-    actions.style.display = "flex";
-    actions.style.flexWrap = "wrap";
-    actions.style.gap = "8px";
-
-    // Reset Password
-    const reset = document.createElement("button");
-    reset.type = "button";
-    reset.textContent = "Reset Password";
-    reset.onclick = async () => {
-      const { error: rErr } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: "https://waheedweather.dewdropventures.com/login.html"
-      });
-      if (rErr) {
-        errBox.textContent = rErr.message;
-        errBox.style.display = "block";
-      } else {
-        alert("Password reset email sent.");
-      }
-    };
-
-    // Magic Link
-    const magic = document.createElement("button");
-    magic.type = "button";
-    magic.textContent = "Send Magic Link";
-    magic.onclick = async () => {
-      const { error: otpErr } = await supabase.auth.signInWithOtp({
-        email,
-        options: { emailRedirectTo: "https://waheedweather.dewdropventures.com/login.html" }
-      });
-      if (otpErr) {
-        errBox.textContent = otpErr.message;
-        errBox.style.display = "block";
-      } else {
-        alert("Magic link sent. Check your inbox.");
-      }
-    };
-
-    actions.append(reset, magic);
-
-    // Offer resend verification if message hints at unconfirmed email
-    if (msg.includes("confirm") || msg.includes("verify")) {
-      const resend = document.createElement("button");
-      resend.type = "button";
-      resend.textContent = "Resend Verification";
-      resend.onclick = async () => {
-        const { error: rvErr } = await supabase.auth.resend({ type: "signup", email });
-        if (rvErr) {
-          errBox.textContent = rvErr.message;
-          errBox.style.display = "block";
-        } else {
-          alert("Verification email resent.");
-        }
-      };
-      actions.append(resend);
+    const email = $("#login-email").value.trim();
+    const password = $("#login-password").value;
+    if (!isValidEmail(email)) {
+      errBox.textContent = "Please enter a valid email address.";
+      errBox.style.display = "block";
+      return;
     }
 
-    errBox.insertAdjacentElement("afterend", actions);
-    return;
-  }
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      const msg = (error.message || "").toLowerCase();
 
-  // success path
-  rememberEmailMaybe(email);
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user?.id) {
-    errBox.textContent = "Sign-in succeeded, but no user session was returned.";
-    errBox.style.display = "block";
-    return;
-  }
-  await routeByProfile(user.id);
-});
+      errBox.textContent = msg.includes("invalid login credentials")
+        ? "Wrong email or password."
+        : error.message;
+      errBox.style.display = "block";
 
+      const actions = document.createElement("div");
+      actions.id = "login-actions";
+      actions.className = "actions";
 
-  // ── Magic link from login ───────────────────────────────────────────────────
+      // Reset Password
+      const reset = document.createElement("button");
+      reset.type = "button";
+      reset.textContent = "Reset Password";
+      reset.onclick = async () => {
+        const { error: rErr } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: "https://waheedweather.dewdropventures.com/login.html"
+        });
+        if (rErr) { errBox.textContent = rErr.message; errBox.style.display = "block"; }
+        else { alert("Password reset email sent."); }
+      };
+
+      // Magic Link
+      const magic = document.createElement("button");
+      magic.type = "button";
+      magic.textContent = "Send Magic Link";
+      magic.onclick = async () => {
+        const { error: otpErr } = await supabase.auth.signInWithOtp({
+          email,
+          options: { emailRedirectTo: "https://waheedweather.dewdropventures.com/login.html" }
+        });
+        if (otpErr) { errBox.textContent = otpErr.message; errBox.style.display = "block"; }
+        else { alert("Magic link sent. Check your inbox."); }
+      };
+
+      actions.append(reset, magic);
+
+      // Resend verification if unconfirmed
+      if (msg.includes("confirm") || msg.includes("verify")) {
+        const resend = document.createElement("button");
+        resend.type = "button";
+        resend.textContent = "Resend Verification";
+        resend.onclick = async () => {
+          const { error: rvErr } = await supabase.auth.resend({ type: "signup", email });
+          if (rvErr) { errBox.textContent = rvErr.message; errBox.style.display = "block"; }
+          else { alert("Verification email resent."); }
+        };
+        actions.append(resend);
+      }
+
+      errBox.insertAdjacentElement("afterend", actions);
+      return;
+    }
+
+    // success
+    rememberEmailMaybe(email);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user?.id) {
+      errBox.textContent = "Sign-in succeeded, but no user session was returned.";
+      errBox.style.display = "block";
+      return;
+    }
+    await routeByProfile(user.id);
+  });
+
+  // Magic link from login
   $("#forgot-link")?.addEventListener("click", async (e)=>{
     e.preventDefault();
     const email = $("#login-email").value.trim();
@@ -377,7 +398,7 @@ formLogin.addEventListener("submit", async (e)=>{
     alert("Check your inbox for a magic link.");
   });
 
-  // ── Signup with “account exists” UX (works even when Supabase returns 200) ──
+  // Signup with “account exists” UX (works even when Supabase returns 200)
   formSignup.addEventListener("submit", async (e)=>{
     e.preventDefault();
     const okBox = $("#signup-ok");
@@ -389,7 +410,7 @@ formLogin.addEventListener("submit", async (e)=>{
     const password = $("#signup-password").value;
     if (!isValidEmail(email)) { errBox.textContent = "Please enter a valid email address."; errBox.style.display = "block"; return; }
 
-    // Don't let a currently-signed-in user "sign up" again with same email
+    // Already signed in with this email?
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.user?.email && session.user.email.toLowerCase() === email.toLowerCase()) {
       errBox.textContent = "You're already signed in with this email. Use Login or go to Subscribe.";
@@ -404,7 +425,7 @@ formLogin.addEventListener("submit", async (e)=>{
       options: { emailRedirectTo: "https://waheedweather.dewdropventures.com/login.html" }
     });
 
-    // Detect “existing account” via identities[] (Supabase often returns 200)
+    // Detect “existing account” via identities[] (backend often returns 200)
     const identities = data?.user?.identities ?? [];
     if (!error && identities.length === 0) {
       showExistsActions(errBox, okBox, email);
@@ -422,7 +443,7 @@ formLogin.addEventListener("submit", async (e)=>{
       return;
     }
 
-    // Fresh signup path
+    // Fresh signup
     okBox.textContent = "Check your inbox to confirm your email!";
     okBox.style.display = "block";
   });
@@ -435,9 +456,7 @@ formLogin.addEventListener("submit", async (e)=>{
     if (!actions) {
       actions = document.createElement("div");
       actions.id = "signup-actions";
-      actions.style.marginTop = "8px";
-      actions.style.display = "flex";
-      actions.style.gap = "8px";
+      actions.className = "actions";
 
       // Go to Login (prefill email)
       const toLogin = document.createElement("button");
@@ -457,15 +476,11 @@ formLogin.addEventListener("submit", async (e)=>{
           email,
           options: { emailRedirectTo: "https://waheedweather.dewdropventures.com/login.html" }
         });
-        if (otpErr) {
-          errBox.textContent = otpErr.message;
-        } else {
-          okBox.textContent = "Magic link sent. Check your inbox.";
-          okBox.style.display = "block";
-        }
+        if (otpErr) { errBox.textContent = otpErr.message; }
+        else { okBox.textContent = "Magic link sent. Check your inbox."; okBox.style.display = "block"; }
       };
 
-      // Reset Password → will return with type=recovery and show the UI above
+      // Reset Password → returns with type=recovery to this page
       const reset = document.createElement("button");
       reset.type = "button";
       reset.textContent = "Reset Password";
@@ -473,13 +488,8 @@ formLogin.addEventListener("submit", async (e)=>{
         const { error: rErr } = await supabase.auth.resetPasswordForEmail(email, {
           redirectTo: "https://waheedweather.dewdropventures.com/login.html"
         });
-        if (rErr) {
-          errBox.textContent = rErr.message;
-          errBox.style.display = "block";
-        } else {
-          okBox.textContent = "Password reset email sent.";
-          okBox.style.display = "block";
-        }
+        if (rErr) { errBox.textContent = rErr.message; errBox.style.display = "block"; }
+        else { okBox.textContent = "Password reset email sent."; okBox.style.display = "block"; }
       };
 
       actions.append(toLogin, magic, reset);
