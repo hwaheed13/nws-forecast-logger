@@ -6,50 +6,85 @@
   <title>Access – Daily Dew Point</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
-    body { font-family:'Inter',sans-serif; display:flex; align-items:center; justify-content:center;
-      min-height:100vh; margin:0; background:#f1f5f9; color:#0f172a; padding:16px; }
-    .card { background:#fff; padding:28px; border-radius:16px; box-shadow:0 8px 28px rgba(0,0,0,.12);
-      width:100%; max-width:440px; }
-    h1 { font-size:24px; margin:0 0 20px; text-align:center; font-weight:700; }
-    input { width:100%; padding:12px; margin:8px 0; border:1px solid #cbd5e1; border-radius:8px; font-size:14px; }
-    .tabs { display:flex; border-bottom:1px solid #e2e8f0; margin-bottom:20px; }
-    .tab { flex:1; text-align:center; padding:10px; font-weight:600; cursor:pointer; border-bottom:3px solid transparent; }
-    .tab.active { color:#2563eb; border-color:#2563eb; }
-    .hidden { display:none; }
-    .help { font-size:12px; color:#64748b; margin-top:8px; text-align:center; }
-    .error { background:#fef2f2; border:1px solid #fecaca; color:#7f1d1d; padding:10px; border-radius:8px; font-size:13px; margin-top:8px; display:none; }
-    .ok { background:#ecfdf5; border:1px solid #a7f3d0; color:#065f46; padding:10px; border-radius:8px; font-size:13px; margin-top:8px; display:none; }
-    .link { color:#2563eb; text-decoration:none; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Inter', sans-serif;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; margin: 0; background: #f1f5f9; color: #0f172a; padding: 16px;
+    }
+    .card {
+      background: #fff; padding: 28px; border-radius: 16px; box-shadow: 0 8px 28px rgba(0,0,0,.12);
+      width: 100%; max-width: 440px;
+    }
+    h1 { font-size: 24px; margin: 0 0 20px; text-align: center; font-weight: 700; }
 
-    /* Base row (used by simple rows) */
-    .row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
-    .row .left { display:flex; align-items:center; gap:8px; }
+    /* Inputs / labels */
+    input[type="email"], input[type="password"] {
+      width: 100%; padding: 12px; margin: 8px 0 0 0; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px;
+      outline: none;
+    }
+    input[type="email"]:focus, input[type="password"]:focus {
+      border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.15);
+    }
 
-    /* Password row: keep input + "Show" on the same line (no wrap) */
-    .row-password { justify-content:flex-start; gap:8px; }
-    .row-password input[type="password"] { flex:1 1 auto; min-width:0; }  /* allow input to shrink a bit */
-    .row-password .left { flex:0 0 auto; gap:6px; white-space:nowrap; }  /* never wrap "Show" */
-    .row-password .left input[type="checkbox"] { margin:0; }
+    /* Buttons (blue) */
+    button {
+      width: 100%; padding: 12px; margin-top: 12px; border: none; border-radius: 8px;
+      background: #2563eb; color: #fff; font-weight: 600; font-size: 15px; cursor: pointer;
+    }
+    button:hover { background: #1e40af; }
 
-    /* Remember + Magic row: keep both on one line on phones */
-    .row-account { justify-content:space-between; gap:8px; }
-    .row-account .left { white-space:nowrap; }
-    .row-account .link { white-space:nowrap; }
+    /* Tabs */
+    .tabs { display: flex; border-bottom: 1px solid #e2e8f0; margin-bottom: 20px; }
+    .tab { flex: 1; text-align: center; padding: 10px; font-weight: 600; cursor: pointer; border-bottom: 3px solid transparent; }
+    .tab.active { color: #2563eb; border-color: #2563eb; }
 
-    /* Tighten controls on very small screens so nothing wraps */
-    @media (max-width: 420px) {
-      input { padding:10px; }
-      .row-password { gap:6px; }
-      .row-password .left { gap:6px; }
-      .row-account { gap:6px; }
-      .row-account .left { font-size:12px; }
-      .row-account .link { font-size:12px; }
+    /* Helpers */
+    .hidden { display: none; }
+    .help { font-size: 12px; color: #64748b; margin-top: 8px; text-align: center; }
+    .error { background: #fef2f2; border: 1px solid #fecaca; color: #7f1d1d; padding: 10px; border-radius: 8px; font-size: 13px; margin-top: 8px; display: none; }
+    .ok { background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; padding: 10px; border-radius: 8px; font-size: 13px; margin-top: 8px; display: none; }
+    .link { color: #2563eb; text-decoration: none; }
+
+    /* Spacing blocks */
+    .field { margin-bottom: 12px; }
+    .pw-block .toggle,
+    .remember-block label,
+    .magic-block a {
+      display: block;
+      margin-top: 6px;
+      font-size: 13px;
+      color: #334155;
+    }
+    .pw-block .toggle input,
+    .remember-block input {
+      transform: translateY(1px);
+      margin-right: 8px;
+    }
+    .pw-block .toggle { text-align: right; }  /* “Show password” on its own line, right-aligned */
+    .remember-block label { text-align: left; } /* “Keep me signed in” on its own line */
+    .magic-block a { text-align: left; }        /* “Send magic link” on its own line */
+
+    /* Action buttons under errors (login/signup flows) */
+    #login-actions, #signup-actions {
+      display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;
+    }
+    #login-actions button, #signup-actions button {
+      width: auto; padding: 10px 12px; font-size: 13px;
+      background: #e2e8f0; color: #0f172a;
+    }
+    #login-actions button:hover, #signup-actions button:hover { background: #cbd5e1; }
+
+    /* Mobile tweaks */
+    @media (max-width: 480px) {
+      .pw-block .toggle { text-align: left; }  /* on very narrow devices, left-align the toggle */
     }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Daily Dew Point</h1>
+
     <div class="tabs">
       <div id="tab-login" class="tab active">Login</div>
       <div id="tab-signup" class="tab">Sign Up</div>
@@ -57,26 +92,38 @@
 
     <!-- Login -->
     <form id="form-login">
-      <input id="login-email" type="email" placeholder="Email" autocomplete="email" required />
-      <div class="row row-password">
-        <input id="login-password" type="password" placeholder="Password" autocomplete="current-password" required>
-        <label class="left"><input id="show-login-pw" type="checkbox"> Show</label>
+      <div class="field">
+        <input id="login-email" type="email" placeholder="Email" autocomplete="email" required />
       </div>
-      <div class="row row-account">
-        <label class="left"><input id="remember-me" type="checkbox"> Keep me signed in</label>
-        <a class="link" href="#" id="forgot-link" title="Use magic link if you forgot your password">Magic link</a>
+
+      <div class="field pw-block">
+        <input id="login-password" type="password" placeholder="Password" autocomplete="current-password" required />
+        <label class="toggle"><input id="show-login-pw" type="checkbox"> Show password</label>
       </div>
+
+      <div class="field remember-block">
+        <label><input id="remember-me" type="checkbox"> Keep me signed in</label>
+      </div>
+
+      <div class="field magic-block">
+        <a class="link" href="#" id="forgot-link" title="Send a magic login link">Send magic link</a>
+      </div>
+
       <button type="submit">Log in</button>
       <div id="login-error" class="error"></div>
     </form>
 
     <!-- Signup -->
     <form id="form-signup" class="hidden">
-      <input id="signup-email" type="email" placeholder="Email" autocomplete="email" required />
-      <div class="row row-password">
-        <input id="signup-password" type="password" placeholder="Password (min 6 chars)" autocomplete="new-password" required>
-        <label class="left"><input id="show-signup-pw" type="checkbox"> Show</label>
+      <div class="field">
+        <input id="signup-email" type="email" placeholder="Email" autocomplete="email" required />
       </div>
+
+      <div class="field pw-block">
+        <input id="signup-password" type="password" placeholder="Password (min 6 chars)" autocomplete="new-password" required />
+        <label class="toggle"><input id="show-signup-pw" type="checkbox"> Show password</label>
+      </div>
+
       <button type="submit">Create account</button>
       <div id="signup-ok" class="ok"></div>
       <div id="signup-error" class="error"></div>
@@ -103,6 +150,7 @@
   const tabSignup = $("#tab-signup");
   const formLogin = $("#form-login");
   const formSignup= $("#form-signup");
+
   tabLogin.onclick = ()=>{
     tabLogin.classList.add("active");
     tabSignup.classList.remove("active");
@@ -149,15 +197,15 @@
     window.location.href = ALLOW.has(status) ? "/index.html" : "/subscribe.html";
   }
 
-  // Recovery detection
+  // Password recovery detection
   const urlNow = new URL(window.location.href);
-  const isRecovery =
-    urlNow.hash.includes("type=recovery") || urlNow.searchParams.get("type") === "recovery";
+  const isRecovery = urlNow.hash.includes("type=recovery") || urlNow.searchParams.get("type") === "recovery";
 
-  // Inline reset-password UI for recovery links
+  // Inline reset-password UI (after clicking recovery link)
   async function showRecoveryUI() {
     const { data: { session } } = await supabase.auth.getSession();
 
+    // Hide normal UI
     document.querySelector(".tabs")?.classList.add("hidden");
     document.getElementById("form-login")?.classList.add("hidden");
     document.getElementById("form-signup")?.classList.add("hidden");
@@ -209,6 +257,7 @@
   (async ()=>{
     const params = new URLSearchParams(location.search);
 
+    // Explicit account switch
     if (params.get("switch") === "1") {
       await supabase.auth.signOut();
       localStorage.removeItem("remember_email");
@@ -216,11 +265,13 @@
       return;
     }
 
+    // If arriving from a recovery email, show reset UI and stop here
     if (isRecovery) {
       await showRecoveryUI();
       return;
     }
 
+    // Normal path: if already signed in, route (only if active/trialing)
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user?.id) return;
 
@@ -238,6 +289,7 @@
       return;
     }
 
+    // Inactive: show note and a Sign out button to let user switch accounts
     const note = document.getElementById("login-error");
     if (note) {
       note.textContent = "You're signed in but not subscribed. Sign in with a different account or sign out below.";
@@ -261,24 +313,29 @@
     e.preventDefault();
     const errBox = $("#login-error");
     errBox.style.display = "none";
+
+    // remove any prior action buttons to avoid duplicates
     document.getElementById("login-actions")?.remove();
 
     const email = $("#login-email").value.trim();
     const password = $("#login-password").value;
-    if (!isValidEmail(email)) { errBox.textContent = "Please enter a valid email address."; errBox.style.display = "block"; return; }
+    if (!isValidEmail(email)) {
+      errBox.textContent = "Please enter a valid email address.";
+      errBox.style.display = "block";
+      return;
+    }
 
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       const msg = (error.message || "").toLowerCase();
-      errBox.textContent = msg.includes("invalid login credentials") ? "Wrong email or password." : error.message;
+
+      errBox.textContent = msg.includes("invalid login credentials")
+        ? "Wrong email or password."
+        : error.message;
       errBox.style.display = "block";
 
       const actions = document.createElement("div");
       actions.id = "login-actions";
-      actions.style.marginTop = "8px";
-      actions.style.display = "flex";
-      actions.style.flexWrap = "wrap";
-      actions.style.gap = "8px";
 
       const reset = document.createElement("button");
       reset.type = "button";
@@ -321,13 +378,18 @@
       return;
     }
 
+    // success
     rememberEmailMaybe(email);
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user?.id) { errBox.textContent = "Sign-in succeeded, but no user session was returned."; errBox.style.display = "block"; return; }
+    if (!user?.id) {
+      errBox.textContent = "Sign-in succeeded, but no user session was returned.";
+      errBox.style.display = "block";
+      return;
+    }
     await routeByProfile(user.id);
   });
 
-  // Magic link (login tab)
+  // Magic link (login)
   $("#forgot-link")?.addEventListener("click", async (e)=>{
     e.preventDefault();
     const email = $("#login-email").value.trim();
@@ -340,7 +402,7 @@
     alert("Check your inbox for a magic link.");
   });
 
-  // Signup with “account exists” UX (covers identities === 0 case)
+  // Signup with "account exists" UX (even when Supabase returns 200)
   formSignup.addEventListener("submit", async (e)=>{
     e.preventDefault();
     const okBox = $("#signup-ok");
@@ -366,11 +428,17 @@
     });
 
     const identities = data?.user?.identities ?? [];
-    if (!error && identities.length === 0) { showExistsActions(errBox, okBox, email); return; }
+    if (!error && identities.length === 0) {
+      showExistsActions(errBox, okBox, email);
+      return;
+    }
 
     if (error) {
       const msg = (error.message || "").toLowerCase();
-      if (msg.includes("already registered") || msg.includes("already exists")) { showExistsActions(errBox, okBox, email); return; }
+      if (msg.includes("already registered") || msg.includes("already exists")) {
+        showExistsActions(errBox, okBox, email);
+        return;
+      }
       errBox.textContent = error.message;
       errBox.style.display = "block";
       return;
@@ -388,14 +456,14 @@
     if (!actions) {
       actions = document.createElement("div");
       actions.id = "signup-actions";
-      actions.style.marginTop = "8px";
-      actions.style.display = "flex";
-      actions.style.gap = "8px";
 
       const toLogin = document.createElement("button");
       toLogin.type = "button";
       toLogin.textContent = "Go to Login";
-      toLogin.onclick = () => { $("#login-email").value = email; tabLogin.click(); };
+      toLogin.onclick = () => {
+        $("#login-email").value = email;
+        tabLogin.click();
+      };
 
       const magic = document.createElement("button");
       magic.type = "button";
