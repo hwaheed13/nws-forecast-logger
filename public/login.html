@@ -194,7 +194,7 @@
       .eq("id", userId)
       .maybeSingle();
     const status = profile?.subscription_status ?? "inactive";
-    window.location.href = ALLOW.has(status) ? "/dashboard" : "/dashboard/subscribe.html";
+   window.location.href = ALLOW.has(status) ? "/" : "/subscribe.html";
 
   }
 
@@ -286,8 +286,8 @@
 
     const status = profile?.subscription_status ?? "inactive";
     if (ALLOW.has(status)) {
-    location.replace("/dashboard");
-    return;
+      location.replace("/");
+      return;
     }
 
     // Inactive: show note and a Sign out button to let user switch accounts
@@ -343,7 +343,7 @@
       reset.textContent = "Reset Password";
       reset.onclick = async () => {
         const { error: rErr } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: "https://dailydewpoint.com/dashboard/login.html"
+          redirectTo: "https://app.dailydewpoint.com/login.html"
         });
         if (rErr) { errBox.textContent = rErr.message; errBox.style.display = "block"; }
         else { alert("Password reset email sent."); }
@@ -355,7 +355,7 @@
       magic.onclick = async () => {
         const { error: otpErr } = await supabase.auth.signInWithOtp({
           email,
-          options: { emailRedirectTo: "https://dailydewpoint.com/dashboard/login.html" }
+          options: { emailredirectTo: "https://app.dailydewpoint.com/login.html" }
         });
         if (otpErr) { errBox.textContent = otpErr.message; errBox.style.display = "block"; }
         else { alert("Magic link sent. Check your inbox."); }
@@ -397,7 +397,7 @@
     if (!isValidEmail(email)) return alert("Enter your email first.");
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: "https://dailydewpoint.com/dashboard/login.html" }
+      options: { emailredirectTo: "https://app.dailydewpoint.com/login.html" }
     });
     if (error) return alert(error.message);
     alert("Check your inbox for a magic link.");
@@ -425,7 +425,7 @@
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: "https://dailydewpoint.com/dashboard/login.html" }
+      options: { emailredirectTo: "https://app.dailydewpoint.com/login.html" }
     });
 
     const identities = data?.user?.identities ?? [];
@@ -472,7 +472,7 @@
       magic.onclick = async () => {
         const { error: otpErr } = await supabase.auth.signInWithOtp({
           email,
-          options: { emailRedirectTo: "https://dailydewpoint.com/dashboard/login.html" }
+          options: { emailredirectTo: "https://app.dailydewpoint.com/login.html" }
         });
         if (otpErr) { errBox.textContent = otpErr.message; }
         else { okBox.textContent = "Magic link sent. Check your inbox."; okBox.style.display = "block"; }
@@ -483,7 +483,7 @@
       reset.textContent = "Reset Password";
       reset.onclick = async () => {
         const { error: rErr } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: "https://dailydewpoint.com/dashboard/login.html"
+          redirectTo: "https://app.dailydewpoint.com/login.html"
         });
         if (rErr) { errBox.textContent = rErr.message; errBox.style.display = "block"; }
         else { okBox.textContent = "Password reset email sent."; okBox.style.display = "block"; }
