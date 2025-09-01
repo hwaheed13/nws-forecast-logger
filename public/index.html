@@ -2141,28 +2141,41 @@
             }, msUntilMidnightET());
         }
 
-        async function checkAccess() {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) {
-                document.getElementById("gate")?.querySelector(".gate-sub")?.insertAdjacentText("beforeend", " Redirecting to login…");
-                return (window.location.href = "/login.html");
-            }
+async function checkAccess() {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    document.getElementById("gate")?.querySelector(".gate-sub")?.insertAdjacentText("beforeend", " Redirecting to login…");
+    return (window.location.href = "/login.html");
+  }
 
-            const { data: profile } = await supabase
-                .from("profiles")
-                .select("subscription_status")
-                .eq("id", session.user.id)
-                .single();
+  // pull extra fields so we can show a trial countdown + route correctly
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("subscription_status, current_period_end, trial_used")
+    .eq("id", session.user.id)
+    .single();
 
-            if (!profile || profile.subscription_status !== "active") {
-                document.getElementById("gate")?.querySelector(".gate-sub")?.insertAdjacentText("beforeend", " Redirecting to subscribe…");
-                return (window.location.href = "/subscribe.html");
-            }
+  const status = profile?.subscription_status ?? "inactive";
+  const ALLOW = new Set(["active", "trialing"]);
 
-            // ✅ allowed in
-            showApp();
-            bootApp();
-        }
+  if (!ALLOW.has(status)) {
+    // If they've already used their trial, show the dedicated banner on subscribe
+    const dest = profile?.trial_used
+      ? "/subscribe.html?reason=trial_expired"
+      : "/subscribe.html";
+    document.getElementById("gate")?.querySelector(".gate-sub")?.insertAdjacentText("beforeend", " Redirecting to subscribe…");
+    return (window.location.href = dest);
+  }
+
+  // ✅ allowed in
+  showApp();
+  bootApp();
+
+  // If they're in a free trial, show a live countdown pill
+  if (status === "trialing" && profile?.current_period_end) {
+    showTrialCountdown(new Date(profile.current_period_end));
+  }
+}
 
         // Buttons
         document.getElementById("btn-logout")?.addEventListener("click", async () => {
