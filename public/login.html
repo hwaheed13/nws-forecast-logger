@@ -14,20 +14,20 @@
     }
     .card {
       background: #fff; padding: 28px; border-radius: 16px; box-shadow: 0 8px 28px rgba(0,0,0,.12);
-      width: 100%; max-width: 440px;
+      width: 100%; max-width: 480px;
     }
     h1 { font-size: 24px; margin: 0 0 20px; text-align: center; font-weight: 700; }
 
     /* Inputs / labels */
-    input[type="email"], input[type="password"] {
+    input[type="email"], input[type="password"], select {
       width: 100%; padding: 12px; margin: 8px 0 0 0; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px;
-      outline: none;
+      outline: none; background:#fff;
     }
-    input[type="email"]:focus, input[type="password"]:focus {
+    input[type="email"]:focus, input[type="password"]:focus, select:focus {
       border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.15);
     }
 
-    /* Buttons (blue) */
+    /* Buttons (blue primary) */
     button {
       width: 100%; padding: 12px; margin-top: 12px; border: none; border-radius: 8px;
       background: #2563eb; color: #fff; font-weight: 600; font-size: 15px; cursor: pointer;
@@ -61,24 +61,23 @@
       transform: translateY(1px);
       margin-right: 8px;
     }
-    .pw-block .toggle { text-align: right; }  /* “Show password” on its own line, right-aligned */
-    .remember-block label { text-align: left; } /* “Keep me signed in” on its own line */
-    .magic-block a { text-align: left; }        /* “Send magic link” on its own line */
+    .pw-block .toggle { text-align: right; }
+    .remember-block label { text-align: left; }
+    .magic-block a { text-align: left; }
 
-    /* Action buttons under errors (login/signup flows) */
-    #login-actions, #signup-actions {
-      display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;
-    }
+    /* Inline actions under errors (login/signup flows) */
+    #login-actions, #signup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
     #login-actions button, #signup-actions button {
       width: auto; padding: 10px 12px; font-size: 13px;
-      background: #e2e8f0; color: #0f172a;
+      background: #e2e8f0; color: #0f172a; border-radius: 8px;
     }
     #login-actions button:hover, #signup-actions button:hover { background: #cbd5e1; }
 
-    /* Mobile tweaks */
-    @media (max-width: 480px) {
-      .pw-block .toggle { text-align: left; }  /* on very narrow devices, left-align the toggle */
-    }
+    .plan-hint { font-size: 12px; color: #0f172a; background:#eef2ff; border:1px solid #c7d2fe; padding:8px; border-radius:8px; margin-top:8px; }
+    .row { display:flex; gap:10px; align-items:center; }
+    .row > * { flex: 1; }
+
+    @media (max-width: 480px) { .pw-block .toggle { text-align: left; } }
   </style>
 </head>
 <body>
@@ -124,6 +123,17 @@
         <label class="toggle"><input id="show-signup-pw" type="checkbox"> Show password</label>
       </div>
 
+      <!-- Optional plan preselect from CTA -->
+      <div class="field">
+        <label for="plan-choice" style="font-size:13px;font-weight:600;color:#334155;">Choose plan</label>
+        <select id="plan-choice">
+          <option value="">— Decide later —</option>
+          <option value="monthly">$3 trial → monthly</option>
+          <option value="yearly">$30 yearly</option>
+        </select>
+        <div id="plan-hint" class="plan-hint hidden"></div>
+      </div>
+
       <button type="submit">Create account</button>
       <div id="signup-ok" class="ok"></div>
       <div id="signup-error" class="error"></div>
@@ -151,18 +161,21 @@
   const formLogin = $("#form-login");
   const formSignup= $("#form-signup");
 
-  tabLogin.onclick = ()=>{
+  function showLogin(){
     tabLogin.classList.add("active");
     tabSignup.classList.remove("active");
     formLogin.classList.remove("hidden");
     formSignup.classList.add("hidden");
-  };
-  tabSignup.onclick= ()=>{
+  }
+  function showSignup(){
     tabSignup.classList.add("active");
     tabLogin.classList.remove("active");
     formSignup.classList.remove("hidden");
     formLogin.classList.add("hidden");
-  };
+  }
+
+  tabLogin.onclick = showLogin;
+  tabSignup.onclick= showSignup;
 
   // Show/hide password toggles
   $("#show-login-pw")?.addEventListener("change", (e)=>{
@@ -194,24 +207,63 @@
       .eq("id", userId)
       .maybeSingle();
     const status = profile?.subscription_status ?? "inactive";
-   window.location.href = ALLOW.has(status) ? "/" : "/subscribe.html";
-
+    window.location.href = ALLOW.has(status) ? "/" : "/subscribe.html";
   }
 
-  // Password recovery detection
-  const urlNow = new URL(window.location.href);
-  const isRecovery = urlNow.hash.includes("type=recovery") || urlNow.searchParams.get("type") === "recovery";
+  // ----- CTA deep-linking: ?mode=signup&plan=3|30 -----
+  const params = new URLSearchParams(location.search);
+  const urlMode = params.get("mode");
+  const urlPlan = params.get("plan"); // "3" or "30"
+  const planChoice = $("#plan-choice");
+  const planHint = $("#plan-hint");
 
-  // Inline reset-password UI (after clicking recovery link)
+  (function applyPlanFromParams(){
+    let sel = "";
+    if (urlPlan === "3") sel = "monthly";
+    if (urlPlan === "30") sel = "yearly";
+    if (sel) {
+      planChoice.value = sel;
+      localStorage.setItem("ddp_plan_pref", sel);
+      planHint.classList.remove("hidden");
+      planHint.textContent = sel === "monthly"
+        ? "Selected: $3 trial → monthly plan."
+        : "Selected: $30 yearly plan.";
+    } else {
+      // hydrate from any saved preference
+      const saved = localStorage.getItem("ddp_plan_pref") || "";
+      if (saved) planChoice.value = saved;
+    }
+  })();
+
+  planChoice?.addEventListener("change", ()=>{
+    const v = planChoice.value || "";
+    if (v) localStorage.setItem("ddp_plan_pref", v);
+    else localStorage.removeItem("ddp_plan_pref");
+    if (v) {
+      planHint.classList.remove("hidden");
+      planHint.textContent = v === "monthly"
+        ? "Selected: $3 trial → monthly plan."
+        : "Selected: $30 yearly plan.";
+    } else {
+      planHint.classList.add("hidden");
+      planHint.textContent = "";
+    }
+  });
+
+  // Password recovery detection
+  const isRecovery =
+    location.hash.includes("type=recovery") ||
+    params.get("type") === "recovery";
+
+  // Inline reset-password UI
   async function showRecoveryUI() {
     const { data: { session } } = await supabase.auth.getSession();
 
-    // Hide normal UI
-    document.querySelector(".tabs")?.classList.add("hidden");
-    document.getElementById("form-login")?.classList.add("hidden");
-    document.getElementById("form-signup")?.classList.add("hidden");
+    $(".tabs")?.classList.add("hidden");
+    $("#form-login")?.classList.add("hidden");
+    $("#form-signup")?.classList.add("hidden");
 
-    const card = document.querySelector(".card");
+    const card = $(".card");
     const box = document.createElement("div");
     box.style.marginTop = "8px";
     box.innerHTML = `
@@ -254,25 +306,26 @@
     };
   }
 
-  // Auto-route / switch logic
+  // Auto-route / switch logic + deep-linking
   (async ()=>{
-    const params = new URLSearchParams(location.search);
-
     // Explicit account switch
     if (params.get("switch") === "1") {
       await supabase.auth.signOut();
       localStorage.removeItem("remember_email");
-      document.getElementById("tab-login")?.click?.();
+      showLogin();
       return;
     }
 
-    // If arriving from a recovery email, show reset UI and stop here
+    // Deep-link to signup tab when requested
+    if (urlMode === "signup") showSignup();
+
+    // Recovery flow
     if (isRecovery) {
       await showRecoveryUI();
       return;
     }
 
-    // Normal path: if already signed in, route (only if active/trialing)
+    // Already signed in? Route based on subscription
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user?.id) return;
 
@@ -290,8 +343,8 @@
       return;
     }
 
-    // Inactive: show note and a Sign out button to let user switch accounts
-    const note = document.getElementById("login-error");
+    // Inactive: nudge and offer Sign out to switch accounts
+    const note = $("#login-error");
     if (note) {
       note.textContent = "You're signed in but not subscribed. Sign in with a different account or sign out below.";
       note.style.display = "block";
@@ -306,17 +359,15 @@
       localStorage.removeItem("remember_email");
       location.reload();
     };
-    document.getElementById("form-login")?.appendChild(signout);
+    $("#form-login")?.appendChild(signout);
   })();
 
-  // Login submit (with inline recovery actions when it fails)
+  // Login submit
   formLogin.addEventListener("submit", async (e)=>{
     e.preventDefault();
     const errBox = $("#login-error");
     errBox.style.display = "none";
-
-    // remove any prior action buttons to avoid duplicates
-    document.getElementById("login-actions")?.remove();
+    $("#login-actions")?.remove();
 
     const email = $("#login-email").value.trim();
     const password = $("#login-password").value;
@@ -329,7 +380,6 @@
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       const msg = (error.message || "").toLowerCase();
-
       errBox.textContent = msg.includes("invalid login credentials")
         ? "Wrong email or password."
         : error.message;
@@ -403,7 +453,7 @@
     alert("Check your inbox for a magic link.");
   });
 
-  // Signup with "account exists" UX (even when Supabase returns 200)
+  // Signup (with “account exists” UX)
   formSignup.addEventListener("submit", async (e)=>{
     e.preventDefault();
     const okBox = $("#signup-ok");
@@ -413,6 +463,7 @@
 
     const email = $("#signup-email").value.trim();
     const password = $("#signup-password").value;
+    const chosenPlan = $("#plan-choice").value || ""; // "", "monthly", "yearly"
     if (!isValidEmail(email)) { errBox.textContent = "Please enter a valid email address."; errBox.style.display = "block"; return; }
 
     const { data: { session } } = await supabase.auth.getSession();
@@ -445,6 +496,9 @@
       return;
     }
 
+    // Save plan preference for subscribe flow
+    if (chosenPlan) localStorage.setItem("ddp_plan_pref", chosenPlan);
+
     okBox.textContent = "Check your inbox to confirm your email!";
     okBox.style.display = "block";
   });
@@ -463,7 +517,7 @@
       toLogin.textContent = "Go to Login";
       toLogin.onclick = () => {
         $("#login-email").value = email;
-        tabLogin.click();
+        showLogin();
       };
 
       const magic = document.createElement("button");
@@ -493,6 +547,9 @@
       errBox.insertAdjacentElement("afterend", actions);
     }
   }
+
+  // If a CTA requested signup mode, ensure the correct tab is visible immediately.
+  if (urlMode === "signup") showSignup();
 </script>
 </body>
 </html>
