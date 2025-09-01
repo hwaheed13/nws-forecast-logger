@@ -6,7 +6,7 @@
   <title>Subscribe – Daily Dew Point</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
-    :root { --bg:#f8fafc; --fg:#0f172a; --muted:#64748b; --b:#cbd5e1; --b2:#94a3b8; --blue:#2563eb; --blue2:#1e40af; --ok:#16a34a;}
+    :root { --bg:#f8fafc; --fg:#0f172a; --muted:#64748b; --b:#cbd5e1; --b2:#94a3b8; --blue:#2563eb; --blue2:#1e40af; }
     html,body{height:100%}
     body { font-family:'Inter',system-ui,sans-serif; display:flex; align-items:center; justify-content:center;
            min-height:100%; margin:0; background:var(--bg); color:var(--fg); padding:16px; }
@@ -25,11 +25,10 @@
     button[disabled]{ opacity:.6; cursor:default; }
     .btn-ghost { background:#e2e8f0; color:#0f172a; }
     .btn-ghost:hover { background:#cbd5e1; }
-    .trial-note{ font-size:12px; color:#065f46; background:#ecfdf5; border:1px solid #a7f3d0; padding:8px; border-radius:8px; display:none; }
     .note { font-size:12px; margin-top:10px; color:var(--muted); }
     .top-links{ display:flex; justify-content:center; gap:12px; margin-top:10px; font-size:13px }
     .top-links a{ color:var(--blue); text-decoration:none }
-    .alert{ margin-top:12px; font-size:13px; padding:10px 12px; border-radius:8px; border:1px solid var(--b); color:#334155; background:#f1f5f9; display:none}
+    .alert{ margin-top:12px; font-size:13px; padding:10px 12px; border-radius:8px; border:1px solid #cbd5e1; color:#334155; background:#f1f5f9; display:none}
     .alert.ok{ border-color:#a7f3d0; color:#065f46; background:#ecfdf5; display:block}
     .alert.err{ border-color:#fecaca; color:#7f1d1d; background:#fef2f2; display:block}
   </style>
@@ -37,9 +36,14 @@
 <body>
   <div class="card">
     <h1>Choose your plan</h1>
-    <p class="sub">You’ll be redirected to Stripe Checkout.</p>
+    <p class="sub">You can start a free trial, or pick a plan now.</p>
 
-    <div class="plans" role="radiogroup" aria-label="Plans">
+    <div class="actions" style="margin-top:6px">
+      <!-- TRIAL is independent of plan selection -->
+      <button id="btn-trial" class="btn-ghost">Start Free Trial</button>
+    </div>
+
+    <div class="plans" role="radiogroup" aria-label="Plans" style="margin-top:16px">
       <div class="plan" tabindex="0" role="radio" aria-checked="false" data-plan="monthly">
         <strong>$3 / month</strong>
         <small>Monthly. Cancel anytime.</small>
@@ -50,11 +54,9 @@
       </div>
     </div>
 
-    <div id="trial-note" class="trial-note"></div>
-
     <div class="actions">
+      <!-- PLAN checkout requires selection -->
       <button id="btn-subscribe">Continue to Checkout</button>
-      <button id="btn-trial" class="btn-ghost">Start $3 trial</button>
     </div>
 
     <div class="top-links">
@@ -62,6 +64,7 @@
       <span>·</span>
       <a href="login.html?switch=1&stay=1">Back to login / sign-up</a>
     </div>
+
     <div id="toast" class="alert"></div>
     <div class="note">Already subscribed? You’ll be sent back to the dashboard automatically.</div>
   </div>
@@ -74,19 +77,16 @@
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4QyI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
   );
 
-  // Stripe Price IDs (keep as-is)
+  // Stripe Price IDs (keep your real IDs on the server)
   const PRICE_IDS = {
     monthly: "price_1S1U96JZv8wNnhLtlNWL0gqK",
     yearly:  "price_1S1U7hJZv8wNnhLtRLRLoVf3"
   };
 
-  // Global toggle for showing trial for both plans
-  const TRIAL_ENABLED = true;
-
   const $ = (s,p=document)=>p.querySelector(s);
   const $$ = (s,p=document)=>Array.from(p.querySelectorAll(s));
-  const toast = $("#toast");
   const params = new URLSearchParams(location.search);
+  const toast = $("#toast");
   const ALLOW = new Set(["active","trialing"]);
 
   function showToast(msg, kind="err"){
@@ -94,7 +94,7 @@
     toast.className = "alert " + kind;
   }
 
-  // Show messages if returning from Stripe
+  // Messages returning from Stripe
   if (params.get("success")) showToast("Payment succeeded. Finalizing…", "ok");
   if (params.get("canceled")) showToast("Checkout canceled.", "err");
 
@@ -105,10 +105,7 @@
       .eq("id", userId)
       .maybeSingle();
     const status = profile?.subscription_status ?? "inactive";
-    if (ALLOW.has(status)) {
-      window.location.href = "/";
-      return true;
-    }
+    if (ALLOW.has(status)) { window.location.href = "/"; return true; }
     return false;
   }
 
@@ -131,7 +128,7 @@
     }
   })();
 
-  // ── Plan selection with preselect ───────────────────────────────────────────
+  // ── Plan selection (optional) ───────────────────────────────────────────────
   let selectedPlan = null;
 
   function setActivePlan(el){
@@ -140,31 +137,16 @@
     el.setAttribute("aria-checked","true");
     selectedPlan = el.dataset.plan;
     localStorage.setItem("ddp_prefplan", selectedPlan);
-
-    updateTrialUI();
-  }
-
-  function updateTrialUI(){
-    const note = $("#trial-note");
-    if (!TRIAL_ENABLED) { note.style.display = "none"; $("#btn-trial").style.display = "none"; return; }
-
-    const planText = selectedPlan === "yearly" ? "$30/year" : "$3/month";
-    note.innerHTML = `Try it now — billed at <b>$3</b> for the intro period, then ${planText}. Cancel anytime.`;
-    note.style.display = "block";
-    $("#btn-trial").style.display = "block";
   }
 
   (function presetPlan(){
     const q = (params.get("prefplan") || "").toLowerCase(); // "3" or "30"
     const saved = (localStorage.getItem("ddp_prefplan") || "").toLowerCase();
-
     let initial = null;
     if (q === "3")  initial = $('[data-plan="monthly"]');
     if (q === "30") initial = $('[data-plan="yearly"]');
     if (!initial && saved) initial = $(`[data-plan="${saved}"]`);
-    if (!initial) initial = $('[data-plan="monthly"]');
-
-    setActivePlan(initial);
+    if (initial) setActivePlan(initial);
   })();
 
   $$(".plan").forEach(el => {
@@ -184,47 +166,55 @@
     return session;
   }
 
-  async function startCheckout({ plan, trial=false }){
-    if (!plan) return showToast("Select a plan first.");
-
-    btnCheckout.disabled = true;
-    btnTrial.disabled = true;
-    showToast(trial ? "Starting $3 trial…" : "Creating checkout session…", "ok");
+  // Plan checkout (requires selection)
+  btnCheckout.addEventListener("click", async ()=>{
+    if (!selectedPlan) return showToast("Select a plan first.");
+    btnCheckout.disabled = true; showToast("Creating checkout session…", "ok");
 
     const session = await ensureSession();
-    if (!session) { btnCheckout.disabled = false; btnTrial.disabled = false; return; }
+    if (!session) { btnCheckout.disabled = false; return; }
 
     try {
       const r = await fetch("/api/create-checkout-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          priceId: PRICE_IDS[plan],
-          plan,
-          trial, // true for trial path no matter which plan is chosen
+          priceId: PRICE_IDS[selectedPlan],
+          plan: selectedPlan,
+          trial: false,
           supabaseAccessToken: session.access_token,
-          // success_url should be `${origin}/subscribe.html?success=1`
         })
       });
-
       const data = await r.json();
-      if (!r.ok || !data?.url) {
-        btnCheckout.disabled = false; btnTrial.disabled = false;
-        return showToast(data?.error || "Could not start checkout. Check server logs.");
-      }
-      window.location.href = data.url; // Stripe Checkout
+      if (!r.ok || !data?.url) { btnCheckout.disabled = false; return showToast(data?.error || "Could not start checkout."); }
+      window.location.href = data.url;
     } catch (e) {
-      btnCheckout.disabled = false; btnTrial.disabled = false;
-      showToast(e.message || "Network error starting checkout.");
+      btnCheckout.disabled = false; showToast(e.message || "Network error starting checkout.");
     }
-  }
-
-  btnCheckout.addEventListener("click", async ()=>{
-    await startCheckout({ plan: selectedPlan, trial:false });
   });
 
+  // FREE TRIAL checkout (NO plan required)
   btnTrial.addEventListener("click", async ()=>{
-    await startCheckout({ plan: selectedPlan, trial:true });
+    btnTrial.disabled = true; showToast("Starting free trial…", "ok");
+
+    const session = await ensureSession();
+    if (!session) { btnTrial.disabled = false; return; }
+
+    try {
+      const r = await fetch("/api/create-checkout-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          trial: true,             // <- key: no plan passed
+          supabaseAccessToken: session.access_token,
+        })
+      });
+      const data = await r.json();
+      if (!r.ok || !data?.url) { btnTrial.disabled = false; return showToast(data?.error || "Could not start trial."); }
+      window.location.href = data.url;
+    } catch (e) {
+      btnTrial.disabled = false; showToast(e.message || "Network error starting trial.");
+    }
   });
 </script>
 </body>
