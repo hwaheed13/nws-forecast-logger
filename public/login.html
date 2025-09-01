@@ -229,15 +229,94 @@
     verifiedNote.style.display = "block";
   }
 
-  // Already signed in? Route based on subscription
+  // ── AUTO-ROUTING (with escape hatch) ─────────────────────────────────────────
   (async () => {
+    const stayHere = params.get("stay") === "1";
+
+    // Explicit account switch → sign out, then stay on this page
+    if (params.get("switch") === "1") {
+      await supabase.auth.signOut();
+      localStorage.removeItem("remember_email");
+      showLogin();
+      return;
+    }
+
+    // Already signed in?
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user?.id) return;
+
+    // If we were asked to "stay", do NOT auto-route. Show inactive banner + actions instead.
+    if (stayHere) {
+      await supabase.auth.refreshSession();
+      const email = session.user.email || "this account";
+      const note = $("#login-error");
+      if (note) {
+        note.innerHTML = `You're signed in as <strong>${email}</strong> but not subscribed.`;
+        note.style.display = "block";
+        let actions = document.getElementById("login-actions");
+        if (!actions) {
+          actions = document.createElement("div");
+          actions.id = "login-actions";
+
+          const toSubscribe = document.createElement("button");
+          toSubscribe.type = "button";
+          toSubscribe.textContent = "Go to Subscribe";
+          toSubscribe.onclick = () => {
+            const pref = localStorage.getItem("ddp_prefplan");
+            const qs = pref ? `?prefplan=${pref === "yearly" ? "30" : "3"}` : "";
+            window.location.href = `/subscribe.html${qs}`;
+          };
+
+          const switchBtn = document.createElement("button");
+          switchBtn.type = "button";
+          switchBtn.textContent = "Sign out to switch account";
+          switchBtn.onclick = async () => {
+            await supabase.auth.signOut();
+            localStorage.removeItem("remember_email");
+            location.href = "/login.html?stay=1";
+          };
+
+          actions.append(toSubscribe, switchBtn);
+          note.insertAdjacentElement("afterend", actions);
+        }
+      }
+      return; // <- critical: stop normal auto-route
+    }
+
+    // Normal behavior: auto-route based on subscription
     await supabase.auth.refreshSession();
-    await routeByProfile(session.user.id);
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("subscription_status")
+      .eq("id", session.user.id)
+      .maybeSingle();
+
+    const status = profile?.subscription_status ?? "inactive";
+    if (ALLOW.has(status)) {
+      location.replace("/");
+      return;
+    }
+
+    // Inactive (and not stay=1): nudge and offer sign out
+    const note = $("#login-error");
+    if (note) {
+      note.textContent = "You're signed in but not subscribed. Sign in with a different account or sign out below.";
+      note.style.display = "block";
+    }
+    const signout = document.createElement("button");
+    signout.type = "button";
+    signout.textContent = "Sign out";
+    signout.style.marginTop = "8px";
+    signout.onclick = async () => {
+      await supabase.auth.signOut();
+      localStorage.removeItem("remember_email");
+      location.reload();
+    };
+    $("#form-login")?.appendChild(signout);
   })();
 
   // Login submit
+  const formLogin = document.getElementById("form-login");
   formLogin.addEventListener("submit", async (e)=>{
     e.preventDefault();
     const errBox = $("#login-error");
@@ -329,6 +408,7 @@
   });
 
   // Signup (no plans here; only create account + verify)
+  const formSignup = document.getElementById("form-signup");
   formSignup.addEventListener("submit", async (e)=>{
     e.preventDefault();
     const okBox = $("#signup-ok");
