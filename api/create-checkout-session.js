@@ -99,7 +99,7 @@ export default async function handler(req, res) {
         cancel_url,
         line_items: [{ price: PRICES.monthly, quantity: 1 }],
         subscription_data: {
-          trial_period_days: 7, // <-- adjust if you want a different trial length
+          trial_period_days: 3, // <-- adjust if you want a different trial length
           metadata: {
             ddp_trial: "true",
             ddp_selected_plan: "monthly",
