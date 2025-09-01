@@ -4,12 +4,9 @@ import { createClient } from "@supabase/supabase-js";
 
 export const config = { api: { bodyParser: false } }; // Stripe needs raw body
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2024-06-20" });
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2023-10-16" });
 
-const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
-const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
-
+// read raw body for webhook signature verification
 function readRawBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -19,35 +16,54 @@ function readRawBody(req) {
   });
 }
 
-function normStatus(s) {
+// map Stripe status → your profile.status
+function normalizeStatus(s) {
   return (s === "active" || s === "trialing") ? s : "inactive";
 }
 
-async function upsertByCustomer(customerId, patch) {
-  // try by stripe_customer_id
-  const { data: prof } = await admin
-    .from("profiles")
-    .select("id")
-    .eq("stripe_customer_id", customerId)
-    .maybeSingle();
+// build the profile patch from a Stripe subscription object
+function profilePatchFromSubscription(sub, sessionMeta = {}) {
+  const status = normalizeStatus(sub.status);
 
-  let id = prof?.id;
-  if (!id) {
-    const cust = await stripe.customers.retrieve(customerId);
-    id = cust?.metadata?.supabase_user_id || null;
-    if (id) {
-      await admin
-        .from("profiles")
-        .upsert(
-          { id, stripe_customer_id: customerId, updated_at: new Date().toISOString() },
-          { onConflict: "id" }
-        );
-    }
-  }
-  if (!id) return null;
+  // Price/interval (first item)
+  const item = sub.items?.data?.[0];
+  const price = item?.price;
+  const plan_interval = price?.recurring?.interval ?? null;
+  const plan_amount = typeof price?.unit_amount === "number" ? price.unit_amount : null;
 
-  await admin.from("profiles").update(patch).eq("id", id);
-  return id;
+  // Trial fields (Unix → ISO)
+  const trial_started = sub.trial_start ? new Date(sub.trial_start * 1000).toISOString() : null;
+  const trial_ends    = sub.trial_end   ? new Date(sub.trial_end   * 1000).toISOString() : null;
+
+  // Period end (use Stripe’s current_period_end)
+  const current_period_end = sub.current_period_end
+    ? new Date(sub.current_period_end * 1000).toISOString()
+    : null;
+
+  // If we can infer this subscription came from a free-trial checkout, mark it.
+  const trialFlag = (sessionMeta.ddp_trial === "true") || (sub.trial_end && Date.now() < sub.trial_end * 1000);
+
+  return {
+    subscription_status: status,
+    stripe_subscription_id: sub.id,
+    // optional plan label (keep your column if you want it)
+    plan: sessionMeta.plan ?? (plan_interval === "year" ? "yearly" : "monthly"),
+    plan_interval,
+    plan_amount,
+    current_period_end,
+
+    // your custom trial tracking fields
+    free_trial_used: trialFlag || undefined,  // set true once; leave untouched otherwise
+    free_trial_started_at: trial_started,
+    free_trial_ends_at: trial_ends,
+
+    // legacy fields you had (keep if you still use them)
+    trial_used: trialFlag || undefined,
+    trial_subscription_id: trialFlag ? sub.id : undefined,
+    trial_started_at: trial_started,
+
+    updated_at: new Date().toISOString(),
+  };
 }
 
 export default async function handler(req, res) {
@@ -55,54 +71,50 @@ export default async function handler(req, res) {
 
   let event;
   try {
-    const raw = await readRawBody(req);
+    const rawBody = await readRawBody(req);
     const sig = req.headers["stripe-signature"];
-    event = stripe.webhooks.constructEvent(raw, sig, process.env.STRIPE_WEBHOOK_SECRET);
+    event = stripe.webhooks.constructEvent(rawBody, sig, process.env.STRIPE_WEBHOOK_SECRET);
   } catch (err) {
     console.error("Webhook signature verify failed:", err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
+  const admin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+
   try {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object;
-        const subscriptionId = session.subscription;
-        const customerId = session.customer;
-        if (!subscriptionId || !customerId) break;
 
-        const [sub, cust] = await Promise.all([
-          stripe.subscriptions.retrieve(subscriptionId),
-          stripe.customers.retrieve(customerId),
+        if (!session.subscription || !session.customer) break;
+
+        const [subscription, customer] = await Promise.all([
+          stripe.subscriptions.retrieve(session.subscription),
+          stripe.customers.retrieve(session.customer),
         ]);
 
-        const status = normStatus(sub.status);
-        const isTrial = sub.status === "trialing" || session.metadata?.ddp_trial === "true";
+        // Prefer explicit user id from metadata; fall back to customer metadata.
+        const supabase_user_id =
+          session.metadata?.supabase_user_id ||
+          customer?.metadata?.supabase_user_id ||
+          null;
 
-        const price = sub.items?.data?.[0]?.price;
-        const plan_interval = price?.recurring?.interval || null;
-        const plan_amount = typeof price?.unit_amount === "number" ? price.unit_amount : null;
+        if (!supabase_user_id) break;
 
-        const patch = {
+        const patch = profilePatchFromSubscription(subscription, session.metadata || {});
+        // Keep email and stripe ids in sync, too.
+        const payload = {
+          id: supabase_user_id,
           email: session.customer_details?.email ?? null,
-          stripe_customer_id: customerId,
-          stripe_subscription_id: subscriptionId,
-          subscription_status: status,
-          plan: session.metadata?.plan || (plan_interval === "year" ? "yearly" : "monthly"),
-          current_period_end: sub.current_period_end
-            ? new Date(sub.current_period_end * 1000).toISOString()
-            : null,
-          updated_at: new Date().toISOString(),
+          stripe_customer_id: customer.id,
+          ...patch,
         };
 
-        // Mark trial usage (your column names)
-        if (isTrial) {
-          patch.free_trial_used = true;
-          patch.trial_subscription_id = subscriptionId;
-          patch.trial_started_at = new Date().toISOString();
+        const { error } = await admin.from("profiles").upsert(payload, { onConflict: "id" });
+        if (error) {
+          console.error("profiles upsert error (checkout.session.completed):", error);
+          return res.status(500).json({ error: "DB upsert failed" });
         }
-
-        await upsertByCustomer(customerId, patch);
         break;
       }
 
@@ -110,42 +122,41 @@ export default async function handler(req, res) {
       case "customer.subscription.updated":
       case "customer.subscription.deleted": {
         const sub = event.data.object;
-        const customerId = sub.customer;
 
-        const status = normStatus(sub.status);
-        const price = sub.items?.data?.[0]?.price;
-        const plan_interval = price?.recurring?.interval || null;
-        const plan_amount = typeof price?.unit_amount === "number" ? price.unit_amount : null;
+        // find profile by stripe_customer_id
+        const { data: profByCust, error: findErr } = await admin
+          .from("profiles")
+          .select("id")
+          .eq("stripe_customer_id", sub.customer)
+          .maybeSingle();
 
-        const patch = {
-          stripe_subscription_id: sub.id,
-          subscription_status: status,
-          plan: plan_interval === "year" ? "yearly" : "monthly",
-          current_period_end: sub.current_period_end
-            ? new Date(sub.current_period_end * 1000).toISOString()
-            : null,
-          updated_at: new Date().toISOString(),
-        };
+        let targetId = profByCust?.id;
+        let sessionMeta = {};
 
-        if (sub.status === "trialing") {
-          patch.free_trial_used = true;
-          patch.trial_subscription_id = sub.id;
-          patch.trial_started_at = new Date().toISOString();
+        if (!targetId) {
+          // fall back to customer metadata
+          const cust = await stripe.customers.retrieve(sub.customer);
+          targetId = cust?.metadata?.supabase_user_id ?? null;
         }
 
-        await upsertByCustomer(customerId, patch);
-        break;
-      }
+        if (!targetId) break;
 
-      case "customer.subscription.trial_will_end": {
-        const sub = event.data.object;
-        console.log("Trial will end soon:", sub.id);
-        // Optional: send email/notification here.
+        const patch = profilePatchFromSubscription(sub, sessionMeta);
+
+        const { error } = await admin
+          .from("profiles")
+          .update(patch)
+          .eq("id", targetId);
+
+        if (error) {
+          console.error("profiles update error (subscription.*):", error);
+          return res.status(500).json({ error: "DB update failed" });
+        }
         break;
       }
 
       default:
-        // ignore
+        // ignore other events
         break;
     }
 
