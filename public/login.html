@@ -186,7 +186,7 @@
   }
 
   const isValidEmail = (e)=>/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(e).trim());
-  const ALLOW = new Set(["active","trialing"]);
+  const ALLOW = new Set(["active", "trialing"]);
 
   async function routeByProfile(userId){
     const { data: profile } = await supabase
