@@ -65,7 +65,7 @@
     .remember-block label { text-align: left; }
     .magic-block a { text-align: left; }
 
-    /* Inline actions under errors (login/signup flows) */
+    /* Inline actions under errors */
     #login-actions, #signup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
     #login-actions button, #signup-actions button {
       width: auto; padding: 10px 12px; font-size: 13px;
@@ -141,7 +141,7 @@
     { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }
   );
 
-  // DOM helper
+  // DOM helpers
   const $ = (s,p=document)=>p.querySelector(s);
 
   // Tabs
@@ -195,25 +195,25 @@
       .eq("id", userId)
       .maybeSingle();
     const status = profile?.subscription_status ?? "inactive";
-
-    // Carry through any stored prefplan to subscribe page
     const pref = localStorage.getItem("ddp_prefplan");
     const qs = pref ? `?prefplan=${encodeURIComponent(pref)}` : "";
-
     window.location.href = ALLOW.has(status) ? "/" : `/subscribe.html${qs}`;
   }
 
-  // ----- CTA deep-linking: ?mode=signup&prefplan=3|30 -----
-  const params = new URLSearchParams(location.search);
+  // ----- Query params / CTA deep-linking -----
+  const params  = new URLSearchParams(location.search);
   const urlMode = params.get("mode");
-  const urlPref = params.get("prefplan"); // "3" or "30"
-  if (urlPref === "3")  localStorage.setItem("ddp_prefplan","monthly");
-  if (urlPref === "30") localStorage.setItem("ddp_prefplan","yearly");
+  // Accept BOTH prefplan= (new) and plan= (legacy from CTA)
+  const urlPrefA = params.get("prefplan"); // "3" | "30"
+  const urlPrefB = params.get("plan");     // "3" | "30"
+  const pick = urlPrefA || urlPrefB;
+  if (pick === "3")  localStorage.setItem("ddp_prefplan","monthly");
+  if (pick === "30") localStorage.setItem("ddp_prefplan","yearly");
 
-  // If a CTA requested signup mode, ensure the correct tab is visible immediately.
-  if (urlMode === "signup") showSignup();
+  // If CTA requested signup, show that tab immediately
+  if (urlMode === "signup" || pick) showSignup();
 
-  // Magic link note when returning from email verification or OTP
+  // Magic link / verification notes
   const verifiedNote = $("#verified-note");
   if (params.get("type") === "signup" || params.get("type") === "recovery") {
     verifiedNote.textContent = params.get("type") === "signup"
@@ -222,7 +222,7 @@
     verifiedNote.style.display = "block";
   }
 
-  // Password recovery detection
+  // Password recovery (hash or query)
   const isRecovery = location.hash.includes("type=recovery") || params.get("type") === "recovery";
   if (isRecovery) {
     verifiedNote.textContent = "Open the link from your email on this device to finish resetting your password.";
@@ -280,7 +280,7 @@
           note.insertAdjacentElement("afterend", actions);
         }
       }
-      return; // <- critical: stop normal auto-route
+      return; // stop normal auto-route
     }
 
     // Normal behavior: auto-route based on subscription
@@ -312,11 +312,10 @@
       localStorage.removeItem("remember_email");
       location.reload();
     };
-    $("#form-login")?.appendChild(signout);
+    formLogin?.appendChild(signout);
   })();
 
   // Login submit
-  const formLogin = document.getElementById("form-login");
   formLogin.addEventListener("submit", async (e)=>{
     e.preventDefault();
     const errBox = $("#login-error");
@@ -407,8 +406,7 @@
     alert("Check your inbox for a magic link.");
   });
 
-  // Signup (no plans here; only create account + verify)
-  const formSignup = document.getElementById("form-signup");
+  // Signup
   formSignup.addEventListener("submit", async (e)=>{
     e.preventDefault();
     const okBox = $("#signup-ok");
