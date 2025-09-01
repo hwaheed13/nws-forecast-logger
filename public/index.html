@@ -1342,7 +1342,7 @@ async function checkAccess() {
   console.log("Index sees session:", session);
   if (!session) {
     showGate("Redirecting to login…");
-    return (window.location.href = "/login.html");
+    return (window.location.href = "/dashboard/login.html");
   }
 
   const { data: profile } = await supabase
@@ -1353,7 +1353,7 @@ async function checkAccess() {
 
   if (!profile || profile.subscription_status !== "active") {
     showGate("Redirecting to subscribe…");
-    return (window.location.href = "/subscribe.html");
+    return (window.location.href = "/dashboard/subscribe.html");
   }
   
 
@@ -1366,7 +1366,7 @@ async function checkAccess() {
   document.getElementById("btn-logout")?.addEventListener("click", async () => {
     await supabase.auth.signOut();
     localStorage.removeItem("dashboard_heartbeat");
-    window.location.href = "/login.html";
+    window.location.href = "/dashboard/login.html";
   });
   // 🔘 Manage billing button
 document.getElementById("btn-billing")?.addEventListener("click", async ()=>{
