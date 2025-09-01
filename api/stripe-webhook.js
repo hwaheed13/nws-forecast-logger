@@ -2,11 +2,13 @@
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 
-export const config = { api: { bodyParser: false } }; // Stripe needs raw body
+// Stripe needs the raw body for signature verification on Vercel
+export const config = { api: { bodyParser: false } };
 
+// Keep apiVersion aligned with your project (you were on 2023-10-16)
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2023-10-16" });
 
-// read raw body for webhook signature verification
+// ---- helpers ---------------------------------------------------------------
 function readRawBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -16,56 +18,26 @@ function readRawBody(req) {
   });
 }
 
-// map Stripe status → your profile.status
-function normalizeStatus(s) {
-  return (s === "active" || s === "trialing") ? s : "inactive";
+// Normalize Stripe subscription status -> profiles.subscription_status
+function normalizedStatusFromStripe(status) {
+  // allow free trial access
+  return status === "active" || status === "trialing" ? status : "inactive";
 }
 
-// build the profile patch from a Stripe subscription object
-function profilePatchFromSubscription(sub, sessionMeta = {}) {
-  const status = normalizeStatus(sub.status);
-
-  // Price/interval (first item)
-  const item = sub.items?.data?.[0];
-  const price = item?.price;
-  const plan_interval = price?.recurring?.interval ?? null;
-  const plan_amount = typeof price?.unit_amount === "number" ? price.unit_amount : null;
-
-  // Trial fields (Unix → ISO)
-  const trial_started = sub.trial_start ? new Date(sub.trial_start * 1000).toISOString() : null;
-  const trial_ends    = sub.trial_end   ? new Date(sub.trial_end   * 1000).toISOString() : null;
-
-  // Period end (use Stripe’s current_period_end)
-  const current_period_end = sub.current_period_end
-    ? new Date(sub.current_period_end * 1000).toISOString()
-    : null;
-
-  // If we can infer this subscription came from a free-trial checkout, mark it.
-  const trialFlag = (sessionMeta.ddp_trial === "true") || (sub.trial_end && Date.now() < sub.trial_end * 1000);
-
-  return {
-    subscription_status: status,
-    stripe_subscription_id: sub.id,
-    // optional plan label (keep your column if you want it)
-    plan: sessionMeta.plan ?? (plan_interval === "year" ? "yearly" : "monthly"),
-    plan_interval,
-    plan_amount,
-    current_period_end,
-
-    // your custom trial tracking fields
-    free_trial_used: trialFlag || undefined,  // set true once; leave untouched otherwise
-    free_trial_started_at: trial_started,
-    free_trial_ends_at: trial_ends,
-
-    // legacy fields you had (keep if you still use them)
-    trial_used: trialFlag || undefined,
-    trial_subscription_id: trialFlag ? sub.id : undefined,
-    trial_started_at: trial_started,
-
-    updated_at: new Date().toISOString(),
-  };
+// pull basic plan info from price
+function planFromPrice(price) {
+  // You’ve been storing "monthly"/"yearly" — use interval if available
+  const interval = price?.recurring?.interval; // "month" | "year" | undefined
+  if (interval === "month") return "monthly";
+  if (interval === "year") return "yearly";
+  return null;
 }
 
+function tsOrNull(unix) {
+  return typeof unix === "number" ? new Date(unix * 1000).toISOString() : null;
+}
+
+// ---- handler ---------------------------------------------------------------
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
@@ -79,51 +51,89 @@ export default async function handler(req, res) {
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
+  // Server-only Supabase client (Service Role bypasses RLS)
   const admin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
   try {
     switch (event.type) {
+      // Fired after Checkout completes (first time a user subscribes or starts trial)
       case "checkout.session.completed": {
         const session = event.data.object;
 
-        if (!session.subscription || !session.customer) break;
+        if (session.subscription && session.customer) {
+          const [subscription, customer] = await Promise.all([
+            stripe.subscriptions.retrieve(session.subscription),
+            stripe.customers.retrieve(session.customer),
+          ]);
 
-        const [subscription, customer] = await Promise.all([
-          stripe.subscriptions.retrieve(session.subscription),
-          stripe.customers.retrieve(session.customer),
-        ]);
+          // Try to get your Supabase user id from metadata (preferred) or customer metadata
+          const supabase_user_id =
+            session.metadata?.supabase_user_id ||
+            customer?.metadata?.supabase_user_id ||
+            null;
 
-        // Prefer explicit user id from metadata; fall back to customer metadata.
-        const supabase_user_id =
-          session.metadata?.supabase_user_id ||
-          customer?.metadata?.supabase_user_id ||
-          null;
+          // Read status + plan details
+          const statusNorm = normalizedStatusFromStripe(subscription.status);
+          const item = subscription.items?.data?.[0];
+          const price = item?.price ?? null;
+          const plan = planFromPrice(price);
+          const periodEnd = tsOrNull(subscription.current_period_end);
 
-        if (!supabase_user_id) break;
+          // Trial fields (if trialing phase exists)
+          const trialStart = tsOrNull(subscription.trial_start);
+          const trialEnd   = tsOrNull(subscription.trial_end);
+          const onTrial = subscription.status === "trialing";
 
-        const patch = profilePatchFromSubscription(subscription, session.metadata || {});
-        // Keep email and stripe ids in sync, too.
-        const payload = {
-          id: supabase_user_id,
-          email: session.customer_details?.email ?? null,
-          stripe_customer_id: customer.id,
-          ...patch,
-        };
+          if (supabase_user_id) {
+            const payload = {
+              id: supabase_user_id,
+              email: session.customer_details?.email ?? null,
+              stripe_customer_id: customer.id,
+              stripe_subscription_id: subscription.id,
+              subscription_status: statusNorm,      // "active" | "trialing" | "inactive"
+              plan,                                  // "monthly" | "yearly" | null
+              current_period_end: periodEnd,
+              // trial bookkeeping
+              free_trial_used: onTrial ? true : (session.metadata?.ddp_trial === "true" ? true : undefined),
+              free_trial_started_at: trialStart,
+              free_trial_ends_at: trialEnd,
+              // also keep a generic "trial_used" if your schema has it
+              trial_used: onTrial ? true : undefined,
+              trial_subscription_id: onTrial ? subscription.id : undefined,
+              trial_started_at: trialStart,
+              updated_at: new Date().toISOString(),
+            };
 
-        const { error } = await admin.from("profiles").upsert(payload, { onConflict: "id" });
-        if (error) {
-          console.error("profiles upsert error (checkout.session.completed):", error);
-          return res.status(500).json({ error: "DB upsert failed" });
+            // Upsert on profiles (id PK)
+            const { error } = await admin.from("profiles").upsert(payload, { onConflict: "id" });
+            if (error) {
+              console.error("profiles upsert error (checkout.session.completed):", {
+                message: error.message, details: error.details, hint: error.hint, code: error.code
+              });
+              return res.status(500).json({ error: "DB upsert failed" });
+            }
+          }
         }
         break;
       }
 
+      // Subscription life cycle changes (status flips, renewals, cancellations, trial→active, etc.)
       case "customer.subscription.created":
       case "customer.subscription.updated":
       case "customer.subscription.deleted": {
         const sub = event.data.object;
 
-        // find profile by stripe_customer_id
+        const statusNorm = normalizedStatusFromStripe(sub.status);
+        const item = sub.items?.data?.[0];
+        const price = item?.price ?? null;
+
+        const plan = planFromPrice(price);
+        const periodEnd = tsOrNull(sub.current_period_end);
+        const trialStart = tsOrNull(sub.trial_start);
+        const trialEnd   = tsOrNull(sub.trial_end);
+        const onTrial = sub.status === "trialing";
+
+        // Find profile by stripe_customer_id…
         const { data: profByCust, error: findErr } = await admin
           .from("profiles")
           .select("id")
@@ -131,32 +141,73 @@ export default async function handler(req, res) {
           .maybeSingle();
 
         let targetId = profByCust?.id;
-        let sessionMeta = {};
 
+        // …or fall back to customer metadata if needed.
         if (!targetId) {
-          // fall back to customer metadata
           const cust = await stripe.customers.retrieve(sub.customer);
           targetId = cust?.metadata?.supabase_user_id ?? null;
+
+          // If we found a Supabase id here, ensure stripe_customer_id is persisted once
+          if (targetId) {
+            await admin
+              .from("profiles")
+              .upsert(
+                {
+                  id: targetId,
+                  stripe_customer_id: sub.customer,
+                  updated_at: new Date().toISOString(),
+                },
+                { onConflict: "id" }
+              );
+          }
         }
 
-        if (!targetId) break;
+        if (targetId) {
+          const patch = {
+            stripe_subscription_id: sub.id,
+            subscription_status: statusNorm, // preserves "trialing"
+            plan,                             // "monthly" | "yearly" | null
+            current_period_end: periodEnd,
+            updated_at: new Date().toISOString(),
+          };
 
-        const patch = profilePatchFromSubscription(sub, sessionMeta);
+          // Trial bookkeeping: keep a record of the trial window if present
+          if (trialStart) patch.free_trial_started_at = trialStart;
+          if (trialEnd)   patch.free_trial_ends_at = trialEnd;
 
-        const { error } = await admin
-          .from("profiles")
-          .update(patch)
-          .eq("id", targetId);
+          // Mark that a trial has been used (so you can prevent multiple trials)
+          if (onTrial) {
+            patch.free_trial_used = true;
+            patch.trial_used = true; // if you still keep this legacy column
+            patch.trial_subscription_id = sub.id;
+            patch.trial_started_at = trialStart;
+          }
 
-        if (error) {
-          console.error("profiles update error (subscription.*):", error);
-          return res.status(500).json({ error: "DB update failed" });
+          const { error } = await admin
+            .from("profiles")
+            .update(patch)
+            .eq("id", targetId);
+
+          if (error) {
+            console.error("profiles update error (subscription.*):", {
+              message: error.message, details: error.details, hint: error.hint, code: error.code
+            });
+            return res.status(500).json({ error: "DB update failed" });
+          }
         }
         break;
       }
 
+      // Optional — Stripe can send this ~3 days before the trial ends (config dependent)
+      case "customer.subscription.trial_will_end": {
+        const sub = event.data.object;
+        console.log("Trial will end soon for subscription:", sub.id);
+        // You could email the user here via your own system if desired.
+        break;
+      }
+
       default:
-        // ignore other events
+        // ignore others
         break;
     }
 
