@@ -27,44 +27,48 @@ export default async function handler(req, res) {
 
   try {
     const r = await fetch(url);
-    if (!r.ok) {
-      return res.status(r.status).json({ error: `Upstream error: ${r.statusText}` });
-    }
+    if (!r.ok) return res.status(r.status).json({ error: `Upstream error: ${r.statusText}` });
+
     const html = await r.text();
     const $ = cheerio.load(html);
 
     const now = new Date();
     const cutoff = new Date(now.getTime() - 12 * 60 * 60 * 1000); // last 12 hrs
-    const targetHours = new Set([1, 7, 13, 19]); // :51 times
+    const targetHours = new Set([1, 7, 13, 19]); // only the :51 snapshots
 
     const rows = [];
     $("table tr").each((_, tr) => {
       const cells = $(tr).find("td");
-      if (cells.length < 9) return;
+      if (cells.length < 15) return; // guard against header/separator rows
 
-      const dayStr  = $(cells[0]).text().trim(); // day-of-month
-      const timeStr = $(cells[1]).text().trim(); // e.g., "7:51" or "07:51"
-      const maxStr  = $(cells[8]).text().trim(); // "6-Hr Max" column
+      const dayStr  = $(cells[0]).text().trim();   // day-of-month (e.g., "31", "01")
+      const timeStr = $(cells[1]).text().trim();   // "7:51" or "07:51"
+      const maxStr  = $(cells[8]).text().trim();   // 6-Hr Max column per NWS layout
 
       if (!timeStr || !maxStr) return;
 
-      // Parse "H:MM" or "HH:MM" without assuming leading zero
+      // Parse "H:MM" or "HH:MM" (no leading-zero assumption)
       const m = timeStr.match(/^(\d{1,2}):(\d{2})$/);
       if (!m) return;
       const hh = parseInt(m[1], 10);
       const mm = parseInt(m[2], 10);
-
-      // Only accept the four daily snapshots at :51 past the hour
       if (!targetHours.has(hh) || mm !== 51) return;
 
       const tempVal = parseFloat(maxStr);
-      if (Number.isNaN(tempVal)) return;
+      if (!Number.isFinite(tempVal)) return;
 
       const dt = parseObsTime(dayStr, hh, mm, now);
-      if (!dt || dt < cutoff) return;
+      if (!dt) return;
 
-      const fmtTime = formatAsETClock(hh, mm);
-      rows.push({ dt, value: tempVal, time: fmtTime, source: "6hrMax" });
+      // Drop rows older than our window or accidentally in the future
+      if (dt < cutoff || dt > now) return;
+
+      rows.push({
+        dt,
+        value: Math.round(tempVal), // keep it clean/int-ish like the site shows
+        time: formatAsETClock(hh, mm),
+        source: "6hrMax",
+      });
     });
 
     if (!rows.length) return res.status(404).json({ error: "No 6-Hr Max rows found" });
@@ -78,17 +82,28 @@ export default async function handler(req, res) {
   }
 }
 
-// Build a Date using the current year/month and the day/hour/minute from the page.
+/**
+ * Build a Date in local server tz from table fields, fixing month rollovers.
+ * If the row's day-of-month is greater than today's day, it's from the previous month.
+ */
 function parseObsTime(dayStr, hh, mm, nowRef) {
   const day = parseInt(dayStr, 10);
-  if (Number.isNaN(day)) return null;
-  const dt = new Date(nowRef.getFullYear(), nowRef.getMonth(), day, hh, mm);
+  if (!Number.isFinite(day)) return null;
 
-  // Handle month rollover (e.g., page shows last month’s last day on the 1st)
-  if (dt - nowRef > 20 * 24 * 60 * 60 * 1000) {
-    dt.setMonth(dt.getMonth() - 1);
+  let year = nowRef.getFullYear();
+  let month = nowRef.getMonth(); // 0..11
+
+  // Proper rollover: e.g., now=Sep 1 and row says "31" → August 31
+  if (day > nowRef.getDate()) {
+    month -= 1;
+    if (month < 0) {
+      month = 11;
+      year -= 1;
+    }
   }
-  return dt;
+
+  // Construct and return
+  return new Date(year, month, day, hh, mm);
 }
 
 function formatAsETClock(hh, mm) {
