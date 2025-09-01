@@ -1,18 +1,14 @@
-// pages/api/stripe-webhook.js
+// /api/stripe-webhook.js
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 
 export const config = { api: { bodyParser: false } }; // Stripe needs raw body
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2024-06-20",
-});
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2024-06-20" });
 
-// Support either env name to avoid mismatch
-const SERVICE_ROLE =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
-
-const admin = createClient(process.env.SUPABASE_URL, SERVICE_ROLE);
+const SUPABASE_URL  = process.env.SUPABASE_URL  || process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SERVICE_ROLE  = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
+const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
 
 function readRawBody(req) {
   return new Promise((resolve, reject) => {
@@ -23,44 +19,34 @@ function readRawBody(req) {
   });
 }
 
-function normalizeStatus(stripeStatus) {
-  // Stripe: incomplete | incomplete_expired | trialing | active | past_due | canceled | unpaid | paused
-  if (stripeStatus === "active" || stripeStatus === "trialing") return stripeStatus;
-  return "inactive";
+function normalizeStatus(s) {
+  return (s === "active" || s === "trialing") ? s : "inactive";
 }
 
-async function upsertProfileBasic({
-  id, // supabase user id
-  email,
-  stripe_customer_id,
-  stripe_subscription_id,
-  subscription_status,
-  current_period_end,
-  plan_interval,
-  plan_amount,
-}) {
-  const payload = {
-    id,
-    email: email ?? null,
-    stripe_customer_id: stripe_customer_id ?? null,
-    stripe_subscription_id: stripe_subscription_id ?? null,
-    subscription_status: subscription_status ?? "inactive",
-    current_period_end: current_period_end ?? null, // ISO string or null
-    plan_interval: plan_interval ?? null,           // "month" | "year" | null
-    plan_amount: typeof plan_amount === "number" ? plan_amount : null, // cents
-    updated_at: new Date().toISOString(),
-  };
+async function upsertByCustomerId(customerId, patch) {
+  // first try direct match
+  const { data: prof } = await admin
+    .from("profiles")
+    .select("id")
+    .eq("stripe_customer_id", customerId)
+    .maybeSingle();
 
-  const { error } = await admin.from("profiles").upsert(payload, { onConflict: "id" });
-  if (error) {
-    console.error("profiles upsert error:", {
-      message: error.message,
-      details: error.details,
-      hint: error.hint,
-      code: error.code,
-    });
-    throw new Error("DB upsert failed");
+  if (prof?.id) {
+    await admin.from("profiles").update(patch).eq("id", prof.id);
+    return prof.id;
   }
+
+  // otherwise ask Stripe for metadata.supabase_user_id
+  const cust = await stripe.customers.retrieve(customerId);
+  const supabaseId = cust?.metadata?.supabase_user_id || null;
+  if (supabaseId) {
+    await admin.from("profiles").upsert(
+      { id: supabaseId, stripe_customer_id: customerId, updated_at: new Date().toISOString() },
+      { onConflict: "id" }
+    );
+    await admin.from("profiles").update(patch).eq("id", supabaseId);
+  }
+  return supabaseId;
 }
 
 export default async function handler(req, res) {
@@ -79,44 +65,42 @@ export default async function handler(req, res) {
   try {
     switch (event.type) {
       case "checkout.session.completed": {
-        // Fires after successful Checkout
         const session = event.data.object;
 
-        // Only continue if we got a sub & customer
-        if (!session.subscription || !session.customer) break;
+        // Pull subscription + customer
+        const subscriptionId = session.subscription;
+        const customerId = session.customer;
+        if (!subscriptionId || !customerId) break;
 
-        const [subscription, customer] = await Promise.all([
-          stripe.subscriptions.retrieve(session.subscription),
-          stripe.customers.retrieve(session.customer),
+        const [sub, cust] = await Promise.all([
+          stripe.subscriptions.retrieve(subscriptionId),
+          stripe.customers.retrieve(customerId),
         ]);
 
-        const status = normalizeStatus(subscription.status);
-        const item = subscription.items?.data?.[0];
-        const price = item?.price;
-        const plan_interval = price?.recurring?.interval ?? null;
-        const plan_amount = typeof price?.unit_amount === "number" ? price.unit_amount : null;
+        const status = normalizeStatus(sub.status);
+        const trialing = sub.status === "trialing" || session.metadata?.ddp_trial === "true";
+        const planItem = sub.items?.data?.[0]?.price;
+        const plan_interval = planItem?.recurring?.interval || null;
+        const plan_amount = typeof planItem?.unit_amount === "number" ? planItem.unit_amount : null;
 
-        // Prefer metadata on session; fall back to customer metadata
-        const supabase_user_id =
-          session.metadata?.supabase_user_id ||
-          customer?.metadata?.supabase_user_id ||
-          null;
-
-        if (!supabase_user_id) break;
-
-        await upsertProfileBasic({
-          id: supabase_user_id,
-          email: session.customer_details?.email ?? customer?.email ?? null,
-          stripe_customer_id: customer.id,
-          stripe_subscription_id: subscription.id,
+        const patch = {
+          email: session.customer_details?.email ?? null,
+          stripe_customer_id: customerId,
+          stripe_subscription_id: subscriptionId,
           subscription_status: status,
-          current_period_end: subscription.current_period_end
-            ? new Date(subscription.current_period_end * 1000).toISOString()
-            : null,
+          current_period_end: sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null,
           plan_interval,
           plan_amount,
-        });
+          updated_at: new Date().toISOString(),
+        };
 
+        // Mark one-time trial used
+        if (trialing) {
+          patch.has_taken_trial = true;
+          patch.trial_used_at = new Date().toISOString();
+        }
+
+        await upsertByCustomerId(customerId, patch);
         break;
       }
 
@@ -124,72 +108,41 @@ export default async function handler(req, res) {
       case "customer.subscription.updated":
       case "customer.subscription.deleted": {
         const sub = event.data.object;
+        const customerId = sub.customer;
 
         const status = normalizeStatus(sub.status);
-        const item = sub.items?.data?.[0];
-        const price = item?.price;
-        const plan_interval = price?.recurring?.interval ?? null;
-        const plan_amount = typeof price?.unit_amount === "number" ? price.unit_amount : null;
+        const planItem = sub.items?.data?.[0]?.price;
+        const plan_interval = planItem?.recurring?.interval || null;
+        const plan_amount = typeof planItem?.unit_amount === "number" ? planItem.unit_amount : null;
 
-        // Try to locate the user via stripe_customer_id stored in profiles
-        const { data: profByCust } = await admin
-          .from("profiles")
-          .select("id,email")
-          .eq("stripe_customer_id", sub.customer)
-          .maybeSingle();
+        const patch = {
+          stripe_subscription_id: sub.id,
+          subscription_status: status,
+          current_period_end: sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null,
+          plan_interval,
+          plan_amount,
+          updated_at: new Date().toISOString(),
+        };
 
-        let supabase_user_id = profByCust?.id;
-        let email = profByCust?.email ?? null;
-
-        if (!supabase_user_id) {
-          // Fallback: read from customer metadata
-          const cust = await stripe.customers.retrieve(sub.customer);
-          supabase_user_id = cust?.metadata?.supabase_user_id ?? null;
-          email = email ?? cust?.email ?? null;
-
-          // Ensure we persist the stripe_customer_id if found now
-          if (supabase_user_id) {
-            await admin
-              .from("profiles")
-              .upsert(
-                {
-                  id: supabase_user_id,
-                  email,
-                  stripe_customer_id: sub.customer,
-                  updated_at: new Date().toISOString(),
-                },
-                { onConflict: "id" }
-              );
-          }
+        // If it enters trialing here (e.g., created with trial), mark trial used
+        if (sub.status === "trialing") {
+          patch.has_taken_trial = true;
+          patch.trial_used_at = new Date().toISOString();
         }
 
-        if (supabase_user_id) {
-          await upsertProfileBasic({
-            id: supabase_user_id,
-            email,
-            stripe_customer_id: sub.customer,
-            stripe_subscription_id: sub.id,
-            subscription_status: status,
-            current_period_end: sub.current_period_end
-              ? new Date(sub.current_period_end * 1000).toISOString()
-              : null,
-            plan_interval,
-            plan_amount,
-          });
-        }
-
+        await upsertByCustomerId(customerId, patch);
         break;
       }
 
-      // Optional: you can use this to send your own “trial ending soon” emails.
       case "customer.subscription.trial_will_end": {
         const sub = event.data.object;
         console.log("Trial will end soon for subscription:", sub.id);
+        // Optional: send your own reminder/notification here.
         break;
       }
 
       default:
-        // Ignore events that aren't relevant to profile updates
+        // ignore
         break;
     }
 
