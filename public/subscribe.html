@@ -50,11 +50,11 @@
       </div>
     </div>
 
-    <div id="trial-note" class="trial-note">Try it now — billed at <b>$3</b> for the intro period, then monthly. Cancel anytime.</div>
+    <div id="trial-note" class="trial-note"></div>
 
     <div class="actions">
       <button id="btn-subscribe">Continue to Checkout</button>
-      <button id="btn-trial" class="btn-ghost" style="display:none;">Start $3 trial</button>
+      <button id="btn-trial" class="btn-ghost">Start $3 trial</button>
     </div>
 
     <div class="top-links">
@@ -71,7 +71,7 @@
 
   const supabase = createClient(
     "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4QyI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
   );
 
   // Stripe Price IDs (keep as-is)
@@ -80,8 +80,8 @@
     yearly:  "price_1S1U7hJZv8wNnhLtRLRLoVf3"
   };
 
-  // Toggle this if you want to hide/show the trial path without redeploying server
-  const MONTHLY_TRIAL_ENABLED = true;
+  // Global toggle for showing trial for both plans
+  const TRIAL_ENABLED = true;
 
   const $ = (s,p=document)=>p.querySelector(s);
   const $$ = (s,p=document)=>Array.from(p.querySelectorAll(s));
@@ -94,7 +94,7 @@
     toast.className = "alert " + kind;
   }
 
-  // Show basic messages if coming back from Stripe
+  // Show messages if returning from Stripe
   if (params.get("success")) showToast("Payment succeeded. Finalizing…", "ok");
   if (params.get("canceled")) showToast("Checkout canceled.", "err");
 
@@ -112,12 +112,11 @@
     return false;
   }
 
-  // Gate the page: must be logged in; if active/trialing, bounce to dashboard.
+  // Gate: must be logged in; bounce active/trialing
   (async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user?.id) { window.location.href = "/login.html"; return; }
 
-    // If coming back from Stripe success, poll briefly for webhook to land.
     if (params.get("success")) {
       for (let i = 0; i < 8; i++) {
         await supabase.auth.refreshSession();
@@ -132,7 +131,7 @@
     }
   })();
 
-  // ── Plan selection with preselect (from login link or localStorage) ──────────
+  // ── Plan selection with preselect ───────────────────────────────────────────
   let selectedPlan = null;
 
   function setActivePlan(el){
@@ -142,19 +141,19 @@
     selectedPlan = el.dataset.plan;
     localStorage.setItem("ddp_prefplan", selectedPlan);
 
-    // Trial visibility: show only for monthly if enabled
-    const trialBtn = $("#btn-trial");
-    const trialNote = $("#trial-note");
-    if (MONTHLY_TRIAL_ENABLED && selectedPlan === "monthly") {
-      trialBtn.style.display = "block";
-      trialNote.style.display = "block";
-    } else {
-      trialBtn.style.display = "none";
-      trialNote.style.display = "none";
-    }
+    updateTrialUI();
   }
 
-  // Read preference from query or storage
+  function updateTrialUI(){
+    const note = $("#trial-note");
+    if (!TRIAL_ENABLED) { note.style.display = "none"; $("#btn-trial").style.display = "none"; return; }
+
+    const planText = selectedPlan === "yearly" ? "$30/year" : "$3/month";
+    note.innerHTML = `Try it now — billed at <b>$3</b> for the intro period, then ${planText}. Cancel anytime.`;
+    note.style.display = "block";
+    $("#btn-trial").style.display = "block";
+  }
+
   (function presetPlan(){
     const q = (params.get("prefplan") || "").toLowerCase(); // "3" or "30"
     const saved = (localStorage.getItem("ddp_prefplan") || "").toLowerCase();
@@ -202,7 +201,7 @@
         body: JSON.stringify({
           priceId: PRICE_IDS[plan],
           plan,
-          trial, // ← server should handle: use intro/trial price, coupon, or rely on Price trial.
+          trial, // true for trial path no matter which plan is chosen
           supabaseAccessToken: session.access_token,
           // success_url should be `${origin}/subscribe.html?success=1`
         })
@@ -225,9 +224,7 @@
   });
 
   btnTrial.addEventListener("click", async ()=>{
-    // Only valid for monthly; guard just in case.
-    if (selectedPlan !== "monthly") return showToast("Trial is available on the monthly plan.");
-    await startCheckout({ plan: "monthly", trial:true });
+    await startCheckout({ plan: selectedPlan, trial:true });
   });
 </script>
 </body>
