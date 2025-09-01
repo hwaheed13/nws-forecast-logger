@@ -1366,7 +1366,7 @@ async function checkAccess() {
   document.getElementById("btn-logout")?.addEventListener("click", async () => {
     await supabase.auth.signOut();
     localStorage.removeItem("dashboard_heartbeat");
-    window.location.href = "/dashboard/login.html";
+    window.location.href = "/login.html";
   });
   // 🔘 Manage billing button
 document.getElementById("btn-billing")?.addEventListener("click", async ()=>{
