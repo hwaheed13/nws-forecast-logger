@@ -92,7 +92,7 @@
       .maybeSingle();
     const status = profile?.subscription_status ?? "inactive";
     if (ALLOW.has(status)) {
-      window.location.href = "/dashboard";
+      window.location.href = "/";
       return true;
     }
     return false;
