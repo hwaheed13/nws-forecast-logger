@@ -130,7 +130,7 @@
       <div class="help">You’ll get a verification email.</div>
     </form>
 
-    <div class="help">Subscribers only. <a class="link" href="/dashboard/subscribe.html">Go to subscribe</a></div>
+    <div class="help">Subscribers only. <a class="link" href="/subscribe.html">Go to subscribe</a></div>
   </div>
 
 <script type="module">
@@ -355,7 +355,7 @@
       magic.onclick = async () => {
         const { error: otpErr } = await supabase.auth.signInWithOtp({
           email,
-          options: { emailredirectTo: "https://app.dailydewpoint.com/login.html" }
+          options: { emailRedirectTo: "https://app.dailydewpoint.com/login.html" }
         });
         if (otpErr) { errBox.textContent = otpErr.message; errBox.style.display = "block"; }
         else { alert("Magic link sent. Check your inbox."); }
@@ -397,7 +397,7 @@
     if (!isValidEmail(email)) return alert("Enter your email first.");
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailredirectTo: "https://app.dailydewpoint.com/login.html" }
+      options: { emailRedirectTo: "https://app.dailydewpoint.com/login.html" }
     });
     if (error) return alert(error.message);
     alert("Check your inbox for a magic link.");
@@ -425,7 +425,7 @@
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailredirectTo: "https://app.dailydewpoint.com/login.html" }
+      options: { emailRedirectTo: "https://app.dailydewpoint.com/login.html" }
     });
 
     const identities = data?.user?.identities ?? [];
@@ -472,7 +472,7 @@
       magic.onclick = async () => {
         const { error: otpErr } = await supabase.auth.signInWithOtp({
           email,
-          options: { emailredirectTo: "https://app.dailydewpoint.com/login.html" }
+          options: { emailRedirectTo: "https://app.dailydewpoint.com/login.html" }
         });
         if (otpErr) { errBox.textContent = otpErr.message; }
         else { okBox.textContent = "Magic link sent. Check your inbox."; okBox.style.display = "block"; }
