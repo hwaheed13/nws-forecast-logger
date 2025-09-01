@@ -105,17 +105,14 @@
 
     // If coming back from Stripe success, poll briefly for webhook to land.
     if (params.get("success")) {
-      // small retry loop (about ~6s total)
       for (let i = 0; i < 8; i++) {
         await supabase.auth.refreshSession();
         const done = await routeIfActive(session.user.id);
         if (done) return;
         await new Promise(r => setTimeout(r, 750));
       }
-      // If still not active, we’ll fall through and show plans.
       showToast("Almost there—your payment is processing. If this doesn’t update soon, refresh.", "ok");
     } else {
-      // Normal load: immediately route if already active/trialing
       const done = await routeIfActive(session.user.id);
       if (done) return;
     }
@@ -128,6 +125,7 @@
     el.classList.add("active");
     el.setAttribute("aria-checked","true");
     selectedPlan = el.dataset.plan;
+    localStorage.setItem("ddp_prefplan", selectedPlan);
   }
   $$(".plan").forEach(el => {
     el.addEventListener("click", () => setActivePlan(el));
@@ -135,6 +133,19 @@
       if (e.key === " " || e.key === "Enter") { e.preventDefault(); setActivePlan(el); }
     });
   });
+
+  // Preselect from ?prefplan=3|30 or localStorage
+  (function preselect(){
+    const q = params.get("prefplan");
+    let pref = null;
+    if (q === "3") pref = "monthly";
+    if (q === "30") pref = "yearly";
+    if (!pref) pref = localStorage.getItem("ddp_prefplan");
+    if (pref) {
+      const el = document.querySelector(`.plan[data-plan="${pref}"]`);
+      if (el) setActivePlan(el);
+    }
+  })();
 
   // ── Subscribe button → create Stripe Checkout session ────────────────────────
   const btn = $("#btn-subscribe");
@@ -153,8 +164,8 @@
           priceId: PRICE_IDS[selectedPlan],
           plan: selectedPlan,
           supabaseAccessToken: session.access_token,
-          // Make sure your server uses this as success_url:
-          // e.g., `${origin}/subscribe.html?success=1`
+          // Your server should set success_url to: `${origin}/subscribe.html?success=1`
+          // and cancel_url to: `${origin}/subscribe.html?canceled=1`
         })
       });
 
