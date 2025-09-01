@@ -4,24 +4,39 @@ import { createClient } from "@supabase/supabase-js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2023-10-16" });
 
-// helper: allow only dailydewpoint.com URLs for return_to (defense-in-depth)
+const ALLOW = new Set([
+  "https://app.dailydewpoint.com",
+  "http://localhost:3000",
+]);
+
+// default where the Billing Portal's "Return" button goes
+const DASHBOARD_ORIGIN =
+  process.env.DASHBOARD_ORIGIN || "https://app.dailydewpoint.com";
+
+// defense-in-depth: only allow returns to your domains
 function safeReturnUrl(raw) {
   try {
     if (!raw) return null;
     const u = new URL(raw);
-    if (u.hostname === "dailydewpoint.com") return u.toString();
+    if (u.hostname === "app.dailydewpoint.com" || u.hostname === "dailydewpoint.com") {
+      return u.toString();
+    }
     return null;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 export default async function handler(req, res) {
-  if (req.method === "OPTIONS") {
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    return res.status(200).end();
-  }
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  // ---- CORS / preflight
+  const origin = req.headers.origin || "";
+  const allow = ALLOW.has(origin) ? origin : "https://app.dailydewpoint.com";
+  res.setHeader("Access-Control-Allow-Origin", allow);
+  res.setHeader("Vary", "Origin");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", req.headers["access-control-request-headers"] || "Content-Type, Authorization");
+  if (req.method === "OPTIONS") return res.status(204).end();
+
   if (req.method !== "POST") return res.status(405).end();
 
   try {
@@ -32,6 +47,7 @@ export default async function handler(req, res) {
     const SUPABASE_URL  = process.env.SUPABASE_URL  || process.env.NEXT_PUBLIC_SUPABASE_URL;
     const SUPABASE_ANON = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
+    // verify user
     const supabaseUser = createClient(SUPABASE_URL, SUPABASE_ANON, {
       global: { headers: { Authorization: `Bearer ${supabaseAccessToken}` } }
     });
@@ -48,6 +64,7 @@ export default async function handler(req, res) {
     let customerId = profile?.stripe_customer_id;
 
     if (!customerId) {
+      // best-effort: find by email before creating
       const email = user.email ?? profile?.email ?? undefined;
       if (email) {
         const list = await stripe.customers.list({ email, limit: 1 });
@@ -55,7 +72,7 @@ export default async function handler(req, res) {
       }
       if (!customerId) {
         const c = await stripe.customers.create({
-          email,
+          email: user.email ?? profile?.email ?? undefined,
           metadata: { supabase_user_id: user.id }
         });
         customerId = c.id;
@@ -63,15 +80,15 @@ export default async function handler(req, res) {
       await supabaseAdmin.from("profiles").upsert({
         id: user.id, email: user.email ?? profile?.email ?? null, stripe_customer_id: customerId
       });
+    } else {
+      await stripe.customers.update(customerId, { metadata: { supabase_user_id: user.id } });
     }
 
-    // ---- The only line that matters for the “Back to …” behavior:
-    const DASHBOARD_URL = process.env.DASHBOARD_URL || "https://dailydewpoint.com/dashboard";
-    const return_url = safeReturnUrl(returnTo) || DASHBOARD_URL;
+    const return_url = safeReturnUrl(returnTo) || `${DASHBOARD_ORIGIN}/`;
 
     const portal = await stripe.billingPortal.sessions.create({
       customer: customerId,
-      return_url, // <- back link target
+      return_url,
     });
 
     return res.status(200).json({ url: portal.url });
