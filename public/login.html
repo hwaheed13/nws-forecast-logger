@@ -19,11 +19,11 @@
     h1 { font-size: 24px; margin: 0 0 20px; text-align: center; font-weight: 700; }
 
     /* Inputs / labels */
-    input[type="email"], input[type="password"], select {
+    input[type="email"], input[type="password"] {
       width: 100%; padding: 12px; margin: 8px 0 0 0; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px;
       outline: none; background:#fff;
     }
-    input[type="email"]:focus, input[type="password"]:focus, select:focus {
+    input[type="email"]:focus, input[type="password"]:focus {
       border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.15);
     }
 
@@ -73,16 +73,16 @@
     }
     #login-actions button:hover, #signup-actions button:hover { background: #cbd5e1; }
 
-    .plan-hint { font-size: 12px; color: #0f172a; background:#eef2ff; border:1px solid #c7d2fe; padding:8px; border-radius:8px; margin-top:8px; }
-    .row { display:flex; gap:10px; align-items:center; }
-    .row > * { flex: 1; }
-
+    .notice { background:#eef2ff; border:1px solid #c7d2fe; color:#312e81;
+      padding:10px; border-radius:8px; font-size:13px; margin-bottom:12px; display:none; }
     @media (max-width: 480px) { .pw-block .toggle { text-align: left; } }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Daily Dew Point</h1>
+
+    <div id="verified-note" class="notice"></div>
 
     <div class="tabs">
       <div id="tab-login" class="tab active">Login</div>
@@ -112,7 +112,7 @@
       <div id="login-error" class="error"></div>
     </form>
 
-    <!-- Signup -->
+    <!-- Signup (no plan UI here) -->
     <form id="form-signup" class="hidden">
       <div class="field">
         <input id="signup-email" type="email" placeholder="Email" autocomplete="email" required />
@@ -123,21 +123,10 @@
         <label class="toggle"><input id="show-signup-pw" type="checkbox"> Show password</label>
       </div>
 
-      <!-- Optional plan preselect from CTA -->
-      <div class="field">
-        <label for="plan-choice" style="font-size:13px;font-weight:600;color:#334155;">Choose plan</label>
-        <select id="plan-choice">
-          <option value="">— Decide later —</option>
-          <option value="monthly">$3 trial → monthly</option>
-          <option value="yearly">$30 yearly</option>
-        </select>
-        <div id="plan-hint" class="plan-hint hidden"></div>
-      </div>
-
       <button type="submit">Create account</button>
       <div id="signup-ok" class="ok"></div>
       <div id="signup-error" class="error"></div>
-      <div class="help">You’ll get a verification email.</div>
+      <div class="help">You’ll get a verification email. After verifying, return here to log in.</div>
     </form>
 
     <div class="help">Subscribers only. <a class="link" href="/subscribe.html">Go to subscribe</a></div>
@@ -173,7 +162,6 @@
     formSignup.classList.remove("hidden");
     formLogin.classList.add("hidden");
   }
-
   tabLogin.onclick = showLogin;
   tabSignup.onclick= showSignup;
 
@@ -207,159 +195,46 @@
       .eq("id", userId)
       .maybeSingle();
     const status = profile?.subscription_status ?? "inactive";
-    window.location.href = ALLOW.has(status) ? "/" : "/subscribe.html";
+
+    // Carry through any stored prefplan to subscribe page
+    const pref = localStorage.getItem("ddp_prefplan");
+    const qs = pref ? `?prefplan=${encodeURIComponent(pref)}` : "";
+
+    window.location.href = ALLOW.has(status) ? "/" : `/subscribe.html${qs}`;
   }
 
-  // ----- CTA deep-linking: ?mode=signup&plan=3|30 -----
+  // ----- CTA deep-linking: ?mode=signup&prefplan=3|30 -----
   const params = new URLSearchParams(location.search);
   const urlMode = params.get("mode");
-  const urlPlan = params.get("plan"); // "3" or "30"
-  const planChoice = $("#plan-choice");
-  const planHint = $("#plan-hint");
+  const urlPref = params.get("prefplan"); // "3" or "30"
+  if (urlPref === "3")  localStorage.setItem("ddp_prefplan","monthly");
+  if (urlPref === "30") localStorage.setItem("ddp_prefplan","yearly");
 
-  (function applyPlanFromParams(){
-    let sel = "";
-    if (urlPlan === "3") sel = "monthly";
-    if (urlPlan === "30") sel = "yearly";
-    if (sel) {
-      planChoice.value = sel;
-      localStorage.setItem("ddp_plan_pref", sel);
-      planHint.classList.remove("hidden");
-      planHint.textContent = sel === "monthly"
-        ? "Selected: $3 trial → monthly plan."
-        : "Selected: $30 yearly plan.";
-    } else {
-      // hydrate from any saved preference
-      const saved = localStorage.getItem("ddp_plan_pref") || "";
-      if (saved) planChoice.value = saved;
-    }
-  })();
+  // If a CTA requested signup mode, ensure the correct tab is visible immediately.
+  if (urlMode === "signup") showSignup();
 
-  planChoice?.addEventListener("change", ()=>{
-    const v = planChoice.value || "";
-    if (v) localStorage.setItem("ddp_plan_pref", v);
-    else localStorage.removeItem("ddp_plan_pref");
-    if (v) {
-      planHint.classList.remove("hidden");
-      planHint.textContent = v === "monthly"
-        ? "Selected: $3 trial → monthly plan."
-        : "Selected: $30 yearly plan.";
-    } else {
-      planHint.classList.add("hidden");
-      planHint.textContent = "";
-    }
-  });
-
-  // Password recovery detection
-  const isRecovery =
-    location.hash.includes("type=recovery") ||
-    params.get("type") === "recovery";
-
-  // Inline reset-password UI
-  async function showRecoveryUI() {
-    const { data: { session } } = await supabase.auth.getSession();
-
-    $(".tabs")?.classList.add("hidden");
-    $("#form-login")?.classList.add("hidden");
-    $("#form-signup")?.classList.add("hidden");
-
-    const card = $(".card");
-    const box = document.createElement("div");
-    box.style.marginTop = "8px";
-    box.innerHTML = `
-      <h2 style="font-size:18px;margin:0 0 8px;">Set a new password</h2>
-      <p class="help" style="margin:0 0 12px;">Enter a new password for your account.</p>
-      <input id="npw" type="password" placeholder="New password (min 6 chars)" style="width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:8px;margin-bottom:8px;">
-      <input id="npw2" type="password" placeholder="Confirm new password" style="width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:8px;margin-bottom:8px;">
-      <button id="btn-setpw" style="width:100%;padding:12px;border:none;border-radius:8px;background:#2563eb;color:#fff;font-weight:600;">Set new password</button>
-      <div id="pw-ok" class="ok" style="display:none;margin-top:8px;"></div>
-      <div id="pw-err" class="error" style="display:none;margin-top:8px;"></div>
-    `;
-    card.appendChild(box);
-
-    const btn = box.querySelector("#btn-setpw");
-    const ok  = box.querySelector("#pw-ok");
-    const err = box.querySelector("#pw-err");
-
-    if (!session) {
-      err.textContent = "This reset link is invalid or expired. Request a new one.";
-      err.style.display = "block";
-      return;
-    }
-
-    btn.onclick = async () => {
-      err.style.display = "none"; ok.style.display = "none";
-      const p1 = box.querySelector("#npw").value;
-      const p2 = box.querySelector("#npw2").value;
-      if (!p1 || p1.length < 6) { err.textContent = "Password must be at least 6 characters."; err.style.display="block"; return; }
-      if (p1 !== p2) { err.textContent = "Passwords do not match."; err.style.display="block"; return; }
-
-      const { error } = await supabase.auth.updateUser({ password: p1 });
-      if (error) { err.textContent = error.message; err.style.display = "block"; return; }
-
-      ok.textContent = "Password updated. Taking you to your account…";
-      ok.style.display = "block";
-
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user?.id) await routeByProfile(user.id);
-      else location.replace("/login.html");
-    };
+  // Magic link note when returning from email verification or OTP
+  const verifiedNote = $("#verified-note");
+  if (params.get("type") === "signup" || params.get("type") === "recovery") {
+    verifiedNote.textContent = params.get("type") === "signup"
+      ? "Email verified — please log in to continue."
+      : "Password reset link confirmed — set your new password.";
+    verifiedNote.style.display = "block";
   }
 
-  // Auto-route / switch logic + deep-linking
-  (async ()=>{
-    // Explicit account switch
-    if (params.get("switch") === "1") {
-      await supabase.auth.signOut();
-      localStorage.removeItem("remember_email");
-      showLogin();
-      return;
-    }
+  // Password recovery detection
+  const isRecovery = location.hash.includes("type=recovery") || params.get("type") === "recovery";
+  if (isRecovery) {
+    verifiedNote.textContent = "Open the link from your email on this device to finish resetting your password.";
+    verifiedNote.style.display = "block";
+  }
 
-    // Deep-link to signup tab when requested
-    if (urlMode === "signup") showSignup();
-
-    // Recovery flow
-    if (isRecovery) {
-      await showRecoveryUI();
-      return;
-    }
-
-    // Already signed in? Route based on subscription
+  // Already signed in? Route based on subscription
+  (async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user?.id) return;
-
     await supabase.auth.refreshSession();
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("subscription_status")
-      .eq("id", session.user.id)
-      .maybeSingle();
-
-    const status = profile?.subscription_status ?? "inactive";
-    if (ALLOW.has(status)) {
-      location.replace("/");
-      return;
-    }
-
-    // Inactive: nudge and offer Sign out to switch accounts
-    const note = $("#login-error");
-    if (note) {
-      note.textContent = "You're signed in but not subscribed. Sign in with a different account or sign out below.";
-      note.style.display = "block";
-    }
-
-    const signout = document.createElement("button");
-    signout.type = "button";
-    signout.textContent = "Sign out";
-    signout.style.marginTop = "8px";
-    signout.onclick = async () => {
-      await supabase.auth.signOut();
-      localStorage.removeItem("remember_email");
-      location.reload();
-    };
-    $("#form-login")?.appendChild(signout);
+    await routeByProfile(session.user.id);
   })();
 
   // Login submit
@@ -393,7 +268,7 @@
       reset.textContent = "Reset Password";
       reset.onclick = async () => {
         const { error: rErr } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: "https://app.dailydewpoint.com/login.html"
+          redirectTo: "https://app.dailydewpoint.com/login.html?type=recovery"
         });
         if (rErr) { errBox.textContent = rErr.message; errBox.style.display = "block"; }
         else { alert("Password reset email sent."); }
@@ -453,7 +328,7 @@
     alert("Check your inbox for a magic link.");
   });
 
-  // Signup (with “account exists” UX)
+  // Signup (no plans here; only create account + verify)
   formSignup.addEventListener("submit", async (e)=>{
     e.preventDefault();
     const okBox = $("#signup-ok");
@@ -463,7 +338,6 @@
 
     const email = $("#signup-email").value.trim();
     const password = $("#signup-password").value;
-    const chosenPlan = $("#plan-choice").value || ""; // "", "monthly", "yearly"
     if (!isValidEmail(email)) { errBox.textContent = "Please enter a valid email address."; errBox.style.display = "block"; return; }
 
     const { data: { session } } = await supabase.auth.getSession();
@@ -476,7 +350,7 @@
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: "https://app.dailydewpoint.com/login.html" }
+      options: { emailRedirectTo: "https://app.dailydewpoint.com/login.html?type=signup" }
     });
 
     const identities = data?.user?.identities ?? [];
@@ -495,9 +369,6 @@
       errBox.style.display = "block";
       return;
     }
-
-    // Save plan preference for subscribe flow
-    if (chosenPlan) localStorage.setItem("ddp_plan_pref", chosenPlan);
 
     okBox.textContent = "Check your inbox to confirm your email!";
     okBox.style.display = "block";
@@ -537,7 +408,7 @@
       reset.textContent = "Reset Password";
       reset.onclick = async () => {
         const { error: rErr } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: "https://app.dailydewpoint.com/login.html"
+          redirectTo: "https://app.dailydewpoint.com/login.html?type=recovery"
         });
         if (rErr) { errBox.textContent = rErr.message; errBox.style.display = "block"; }
         else { okBox.textContent = "Password reset email sent."; okBox.style.display = "block"; }
@@ -547,9 +418,6 @@
       errBox.insertAdjacentElement("afterend", actions);
     }
   }
-
-  // If a CTA requested signup mode, ensure the correct tab is visible immediately.
-  if (urlMode === "signup") showSignup();
 </script>
 </body>
 </html>
