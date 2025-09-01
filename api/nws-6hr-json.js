@@ -35,35 +35,40 @@ export default async function handler(req, res) {
 
     const now = new Date();
     const cutoff = new Date(now.getTime() - 12 * 60 * 60 * 1000); // last 12 hrs
-    const targetTimes = new Set(["01:51", "07:51", "13:51", "19:51"]);
+    const targetHours = new Set([1, 7, 13, 19]); // :51 times
 
     const rows = [];
     $("table tr").each((_, tr) => {
       const cells = $(tr).find("td");
       if (cells.length < 9) return;
 
-      const dayStr = $(cells[0]).text().trim();
-      const timeStr = $(cells[1]).text().trim();
-      const maxStr = $(cells[8]).text().trim(); // 6-Hr Max
+      const dayStr  = $(cells[0]).text().trim(); // day-of-month
+      const timeStr = $(cells[1]).text().trim(); // e.g., "7:51" or "07:51"
+      const maxStr  = $(cells[8]).text().trim(); // "6-Hr Max" column
 
-      if (!targetTimes.has(timeStr)) return;
-      if (!maxStr) return;
+      if (!timeStr || !maxStr) return;
+
+      // Parse "H:MM" or "HH:MM" without assuming leading zero
+      const m = timeStr.match(/^(\d{1,2}):(\d{2})$/);
+      if (!m) return;
+      const hh = parseInt(m[1], 10);
+      const mm = parseInt(m[2], 10);
+
+      // Only accept the four daily snapshots at :51 past the hour
+      if (!targetHours.has(hh) || mm !== 51) return;
 
       const tempVal = parseFloat(maxStr);
-      if (isNaN(tempVal)) return;
+      if (Number.isNaN(tempVal)) return;
 
-      const dt = parseObsTime(dayStr, timeStr, now);
+      const dt = parseObsTime(dayStr, hh, mm, now);
       if (!dt || dt < cutoff) return;
 
-      const [hh, mm] = timeStr.split(":").map((n) => parseInt(n, 10));
       const fmtTime = formatAsETClock(hh, mm);
-
       rows.push({ dt, value: tempVal, time: fmtTime, source: "6hrMax" });
     });
 
     if (!rows.length) return res.status(404).json({ error: "No 6-Hr Max rows found" });
 
-    // ✅ latest
     rows.sort((a, b) => a.dt - b.dt);
     const latest = rows[rows.length - 1];
     res.json(latest);
@@ -73,12 +78,17 @@ export default async function handler(req, res) {
   }
 }
 
-function parseObsTime(dayStr, timeStr, nowRef) {
+// Build a Date using the current year/month and the day/hour/minute from the page.
+function parseObsTime(dayStr, hh, mm, nowRef) {
   const day = parseInt(dayStr, 10);
-  if (isNaN(day) || !timeStr) return null;
-  const [hh, mm] = timeStr.split(":").map(Number);
-  if (isNaN(hh) || isNaN(mm)) return null;
-  return new Date(nowRef.getFullYear(), nowRef.getMonth(), day, hh, mm);
+  if (Number.isNaN(day)) return null;
+  const dt = new Date(nowRef.getFullYear(), nowRef.getMonth(), day, hh, mm);
+
+  // Handle month rollover (e.g., page shows last month’s last day on the 1st)
+  if (dt - nowRef > 20 * 24 * 60 * 60 * 1000) {
+    dt.setMonth(dt.getMonth() - 1);
+  }
+  return dt;
 }
 
 function formatAsETClock(hh, mm) {
