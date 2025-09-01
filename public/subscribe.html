@@ -48,9 +48,9 @@
 
     <button id="btn-subscribe">Subscribe</button>
     <div class="top-links">
-      <a href="/index.html">Back to dashboard</a>
+      <a href="/dashboard">Back to dashboard</a>
       <span>·</span>
-      <a href="/login.html?switch=1">Back to login / sign-up</a>\
+      <a href="/dashboard/login.html?switch=1">Back to login / sign-up</a>
     </div>
     <div id="toast" class="alert"></div>
     <div class="note">Already subscribed? You’ll be sent back to the dashboard automatically.</div>
@@ -92,7 +92,7 @@
       .maybeSingle();
     const status = profile?.subscription_status ?? "inactive";
     if (ALLOW.has(status)) {
-      window.location.href = "/index.html";
+      window.location.href = "/dashboard";
       return true;
     }
     return false;
