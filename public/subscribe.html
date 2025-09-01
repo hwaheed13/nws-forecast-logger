@@ -11,17 +11,21 @@
     body { font-family:'Inter',system-ui,sans-serif; display:flex; align-items:center; justify-content:center;
            min-height:100%; margin:0; background:var(--bg); color:var(--fg); padding:16px; }
     .card { background:#fff; padding:28px; border-radius:12px; box-shadow:0 4px 16px rgba(0,0,0,.08);
-            width:100%; max-width:460px; text-align:center; border:1px solid #e2e8f0; }
+            width:100%; max-width:480px; text-align:center; border:1px solid #e2e8f0; }
     h1 { font-size:22px; margin:0 0 6px; }
     p.sub { margin:0 0 14px; color:var(--muted); font-size:14px; }
     .plans { display:flex; gap:12px; justify-content:center; margin:18px 0 6px; flex-wrap:wrap; }
-    .plan { flex:1; min-width:180px; padding:16px; border:2px solid var(--b); border-radius:10px; cursor:pointer; }
+    .plan { flex:1; min-width:200px; padding:16px; border:2px solid var(--b); border-radius:10px; cursor:pointer; }
     .plan small{ display:block; margin-top:4px; color:var(--muted); }
     .plan.active { border-color:var(--blue); background:#eff6ff; }
+    .actions { display:grid; gap:10px; margin-top:14px; }
     button { width:100%; padding:14px; border:none; border-radius:10px; background:var(--blue); color:white;
-             font-weight:700; font-size:15px; cursor:pointer; margin-top:14px; }
+             font-weight:700; font-size:15px; cursor:pointer; }
     button:hover { background:var(--blue2); }
     button[disabled]{ opacity:.6; cursor:default; }
+    .btn-ghost { background:#e2e8f0; color:#0f172a; }
+    .btn-ghost:hover { background:#cbd5e1; }
+    .trial-note{ font-size:12px; color:#065f46; background:#ecfdf5; border:1px solid #a7f3d0; padding:8px; border-radius:8px; display:none; }
     .note { font-size:12px; margin-top:10px; color:var(--muted); }
     .top-links{ display:flex; justify-content:center; gap:12px; margin-top:10px; font-size:13px }
     .top-links a{ color:var(--blue); text-decoration:none }
@@ -38,7 +42,7 @@
     <div class="plans" role="radiogroup" aria-label="Plans">
       <div class="plan" tabindex="0" role="radio" aria-checked="false" data-plan="monthly">
         <strong>$3 / month</strong>
-        <small>Billed monthly. Cancel anytime.</small>
+        <small>Monthly. Cancel anytime.</small>
       </div>
       <div class="plan" tabindex="0" role="radio" aria-checked="false" data-plan="yearly">
         <strong>$30 / year</strong>
@@ -46,11 +50,17 @@
       </div>
     </div>
 
-    <button id="btn-subscribe">Subscribe</button>
+    <div id="trial-note" class="trial-note">Try it now — billed at <b>$3</b> for the intro period, then monthly. Cancel anytime.</div>
+
+    <div class="actions">
+      <button id="btn-subscribe">Continue to Checkout</button>
+      <button id="btn-trial" class="btn-ghost" style="display:none;">Start $3 trial</button>
+    </div>
+
     <div class="top-links">
       <a href="./">Back to dashboard</a>
       <span>·</span>
-     <a href="login.html?switch=1&stay=1">Back to login / sign-up</a>
+      <a href="login.html?switch=1&stay=1">Back to login / sign-up</a>
     </div>
     <div id="toast" class="alert"></div>
     <div class="note">Already subscribed? You’ll be sent back to the dashboard automatically.</div>
@@ -64,10 +74,14 @@
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
   );
 
+  // Stripe Price IDs (keep as-is)
   const PRICE_IDS = {
     monthly: "price_1S1U96JZv8wNnhLtlNWL0gqK",
     yearly:  "price_1S1U7hJZv8wNnhLtRLRLoVf3"
   };
+
+  // Toggle this if you want to hide/show the trial path without redeploying server
+  const MONTHLY_TRIAL_ENABLED = true;
 
   const $ = (s,p=document)=>p.querySelector(s);
   const $$ = (s,p=document)=>Array.from(p.querySelectorAll(s));
@@ -118,15 +132,42 @@
     }
   })();
 
-  // ── Plan selection UI ────────────────────────────────────────────────────────
+  // ── Plan selection with preselect (from login link or localStorage) ──────────
   let selectedPlan = null;
+
   function setActivePlan(el){
     $$(".plan").forEach(p => { p.classList.remove("active"); p.setAttribute("aria-checked","false"); });
     el.classList.add("active");
     el.setAttribute("aria-checked","true");
     selectedPlan = el.dataset.plan;
     localStorage.setItem("ddp_prefplan", selectedPlan);
+
+    // Trial visibility: show only for monthly if enabled
+    const trialBtn = $("#btn-trial");
+    const trialNote = $("#trial-note");
+    if (MONTHLY_TRIAL_ENABLED && selectedPlan === "monthly") {
+      trialBtn.style.display = "block";
+      trialNote.style.display = "block";
+    } else {
+      trialBtn.style.display = "none";
+      trialNote.style.display = "none";
+    }
   }
+
+  // Read preference from query or storage
+  (function presetPlan(){
+    const q = (params.get("prefplan") || "").toLowerCase(); // "3" or "30"
+    const saved = (localStorage.getItem("ddp_prefplan") || "").toLowerCase();
+
+    let initial = null;
+    if (q === "3")  initial = $('[data-plan="monthly"]');
+    if (q === "30") initial = $('[data-plan="yearly"]');
+    if (!initial && saved) initial = $(`[data-plan="${saved}"]`);
+    if (!initial) initial = $('[data-plan="monthly"]');
+
+    setActivePlan(initial);
+  })();
+
   $$(".plan").forEach(el => {
     el.addEventListener("click", () => setActivePlan(el));
     el.addEventListener("keydown", (e) => {
@@ -134,51 +175,59 @@
     });
   });
 
-  // Preselect from ?prefplan=3|30 or localStorage
-  (function preselect(){
-    const q = params.get("prefplan");
-    let pref = null;
-    if (q === "3") pref = "monthly";
-    if (q === "30") pref = "yearly";
-    if (!pref) pref = localStorage.getItem("ddp_prefplan");
-    if (pref) {
-      const el = document.querySelector(`.plan[data-plan="${pref}"]`);
-      if (el) setActivePlan(el);
-    }
-  })();
+  // ── Buttons → Stripe Checkout ───────────────────────────────────────────────
+  const btnCheckout = $("#btn-subscribe");
+  const btnTrial    = $("#btn-trial");
 
-  // ── Subscribe button → create Stripe Checkout session ────────────────────────
-  const btn = $("#btn-subscribe");
-  btn.addEventListener("click", async () => {
-    if (!selectedPlan) return showToast("Select a plan first.");
-    btn.disabled = true; showToast("Creating checkout session…", "ok");
-
+  async function ensureSession(){
     const { data: { session }, error } = await supabase.auth.getSession();
-    if (error || !session) { btn.disabled = false; window.location.href = "/login.html"; return; }
+    if (error || !session) { window.location.href = "/login.html"; return null; }
+    return session;
+  }
+
+  async function startCheckout({ plan, trial=false }){
+    if (!plan) return showToast("Select a plan first.");
+
+    btnCheckout.disabled = true;
+    btnTrial.disabled = true;
+    showToast(trial ? "Starting $3 trial…" : "Creating checkout session…", "ok");
+
+    const session = await ensureSession();
+    if (!session) { btnCheckout.disabled = false; btnTrial.disabled = false; return; }
 
     try {
       const r = await fetch("/api/create-checkout-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          priceId: PRICE_IDS[selectedPlan],
-          plan: selectedPlan,
+          priceId: PRICE_IDS[plan],
+          plan,
+          trial, // ← server should handle: use intro/trial price, coupon, or rely on Price trial.
           supabaseAccessToken: session.access_token,
-          // Your server should set success_url to: `${origin}/subscribe.html?success=1`
-          // and cancel_url to: `${origin}/subscribe.html?canceled=1`
+          // success_url should be `${origin}/subscribe.html?success=1`
         })
       });
 
       const data = await r.json();
       if (!r.ok || !data?.url) {
-        btn.disabled = false;
+        btnCheckout.disabled = false; btnTrial.disabled = false;
         return showToast(data?.error || "Could not start checkout. Check server logs.");
       }
       window.location.href = data.url; // Stripe Checkout
     } catch (e) {
-      btn.disabled = false;
+      btnCheckout.disabled = false; btnTrial.disabled = false;
       showToast(e.message || "Network error starting checkout.");
     }
+  }
+
+  btnCheckout.addEventListener("click", async ()=>{
+    await startCheckout({ plan: selectedPlan, trial:false });
+  });
+
+  btnTrial.addEventListener("click", async ()=>{
+    // Only valid for monthly; guard just in case.
+    if (selectedPlan !== "monthly") return showToast("Trial is available on the monthly plan.");
+    await startCheckout({ plan: "monthly", trial:true });
   });
 </script>
 </body>
