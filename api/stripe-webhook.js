@@ -6,8 +6,8 @@ export const config = { api: { bodyParser: false } }; // Stripe needs raw body
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2024-06-20" });
 
-const SUPABASE_URL  = process.env.SUPABASE_URL  || process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SERVICE_ROLE  = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
 
 function readRawBody(req) {
@@ -19,34 +19,35 @@ function readRawBody(req) {
   });
 }
 
-function normalizeStatus(s) {
+function normStatus(s) {
   return (s === "active" || s === "trialing") ? s : "inactive";
 }
 
-async function upsertByCustomerId(customerId, patch) {
-  // first try direct match
+async function upsertByCustomer(customerId, patch) {
+  // try by stripe_customer_id
   const { data: prof } = await admin
     .from("profiles")
     .select("id")
     .eq("stripe_customer_id", customerId)
     .maybeSingle();
 
-  if (prof?.id) {
-    await admin.from("profiles").update(patch).eq("id", prof.id);
-    return prof.id;
+  let id = prof?.id;
+  if (!id) {
+    const cust = await stripe.customers.retrieve(customerId);
+    id = cust?.metadata?.supabase_user_id || null;
+    if (id) {
+      await admin
+        .from("profiles")
+        .upsert(
+          { id, stripe_customer_id: customerId, updated_at: new Date().toISOString() },
+          { onConflict: "id" }
+        );
+    }
   }
+  if (!id) return null;
 
-  // otherwise ask Stripe for metadata.supabase_user_id
-  const cust = await stripe.customers.retrieve(customerId);
-  const supabaseId = cust?.metadata?.supabase_user_id || null;
-  if (supabaseId) {
-    await admin.from("profiles").upsert(
-      { id: supabaseId, stripe_customer_id: customerId, updated_at: new Date().toISOString() },
-      { onConflict: "id" }
-    );
-    await admin.from("profiles").update(patch).eq("id", supabaseId);
-  }
-  return supabaseId;
+  await admin.from("profiles").update(patch).eq("id", id);
+  return id;
 }
 
 export default async function handler(req, res) {
@@ -54,9 +55,9 @@ export default async function handler(req, res) {
 
   let event;
   try {
-    const rawBody = await readRawBody(req);
+    const raw = await readRawBody(req);
     const sig = req.headers["stripe-signature"];
-    event = stripe.webhooks.constructEvent(rawBody, sig, process.env.STRIPE_WEBHOOK_SECRET);
+    event = stripe.webhooks.constructEvent(raw, sig, process.env.STRIPE_WEBHOOK_SECRET);
   } catch (err) {
     console.error("Webhook signature verify failed:", err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
@@ -66,8 +67,6 @@ export default async function handler(req, res) {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object;
-
-        // Pull subscription + customer
         const subscriptionId = session.subscription;
         const customerId = session.customer;
         if (!subscriptionId || !customerId) break;
@@ -77,30 +76,33 @@ export default async function handler(req, res) {
           stripe.customers.retrieve(customerId),
         ]);
 
-        const status = normalizeStatus(sub.status);
-        const trialing = sub.status === "trialing" || session.metadata?.ddp_trial === "true";
-        const planItem = sub.items?.data?.[0]?.price;
-        const plan_interval = planItem?.recurring?.interval || null;
-        const plan_amount = typeof planItem?.unit_amount === "number" ? planItem.unit_amount : null;
+        const status = normStatus(sub.status);
+        const isTrial = sub.status === "trialing" || session.metadata?.ddp_trial === "true";
+
+        const price = sub.items?.data?.[0]?.price;
+        const plan_interval = price?.recurring?.interval || null;
+        const plan_amount = typeof price?.unit_amount === "number" ? price.unit_amount : null;
 
         const patch = {
           email: session.customer_details?.email ?? null,
           stripe_customer_id: customerId,
           stripe_subscription_id: subscriptionId,
           subscription_status: status,
-          current_period_end: sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null,
-          plan_interval,
-          plan_amount,
+          plan: session.metadata?.plan || (plan_interval === "year" ? "yearly" : "monthly"),
+          current_period_end: sub.current_period_end
+            ? new Date(sub.current_period_end * 1000).toISOString()
+            : null,
           updated_at: new Date().toISOString(),
         };
 
-        // Mark one-time trial used
-        if (trialing) {
-          patch.has_taken_trial = true;
-          patch.trial_used_at = new Date().toISOString();
+        // Mark trial usage (your column names)
+        if (isTrial) {
+          patch.free_trial_used = true;
+          patch.trial_subscription_id = subscriptionId;
+          patch.trial_started_at = new Date().toISOString();
         }
 
-        await upsertByCustomerId(customerId, patch);
+        await upsertByCustomer(customerId, patch);
         break;
       }
 
@@ -110,34 +112,35 @@ export default async function handler(req, res) {
         const sub = event.data.object;
         const customerId = sub.customer;
 
-        const status = normalizeStatus(sub.status);
-        const planItem = sub.items?.data?.[0]?.price;
-        const plan_interval = planItem?.recurring?.interval || null;
-        const plan_amount = typeof planItem?.unit_amount === "number" ? planItem.unit_amount : null;
+        const status = normStatus(sub.status);
+        const price = sub.items?.data?.[0]?.price;
+        const plan_interval = price?.recurring?.interval || null;
+        const plan_amount = typeof price?.unit_amount === "number" ? price.unit_amount : null;
 
         const patch = {
           stripe_subscription_id: sub.id,
           subscription_status: status,
-          current_period_end: sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null,
-          plan_interval,
-          plan_amount,
+          plan: plan_interval === "year" ? "yearly" : "monthly",
+          current_period_end: sub.current_period_end
+            ? new Date(sub.current_period_end * 1000).toISOString()
+            : null,
           updated_at: new Date().toISOString(),
         };
 
-        // If it enters trialing here (e.g., created with trial), mark trial used
         if (sub.status === "trialing") {
-          patch.has_taken_trial = true;
-          patch.trial_used_at = new Date().toISOString();
+          patch.free_trial_used = true;
+          patch.trial_subscription_id = sub.id;
+          patch.trial_started_at = new Date().toISOString();
         }
 
-        await upsertByCustomerId(customerId, patch);
+        await upsertByCustomer(customerId, patch);
         break;
       }
 
       case "customer.subscription.trial_will_end": {
         const sub = event.data.object;
-        console.log("Trial will end soon for subscription:", sub.id);
-        // Optional: send your own reminder/notification here.
+        console.log("Trial will end soon:", sub.id);
+        // Optional: send email/notification here.
         break;
       }
 
