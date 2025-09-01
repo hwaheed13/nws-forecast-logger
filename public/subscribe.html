@@ -6,7 +6,7 @@
   <title>Subscribe – Daily Dew Point</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
-    :root { --bg:#f8fafc; --fg:#0f172a; --muted:#64748b; --b:#cbd5e1; --b2:#94a3b8; --blue:#2563eb; --blue2:#1e40af; }
+    :root { --bg:#f8fafc; --fg:#0f172a; --muted:#64748b; --b:#cbd5e1; --b2:#94a3b8; --blue:#2563eb; --blue2:#1e40af; --ok:#16a34a;}
     html,body{height:100%}
     body { font-family:'Inter',system-ui,sans-serif; display:flex; align-items:center; justify-content:center;
            min-height:100%; margin:0; background:var(--bg); color:var(--fg); padding:16px; }
@@ -14,79 +14,84 @@
             width:100%; max-width:480px; text-align:center; border:1px solid #e2e8f0; }
     h1 { font-size:22px; margin:0 0 6px; }
     p.sub { margin:0 0 14px; color:var(--muted); font-size:14px; }
-    .plans { display:flex; gap:12px; justify-content:center; margin:18px 0 6px; flex-wrap:wrap; }
-    .plan { flex:1; min-width:200px; padding:16px; border:2px solid var(--b); border-radius:10px; cursor:pointer; }
-    .plan small{ display:block; margin-top:4px; color:var(--muted); }
+    .plans { display:flex; gap:12px; justify-content:center; margin:18px 0 10px; flex-wrap:wrap; }
+    .plan { flex:1; min-width:200px; padding:16px; border:2px solid var(--b); border-radius:10px; }
     .plan.active { border-color:var(--blue); background:#eff6ff; }
-    .actions { display:grid; gap:10px; margin-top:14px; }
-    button { width:100%; padding:14px; border:none; border-radius:10px; background:var(--blue); color:white;
-             font-weight:700; font-size:15px; cursor:pointer; }
-    button:hover { background:var(--blue2); }
+    .plan h3{margin:0 0 6px;font-size:16px}
+    .plan small{ display:block; margin-top:4px; color:var(--muted); }
+    .actions { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-top:12px; }
+    button, .btn {
+      padding:12px 14px; border:none; border-radius:10px; background:var(--blue); color:white;
+      font-weight:700; font-size:14px; cursor:pointer; text-decoration:none; display:inline-block;
+    }
+    button.secondary, .btn.secondary { background:#e2e8f0; color:#0f172a; }
+    button.linky { background:transparent; color:var(--blue); text-decoration:underline; padding:0; border-radius:0; }
     button[disabled]{ opacity:.6; cursor:default; }
-    .btn-ghost { background:#e2e8f0; color:#0f172a; }
-    .btn-ghost:hover { background:#cbd5e1; }
-    .note { font-size:12px; margin-top:10px; color:var(--muted); }
-    .top-links{ display:flex; justify-content:center; gap:12px; margin-top:10px; font-size:13px }
-    .top-links a{ color:var(--blue); text-decoration:none }
-    .alert{ margin-top:12px; font-size:13px; padding:10px 12px; border-radius:8px; border:1px solid #cbd5e1; color:#334155; background:#f1f5f9; display:none}
+    .row { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
+    .alert{ margin-top:12px; font-size:13px; padding:10px 12px; border-radius:8px; border:1px solid var(--b); color:#334155; background:#f1f5f9; display:none}
     .alert.ok{ border-color:#a7f3d0; color:#065f46; background:#ecfdf5; display:block}
     .alert.err{ border-color:#fecaca; color:#7f1d1d; background:#fef2f2; display:block}
+    .muted{color:var(--muted); font-size:12px; margin-top:8px}
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Choose your plan</h1>
-    <p class="sub">You can start a free trial, or pick a plan now.</p>
+    <p class="sub">You’ll be redirected to Stripe Checkout.</p>
 
-    <div class="actions" style="margin-top:6px">
-      <!-- TRIAL is independent of plan selection -->
-      <button id="btn-trial" class="btn-ghost">Start Free Trial</button>
-    </div>
-
-    <div class="plans" role="radiogroup" aria-label="Plans" style="margin-top:16px">
-      <div class="plan" tabindex="0" role="radio" aria-checked="false" data-plan="monthly">
-        <strong>$3 / month</strong>
-        <small>Monthly. Cancel anytime.</small>
+    <div class="plans" role="radiogroup" aria-label="Plans">
+      <div id="p-monthly" class="plan" tabindex="0" role="radio" aria-checked="false" data-plan="monthly">
+        <h3>$3 / month</h3>
+        <small>Billed monthly. Cancel anytime.</small>
+        <div class="actions">
+          <button class="btn" data-action="subscribe" data-plan="monthly">$3 / month</button>
+          <button class="btn secondary" data-action="trial">Start free trial</button>
+        </div>
       </div>
-      <div class="plan" tabindex="0" role="radio" aria-checked="false" data-plan="yearly">
-        <strong>$30 / year</strong>
+      <div id="p-yearly" class="plan" tabindex="0" role="radio" aria-checked="false" data-plan="yearly">
+        <h3>$30 / year</h3>
         <small>Best value. Billed annually.</small>
+        <div class="actions">
+          <button class="btn" data-action="subscribe" data-plan="yearly">$30 / year</button>
+          <button class="btn secondary" data-action="trial">Start free trial</button>
+        </div>
       </div>
     </div>
 
-    <div class="actions">
-      <!-- PLAN checkout requires selection -->
-      <button id="btn-subscribe">Continue to Checkout</button>
-    </div>
-
-    <div class="top-links">
-      <a href="./">Back to dashboard</a>
-      <span>·</span>
-      <a href="login.html?switch=1&stay=1">Back to login / sign-up</a>
+    <div class="row">
+      <a class="btn secondary" href="./">Back to dashboard</a>
+      <a class="btn secondary" href="login.html?switch=1">Back to login / sign-up</a>
     </div>
 
     <div id="toast" class="alert"></div>
-    <div class="note">Already subscribed? You’ll be sent back to the dashboard automatically.</div>
+    <div class="muted">Already subscribed? You’ll be sent back to the dashboard automatically.</div>
+
+    <div class="row" style="margin-top:10px; display:none" id="statusRow">
+      <button id="checkNow" class="btn secondary">Check status again</button>
+      <a id="gotoDashboard" class="btn" href="/" style="display:none">Go to dashboard</a>
+    </div>
   </div>
 
 <script type="module">
   import { createClient } from "https://esm.sh/@supabase/supabase-js";
 
+  // ---- Supabase client (anon) ----
   const supabase = createClient(
+    // use your public URL + anon keys
     "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4QyI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw",
+    { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }
   );
 
-  // Stripe Price IDs (keep your real IDs on the server)
   const PRICE_IDS = {
-    monthly: "price_1S1U96JZv8wNnhLtlNWL0gqK",
-    yearly:  "price_1S1U7hJZv8wNnhLtRLRLoVf3"
+    monthly: "price_1S1U96JZv8wNnhLtlNWL0gqK", // $3/mo
+    yearly:  "price_1S1U7hJZv8wNnhLtRLRLoVf3"  // $30/yr
   };
 
   const $ = (s,p=document)=>p.querySelector(s);
-  const $$ = (s,p=document)=>Array.from(p.querySelectorAll(s));
-  const params = new URLSearchParams(location.search);
+  const $$= (s,p=document)=>Array.from(p.querySelectorAll(s));
   const toast = $("#toast");
+  const params = new URLSearchParams(location.search);
   const ALLOW = new Set(["active","trialing"]);
 
   function showToast(msg, kind="err"){
@@ -94,127 +99,110 @@
     toast.className = "alert " + kind;
   }
 
-  // Messages returning from Stripe
-  if (params.get("success")) showToast("Payment succeeded. Finalizing…", "ok");
-  if (params.get("canceled")) showToast("Checkout canceled.", "err");
-
-  async function routeIfActive(userId){
-    const { data: profile } = await supabase
+  async function routeIfActive(userId) {
+    // RLS must allow: SELECT subscription_status FROM profiles WHERE id = auth.uid()
+    const { data, error } = await supabase
       .from("profiles")
       .select("subscription_status")
       .eq("id", userId)
       .maybeSingle();
-    const status = profile?.subscription_status ?? "inactive";
-    if (ALLOW.has(status)) { window.location.href = "/"; return true; }
+
+    if (error) {
+      console.warn("profile query error", error);
+      return { done:false, status:null };
+    }
+    const status = data?.subscription_status || null;
+    if (ALLOW.has(status)) {
+      window.location.replace("/");
+      return { done:true, status };
+    }
+    return { done:false, status };
+  }
+
+  async function pollUntilActive(userId, ms=1000, tries=90) {
+    $("#statusRow").style.display = "flex";
+    for (let i=0; i<tries; i++) {
+      await supabase.auth.refreshSession();
+      const { done, status } = await routeIfActive(userId);
+      if (done) return true;
+      if (i % 5 === 0) showToast(`Almost there — processing (${status ?? "waiting"})…`, "ok");
+      await new Promise(r=>setTimeout(r, ms));
+    }
+    $("#gotoDashboard").style.display = "inline-block";
+    showToast("Almost there — your payment is processing. If this doesn’t update, click ‘Check status again’ or refresh.", "ok");
     return false;
   }
 
-  // Gate: must be logged in; bounce active/trialing
-  (async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user?.id) { window.location.href = "/login.html"; return; }
+  // ----- Require auth; redirect to login if not signed in -----
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user?.id) {
+    window.location.href = "/login.html";
+  }
 
-    if (params.get("success")) {
-      for (let i = 0; i < 8; i++) {
-        await supabase.auth.refreshSession();
-        const done = await routeIfActive(session.user.id);
-        if (done) return;
-        await new Promise(r => setTimeout(r, 750));
+  // ----- Handle return from Stripe -----
+  if (params.get("success")) {
+    showToast("Payment succeeded. Finalizing…", "ok");
+    // Poll for webhook to land
+    await pollUntilActive(session.user.id);
+  }
+  if (params.get("canceled")) {
+    showToast("Checkout canceled.", "err");
+  }
+
+  // Manual “check again”
+  $("#checkNow").addEventListener("click", async ()=>{
+    showToast("Checking your status…", "ok");
+    await pollUntilActive(session.user.id, 1000, 20);
+  });
+
+  // ----- Start Checkout (subscribe or trial) -----
+  async function startCheckout({ plan, trial=false }) {
+    const btns = $$("button, a.btn");
+    btns.forEach(b=>b.disabled = true);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { window.location.href = "/login.html"; return; }
+
+      const body = {
+        supabaseAccessToken: session.access_token,
+      };
+
+      if (trial) {
+        // Free trial → auto-roll to monthly $3
+        body.trial = true;
+      } else {
+        // Explicit plan
+        body.plan = plan;                     // "monthly" | "yearly"
+        body.priceId = PRICE_IDS[plan] || ""; // pass the server’s price id
       }
-      showToast("Almost there—your payment is processing. If this doesn’t update soon, refresh.", "ok");
-    } else {
-      const done = await routeIfActive(session.user.id);
-      if (done) return;
-    }
-  })();
 
-  // ── Plan selection (optional) ───────────────────────────────────────────────
-  let selectedPlan = null;
-
-  function setActivePlan(el){
-    $$(".plan").forEach(p => { p.classList.remove("active"); p.setAttribute("aria-checked","false"); });
-    el.classList.add("active");
-    el.setAttribute("aria-checked","true");
-    selectedPlan = el.dataset.plan;
-    localStorage.setItem("ddp_prefplan", selectedPlan);
-  }
-
-  (function presetPlan(){
-    const q = (params.get("prefplan") || "").toLowerCase(); // "3" or "30"
-    const saved = (localStorage.getItem("ddp_prefplan") || "").toLowerCase();
-    let initial = null;
-    if (q === "3")  initial = $('[data-plan="monthly"]');
-    if (q === "30") initial = $('[data-plan="yearly"]');
-    if (!initial && saved) initial = $(`[data-plan="${saved}"]`);
-    if (initial) setActivePlan(initial);
-  })();
-
-  $$(".plan").forEach(el => {
-    el.addEventListener("click", () => setActivePlan(el));
-    el.addEventListener("keydown", (e) => {
-      if (e.key === " " || e.key === "Enter") { e.preventDefault(); setActivePlan(el); }
-    });
-  });
-
-  // ── Buttons → Stripe Checkout ───────────────────────────────────────────────
-  const btnCheckout = $("#btn-subscribe");
-  const btnTrial    = $("#btn-trial");
-
-  async function ensureSession(){
-    const { data: { session }, error } = await supabase.auth.getSession();
-    if (error || !session) { window.location.href = "/login.html"; return null; }
-    return session;
-  }
-
-  // Plan checkout (requires selection)
-  btnCheckout.addEventListener("click", async ()=>{
-    if (!selectedPlan) return showToast("Select a plan first.");
-    btnCheckout.disabled = true; showToast("Creating checkout session…", "ok");
-
-    const session = await ensureSession();
-    if (!session) { btnCheckout.disabled = false; return; }
-
-    try {
       const r = await fetch("/api/create-checkout-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          priceId: PRICE_IDS[selectedPlan],
-          plan: selectedPlan,
-          trial: false,
-          supabaseAccessToken: session.access_token,
-        })
+        body: JSON.stringify(body)
       });
+
       const data = await r.json();
-      if (!r.ok || !data?.url) { btnCheckout.disabled = false; return showToast(data?.error || "Could not start checkout."); }
-      window.location.href = data.url;
+      if (!r.ok || !data?.url) {
+        showToast(data?.error || "Could not start checkout. Check server logs.");
+        btns.forEach(b=>b.disabled = false);
+        return;
+      }
+      window.location.href = data.url; // Stripe Checkout
     } catch (e) {
-      btnCheckout.disabled = false; showToast(e.message || "Network error starting checkout.");
+      console.error(e);
+      showToast(e.message || "Network error.");
+      btns.forEach(b=>b.disabled = false);
     }
+  }
+
+  // Bind buttons
+  $$("[data-action='subscribe']").forEach(btn=>{
+    btn.addEventListener("click", ()=> startCheckout({ plan: btn.dataset.plan, trial:false }));
   });
-
-  // FREE TRIAL checkout (NO plan required)
-  btnTrial.addEventListener("click", async ()=>{
-    btnTrial.disabled = true; showToast("Starting free trial…", "ok");
-
-    const session = await ensureSession();
-    if (!session) { btnTrial.disabled = false; return; }
-
-    try {
-      const r = await fetch("/api/create-checkout-session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          trial: true,             // <- key: no plan passed
-          supabaseAccessToken: session.access_token,
-        })
-      });
-      const data = await r.json();
-      if (!r.ok || !data?.url) { btnTrial.disabled = false; return showToast(data?.error || "Could not start trial."); }
-      window.location.href = data.url;
-    } catch (e) {
-      btnTrial.disabled = false; showToast(e.message || "Network error starting trial.");
-    }
+  $$("[data-action='trial']").forEach(btn=>{
+    btn.addEventListener("click", ()=> startCheckout({ plan: null, trial:true }));
   });
 </script>
 </body>
