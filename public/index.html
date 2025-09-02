@@ -896,12 +896,39 @@
         .brand-right .pill-sep {
             flex: 0 0 12px;
         }
-     /* Make billing + logout buttons clearly clickable */
+ /* Desktop: push Billing + Logout into the outer gutter and align with pill row */
+@media (min-width: 960px) {
+  #btn-billing,
+  #btn-logout {
+    position: relative;
+    left: calc(max(0px, (100vw - 1400px) / 2 - 12px));
+    margin-top: -6px; /* adjust to align with Live/NYC/KNYC */
+  }
+
+  .pill.logout-btn { margin-top: -6px; }
+}
+
+/* Desktop: nudge ONLY "Manage billing" down a smidge + light-blue look */
+@media (min-width: 960px) {
+  #btn-billing {
+    margin-top: -4px;          /* just a touch lower */
+    background: #dbeafe;       /* light blue */
+    color: #2563eb;            /* blue text */
+    border: 1px solid #93c5fd; /* subtle border */
+  }
+
+  #btn-billing:hover {
+    background: #bfdbfe;       /* hover shade */
+  }
+}
+
+/* Make billing + logout buttons clearly clickable */
 #btn-billing,
 #btn-logout {
   cursor: pointer;
   transition: transform .02s ease, box-shadow .15s ease, opacity .15s ease;
 }
+     
 #btn-billing:hover,
 #btn-logout:hover {
   box-shadow: 0 2px 8px rgba(0,0,0,.08);
