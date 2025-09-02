@@ -938,6 +938,43 @@
   transform: translateY(1px);
   opacity: .9;
 }
+/* Desktop layout: pills + Manage Billing on one row; Logout below.
+   Also ease them slightly left and increase the vertical gap. */
+@media (min-width: 960px) {
+  /* Turn the right side into a 2-col grid */
+  .brand-right {
+    display: grid;
+    grid-template-columns: auto auto;
+    column-gap: 12px;  /* space between pills and Manage billing */
+    row-gap: 10px;     /* a bit more gap between billing and logout */
+    align-items: center;
+    justify-items: end;
+  }
+
+  /* Auto placement already does:
+     row1 col1 = pill-group, row1 col2 = #btn-billing, row2 col1 = #btn-logout */
+  .brand-right .pill-group { grid-column: 1; grid-row: 1; }
+  #btn-billing { grid-column: 2; grid-row: 1; }
+  #btn-logout  { grid-column: 2; grid-row: 2; }
+
+  /* Bring buttons a touch back left (smaller gutter push than before) */
+  #btn-billing,
+  #btn-logout {
+    position: relative;
+    left: calc(max(0px, (100vw - 1400px) / 2 - 6px)); /* was -12px */
+  }
+
+  /* Fine-tune vertical alignment of billing with the pill row */
+  #btn-billing { margin-top: -2px; }
+
+  /* Light-blue look for billing (keep your existing hover from earlier if you like) */
+  #btn-billing {
+    background: #dbeafe;
+    color: #2563eb;
+    border: 1px solid #93c5fd;
+  }
+  #btn-billing:hover { background: #bfdbfe; }
+}
 
     </style>
 </head>
