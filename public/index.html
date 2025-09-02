@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
@@ -31,8 +31,6 @@
             --accent-amber: #d97706;
             --accent-amber-light: #fef3c7;
             --shadow-sm: 0 1px 2px rgba(0, 0, 0, .05);
-            --sticky-top: 64px;
-            --thead-h: 42px;
         }
 
         * {
@@ -537,8 +535,7 @@
             border: 1px solid var(--border-subtle);
             border-radius: 16px;
             padding: 0;
-            /* must NOT be hidden for sticky header/rows */
-            overflow: visible;
+            overflow: hidden;
         }
 
         .table-container {
@@ -573,14 +570,6 @@
             padding: 12px 10px;
             border-bottom: 1px solid var(--border-subtle);
             color: var(--text-secondary);
-        }
-        #dataTable thead th {
-            position: sticky;
-            top: var(--sticky-top);
-            z-index: 3;
-            /* re-declare bg/border so it paints over rows while sticky */
-            background: var(--bg-tertiary);
-            border-bottom: 2px solid var(--border-default);
         }
 
         #dataTable tbody tr:hover {
@@ -665,9 +654,6 @@
 
         /* Month group header row */
         #dataTable tr.month-row {
-            position: sticky;
-            top: calc(var(--sticky-top) + var(--thead-h));
-            z-index: 2;
             background: var(--bg-tertiary);
             border-top: 2px solid var(--border-default);
             cursor: pointer;
@@ -1992,7 +1978,7 @@
                 });
             });
 
-                     tb.onclick = (e) => {
+            tb.onclick = (e) => {
                 const tr = e.target.closest("tr.month-row");
                 if (!tr) return;
                 const mk = tr.dataset.month;
@@ -2001,10 +1987,7 @@
                     r.classList.toggle("is-hidden", collapsed)
                 );
             };
-            
-            // ✅ recalc sticky offsets after (re)render
-            updateStickyOffsets();
-            } // <— this is the closing brace of function displayTable()
+        }
 
         function resetFilter() {
             filteredRows = allRows.slice();
@@ -2016,7 +1999,6 @@
             showMostRecent();
             updateCorrectionBoxes();
             updateSummaryBoxes();
-            updateStickyOffsets();
         }
 
         function applyDateFilter() {
@@ -2035,8 +2017,6 @@
             showMostRecent();
             updateCorrectionBoxes();
             updateSummaryBoxes();
-            updateStickyOffsets();
-
         }
 
         function showStats() {
@@ -2134,21 +2114,6 @@
             });
             el.textContent = fmt.format(today);
         }
-        function updateStickyOffsets() {
-          // app header height
-          const header = document.querySelector('.header');
-          const headerH = header ? header.offsetHeight : 0;
-        
-          // thead height (after table renders)
-          const thead = document.querySelector('#dataTable thead');
-          const theadH = thead ? Math.max(36, Math.round(thead.getBoundingClientRect().height)) : 42;
-        
-          document.documentElement.style.setProperty('--sticky-top', `${headerH}px`);
-          document.documentElement.style.setProperty('--thead-h', `${theadH}px`);
-        }
-
-        // keep offsets fresh on viewport changes
-        window.addEventListener('resize', updateStickyOffsets);
 
         function scheduleMidnightUpdate() {
             function msUntilMidnightET() {
@@ -2248,7 +2213,6 @@ async function checkAccess() {
             updateSixHourMax();
             updateObservations();
             updateSummaryBoxes?.();
-            updateStickyOffsets();
 
             // Light refresh cadences
             setInterval(updateObservations, 5 * 60 * 1000); // every 5 min
