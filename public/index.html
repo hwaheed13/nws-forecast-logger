@@ -896,6 +896,22 @@
         .brand-right .pill-sep {
             flex: 0 0 12px;
         }
+     /* Make billing + logout buttons clearly clickable */
+#btn-billing,
+#btn-logout {
+  cursor: pointer;
+  transition: transform .02s ease, box-shadow .15s ease, opacity .15s ease;
+}
+#btn-billing:hover,
+#btn-logout:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,.08);
+}
+#btn-billing:active,
+#btn-logout:active {
+  transform: translateY(1px);
+  opacity: .9;
+}
+
     </style>
 </head>
 
@@ -938,7 +954,7 @@
                         <span class="pill">KNYC</span>
                     </div>
                     <button id="btn-billing" class="pill">Manage billing</button>
-                    <button id="btn-logout" class="pill logout-btn" style="cursor:pointer">Log out</button>
+                    <button id="btn-logout" class="pill logout-btn">Log out</button>
                 </div>
             </div>
         </header>
