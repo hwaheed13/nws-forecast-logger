@@ -1141,14 +1141,15 @@
             return `${g('year')}-${g('month')}-${g('day')}`;
         }
 
-        function kalshiAnchorForISO(dateISO) {
-            const [y, m, d] = dateISO.split('-').map(Number);
-            const dt = new Date(Date.UTC(y, m - 1, d));
-            const mon = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'][dt.getUTCMonth()];
-            const dd = String(dt.getUTCDate()).replace(/^0/, '');
-            const yy = String(dt.getUTCFullYear()).slice(-2);
-            return `#kxhighny-${yy}${mon}${dd}`;
-        }
+       function kalshiAnchorForISO(dateISO) {
+          const [y, m, d] = dateISO.split('-').map(Number);
+          const dt = new Date(Date.UTC(y, m - 1, d));
+          const mon = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'][dt.getUTCMonth()];
+          const dd  = String(dt.getUTCDate()).padStart(2, '0');  // zero-pad day
+          const yy  = String(dt.getUTCFullYear()).slice(-2);
+          return `#kxhighny-${yy}${mon}${dd}`;
+      }
+
 
         function showSkeleton(rows = 6) {
             const tb = document.querySelector("#dataTable tbody");
