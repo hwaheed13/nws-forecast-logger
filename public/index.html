@@ -911,7 +911,14 @@
   transform: translateY(1px);
   opacity: .9;
 }
-
+/* Push billing + logout buttons into gutter only on wide screens */
+@media (min-width: 960px) {
+  #btn-billing,
+  #btn-logout {
+    transform: translateX(calc(max(0px, (100vw - 1400px) / 2 - 20px)));
+    will-change: transform;
+  }
+}
     </style>
 </head>
 
