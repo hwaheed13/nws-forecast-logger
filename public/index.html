@@ -1151,19 +1151,6 @@
                 </div>
             </div>
 
-         <!-- Accuracy strip -->
-        <div id="accuracy-strip" class="controls-section" style="padding:14px; margin-top:-4px;">
-          <div class="controls-title" style="margin-bottom:6px;">Backtest Accuracy</div>
-          <div id="accuracy-content" style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
-            <span class="pill" id="acc-window-label">Accuracy window: loading…</span>
-            <span class="pill live" id="acc-kalshi">Within Kalshi winning range: —</span>
-            <span class="pill" id="acc-tol">Within ±1°F: —</span>
-          </div>
-          <div class="kalshi-note" id="acc-note" style="margin-top:6px;">
-            Uses current global bias (leakage-allowed) and only forecasts logged before the day’s high time.
-          </div>
-        </div>
-
             <!-- Kalshi -->
             <div class="kalshi-grid">
                 <div class="kalshi-card">
@@ -1830,164 +1817,6 @@
                 if (!vals.length) return null;
                 return vals.reduce((a, b) => a + b, 0) / vals.length;
             };
-      /* ========= ACCURACY (±1°F and Kalshi winning range) ========= */
-      
-      /** Parse a Kalshi label into a numeric inclusive range.
-       *  Examples handled:
-       *    "83° to 84° (84.0°F)"  -> {low:83, high:84}
-       *    "83° or below (83.0°F)"-> {low:-Infinity, high:83}
-       *    "89° or above (90.0°F)"-> {low:89, high:Infinity}
-       *  Returns null if not parsed.
-       */
-      function parseKalshiRangeLabel(label) {
-        if (!label || typeof label !== "string") return null;
-        const clean = label.trim().toLowerCase();
-      
-        // "xx° to yy°"
-        let m = clean.match(/(\d{1,3})°\s*to\s*(\d{1,3})°/);
-        if (m) return { low: Number(m[1]), high: Number(m[2]) };
-      
-        // "xx° or below"
-        m = clean.match(/(\d{1,3})°\s*or\s*below/);
-        if (m) return { low: -Infinity, high: Number(m[1]) };
-      
-        // "xx° or above"
-        m = clean.match(/(\d{1,3})°\s*or\s*above/);
-        if (m) return { low: Number(m[1]), high: Infinity };
-      
-        return null;
-      }
-      
-      /** Mean of pre-high forecasts for a given date (same rule you use elsewhere). */
-      function meanPreHighForecastForDate(date) {
-        const actual = allRows.find(r => r.forecast_or_actual === "actual" && r.cli_date === date && r.actual_high);
-        const highTime = actual ? (actual.high_time || "") : "";
-        const vals = allRows
-          .filter(r => r.forecast_or_actual === "forecast" && r.target_date === date && r.predicted_high)
-          .filter(r => {
-            if (highTime) {
-              const fcHH = (r.forecast_time || "").substr(11, 5);
-              if (fcHH && compareTimes(fcHH, highTime) > 0) return false;
-            }
-            return true;
-          })
-          .map(r => Number(r.predicted_high))
-          .filter(Number.isFinite);
-      
-        if (!vals.length) return null;
-        return vals.reduce((a, b) => a + b, 0) / vals.length;
-      }
-      
-      /** Compute global bias (leakage-allowed), same approach as updateCorrectionBoxes(). */
-      function computeGlobalBias() {
-        const biasList = calcBiases(); // already enforces pre-high only
-        if (!biasList.length) return 0;
-        return biasList.reduce((a, b) => a + b, 0) / biasList.length;
-      }
-      
-      /** Main updater: fills the accuracy strip */
-      async function updateAccuracyStrip() {
-        const strip = document.getElementById("accuracy-strip");
-        const lab   = document.getElementById("acc-window-label");
-        const kEl   = document.getElementById("acc-kalshi");
-        const tEl   = document.getElementById("acc-tol");
-        if (!strip || !lab || !kEl || !tEl) return;
-      
-        // Build per-day buckets
-        const byDate = {};
-        allRows.forEach(r => {
-          const d = r.forecast_or_actual === "actual" ? r.cli_date : r.target_date;
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(d || "")) return;
-          (byDate[d] ??= []).push(r);
-        });
-      
-        const dates = Object.keys(byDate).sort();
-        // Only evaluate days that have an actual and at least one pre-high forecast
-        const eligibleDates = dates.filter(d => {
-          const rows = byDate[d];
-          const hasActual = rows.some(x => x.forecast_or_actual === "actual" && x.actual_high);
-          if (!hasActual) return false;
-          const actual = rows.find(x => x.forecast_or_actual === "actual" && x.actual_high);
-          const highTime = actual ? (actual.high_time || "") : "";
-          const preHighForecastExists = rows.some(x => {
-            if (x.forecast_or_actual !== "forecast" || !x.predicted_high) return false;
-            if (highTime) {
-              const fcHH = (x.forecast_time || "").substr(11, 5);
-              if (fcHH && compareTimes(fcHH, highTime) > 0) return false;
-            }
-            return true;
-          });
-          return preHighForecastExists;
-        });
-      
-        if (!eligibleDates.length) {
-          lab.textContent = "Accuracy window: no eligible days yet";
-          kEl.textContent = "Within Kalshi winning range: —";
-          tEl.textContent = "Within ±1°F: —";
-          return;
-        }
-      
-        // Current (leakage-allowed) global bias
-        const avgBias = computeGlobalBias();
-      
-        // Fetch Kalshi labels for eligible days in parallel
-        const kalshiMap = {};
-        await Promise.all(eligibleDates.map(async d => {
-          try {
-            kalshiMap[d] = await getKalshiLabel(d); // {label, exactTemp?}
-          } catch {
-            kalshiMap[d] = null;
-          }
-        }));
-      
-        let tolHits = 0, tolTotal = 0;
-        let kHits   = 0, kTotal   = 0;
-      
-        eligibleDates.forEach(d => {
-          const rows = byDate[d];
-          const act = rows.find(x => x.forecast_or_actual === "actual" && x.actual_high);
-          if (!act) return;
-          const actualHigh = Number(act.actual_high);
-          if (!Number.isFinite(actualHigh)) return;
-      
-          const meanFc = meanPreHighForecastForDate(d);
-          if (meanFc == null) return;
-      
-          const pred = meanFc + avgBias;
-      
-          // ±1°F tolerance
-          tolTotal++;
-          if (Math.abs(pred - actualHigh) <= 1.0) tolHits++;
-      
-          // Kalshi winning range (if we have a settled label we can parse)
-          const k = kalshiMap[d];
-          const label = k && k.label ? k.label : "";
-          const range = parseKalshiRangeLabel(label);
-          if (range) {
-            kTotal++;
-            const inRange = pred >= range.low && pred <= range.high;
-            if (inRange) kHits++;
-          }
-        });
-      
-        // Update strip
-        const first = eligibleDates[0];
-        const last  = eligibleDates[eligibleDates.length - 1];
-        const human = (iso) => {
-          const [Y, M, D] = iso.split("-").map(Number);
-          return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" })
-            .format(new Date(Y, M - 1, D));
-        };
-      
-        lab.textContent = `Accuracy window: ${human(first)} → ${human(last)} (${eligibleDates.length} days)`;
-      
-        const tolPct = tolTotal ? Math.round((tolHits / tolTotal) * 100) : 0;
-        tEl.textContent = `Within ±1°F: ${tolPct}% (${tolHits}/${tolTotal})`;
-      
-        const kPct = kTotal ? Math.round((kHits / kTotal) * 100) : 0;
-        kEl.textContent = `Within Kalshi winning range: ${kPct}% (${kHits}/${kTotal})`;
-      }
-
 
             const tAvg = meanForecastForDate(today);
             const tmAvg = meanForecastForDate(tomorrow);
@@ -2316,7 +2145,6 @@
             showMostRecent();
             updateCorrectionBoxes();
             updateSummaryBoxes();
-            updateAccuracyStrip();
         }
 
         function applyDateFilter() {
@@ -2335,7 +2163,6 @@
             showMostRecent();
             updateCorrectionBoxes();
             updateSummaryBoxes();
-            updateAccuracyStrip();
         }
 
         function showStats() {
@@ -2532,8 +2359,6 @@ async function checkAccess() {
             updateSixHourMax();
             updateObservations();
             updateSummaryBoxes?.();
-
-           setInterval(updateAccuracyStrip, 60 * 60 * 1000);
 
             // Light refresh cadences
             setInterval(updateObservations, 5 * 60 * 1000); // every 5 min
