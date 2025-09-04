@@ -975,15 +975,16 @@
   }
   #btn-billing:hover { background: #bfdbfe; }
 }
- /* Date row with right-aligned badge */
+/* Date row with right-aligned badge (plain red text, no bubble) */
 .lu-top{
   display:flex;
   align-items:center;
   justify-content:space-between;
   gap:12px;
+  margin-bottom:4px;   /* space under the date row */
+  flex-wrap:wrap;      /* let the badge wrap on narrow screens */
 }
 
-/* Keep the date looking like before (it used to inherit uppercase) */
 .lu-date{
   display:block;
   font-size:14px;
@@ -994,16 +995,18 @@
   margin-bottom:2px;
 }
 
-/* 🔴 Red pill badge */
+/* Plain red text badge (no background/border) */
 .lu-badge{
   white-space:nowrap;
   font-size:12px;
   font-weight:800;
-  color:#b91c1c;           /* red-700 */
-  background:#fee2e2;      /* red-100 */
-  border:1px solid #fecaca;/* red-200 */
-  border-radius:999px;
-  padding:6px 10px;
+  color:#b91c1c;  /* red-700 */
+  margin-top:4px; /* breathing room if it wraps under the date */
+}
+
+/* Mobile: make it a bit smaller so it doesn't run off the edge */
+@media (max-width:600px){
+  .lu-badge{ font-size:11px; }
 }
 
 @media (max-width:600px){
@@ -1068,18 +1071,15 @@
         </header>
 
         <div class="container">
- <div class="last-update">
+<div class="last-update">
   <div class="lu-top">
     <span id="todayDate" class="lu-date"></span>
-
-    <!-- 🔴 Red badge, right-aligned on the same row as the date -->
     <span class="lu-badge">
       All times and day boundary are Eastern Time (aligned with NWS)
     </span>
   </div>
 
   <div class="last-update-label">Latest Forecast Update</div>
-
   <div id="recentForecast" class="last-update-content">
     Loading latest forecast data...
   </div>
