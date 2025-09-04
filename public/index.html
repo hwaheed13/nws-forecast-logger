@@ -975,6 +975,50 @@
   }
   #btn-billing:hover { background: #bfdbfe; }
 }
+ /* Date row with right-aligned badge */
+.lu-top{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+
+/* Keep the date looking like before (it used to inherit uppercase) */
+.lu-date{
+  display:block;
+  font-size:14px;
+  font-weight:700;
+  color:var(--text-primary);
+  text-transform:uppercase;
+  letter-spacing:.02em;
+  margin-bottom:2px;
+}
+
+/* 🔴 Red pill badge */
+.lu-badge{
+  white-space:nowrap;
+  font-size:12px;
+  font-weight:800;
+  color:#b91c1c;           /* red-700 */
+  background:#fee2e2;      /* red-100 */
+  border:1px solid #fecaca;/* red-200 */
+  border-radius:999px;
+  padding:6px 10px;
+}
+
+@media (max-width:600px){
+  .lu-badge{ font-size:11px; padding:5px 8px; }
+}
+/* Optional polish */
+.lu-top {
+  margin-bottom: 4px;   /* space under the date row */
+  flex-wrap: wrap;      /* let badge wrap on narrow screens */
+}
+
+.lu-badge {
+  margin-top: 4px;      /* adds breathing room when it wraps */
+}
+
 
     </style>
 </head>
@@ -1024,20 +1068,21 @@
         </header>
 
         <div class="container">
-  <div class="last-update">
-  <div class="last-update-top">
-    <div class="last-update-label">
-      <span id="todayDate"></span><br>
-      Latest Forecast Update
-    </div>
+ <div class="last-update">
+  <div class="lu-top">
+    <span id="todayDate" class="lu-date"></span>
 
-    <!-- ✅ Badge in the top-right -->
-    <div class="tz-badge">
+    <!-- 🔴 Red badge, right-aligned on the same row as the date -->
+    <span class="lu-badge">
       All times and day boundary are Eastern Time (aligned with NWS/Kalshi).
-    </div>
+    </span>
   </div>
 
-  <div id="recentForecast" class="last-update-content">Loading latest forecast data...</div>
+  <div class="last-update-label">Latest Forecast Update</div>
+
+  <div id="recentForecast" class="last-update-content">
+    Loading latest forecast data...
+  </div>
 </div>
             <!-- Metrics -->
             <div class="metrics-grid">
