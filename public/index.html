@@ -1151,15 +1151,6 @@
                 </div>
             </div>
 
-    <!-- Historical Accuracy -->
-     <div id="accuracy" class="controls-section" style="padding:14px; margin-top:-4px;">
-       <div class="controls-title" style="margin-bottom:6px;">Historical Accuracy</div>
-       <div id="accuracy-body"></div>
-       <div class="kalshi-note" style="margin-top:6px;">
-         Uses overall bias adjustment; only pre-high forecasts included
-       </div>
-     </div>
-
             <!-- Kalshi -->
             <div class="kalshi-grid">
                 <div class="kalshi-card">
@@ -1806,84 +1797,6 @@
             return biasList;
         }
 
-function updateHistoricalAccuracy() {
-  try {
-    const host = document.getElementById("accuracy-body");
-    if (!host) return;
-
-    // Build eligible day records: must have an actual + at least one pre-high forecast
-    const byDay = {};
-    for (const r of allRows) {
-      const d = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
-      if (!d) continue;
-      (byDay[d] ??= []).push(r);
-    }
-
-    const dayRecs = [];
-    for (const d of Object.keys(byDay).sort()) {
-      const rows = byDay[d];
-      const actualRow = rows.find(x => x.forecast_or_actual === "actual" && x.actual_high);
-      if (!actualRow) continue;
-      const actual = Number(actualRow.actual_high);
-      const highTime = actualRow.high_time || "";
-      const fcs = rows.filter(x => {
-        if (x.forecast_or_actual !== "forecast" || !x.predicted_high) return false;
-        if (highTime) {
-          const fcHH = (x.forecast_time || "").substr(11, 5);
-          if (fcHH && compareTimes(fcHH, highTime) > 0) return false;
-        }
-        return true;
-      }).map(x => Number(x.predicted_high)).filter(Number.isFinite);
-      if (!fcs.length) continue;
-      dayRecs.push({ actual, forecasts: fcs });
-    }
-
-    // Global bias (same method you already use)
-    const biasList = calcBiases();
-    const avgBias = biasList.length ? biasList.reduce((a,b)=>a+b,0) / biasList.length : 0;
-
-    let n = 0, hit1 = 0, hit2 = 0;
-    for (const rec of dayRecs) {
-      const meanFc = rec.forecasts.reduce((a,b)=>a+b,0) / rec.forecasts.length;
-      const pred = meanFc + avgBias;
-      const err = Math.abs(pred - rec.actual);
-      n++;
-      if (err <= 1.0) hit1++;
-      if (err <= 2.0) hit2++;
-    }
-
-    const pct = (x, d) => d ? Math.round((x/d)*100) : 0;
-
-    if (!n) {
-      host.innerHTML = `
-        <div class="stat-card" style="text-align:left;">
-          <div class="stat-label">No eligible days yet</div>
-          <div class="metric-subtitle">Need at least one day with a CLI actual and a pre-high forecast.</div>
-        </div>`;
-      return;
-    }
-
-    host.innerHTML = `
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
-        <div class="stat-card" style="text-align:left;">
-          <div class="stat-label">Bias-corrected within ±1°F</div>
-          <div class="stat-value">${pct(hit1, n)}%</div>
-          <div class="metric-subtitle">${hit1}/${n} days</div>
-        </div>
-        <div class="stat-card" style="text-align:left;">
-          <div class="stat-label">Bias-corrected within ±2°F</div>
-          <div class="stat-value">${pct(hit2, n)}%</div>
-          <div class="metric-subtitle">${hit2}/${n} days</div>
-        </div>
-      </div>`;
-  } catch (e) {
-    console.error("updateHistoricalAccuracy error:", e);
-    const host = document.getElementById("accuracy-body");
-    if (host) host.textContent = "Could not compute accuracy.";
-  }
-}
-
-
         function updateCorrectionBoxes() {
             const biasList = calcBiases();
             const avgBias = biasList.length ? (biasList.reduce((a, b) => a + b, 0) / biasList.length) : 0;
@@ -1904,7 +1817,6 @@ function updateHistoricalAccuracy() {
                 if (!vals.length) return null;
                 return vals.reduce((a, b) => a + b, 0) / vals.length;
             };
-
 
             const tAvg = meanForecastForDate(today);
             const tmAvg = meanForecastForDate(tomorrow);
@@ -2233,7 +2145,6 @@ function updateHistoricalAccuracy() {
             showMostRecent();
             updateCorrectionBoxes();
             updateSummaryBoxes();
-            updateHistoricalAccuracy();
         }
 
         function applyDateFilter() {
@@ -2252,7 +2163,6 @@ function updateHistoricalAccuracy() {
             showMostRecent();
             updateCorrectionBoxes();
             updateSummaryBoxes();
-            updateHistoricalAccuracy();
         }
 
         function showStats() {
@@ -2443,17 +2353,12 @@ async function checkAccess() {
             showTodayDate();
             scheduleMidnightUpdate?.();
 
-
-
             // Initial loads
             reloadCSV();
             updateDSM();
             updateSixHourMax();
             updateObservations();
             updateSummaryBoxes?.();
-            updateHistoricalAccuracy();
-
-           setInterval(updateHistoricalAccuracy, 60 * 60 * 1000);
 
             // Light refresh cadences
             setInterval(updateObservations, 5 * 60 * 1000); // every 5 min
