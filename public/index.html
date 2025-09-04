@@ -1004,14 +1004,17 @@
   margin-top:4px; /* breathing room if it wraps under the date */
 }
 
-/* Mobile: make it a bit smaller so it doesn't run off the edge */
-@media (max-width:600px){
-  .lu-badge{ font-size:11px; }
+@media (max-width: 600px) {
+  .lu-badge {
+    font-size: 10px;       /* smaller text */
+    white-space: normal;   /* allow wrapping */
+    display: block;        /* stack under the date */
+    margin-top: 2px;       /* space from the date when stacked */
+    text-align: right;     /* keep it aligned right */
+  }
 }
 
-@media (max-width:600px){
-  .lu-badge{ font-size:11px; padding:5px 8px; }
-}
+
 /* Optional polish */
 .lu-top {
   margin-bottom: 4px;   /* space under the date row */
@@ -1075,8 +1078,7 @@
   <div class="lu-top">
     <span id="todayDate" class="lu-date"></span>
     <span class="lu-badge">
-      All times and day boundary are Eastern Time<br>
-      Aligned with NWS
+      All times and day boundary are Eastern Time (aligned with NWS)
     </span>
   </div>
 
