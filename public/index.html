@@ -1007,11 +1007,16 @@
 /* Mobile: smaller + stacked under date */
 @media (max-width: 600px) {
   .lu-badge {
-    font-size: 11px;       /* smaller text */
+    font-size: 10px;       /* smaller text */
     white-space: normal;   /* allow wrapping */
     display: block;        /* stack under the date */
     margin-top: -2px;       /* space from the date when stacked */
     text-align: right;     /* keep it aligned right */
+  }
+}
+ @media (max-width: 600px) {
+  .last-update-label {
+    font-size: 11px;   /* was 10px */
   }
 }
 
