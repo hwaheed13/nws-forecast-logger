@@ -1397,29 +1397,55 @@
             return (d1 && d2) ? d1 - d2 : 0;
         }
 
-        function showMostRecent() {
-            const el = document.getElementById("recentForecast");
-            if (!allRows.length) {
-                el.textContent = "";
-                return;
-            }
-            for (let i = allRows.length - 1; i >= 0; i--) {
-                const r = allRows[i];
-                if (r && r.forecast_or_actual === "forecast" && r.predicted_high && r.target_date) {
-                    const iso = r.timestamp;
-                    const when = iso ? new Intl.DateTimeFormat("en-US", {
-                        timeZone: "America/New_York",
-                        hour: "numeric",
-                        minute: "2-digit",
-                        month: "short",
-                        day: "numeric"
-                    }).format(new Date(iso)) : (r.forecast_time || "(time unknown)");
-                    el.innerHTML = `<strong>${when} ET</strong> — <strong>${r.predicted_high}°F</strong> for <strong>${r.target_date}</strong>`;
-                    return;
-                }
-            }
-            el.textContent = "";
-        }
+     // Normalize "YYYY-MM-DD HH:MM:SS" → "YYYY-MM-DDTHH:MM:SS" and return a Date or null
+function safeParseTimestamp(ts) {
+  const s = (ts || "").trim();
+  if (!s) return null;
+  // If there’s a space between date and time, make it ISO
+  const isoish = s.includes("T") ? s : s.replace(" ", "T");
+  const d = new Date(isoish);
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+// Format a Date in ET safely (returns "" if invalid)
+function safeFormatET(d) {
+  if (!(d instanceof Date) || !Number.isFinite(d.getTime())) return "";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(d);
+}
+
+function showMostRecent() {
+  const el = document.getElementById("recentForecast");
+  if (!el) return;
+  if (!allRows.length) {
+    el.textContent = "";
+    return;
+  }
+
+  for (let i = allRows.length - 1; i >= 0; i--) {
+    const r = allRows[i];
+    if (r && r.forecast_or_actual === "forecast" && r.predicted_high && r.target_date) {
+      // Prefer timestamp; fall back to forecast_time
+      const d =
+        safeParseTimestamp(r.timestamp) ||
+        safeParseTimestamp(r.forecast_time);
+
+      const when = d ? `${safeFormatET(d)} ET`
+                     : (r.forecast_time ? (r.forecast_time.slice(11,16) + " ET") : "(time unknown)");
+
+      el.innerHTML =
+        `<strong>${when}</strong> — <strong>${r.predicted_high}°F</strong> for <strong>${r.target_date}</strong>`;
+      return;
+    }
+  }
+  el.textContent = "";
+}
+
 
         function getForecastsForDate(dateISO) {
             const rows = allRows
