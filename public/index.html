@@ -1027,6 +1027,14 @@
     font-size: 11px;       /* smidge bigger than before */
   }
 }
+ /* Mobile-only: pull the red note closer to the date, leave everything below untouched */
+@media (max-width: 600px) {
+  .last-update .lu-badge {
+    display: block;     /* keep it on its own line under the date */
+    margin-top: -6px;   /* move it up toward the date (adjust as needed) */
+  }
+}
+
 
     </style>
 </head>
