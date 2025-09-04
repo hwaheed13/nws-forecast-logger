@@ -1419,27 +1419,59 @@ function safeFormatET(d) {
   }).format(d);
 }
 
+// ---- Helpers for robust ET formatting (Safari-safe) ----
+function fmtMonthDayET(d) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    month: "short",
+    day: "numeric"
+  }).format(d);
+}
+function fmtTimeET(d) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(d);
+}
+function monthDayFromISO(iso) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || "")) return "";
+  return fmtMonthDayET(new Date(iso + "T00:00:00"));
+}
+function hhmmFromTS(s) {
+  const m = String(s || "").match(/\b(\d{1,2}:\d{2})\b/);
+  return m ? m[1] : "";
+}
+
+// ---- Replace your existing showMostRecent with this ----
 function showMostRecent() {
   const el = document.getElementById("recentForecast");
   if (!el) return;
-  if (!allRows.length) {
-    el.textContent = "";
-    return;
-  }
+  if (!allRows.length) { el.textContent = ""; return; }
 
   for (let i = allRows.length - 1; i >= 0; i--) {
     const r = allRows[i];
     if (r && r.forecast_or_actual === "forecast" && r.predicted_high && r.target_date) {
-      // Prefer timestamp; fall back to forecast_time
+      // Prefer timestamp; fall back to forecast_time; both normalized via safeParseTimestamp
       const d =
         safeParseTimestamp(r.timestamp) ||
         safeParseTimestamp(r.forecast_time);
 
-      const when = d ? `${safeFormatET(d)} ET`
-                     : (r.forecast_time ? (r.forecast_time.slice(11,16) + " ET") : "(time unknown)");
+      // Build "Sep 4 at 2:50 ET" safely
+      const dateLabel = d
+        ? fmtMonthDayET(d)
+        : monthDayFromISO((r.timestamp || r.forecast_time || "").slice(0, 10)) ||
+          monthDayFromISO(nycISODate(0));  // last-ditch: today ET
+
+      const timeLabel = d
+        ? fmtTimeET(d)
+        : hhmmFromTS(r.timestamp || r.forecast_time) || "";
+
+      const whenLabel = timeLabel ? `${dateLabel} at ${timeLabel} ET` : `${dateLabel}`;
 
       el.innerHTML =
-        `<strong>${when}</strong> — <strong>${r.predicted_high}°F</strong> for <strong>${r.target_date}</strong>`;
+        `<strong>${whenLabel}</strong> — ` +
+        `<strong>${r.predicted_high}°F</strong> for <strong>${r.target_date}</strong>`;
       return;
     }
   }
