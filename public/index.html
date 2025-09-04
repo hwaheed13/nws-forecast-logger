@@ -976,34 +976,35 @@
   #btn-billing:hover { background: #bfdbfe; }
 }
 /* Date row with right-aligned badge (plain red text, no bubble) */
-.lu-top{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:12px;
-  margin-bottom:4px;   /* space under the date row */
-  flex-wrap:wrap;      /* let the badge wrap on narrow screens */
+.lu-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;   /* space under the date row */
+  flex-wrap: wrap;      /* let the badge wrap on narrow screens */
 }
 
-.lu-date{
-  display:block;
-  font-size:14px;
-  font-weight:700;
-  color:var(--text-primary);
-  text-transform:uppercase;
-  letter-spacing:.02em;
-  margin-bottom:2px;
+.lu-date {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: .02em;
+  margin-bottom: 2px;
 }
 
 /* Plain red text badge (no background/border) */
-.lu-badge{
-  white-space:nowrap;
-  font-size:12px;
-  font-weight:800;
-  color:#b91c1c;  /* red-700 */
-  margin-top:4px; /* breathing room if it wraps under the date */
+.lu-badge {
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 800;
+  color: #b91c1c;  /* red-700 */
+  margin-top: 4px; /* breathing room if it wraps under the date */
 }
 
+/* Mobile: smaller + stacked under date */
 @media (max-width: 600px) {
   .lu-badge {
     font-size: 10px;       /* smaller text */
@@ -1013,18 +1014,6 @@
     text-align: right;     /* keep it aligned right */
   }
 }
-
-
-/* Optional polish */
-.lu-top {
-  margin-bottom: 4px;   /* space under the date row */
-  flex-wrap: wrap;      /* let badge wrap on narrow screens */
-}
-
-.lu-badge {
-  margin-top: 4px;      /* adds breathing room when it wraps */
-}
-
 
     </style>
 </head>
