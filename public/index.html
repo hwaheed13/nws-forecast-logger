@@ -1151,18 +1151,14 @@
                 </div>
             </div>
 
-         <!-- Accuracy strip -->
-        <div id="accuracy-strip" class="controls-section" style="padding:14px; margin-top:-4px;">
-          <div class="controls-title" style="margin-bottom:6px;">Historical Accuracy</div>
-          <div id="accuracy-content" style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
-            <span class="pill" id="acc-window-label">Accuracy window: loading…</span>
-            <span class="pill live" id="acc-kalshi">Within Kalshi winning range: —</span>
-            <span class="pill" id="acc-tol">Within ±1°F: —</span>
-          </div>
-          <div class="kalshi-note" id="acc-note" style="margin-top:6px;">
-            Uses current global bias (leakage-allowed) and only forecasts logged before the day’s high time.
-          </div>
-        </div>
+    <!-- Historical Accuracy -->
+     <div id="accuracy" class="controls-section" style="padding:14px; margin-top:-4px;">
+       <div class="controls-title" style="margin-bottom:6px;">Historical Accuracy</div>
+       <div id="accuracy-body"></div>
+       <div class="kalshi-note" style="margin-top:6px;">
+         Uses current global bias (leakage-allowed) and only forecasts logged before the day’s high time.
+       </div>
+     </div>
 
             <!-- Kalshi -->
             <div class="kalshi-grid">
@@ -1810,173 +1806,80 @@
             return biasList;
         }
 
-// --- Accuracy strip: compute & render 3 things (global, ignores current table filter):
-// 1) Bias-corrected hit rate within ±1°F
-// 2) "Actual matched any intraday forecast" rate
-// 3) "Within Kalshi winning range" rate (only for dates where we can fetch/settle a range)
-
-// Ensures there's a host card right after the prediction-grid.
-function ensureAccuracyStripHost() {
-  let host = document.getElementById("accuracyStrip");
-  if (!host) {
-    host = document.createElement("div");
-    host.id = "accuracyStrip";
-    host.className = "prediction-card";
-    const grid = document.querySelector(".prediction-grid");
-    if (grid && grid.parentNode) {
-      grid.parentNode.insertBefore(host, grid.nextSibling);
-    } else {
-      // fall back: put it at end of container
-      document.querySelector(".container")?.appendChild(host);
-    }
-  }
-  return host;
-}
-
-function _mean(nums) {
-  if (!nums.length) return null;
-  return nums.reduce((a,b)=>a+b,0) / nums.length;
-}
-
-// Parse a "winning range" from a Kalshi label like "78° to 79° (79.0°F)"
-function _parseKalshiRange(obj) {
-  if (!obj) return null;
-  if (typeof obj.exactTemp === "number") {
-    // Treat an exact settle as [x, x]
-    const x = obj.exactTemp;
-    return [Math.floor(x), Math.ceil(x)]; // effectively equals x
-  }
-  const label = obj.label || "";
-  const m = label.match(/(\d+)\D+(?:to|–|-)\D+(\d+)/i);
-  if (!m) return null;
-  return [Number(m[1]), Number(m[2])];
-}
-
-// Core: build per-day records using ALL rows (global), only days with an actual high
-function _buildDayRecords() {
-  const byDay = {};
-  for (const r of allRows) {
-    const d = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
-    if (!d) continue;
-    (byDay[d] ??= []).push(r);
-  }
-  const days = Object.keys(byDay).sort();
-  const recs = [];
-  for (const d of days) {
-    const rows = byDay[d];
-    const actualRow = rows.find(r => r.forecast_or_actual === "actual" && r.actual_high);
-    if (!actualRow) continue;
-    const actual = Number(actualRow.actual_high);
-    const highTime = actualRow.high_time || "";
-
-    // All pre-high intraday forecasts for that date
-    const fcs = rows.filter(r =>
-      r.forecast_or_actual === "forecast" &&
-      r.predicted_high &&
-      (!highTime || (function(){
-        const fcHH = (r.forecast_time || "").substr(11,5);
-        return !fcHH || compareTimes(fcHH, highTime) <= 0;
-      })())
-    ).map(r => Number(r.predicted_high));
-
-    if (!fcs.length) continue;
-
-    recs.push({ dateISO: d, actual, forecasts: fcs });
-  }
-  return recs;
-}
-
-async function updateAccuracyStrip() {
+function updateHistoricalAccuracy() {
   try {
-    const host = ensureAccuracyStripHost();
+    const host = document.getElementById("accuracy-body");
+    if (!host) return;
 
-    // 1) Build day records + compute the current global bias (same method your UI uses)
-    const dayRecs = _buildDayRecords();
+    // Build eligible day records: must have an actual + at least one pre-high forecast
+    const byDay = {};
+    for (const r of allRows) {
+      const d = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
+      if (!d) continue;
+      (byDay[d] ??= []).push(r);
+    }
+
+    const dayRecs = [];
+    for (const d of Object.keys(byDay).sort()) {
+      const rows = byDay[d];
+      const actualRow = rows.find(x => x.forecast_or_actual === "actual" && x.actual_high);
+      if (!actualRow) continue;
+      const actual = Number(actualRow.actual_high);
+      const highTime = actualRow.high_time || "";
+      const fcs = rows.filter(x => {
+        if (x.forecast_or_actual !== "forecast" || !x.predicted_high) return false;
+        if (highTime) {
+          const fcHH = (x.forecast_time || "").substr(11, 5);
+          if (fcHH && compareTimes(fcHH, highTime) > 0) return false;
+        }
+        return true;
+      }).map(x => Number(x.predicted_high)).filter(Number.isFinite);
+      if (!fcs.length) continue;
+      dayRecs.push({ actual, forecasts: fcs });
+    }
+
+    // Global bias (same method you already use)
     const biasList = calcBiases();
     const avgBias = biasList.length ? biasList.reduce((a,b)=>a+b,0) / biasList.length : 0;
 
-    // 2) For each day, compute:
-    //    - bias-corrected prediction = mean(pre-high forecasts) + avgBias
-    //    - within ±1°F?
-    //    - did any intraday forecast equal the actual?
-    //    - within Kalshi winning range? (requires fetching/using cache)
-    let within1 = 0, totalPred = 0;
-    let actualInIntraday = 0, totalIntra = 0;
-    let withinKalshi = 0, totalKalshi = 0;
-
-    // Collect dates to query Kalshi (we’ll fetch labels if not cached)
-    const datesNeedingKalshi = [];
-
+    let n = 0, hit1 = 0, hit2 = 0;
     for (const rec of dayRecs) {
-      const meanFc = _mean(rec.forecasts);
-      if (meanFc == null) continue;
-
+      const meanFc = rec.forecasts.reduce((a,b)=>a+b,0) / rec.forecasts.length;
       const pred = meanFc + avgBias;
-      totalPred++;
-      if (Math.abs(pred - rec.actual) <= 1.0) within1++;
-
-      totalIntra++;
-      if (rec.forecasts.some(v => Math.round(v) === Math.round(rec.actual))) {
-        actualInIntraday++;
-      }
-
-      if (!kalshiCache.has(rec.dateISO)) datesNeedingKalshi.push(rec.dateISO);
+      const err = Math.abs(pred - rec.actual);
+      n++;
+      if (err <= 1.0) hit1++;
+      if (err <= 2.0) hit2++;
     }
 
-    // Fetch missing Kalshi labels (best-effort)
-    if (datesNeedingKalshi.length) {
-      await Promise.all(datesNeedingKalshi.map(async d => {
-        try {
-          const k = await getKalshiLabel(d);
-          kalshiCache.set(d, k ?? null);
-        } catch {
-          kalshiCache.set(d, null);
-        }
-      }));
+    const pct = (x, d) => d ? Math.round((x/d)*100) : 0;
+
+    if (!n) {
+      host.innerHTML = `
+        <div class="stat-card" style="text-align:left;">
+          <div class="stat-label">No eligible days yet</div>
+          <div class="metric-subtitle">Need at least one day with a CLI actual and a pre-high forecast.</div>
+        </div>`;
+      return;
     }
 
-    // Now evaluate within Kalshi range where available
-    for (const rec of dayRecs) {
-      const k = kalshiCache.get(rec.dateISO);
-      const range = _parseKalshiRange(k);
-      if (!range) continue;
-      totalKalshi++;
-      const [lo, hi] = range;
-      if (Math.round(rec.actual) >= lo && Math.round(rec.actual) <= hi) withinKalshi++;
-    }
-
-    // 3) Render nicely
-    const pct = (num, den) => den ? Math.round((num/den)*100) : 0;
-    const html = `
-      <div class="prediction-title">Forecast Accuracy (rolling)</div>
-      <div class="prediction-content">
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
-          <div class="stat-card" style="text-align:left;">
-            <div class="stat-label">Bias-corrected within ±1°F</div>
-            <div class="stat-value">${pct(within1, totalPred)}%</div>
-            <div class="metric-subtitle">${within1}/${totalPred} days</div>
-          </div>
-          <div class="stat-card" style="text-align:left;">
-            <div class="stat-label">Actual matched any intraday forecast</div>
-            <div class="stat-value">${pct(actualInIntraday, totalIntra)}%</div>
-            <div class="metric-subtitle">${actualInIntraday}/${totalIntra} days</div>
-          </div>
-          <div class="stat-card" style="text-align:left;">
-            <div class="stat-label">Actual within Kalshi winning range</div>
-            <div class="stat-value">${pct(withinKalshi, totalKalshi)}%</div>
-            <div class="metric-subtitle">${withinKalshi}/${totalKalshi} days</div>
-          </div>
+    host.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
+        <div class="stat-card" style="text-align:left;">
+          <div class="stat-label">Bias-corrected within ±1°F</div>
+          <div class="stat-value">${pct(hit1, n)}%</div>
+          <div class="metric-subtitle">${hit1}/${n} days</div>
         </div>
-        <div class="prediction-subtitle" style="margin-top:10px;">
-          Uses the same bias method shown above (mean of pre-high forecasts + current historical bias).
-          Kalshi metric shown only for days where a winning range is available.
+        <div class="stat-card" style="text-align:left;">
+          <div class="stat-label">Bias-corrected within ±2°F</div>
+          <div class="stat-value">${pct(hit2, n)}%</div>
+          <div class="metric-subtitle">${hit2}/${n} days</div>
         </div>
-      </div>
-    `;
-    host.innerHTML = html;
+      </div>`;
   } catch (e) {
-    // Fail silently in UI; log to console to avoid breaking the page
-    console.error("updateAccuracyStrip error:", e);
+    console.error("updateHistoricalAccuracy error:", e);
+    const host = document.getElementById("accuracy-body");
+    if (host) host.textContent = "Could not compute accuracy.";
   }
 }
 
@@ -2330,7 +2233,7 @@ async function updateAccuracyStrip() {
             showMostRecent();
             updateCorrectionBoxes();
             updateSummaryBoxes();
-            updateAccuracyStrip();
+            updateHistoricalAccuracy();
         }
 
         function applyDateFilter() {
@@ -2349,7 +2252,7 @@ async function updateAccuracyStrip() {
             showMostRecent();
             updateCorrectionBoxes();
             updateSummaryBoxes();
-            updateAccuracyStrip();
+            updateHistoricalAccuracy();
         }
 
         function showStats() {
@@ -2548,9 +2451,9 @@ async function checkAccess() {
             updateSixHourMax();
             updateObservations();
             updateSummaryBoxes?.();
-            updateAccuracyStrip?.();
+            updateHistoricalAccuracy();
 
-           setInterval(updateAccuracyStrip, 60 * 60 * 1000);
+           setInterval(updateHistoricalAccuracy, 60 * 60 * 1000);
 
             // Light refresh cadences
             setInterval(updateObservations, 5 * 60 * 1000); // every 5 min
