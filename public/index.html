@@ -1309,20 +1309,23 @@
         }
 
         function reloadCSV() {
-            showSkeleton();
-             fetch(CSV_URL + "?" + Date.now())
-                .then(r => r.text())
-                .then(parseCSV)
-                .then(() => {
-                  seedForecastSignatures();
-                    resetFilter();
-                    showMostRecent();
-                    updateSummaryBoxes();
-                    updateCorrectionBoxes();
-                    updateObservations();
-                })
-                .catch(err => alert("Could not load CSV. " + err));
-        }
+    showSkeleton();
+    return fetch(CSV_URL + "?" + Date.now())
+      .then(r => r.text())
+      .then(parseCSV)
+      .then(() => {
+        seedForecastSignatures();    // after parse
+        resetFilter();
+        showMostRecent();
+        updateSummaryBoxes();
+        updateCorrectionBoxes();
+        updateObservations();
+      })
+      .catch(err => {
+        alert("Could not load CSV. " + err);
+        throw err; // keeps bootApp from starting the poller if initial load failed
+      });
+  }
 
         function csvToRows(text) {
             const rows = [];
@@ -2464,35 +2467,35 @@ async function checkAccess() {
             }
         });
 
-        // ---- App boot ----
-        function bootApp() {
-            // Date label + midnight rollover
-            showTodayDate();
-            scheduleMidnightUpdate?.();
+   // ---- App boot ----
+   async function bootApp() {
+     showTodayDate();
+     scheduleMidnightUpdate?.();
+   
+     // Initial loads (wait for CSV to finish before starting poller)
+     await reloadCSV();
+     updateDSM();
+     updateSixHourMax();
+     updateObservations();
+     updateSummaryBoxes?.();
+   
+     // Light refresh cadences
+     setInterval(updateObservations, 5 * 60 * 1000);
+     setInterval(updateDSM, 10 * 60 * 1000);
+     setInterval(updateSixHourMax, 10 * 60 * 1000);
+     setInterval(updateSummaryBoxes, 10 * 60 * 1000);
+   
+     // Start the forecast-change watcher *after* first CSV load
+     pollCsvAndUpdate();
+     setInterval(pollCsvAndUpdate, 60 * 1000);
+   
+     // Optional heartbeat for UX/session
+     try {
+       localStorage.setItem("dashboard_heartbeat", String(Date.now()));
+       setInterval(() => localStorage.setItem("dashboard_heartbeat", String(Date.now())), 60 * 1000);
+     } catch {}
+   }
 
-            // Initial loads
-            reloadCSV();
-            updateDSM();
-            updateSixHourMax();
-            updateObservations();
-            updateSummaryBoxes?.();
-
-            // Light refresh cadences
-            setInterval(updateObservations, 5 * 60 * 1000); // every 5 min
-            setInterval(updateDSM, 10 * 60 * 1000); // every 10 min
-            setInterval(updateSixHourMax, 10 * 60 * 1000); // every 10 min
-            setInterval(updateSummaryBoxes, 10 * 60 * 1000); // every 10 min (if defined)
-
-          // 👇 Add this block here
-           pollCsvAndUpdate();                     // run once on boot
-            setInterval(pollCsvAndUpdate, 60 * 1000); // then check every 60s
-         
-         // Optional heartbeat for UX/session
-            try {
-                localStorage.setItem("dashboard_heartbeat", String(Date.now()));
-                setInterval(() => localStorage.setItem("dashboard_heartbeat", String(Date.now())), 60 * 1000);
-            } catch {}
-        }
 
         // 🚀 Kick off
         checkAccess();
