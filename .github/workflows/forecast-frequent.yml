@@ -1,0 +1,52 @@
+name: Frequent Forecast Updates
+
+on:
+  schedule:
+    # Every 10 minutes (GitHub cron is UTC)
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: forecast-frequent
+  cancel-in-progress: true
+
+jobs:
+  poll-forecasts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 pytz
+
+      # ✅ Only log forecasts (no actuals)
+      - name: Log today's forecast
+        env:
+          TASK: forecast_today
+        run: python run_smart.py
+
+      - name: Log tomorrow's forecast
+        env:
+          TASK: forecast_tomorrow
+        run: python run_smart.py
+
+      - name: Remove empty/blank lines
+        run: |
+          grep -Ev '^[[:space:]]*(,?[[:space:]]*)*$' nws_forecast_log.csv > /tmp/clean.csv || true
+          mv /tmp/clean.csv nws_forecast_log.csv
+
+      - name: Commit and push CSV if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add nws_forecast_log.csv
+          git commit -m "Frequent forecast update [skip ci]" || echo "No changes to commit"
+          git push origin main || true
