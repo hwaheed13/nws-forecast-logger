@@ -1,3 +1,4 @@
+# nws_logger.py
 import csv
 import datetime
 import os
@@ -30,24 +31,24 @@ FETCH_TIMES = ["19:30", "21:00", "23:00", "05:00", "06:00", "07:00", "09:00",
 # =========================
 # CSV helpers
 # =========================
-HEADER = [
+BASE_HEADER = [
     "timestamp", "target_date", "forecast_or_actual", "forecast_time",
     "predicted_high", "forecast_detail", "cli_date", "actual_high", "high_time"
 ]
+BCP_FIELD = "bias_corrected_prediction"  # (today only)
 
 def ensure_csv_header() -> None:
     if not os.path.exists(CSV_FILE):
         with open(CSV_FILE, mode="w", newline="") as f:
-            csv.writer(f).writerow(HEADER)
+            csv.writer(f).writerow(BASE_HEADER + [BCP_FIELD])
 
 def _read_all_rows() -> Tuple[List[dict], List[str]]:
     ensure_csv_header()
     rows: List[dict] = []
-    fieldnames = HEADER
+    fieldnames = None
     with open(CSV_FILE, newline="") as f:
         reader = csv.DictReader(f)
-        if reader.fieldnames:
-            fieldnames = reader.fieldnames
+        fieldnames = reader.fieldnames or (BASE_HEADER + [BCP_FIELD])
         for r in reader:
             rows.append(r)
     return rows, fieldnames
@@ -58,46 +59,36 @@ def _write_all_rows(rows: List[dict], fieldnames: List[str]) -> None:
         w.writeheader()
         w.writerows(rows)
 
-def upsert_actual_row(cli_date_iso: str, temp: str, time_clean: str) -> None:
+def _append_row(row: Dict[str, str]) -> None:
     """
-    Insert or replace an 'actual' row for cli_date_iso (YYYY-MM-DD).
-    If a row exists (forecast_or_actual == 'actual' and cli_date == cli_date_iso),
-    update it in place; otherwise append a new row.
+    Append using current file header so column count always matches.
+    Missing keys will be empty; extra keys are ignored.
     """
-    rows, fns = _read_all_rows()
-    now_s = now_nyc().strftime("%Y-%m-%d %H:%M:%S")
-    target_date = cli_date_iso  # keep target_date aligned to cli_date for 'actual'
+    ensure_csv_header()
+    with open(CSV_FILE, newline="") as f:
+        reader = csv.DictReader(f)
+        fns = reader.fieldnames or (BASE_HEADER + [BCP_FIELD])
+    # Fill missing keys so DictWriter doesn't complain.
+    safe_row = {k: row.get(k, "") for k in fns}
+    with open(CSV_FILE, "a", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fns)
+        w.writerow(safe_row)
 
-    updated = False
+def _upgrade_header_to_include_bcp(rows: List[dict], fieldnames: List[str]) -> List[str]:
+    """
+    If the file exists without the BCP column, add it and blank-fill rows.
+    Only used by the snapshot step (after 6pm ET), so normal runs aren’t touched.
+    """
+    if BCP_FIELD in (fieldnames or []):
+        return fieldnames
+    new_fns = list(fieldnames or BASE_HEADER)
+    if BCP_FIELD not in new_fns:
+        new_fns.append(BCP_FIELD)
     for r in rows:
-        if r.get("forecast_or_actual") == "actual" and r.get("cli_date") == cli_date_iso:
-            if r.get("actual_high") != temp or (r.get("high_time") or "") != time_clean:
-                r["timestamp"]         = now_s
-                r["target_date"]       = target_date
-                r["forecast_or_actual"]= "actual"
-                r["forecast_time"]     = ""
-                r["predicted_high"]    = ""
-                r["forecast_detail"]   = ""
-                r["cli_date"]          = cli_date_iso
-                r["actual_high"]       = temp
-                r["high_time"]         = time_clean
-            updated = True
-            break
-
-    if not updated:
-        rows.append({
-            "timestamp": now_s,
-            "target_date": target_date,
-            "forecast_or_actual": "actual",
-            "forecast_time": "",
-            "predicted_high": "",
-            "forecast_detail": "",
-            "cli_date": cli_date_iso,
-            "actual_high": temp,
-            "high_time": time_clean
-        })
-
-    _write_all_rows(rows, fns)
+        if BCP_FIELD not in r:
+            r[BCP_FIELD] = ""
+    _write_all_rows(rows, new_fns)
+    return new_fns
 
 # =========================
 # Forecast helpers
@@ -181,16 +172,18 @@ def log_forecast() -> None:
         return
 
     now_local = now_nyc().strftime("%Y-%m-%d %H:%M:%S")
-    with open(CSV_FILE, mode="a", newline="") as f:
-        csv.writer(f).writerow([
-            now_local,                # timestamp (ET)
-            target_date,              # target_date (For Date)
-            "forecast",
-            now_local,                # forecast_time (ET)
-            new_val,
-            period.get("detailedForecast", ""),
-            "", "", ""
-        ])
+    _append_row({
+        "timestamp": now_local,
+        "target_date": target_date,
+        "forecast_or_actual": "forecast",
+        "forecast_time": now_local,
+        "predicted_high": new_val,
+        "forecast_detail": period.get("detailedForecast", ""),
+        "cli_date": "",
+        "actual_high": "",
+        "high_time": "",
+        # bias_corrected_prediction left blank; snapshot fills it after 6pm
+    })
     print(f"✅ Logged forecast for today: {new_val}°F")
 
 def log_forecast_for_tomorrow() -> None:
@@ -210,16 +203,17 @@ def log_forecast_for_tomorrow() -> None:
         return
 
     now_local = now_nyc().strftime("%Y-%m-%d %H:%M:%S")
-    with open(CSV_FILE, mode="a", newline="") as f:
-        csv.writer(f).writerow([
-            now_local,              # timestamp (ET)
-            tm,                     # For Date
-            "forecast",
-            now_local,              # forecast_time (ET)
-            new_val,
-            period.get("detailedForecast", ""),
-            "", "", ""
-        ])
+    _append_row({
+        "timestamp": now_local,
+        "target_date": tm,
+        "forecast_or_actual": "forecast",
+        "forecast_time": now_local,
+        "predicted_high": new_val,
+        "forecast_detail": period.get("detailedForecast", ""),
+        "cli_date": "",
+        "actual_high": "",
+        "high_time": "",
+    })
     print(f"✅ Logged forecast for {tm}: {new_val}°F")
 
 # =========================
@@ -330,19 +324,62 @@ def log_actual_today_if_after_6pm_local() -> None:
                     print(f"⏭️ Actual for {cli_date} already logged. Skipping.")
                     return
 
-        with open(CSV_FILE, "a", newline="") as f:
-            csv.writer(f).writerow([
-                now.strftime("%Y-%m-%d %H:%M:%S"),
-                cli_date, "actual",
-                "", "", "",
-                cli_date,
-                temp,
-                time_clean
-            ])
+        _append_row({
+            "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
+            "target_date": cli_date,
+            "forecast_or_actual": "actual",
+            "forecast_time": "",
+            "predicted_high": "",
+            "forecast_detail": "",
+            "cli_date": cli_date,
+            "actual_high": temp,
+            "high_time": time_clean
+        })
         print(f"✅ Logged TODAY actual (provisional): {temp}°F at {time_clean} for {cli_date}")
 
     except Exception as e:
         print(f"❌ Error logging today's actual high: {e}")
+
+def upsert_actual_row(cli_date_iso: str, temp: str, time_clean: str) -> None:
+    """
+    Insert or replace an 'actual' row for cli_date_iso (YYYY-MM-DD).
+    If a row exists (forecast_or_actual == 'actual' and cli_date == cli_date_iso),
+    update it in place; otherwise append a new row.
+    """
+    rows, fns = _read_all_rows()
+    now_s = now_nyc().strftime("%Y-%m-%d %H:%M:%S")
+    target_date = cli_date_iso  # keep target_date aligned to cli_date for 'actual'
+
+    updated = False
+    for r in rows:
+        if r.get("forecast_or_actual") == "actual" and r.get("cli_date") == cli_date_iso:
+            if r.get("actual_high") != temp or (r.get("high_time") or "") != time_clean:
+                r["timestamp"]         = now_s
+                r["target_date"]       = target_date
+                r["forecast_or_actual"]= "actual"
+                r["forecast_time"]     = ""
+                r["predicted_high"]    = ""
+                r["forecast_detail"]   = ""
+                r["cli_date"]          = cli_date_iso
+                r["actual_high"]       = temp
+                r["high_time"]         = time_clean
+            updated = True
+            break
+
+    if not updated:
+        rows.append({
+            "timestamp": now_s,
+            "target_date": target_date,
+            "forecast_or_actual": "actual",
+            "forecast_time": "",
+            "predicted_high": "",
+            "forecast_detail": "",
+            "cli_date": cli_date_iso,
+            "actual_high": temp,
+            "high_time": time_clean
+        })
+
+    _write_all_rows(rows, fns)
 
 def upsert_yesterday_actual_if_morning_local() -> None:
     """
@@ -379,6 +416,168 @@ def upsert_yesterday_actual_if_morning_local() -> None:
         print(f"❌ Error upserting yesterday's actual: {e}")
 
 # =========================
+# Bias-corrected snapshot (today only)
+# =========================
+def _minutes_from_hhmm_ampm(s: str) -> Optional[int]:
+    """Parses 'H:MM', 'HH:MM', optionally with ' AM/PM', returns minutes since midnight."""
+    if not s:
+        return None
+    s = s.strip()
+    ap = None
+    m = re.search(r'\b(AM|PM)\b', s, re.IGNORECASE)
+    if m:
+        ap = m.group(1).upper()
+        s = re.sub(r'\s*(AM|PM)\s*', '', s, flags=re.IGNORECASE)
+
+    # now s should be H:MM or HH:MM
+    m2 = re.match(r'^\s*(\d{1,2}):(\d{2})\s*$', s)
+    if not m2:
+        return None
+    hh, mm = int(m2.group(1)), int(m2.group(2))
+    if ap:
+        hh = (hh % 12) + (12 if ap == "PM" else 0)
+    if not (0 <= hh <= 23 and 0 <= mm <= 59):
+        return None
+    return hh * 60 + mm
+
+def _minutes_from_forecast_time_cell(s: str) -> Optional[int]:
+    """
+    CSV 'forecast_time' is 'YYYY-MM-DD HH:MM:SS' (ET).
+    We just need HH:MM part as 24h.
+    """
+    if not s or len(s) < 16:
+        return None
+    try:
+        hh = int(s[11:13])
+        mm = int(s[14:16])
+        if 0 <= hh <= 23 and 0 <= mm <= 59:
+            return hh * 60 + mm
+    except Exception:
+        return None
+    return None
+
+def _float_or_none(x: str) -> Optional[float]:
+    try:
+        v = float(x)
+        if not (v == v):  # NaN check
+            return None
+        return v
+    except Exception:
+        return None
+
+def _compute_avg_bias_and_today_mean(rows: List[dict], today_iso: str) -> Tuple[Optional[float], Optional[float]]:
+    """
+    Mirrors the dashboard logic:
+    - For each date that has an actual, compute the mean of all forecasts *before the high time* (if high_time known).
+    - Bias for that day = actual_high - mean_forecast.
+    - avgBias = mean of those biases across all days.
+    - todayMean = mean of today's forecasts (pre-high if today's high_time exists).
+    """
+    # Group by date
+    by_date: Dict[str, List[dict]] = {}
+    for r in rows:
+        d = r.get("cli_date") if r.get("forecast_or_actual") == "actual" else r.get("target_date")
+        if not d:
+            continue
+        by_date.setdefault(d, []).append(r)
+
+    biases: List[float] = []
+    today_mean: Optional[float] = None
+
+    for d, rs in by_date.items():
+        # actual
+        act = next((x for x in rs if x.get("forecast_or_actual") == "actual" and _float_or_none(x.get("actual_high")) is not None), None)
+        if not act:
+            continue
+        actual_high = _float_or_none(act.get("actual_high"))
+        high_time = (act.get("high_time") or "").strip()
+        if actual_high is None:
+            continue
+
+        # forecasts (pre-high if high_time known)
+        fc_vals: List[float] = []
+        high_min = _minutes_from_hhmm_ampm(high_time) if high_time else None
+        for x in rs:
+            if x.get("forecast_or_actual") != "forecast":
+                continue
+            ph = _float_or_none(x.get("predicted_high"))
+            if ph is None:
+                continue
+            if high_min is not None:
+                fc_min = _minutes_from_forecast_time_cell(x.get("forecast_time") or "")
+                if fc_min is None or fc_min > high_min:
+                    continue
+            fc_vals.append(ph)
+
+        if fc_vals:
+            mean_fc = sum(fc_vals) / len(fc_vals)
+            # bias for *this* date
+            biases.append(actual_high - mean_fc)
+            if d == today_iso:
+                today_mean = mean_fc
+
+    avg_bias = (sum(biases) / len(biases)) if biases else None
+    return avg_bias, today_mean
+
+def write_today_bcp_snapshot_if_after_6pm() -> None:
+    """
+    After 6pm ET:
+    - Ensure the CSV has a 'bias_corrected_prediction' column.
+    - Find today's latest forecast row.
+    - Compute today’s bias-corrected prediction = today_mean_forecast + avg_bias.
+    - Write it into that row (once). Do nothing if no forecasts today.
+    """
+    now = now_nyc()
+    if now.hour < 18:
+        print("⏭️ Skipping BCP snapshot: it’s before 6pm ET")
+        return
+
+    rows, fns = _read_all_rows()
+    # If the column doesn't exist yet, add it now (once).
+    fns = _upgrade_header_to_include_bcp(rows, fns)
+    if BCP_FIELD not in fns:
+        # Shouldn't happen, but bail safely.
+        print("⚠️ BCP column unavailable; skipping.")
+        return
+
+    today_iso = today_nyc().isoformat()
+    # Gather today's forecast rows; pick the latest by timestamp/forecast_time ordering.
+    todays_forecasts = [r for r in rows
+                        if r.get("forecast_or_actual") == "forecast"
+                        and r.get("target_date") == today_iso
+                        and _float_or_none(r.get("predicted_high")) is not None]
+
+    if not todays_forecasts:
+        print("⏭️ No forecasts for today; skipping BCP snapshot.")
+        return
+
+    # Sort by (timestamp or forecast_time) string to get the latest (CSV is ET).
+    def _key(r: dict) -> str:
+        return (r.get("timestamp") or r.get("forecast_time") or "")
+    todays_forecasts.sort(key=_key)
+    latest = todays_forecasts[-1]
+
+    # If already set, leave it alone (idempotent behavior).
+    if (latest.get(BCP_FIELD) or "").strip():
+        print("⏭️ BCP already set on latest forecast row; leaving as-is.")
+        return
+
+    # Compute avg bias across history + today's mean (pre-high if we know it).
+    avg_bias, today_mean = _compute_avg_bias_and_today_mean(rows, today_iso)
+    if avg_bias is None or today_mean is None:
+        print("⏭️ Insufficient data to compute BCP; skipping.")
+        return
+
+    bcp_value = today_mean + avg_bias  # same formula as dashboard
+    # Round to one decimal like the UI
+    bcp_str = f"{bcp_value:.1f}"
+
+    # Write it into the in-memory rows record and flush back.
+    latest[BCP_FIELD] = bcp_str
+    _write_all_rows(rows, fns)
+    print(f"✅ Wrote today's bias-corrected prediction: {bcp_str}°F (into latest forecast row for {today_iso})")
+
+# =========================
 # (Optional) Simple loop mode
 # =========================
 def already_logged(entry_type: str, identifier: str) -> bool:
@@ -406,5 +605,43 @@ def main_loop() -> None:
         # These functions contain their own ET gating + de-dupe/upsert logic.
         log_actual_today_if_after_6pm_local()        # no-op before 6pm ET
         upsert_yesterday_actual_if_morning_local()   # no-op after noon ET
+        write_today_bcp_snapshot_if_after_6pm()      # no-op before 6pm ET
 
         time.sleep(60)
+
+# =========================
+# One-shot entrypoint for cron/Actions
+# =========================
+def run_all_once():
+    """
+    Safe to run at any time. Each step is individually gated:
+      - Forecast captures de-dupe and freeze after actual exists.
+      - Provisional actual runs after 6pm ET only.
+      - Morning upsert runs midnight–noon ET only.
+      - BCP snapshot runs after 6pm ET only and only fills once.
+    """
+    ensure_csv_header()
+    try:
+        log_forecast()
+    except Exception as e:
+        print(f"⚠️ log_forecast error: {e}")
+    try:
+        log_forecast_for_tomorrow()
+    except Exception as e:
+        print(f"⚠️ log_forecast_for_tomorrow error: {e}")
+    try:
+        log_actual_today_if_after_6pm_local()
+    except Exception as e:
+        print(f"⚠️ log_actual_today_if_after_6pm_local error: {e}")
+    try:
+        upsert_yesterday_actual_if_morning_local()
+    except Exception as e:
+        print(f"⚠️ upsert_yesterday_actual_if_morning_local error: {e}")
+    # ⚠️ Runs AFTER provisional actual in the same invocation
+    try:
+        write_today_bcp_snapshot_if_after_6pm()
+    except Exception as e:
+        print(f"⚠️ write_today_bcp_snapshot_if_after_6pm error: {e}")
+
+if __name__ == "__main__":
+    run_all_once()
