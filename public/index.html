@@ -2517,6 +2517,7 @@ async function checkAccess() {
      setInterval(updateDSM, 10 * 60 * 1000);
      setInterval(updateSixHourMax, 10 * 60 * 1000);
      setInterval(updateSummaryBoxes, 10 * 60 * 1000);
+     setInterval(updateCorrectionBoxes, 10 * 60 * 1000); 
    
      // Start the forecast-change watcher *after* first CSV load
      pollCsvAndUpdate();
