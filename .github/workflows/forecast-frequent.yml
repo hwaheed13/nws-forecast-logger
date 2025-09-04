@@ -27,22 +27,67 @@ jobs:
       - name: Install dependencies
         run: pip install requests beautifulsoup4 pytz
 
-      # ✅ Only log forecasts (no actuals)
-      - name: Log today's forecast
+      # Decide whether to keep polling *today* (ET):
+      # - Stop after 6pm ET OR once an "actual" for today exists in the CSV
+      - name: Decide polling flags (ET)
+        id: decide
+        run: |
+          python - <<'PY'
+          import os, csv, sys, datetime, pytz
+          et = pytz.timezone("America/New_York")
+          now_et = datetime.datetime.now(et)
+          today_iso = now_et.strftime("%Y-%m-%d")
+          after_six = now_et.hour >= 18  # 6pm ET or later
+
+          has_actual_today = False
+          csv_path = "nws_forecast_log.csv"
+          if os.path.exists(csv_path):
+              with open(csv_path, newline="", encoding="utf-8") as f:
+                  r = csv.DictReader(f)
+                  for row in r:
+                      if (
+                          (row.get("forecast_or_actual") or "").strip() == "actual" and
+                          (row.get("cli_date") or "").strip() == today_iso and
+                          (row.get("actual_high") or "").strip() != ""
+                      ):
+                          has_actual_today = True
+                          break
+
+          should_log_today = (not after_six) and (not has_actual_today)
+
+          # Export to env for later steps
+          with open(os.environ["GITHUB_ENV"], "a") as env:
+              env.write(f"TODAY_ISO={today_iso}\n")
+              env.write(f"AFTER_SIX_ET={'true' if after_six else 'false'}\n")
+              env.write(f"HAS_ACTUAL_TODAY={'true' if has_actual_today else 'false'}\n")
+              env.write(f"SHOULD_LOG_TODAY={'true' if should_log_today else 'false'}\n")
+
+          print("today_iso:", today_iso)
+          print("after_six_et:", after_six)
+          print("has_actual_today:", has_actual_today)
+          print("should_log_today:", should_log_today)
+          PY
+
+      # ✅ Only log today's forecast when we still need it
+      - name: Log today's forecast (only if needed)
+        if: env.SHOULD_LOG_TODAY == 'true'
         env:
           TASK: forecast_today
         run: python run_smart.py
 
+      # ✅ Always log tomorrow's forecast every run
       - name: Log tomorrow's forecast
         env:
           TASK: forecast_tomorrow
         run: python run_smart.py
 
+      # Tidy CSV (no blank lines)
       - name: Remove empty/blank lines
         run: |
           grep -Ev '^[[:space:]]*(,?[[:space:]]*)*$' nws_forecast_log.csv > /tmp/clean.csv || true
           mv /tmp/clean.csv nws_forecast_log.csv
 
+      # Commit only if changed
       - name: Commit and push CSV if changed
         run: |
           git config user.name "github-actions[bot]"
