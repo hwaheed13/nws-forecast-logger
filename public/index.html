@@ -1024,13 +1024,25 @@
         </header>
 
         <div class="container">
-            <div class="last-update">
-                <div class="last-update-label">
-                    <span id="todayDate"></span><br>
-                    Latest Forecast Update
-                </div>
-                <div id="recentForecast" class="last-update-content">Loading latest forecast data...</div>
-            </div>
+          <div class="last-update">
+    <div class="last-update-label">
+        <span id="todayDate"></span><br>
+        Latest Forecast Update
+    </div>
+
+    <!-- ▼ Add static Eastern Time badge here -->
+    <div style="
+      margin-top:6px;
+      font-size:12px;
+      font-weight:600;
+      color:var(--text-light);
+    ">
+      All times and day boundary are Eastern Time (aligned with NWS/Kalshi).
+    </div>
+    <!-- ▲ End badge -->
+
+    <div id="recentForecast" class="last-update-content">Loading latest forecast data...</div>
+</div>
 
             <!-- Metrics -->
             <div class="metrics-grid">
