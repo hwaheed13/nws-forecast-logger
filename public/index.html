@@ -1310,10 +1310,11 @@
 
         function reloadCSV() {
             showSkeleton();
-            fetch("https://raw.githubusercontent.com/hwaheed13/nws-forecast-logger/main/nws_forecast_log.csv?" + Date.now())
+             fetch(CSV_URL + "?" + Date.now())
                 .then(r => r.text())
                 .then(parseCSV)
                 .then(() => {
+                  seedForecastSignatures();
                     resetFilter();
                     showMostRecent();
                     updateSummaryBoxes();
@@ -1512,8 +1513,66 @@ function showMostRecent() {
                 host.appendChild(chip);
             });
         }
+    // ---- Forecast change watcher (GLOBAL scope) ----
+    let lastSig = { today: null, tomorrow: null };
+    
+    function forecastSignatureFor(dateISO, rows = allRows) {
+      return rows
+        .filter(r => r.forecast_or_actual === "forecast" && r.target_date === dateISO && r.predicted_high)
+        .map(r => `${r.timestamp || r.forecast_time || ""}|${r.predicted_high}`)
+        .sort()
+        .join("~");
+    }
+    
+    function seedForecastSignatures() {
+      lastSig.today = forecastSignatureFor(nycISODate(0));
+      lastSig.tomorrow = forecastSignatureFor(nycISODate(1));
+    }
+    
+    async function pollCsvAndUpdate() {
+      try {
+        const txt = await fetch(CSV_URL + "?" + Date.now(), { cache: "no-cache", mode: "cors" })
+          .then(r => r.text());
+    
+        // reuse your parser
+        const raw = csvToRows(txt);
+        if (!raw.length) return;
+        const header = raw[0].map(h => h.trim());
+        const rows = [];
+        for (let i = 1; i < raw.length; i++) {
+          const rec = {};
+          for (let j = 0; j < header.length; j++) {
+            let v = (raw[i][j] ?? '').trim();
+            if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1).replace(/""/g, '"');
+            rec[header[j]] = v;
+          }
+          rows.push(rec);
+        }
+    
+        const todayISO = nycISODate(0);
+        const tomorrowISO = nycISODate(1);
+        const sigToday = forecastSignatureFor(todayISO, rows);
+        const sigTomorrow = forecastSignatureFor(tomorrowISO, rows);
+    
+        if (sigToday === lastSig.today && sigTomorrow === lastSig.tomorrow) return; // no change
+    
+        // change detected → adopt + refresh
+        allRows = rows;
+        filteredRows = allRows.slice();
+        lastSig.today = sigToday;
+        lastSig.tomorrow = sigTomorrow;
+    
+        showMostRecent();
+        updateSummaryBoxes();
+        updateCorrectionBoxes();
+        // optionally: displayTable(); showStats(); showChart();
+      } catch (e) {
+        console.debug("pollCsvAndUpdate error:", e);
+      }
+    }
 
         /* ========= NETWORK: SAME-ORIGIN → PROXY → UPSTREAM ========= */
+        const CSV_URL = "https://raw.githubusercontent.com/hwaheed13/nws-forecast-logger/main/nws_forecast_log.csv";   
         const KALSHI_BASE_URL = "https://kalshi.com/markets/kxhighny/highest-temperature-in-nyc";
         const API_BASE = "/api"; // relative works from / or /dashboard/
 
@@ -2424,7 +2483,11 @@ async function checkAccess() {
             setInterval(updateSixHourMax, 10 * 60 * 1000); // every 10 min
             setInterval(updateSummaryBoxes, 10 * 60 * 1000); // every 10 min (if defined)
 
-            // Optional heartbeat for UX/session
+          // 👇 Add this block here
+           pollCsvAndUpdate();                     // run once on boot
+            setInterval(pollCsvAndUpdate, 60 * 1000); // then check every 60s
+         
+         // Optional heartbeat for UX/session
             try {
                 localStorage.setItem("dashboard_heartbeat", String(Date.now()));
                 setInterval(() => localStorage.setItem("dashboard_heartbeat", String(Date.now())), 60 * 1000);
