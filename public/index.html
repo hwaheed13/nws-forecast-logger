@@ -1006,17 +1006,25 @@
 
 /* Mobile: smaller + stacked under date */
 @media (max-width: 600px) {
+  .lu-top {
+    gap: 6px;           /* tighter spacing between date & badge */
+    margin-bottom: 2px; /* less space under the whole row */
+  }
+
+  .lu-date {
+    margin-bottom: 0;   /* no extra space pushing badge down */
+  }
+
   .lu-badge {
-    font-size: 10px;       /* smaller text */
+    font-size: 10px;       /* smaller text on mobile */
     white-space: normal;   /* allow wrapping */
     display: block;        /* stack under the date */
-    margin-top: -4px;       /* space from the date when stacked */
+    margin-top: 0;         /* no unnecessary top margin */
     text-align: right;     /* keep it aligned right */
   }
-}
- @media (max-width: 600px) {
+
   .last-update-label {
-    font-size: 11px;   /* was 10px */
+    font-size: 11px;       /* smidge bigger than before */
   }
 }
 
