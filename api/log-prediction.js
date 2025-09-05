@@ -71,10 +71,10 @@ export default async function handler(req, res) {
     };
 
     // 🔧 Align onConflict with your DB's unique constraint "uq_pred_logs"
-    const { error } = await supabase
+       const { error } = await supabase
       .from('prediction_logs')
       .upsert(row, {
-        onConflict: ['target_date', 'lead_used', 'issuance_iso', 'model_name', 'version']
+        onConflict: 'target_date,lead_used,issuance_iso,model_name,version'
       });
 
     if (error) {
