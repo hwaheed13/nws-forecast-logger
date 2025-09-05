@@ -2,7 +2,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 // Use Node runtime (Edge can't use service-role keys)
-export const config = { runtime: 'nodejs' };
+export const config = { runtime: 'nodejs18.x' }; // 'nodejs20.x' also fine
 
 const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env;
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
