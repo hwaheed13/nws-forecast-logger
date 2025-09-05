@@ -1931,58 +1931,40 @@ if (tmrwBox) {
   </script>
 
   <!-- Auth + boot (module) -->
-  <script type="module">
-    import { createClient } from "https://esm.sh/@supabase/supabase-js";
+<script type="module">
+  import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-    const supabase = createClient(
-      "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
-      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
-    );
+  const supabase = createClient(
+    "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
+  );
 
-    function showTodayDate() {
-      const el = document.getElementById("todayDate");
-      if (!el) return;
-      const today = new Date();
-      const fmt = new Intl.DateTimeFormat("en-US", {
-        timeZone: "America/New_York",
-        weekday: "short", month: "short", day: "numeric", year: "numeric"
-      });
-      el.textContent = fmt.format(today);
-    }
+  const gate = document.getElementById("gate");
+  function gateMsg(msg) {
+    const sub = gate?.querySelector(".gate-sub");
+    if (sub && msg) sub.textContent = msg;
+  }
 
-    function scheduleMidnightUpdate() {
-      function msUntilMidnightET() {
-        const now = new Date();
-        const tzNowStr = new Intl.DateTimeFormat("en-US", {
-          timeZone: "America/New_York",
-          year: "numeric", month: "2-digit", day: "2-digit",
-          hour: "2-digit", minute: "2-digit", second: "2-digit",
-          hour12: false
-        }).format(now).replace(/(\d{2})\/(\d{2})\/(\d{4}),\s*(\d{2}):(\d{2}):(\d{2})/, "$3-$1-$2T$4:$5:$6");
-        const tzNow = new Date(tzNowStr);
-        const nextMidnight = new Date(tzNow);
-        nextMidnight.setDate(nextMidnight.getDate() + 1);
-        nextMidnight.setHours(0, 0, 0, 0);
-        return nextMidnight - tzNow;
+  async function checkAccess() {
+    try {
+      const { data: { session }, error: sErr } = await supabase.auth.getSession();
+      if (sErr) {
+        console.error("getSession error", sErr);
+        gateMsg("Auth error. Redirecting to login…");
+        return (window.location.href = "/login.html");
       }
-      setTimeout(function run() {
-        showTodayDate();
-        setInterval(showTodayDate, 24 * 60 * 60 * 1000);
-      }, msUntilMidnightET());
-    }
-
-    async function checkAccess() {
-      const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
-        document.getElementById("gate")?.querySelector(".gate-sub")?.insertAdjacentText("beforeend", " Redirecting to login…");
+        gateMsg("No session. Redirecting to login…");
         return (window.location.href = "/login.html");
       }
 
-      const { data: profile } = await supabase
+      const { data: profile, error } = await supabase
         .from("profiles")
         .select("subscription_status, current_period_end, trial_used")
         .eq("id", session.user.id)
         .single();
+
+      if (error) console.warn("profiles fetch error:", error);
 
       const status = profile?.subscription_status ?? "inactive";
       const ALLOW = new Set(["active", "trialing"]);
@@ -1991,72 +1973,78 @@ if (tmrwBox) {
         const dest = profile?.trial_used
           ? "/subscribe.html?reason=trial_expired"
           : "/subscribe.html";
-        document.getElementById("gate")?.querySelector(".gate-sub")?.insertAdjacentText("beforeend", " Redirecting to subscribe…");
+        gateMsg("Subscription inactive. Redirecting…");
         return (window.location.href = dest);
       }
 
-      window.showApp();
-      bootApp();
+      // ✅ Good to load the app
+      window.showApp?.();
+      await bootApp();
+
+    } catch (e) {
+      console.error("checkAccess failed", e);
+      // Fail-open so you can see the dashboard instead of hanging on the gate.
+      window.showApp?.();
+      await bootApp();
     }
+  }
 
-    // Buttons
-    document.getElementById("btn-logout")?.addEventListener("click", async () => {
-      await supabase.auth.signOut();
-      localStorage.removeItem("dashboard_heartbeat");
-      window.location.href = "/login.html";
-    });
+  // Buttons
+  document.getElementById("btn-logout")?.addEventListener("click", async () => {
+    await supabase.auth.signOut();
+    localStorage.removeItem("dashboard_heartbeat");
+    window.location.href = "/login.html";
+  });
 
-    document.getElementById("btn-billing")?.addEventListener("click", async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return (window.location.href = "/login.html");
-      try {
-        const r = await fetch("/api/create-portal-session", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ supabaseAccessToken: session.access_token })
-        });
-        const j = await r.json();
-        if (!r.ok || !j?.url) return alert(j?.error || "Could not open billing portal");
-        window.location.href = j.url;
-      } catch (err) {
-        alert("Could not open billing portal");
-      }
-    });
-
-    async function bootApp() {
-      showTodayDate();
-      scheduleMidnightUpdate?.();
-
-      // ✅ check if logging endpoint exists
-      await probeLoggingEndpoint();
-
-      // Initial loads (wait for CSV to finish before starting poller)
-      await reloadCSV();
-      updateDSM();
-      updateSixHourMax();
-      updateObservations();
-      updateSummaryBoxes?.();
-
-      // Light refresh cadences
-      setInterval(updateObservations, 5 * 60 * 1000);
-      setInterval(updateDSM,        10 * 60 * 1000);
-      setInterval(updateSixHourMax, 10 * 60 * 1000);
-      setInterval(updateSummaryBoxes,   60 * 1000);
-      setInterval(updateCorrectionBoxes,10 * 60 * 1000);
-
-      // Start the forecast-change watcher *after* first CSV load
-      pollCsvAndUpdate();
-      setInterval(pollCsvAndUpdate, 60 * 1000);
-
-      // Optional heartbeat for UX/session
-      try {
-        localStorage.setItem("dashboard_heartbeat", String(Date.now()));
-        setInterval(() => localStorage.setItem("dashboard_heartbeat", String(Date.now())), 60 * 1000);
-      } catch {}
+  document.getElementById("btn-billing")?.addEventListener("click", async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return (window.location.href = "/login.html");
+    try {
+      const r = await fetch("/api/create-portal-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ supabaseAccessToken: session.access_token })
+      });
+      const j = await r.json();
+      if (!r.ok || !j?.url) return alert(j?.error || "Could not open billing portal");
+      window.location.href = j.url;
+    } catch {
+      alert("Could not open billing portal");
     }
+  });
 
-    // 🚀 Kick off
-    checkAccess();
-  </script>
-</body>
-</html>
+  async function bootApp() {
+    // Everything below is defined in the non-module script.
+    window.showTodayDate?.();
+    window.scheduleMidnightUpdate?.();
+
+    await window.probeLoggingEndpoint?.();
+
+    await window.reloadCSV?.();
+    window.updateDSM?.();
+    window.updateSixHourMax?.();
+    window.updateObservations?.();
+    window.updateSummaryBoxes?.();
+
+    window.pollCsvAndUpdate?.();
+    setInterval(() => window.updateObservations?.(), 5 * 60 * 1000);
+    setInterval(() => window.updateDSM?.(),        10 * 60 * 1000);
+    setInterval(() => window.updateSixHourMax?.(), 10 * 60 * 1000);
+    setInterval(() => window.updateSummaryBoxes?.(),   60 * 1000);
+    setInterval(() => window.updateCorrectionBoxes?.(),10 * 60 * 1000);
+    setInterval(() => window.pollCsvAndUpdate?.(),     60 * 1000);
+
+    try {
+      localStorage.setItem("dashboard_heartbeat", String(Date.now()));
+      setInterval(() => localStorage.setItem("dashboard_heartbeat", String(Date.now())), 60 * 1000);
+    } catch {}
+  }
+
+  // If the auth state changes (logout elsewhere), kick back to login.
+  supabase.auth.onAuthStateChange((_event, session) => {
+    if (!session) window.location.href = "/login.html";
+  });
+
+  // 🚀 Kick off
+  checkAccess();
+</script>
