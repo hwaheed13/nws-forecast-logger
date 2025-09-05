@@ -1624,36 +1624,7 @@ function actualSignatureFor(rows) {
   }
 }
 
-  tmrwBox.innerHTML = `
-    <div class="prediction-value">${p1Disp == null ? "–" : `${p1Disp.toFixed(1)}°F`}</div>
-    <div class="prediction-subtitle">
-      For ${tomorrow}
-      ${r1Disp==null ? "" : `<br><small style="opacity:.7">
-        blend=${r1Disp.toFixed(1)}°F · bias=${b1Disp.toFixed(1)} · w={f:${(w1.first??0).toFixed(1)}, l:${(w1.latest??0).toFixed(1)}, t:${(w1.trimmed??0).toFixed(1)}}
-      </small>`}
-    </div>
-  `;
 
-  // ✅ Logging (Tomorrow) — only if forecast changed
-  if (rep1 != null && forecastChanged.tomorrow === true) {
-    const repRow1 = latestPreHighRow(getForecastRowsFor(tomorrow,"D1"), "");
-    const dlt1 = deltaLast3(getForecastRowsFor(tomorrow,"D1"), repRow1, "");
-    const payload = {
-      timestamp_et: new Date().toISOString(),
-      target_date: tomorrow,
-      lead_used: "D1",
-      is_carryover: 0,
-      rep_forecast: Number(rep1),
-      delta_last3: Number(dlt1),
-      issuance_iso: issuanceISOUTC(repRow1),
-      issuance_hour_local: issuanceHourET(repRow1),
-      season: isWarmSeason(tomorrow) ? "warm" : "cool",
-      bias_applied: Number(bias1 ?? 0),
-      prediction_value: Number(pred1),
-      uncertainty_rmse: stableRound(tables.rmse.D1 ?? 0, 1),
-      model_name: "seasonal_lead_bias_blended_rep",
-      version: "v1.1"
-    };
 
     const sigTomorrow = buildPredSignature({
       target_date: payload.target_date,
