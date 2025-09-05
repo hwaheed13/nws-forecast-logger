@@ -1,1205 +1,412 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🌡️ Daily Dew Point Dashboard</title>
-    
-    <!-- Performance hints -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
-    <link rel="dns-prefetch" href="https://fonts.googleapis.com">
-    
-    <!-- Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"> 
-    
-    <style>
-        :root {
-            --bg-primary: #fafbfc;
-            --bg-secondary: #ffffff;
-            --bg-tertiary: #f8f9fa;
-            --bg-accent: #f1f5f9;
-            --text-primary: #0f172a;
-            --text-secondary: #334155;
-            --text-muted: #64748b;
-            --text-light: #94a3b8;
-            --border-subtle: #e2e8f0;
-            --border-default: #cbd5e1;
-            --accent-blue: #2563eb;
-            --accent-blue-light: #dbeafe;
-            --accent-green: #059669;
-            --accent-green-light: #d1fae5;
-            --accent-amber: #d97706;
-            --accent-amber-light: #fef3c7;
-            --shadow-sm: 0 1px 2px rgba(0, 0, 0, .05);
-        }
-
-        * {
-            box-sizing: border-box;
-        }
-
-        /* Gate (shows immediately, then hidden on boot) */
-        #gate {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
-            padding: 24px;
-            text-align: center;
-        }
-
-        .gate-card {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-subtle);
-            border-radius: 16px;
-            padding: 24px 22px;
-            box-shadow: var(--shadow-sm);
-            max-width: 520px;
-            width: 100%;
-        }
-
-        .gate-title {
-            font-size: 18px;
-            font-weight: 800;
-            margin: 0 0 6px;
-        }
-
-        .gate-sub {
-            font-size: 14px;
-            color: var(--text-muted);
-            margin: 0 0 12px;
-        }
-
-        .gate-note {
-            font-size: 12px;
-            color: var(--text-light);
-        }
-
-        .gate-spinner {
-            width: 28px;
-            height: 28px;
-            border-radius: 50%;
-            border: 3px solid var(--border-subtle);
-            border-top-color: var(--accent-blue);
-            margin: 12px auto 8px;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
-        /* App */
-        body {
-            font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            margin: 0;
-            line-height: 1.6;
-            font-feature-settings: "tnum" 1, "lnum" 1;
-        }
-
-        .header {
-            background: var(--bg-secondary);
-            border-bottom: 1px solid var(--border-subtle);
-            padding: 20px 0;
-            position: sticky;
-            top: 0;
-            z-index: 10;
-            backdrop-filter: blur(8px);
-        }
-
-        .header-content {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 0 20px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .brand {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 14px;
-        }
-
-        .brand-left {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .brand-mark {
-            display: grid;
-            place-items: center;
-            width: 40px;
-            height: 40px;
-            border-radius: 12px;
-            background: linear-gradient(135deg, var(--accent-blue-light), var(--accent-green-light));
-            box-shadow: var(--shadow-sm);
-            border: 1px solid var(--border-subtle);
-            position: relative;
-            top: -3px;
-        }
-
-        .brand-mark svg {
-            display: block;
-            transform: translate(1px, 1px);
-        }
-
-        .brand-title {
-            margin: 0;
-            font-weight: 800;
-            letter-spacing: .2px;
-            font-size: 28px;
-            line-height: 1.15;
-            color: var(--text-primary);
-        }
-
-        .brand-title .thin {
-            font-weight: 600;
-            color: var(--text-secondary);
-        }
-
-        .brand-sub {
-            margin: 2px 0 0;
-            font-size: 13px;
-            color: var(--text-muted);
-        }
-
-        .brand-right {
-            display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-            gap: 6px;
-        }
-
-        .brand-right .pill-group {
-            display: flex;
-            gap: 6px;
-        }
-
-        .pill {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 6px 10px;
-            font-size: 12px;
-            font-weight: 700;
-            color: var(--text-secondary);
-            background: var(--bg-accent);
-            border: 1px solid var(--border-subtle);
-            border-radius: 999px;
-        }
-
-        .pill.live {
-            background: var(--accent-green-light);
-            color: var(--accent-green);
-            border-color: transparent;
-        }
-
-        .pill.live .dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: var(--accent-green);
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% {
-                opacity: 1;
-            }
-            50% {
-                opacity: .5;
-            }
-        }
-
-        .pill.logout-btn {
-            background: var(--bg-tertiary);
-            color: var(--text-secondary);
-            border: 1px solid var(--border-default);
-        }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 24px;
-        }
-
-        .last-update {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-subtle);
-            border-radius: 12px;
-            padding: 18px 20px;
-            margin-bottom: 20px;
-            box-shadow: var(--shadow-sm);
-        }
-
-        .last-update-label {
-            font-size: 12px;
-            color: var(--text-muted);
-            letter-spacing: .06em;
-            text-transform: uppercase;
-            margin-bottom: 4px;
-            font-weight: 600;
-        }
-
-        .last-update-content {
-            font-size: 15px;
-            color: var(--text-secondary);
-            font-weight: 600;
-        }
-
-        #todayDate {
-            display: block;
-            font-size: 14px;
-            font-weight: 700;
-            color: var(--text-primary);
-            margin-bottom: 2px;
-        }
-
-        .metrics-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 18px;
-            margin-bottom: 22px;
-        }
-
-        .metric-card {
-            background: var(--bg-secondary);
-            border: 1.5px solid var(--border-subtle);
-            border-radius: 18px;
-            padding: 24px;
-            box-shadow: var(--shadow-sm);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .metric-card::before {
-            content: '';
-            position: absolute;
-            inset: 0 0 auto;
-            height: 4px;
-            background: linear-gradient(90deg, var(--accent-blue), var(--accent-green));
-        }
-
-        .metric-card.today-forecast::before {
-            background: var(--accent-amber);
-        }
-
-        .metric-card.today-obs::before {
-            background: var(--accent-blue);
-        }
-
-        .metric-card.today-actual::before {
-            background: var(--accent-green);
-        }
-
-        .metric-card.tomorrow-forecast::before {
-            background: var(--accent-blue);
-        }
-
-        .metric-label {
-            font-size: 14px;
-            color: var(--text-muted);
-            margin-bottom: 6px;
-            font-weight: 700;
-            letter-spacing: .02em;
-        }
-
-        .metric-value {
-            font-size: 36px;
-            font-weight: 800;
-            color: var(--text-primary);
-            margin-bottom: 10px;
-            line-height: 1;
-        }
-
-        .metric-subtitle {
-            font-size: 13px;
-            color: var(--text-light);
-        }
-
-        .mini-forecasts {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-            margin-top: 6px;
-        }
-
-        .mini-chip {
-            background: var(--bg-accent);
-            color: var(--text-secondary);
-            padding: 4px 10px;
-            border-radius: 999px;
-            font-size: 12px;
-            font-weight: 700;
-            border: 1px solid var(--border-subtle);
-        }
-
-        .kalshi-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 18px;
-            margin-bottom: 22px;
-        }
-
-        .kalshi-card {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-subtle);
-            border-radius: 16px;
-            padding: 22px;
-        }
-
-        .kalshi-badge {
-            background: var(--accent-amber-light);
-            color: var(--accent-amber);
-            padding: 8px 14px;
-            border-radius: 999px;
-            font-size: 14px;
-            font-weight: 800;
-            text-decoration: none;
-            display: inline-block;
-        }
-
-        .kalshi-pending {
-            background: var(--bg-accent);
-            color: var(--text-muted);
-            padding: 8px 14px;
-            border-radius: 999px;
-            font-size: 14px;
-            font-weight: 700;
-            border: 2px dashed var(--border-default);
-        }
-
-        .kalshi-note {
-            font-size: 12px;
-            color: var(--text-light);
-            margin-top: 6px;
-        }
-
-        .prediction-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
-            gap: 18px;
-            margin-bottom: 22px;
-        }
-
-        .prediction-card {
-            background: linear-gradient(135deg, var(--accent-blue-light), var(--accent-green-light));
-            border: 1px solid var(--border-subtle);
-            border-radius: 16px;
-            padding: 24px;
-        }
-
-        .prediction-title {
-            font-size: 15px;
-            font-weight: 800;
-            margin-bottom: 12px;
-        }
-
-        .prediction-content {}
-
-        .prediction-value {
-            font-size: 28px;
-            font-weight: 800;
-            color: #1f2937;
-        }
-
-        .prediction-subtitle {
-            font-size: 13px;
-            color: var(--text-secondary);
-        }
-
-        .controls-section {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-subtle);
-            border-radius: 16px;
-            padding: 18px;
-            margin-bottom: 22px;
-        }
-
-        .controls-title {
-            font-size: 15px;
-            font-weight: 800;
-            margin-bottom: 10px;
-        }
-
-        .controls {
-            display: flex;
-            gap: 12px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-
-        .control-group {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .control-label {
-            font-size: 13px;
-            font-weight: 700;
-            color: var(--text-secondary);
-        }
-
-        input[type="date"] {
-            padding: 8px 10px;
-            border: 1px solid var(--border-default);
-            border-radius: 10px;
-            font-size: 14px;
-            background: var(--bg-secondary);
-        }
-
-        input[type="date"]:focus {
-            outline: none;
-            border-color: var(--accent-blue);
-            box-shadow: 0 0 0 3px var(--accent-blue-light);
-        }
-
-        .btn {
-            background: var(--accent-blue);
-            color: #fff;
-            border: none;
-            border-radius: 10px;
-            padding: 9px 16px;
-            font-size: 14px;
-            font-weight: 800;
-            cursor: pointer;
-            box-shadow: var(--shadow-sm);
-        }
-
-        .btn.secondary {
-            background: var(--bg-tertiary);
-            color: var(--text-secondary);
-            border: 1px solid var(--border-default);
-        }
-
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 18px;
-            margin-bottom: 22px;
-        }
-
-        .stat-card {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-subtle);
-            border-radius: 14px;
-            padding: 18px;
-            text-align: center;
-        }
-
-        .stat-label {
-            font-size: 13px;
-            color: var(--text-muted);
-            font-weight: 700;
-        }
-
-        .stat-value {
-            font-size: 28px;
-            font-weight: 800;
-            color: var(--accent-blue);
-        }
-
-        .chart-section {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-subtle);
-            border-radius: 16px;
-            padding: 24px;
-            margin-bottom: 22px;
-        }
-
-        .chart-title {
-            font-size: 16px;
-            font-weight: 800;
-            margin-bottom: 14px;
-        }
-
-        .chart-container {
-            position: relative;
-            height: clamp(220px, 38vh, 380px);
-            width: 100%;
-        }
-
-        .table-section {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-subtle);
-            border-radius: 16px;
-            padding: 0;
-            overflow: hidden;
-        }
-
-        .table-container {
-            overflow-x: auto;
-            border-top: 1px solid var(--border-subtle);
-            padding: 0 18px 18px;
-        }
-
-        #dataTable {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 14px;
-            background: var(--bg-secondary);
-        }
-
-        #dataTable th {
-            background: var(--bg-tertiary);
-            color: var(--text-primary);
-            padding: 12px 10px;
-            text-align: left;
-            font-weight: 800;
-            font-size: 12px;
-            letter-spacing: .06em;
-            text-transform: uppercase;
-            border-bottom: 2px solid var(--border-default);
-            position: sticky;
-            top: 0;
-            z-index: 1;
-        }
-
-        #dataTable td {
-            padding: 12px 10px;
-            border-bottom: 1px solid var(--border-subtle);
-            color: var(--text-secondary);
-        }
-
-        #dataTable tbody tr:hover {
-            background: var(--bg-accent);
-        }
-
-        .forecast-row {
-            background: var(--accent-blue-light) !important;
-        }
-
-        .actual-row {
-            background: var(--accent-green-light) !important;
-        }
-
-        .best {
-            box-shadow: inset 0 0 0 2px var(--accent-green);
-        }
-
-        details.table-wrap {
-            border-top: 1px solid var(--border-subtle);
-        }
-
-        details.table-wrap summary {
-            background: var(--bg-accent);
-            border-bottom: 1px solid var(--border-subtle);
-            list-style: none;
-            cursor: pointer;
-            padding: 16px 18px;
-            font-weight: 800;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        details.table-wrap summary::-webkit-details-marker {
-            display: none;
-        }
-
-        .caret {
-            transition: transform .2s ease;
-        }
-
-        details[open] summary .caret {
-            transform: rotate(90deg);
-        }
-
-        .skel td::before {
-            content: "";
-            display: block;
-            height: 12px;
-            margin: 4px 0;
-            width: 70%;
-            background: linear-gradient(90deg, var(--bg-accent), var(--bg-tertiary), var(--bg-accent));
-            background-size: 200% 100%;
-            animation: shimmer 1.5s infinite;
-            border-radius: 4px;
-        }
-
-        @keyframes shimmer {
-            0% {
-                background-position: -200% 0;
-            }
-            100% {
-                background-position: 200% 0;
-            }
-        }
-
-        .footer {
-            margin-top: 28px;
-            padding: 18px 24px;
-            background: var(--bg-tertiary);
-            border-top: 1px solid var(--border-subtle);
-            text-align: center;
-            font-size: 12px;
-            color: var(--text-light);
-        }
-
-        .footer a {
-            color: var(--accent-blue);
-            text-decoration: none;
-        }
-
-        /* Month group header row */
-        #dataTable tr.month-row {
-            background: var(--bg-tertiary);
-            border-top: 2px solid var(--border-default);
-            cursor: pointer;
-        }
-
-        #dataTable tr.month-row td {
-            font-weight: 800;
-            font-size: 12px;
-            letter-spacing: .06em;
-            text-transform: uppercase;
-            color: var(--text-primary);
-            padding: 10px 10px;
-        }
-
-        #dataTable tr.month-row .caret {
-            display: inline-block;
-            transition: transform .18s ease;
-            margin-right: 6px;
-        }
-
-        #dataTable tr.month-row.collapsed .caret {
-            transform: rotate(-90deg);
-        }
-
-        #dataTable tr[data-month].is-hidden {
-            display: none;
-        }
-
-        /* Fluid sizes + mobile */
-        .brand-title {
-            font-size: clamp(18px, 2.2vw, 28px);
-        }
-
-        .metric-value {
-            font-size: clamp(22px, 3vw, 36px);
-        }
-
-        .prediction-value {
-            font-size: clamp(20px, 2.6vw, 28px);
-        }
-
-        .stat-value {
-            font-size: clamp(18px, 2.4vw, 28px);
-        }
-
-        .kalshi-badge {
-            font-size: clamp(11px, 1.8vw, 14px);
-            padding: 6px 10px;
-        }
-
-        .pill {
-            font-size: clamp(10px, 1.6vw, 12px);
-            padding: 4px 8px;
-        }
-
-        @media (max-width: 600px) {
-            .container {
-                padding: 12px;
-            }
-
-            .header {
-                padding: 12px 0;
-            }
-
-            .brand {
-                gap: 8px;
-            }
-
-            .brand-left {
-                gap: 8px;
-            }
-
-            .brand-mark {
-                width: 32px;
-                height: 32px;
-                border-radius: 10px;
-                top: -17px;
-            }
-
-            .brand-mark svg {
-                width: 28px;
-                height: 28px;
-                transform: translate(0, 0);
-            }
-
-            .brand-sub {
-                font-size: 12px;
-                line-height: 1.35;
-            }
-
-            .brand-right .pill-group {
-                margin-top: -14px;
-            }
-
-            .pill.logout-btn {
-                margin-top: 18px;
-            }
-
-            .metrics-grid,
-            .prediction-grid,
-            .kalshi-grid {
-                grid-template-columns: 1fr;
-                gap: 10px;
-            }
-
-            .metric-card {
-                padding: 14px;
-                border-radius: 14px;
-            }
-
-            .metric-label {
-                font-size: 13px;
-            }
-
-            .metric-subtitle {
-                font-size: 12px;
-            }
-
-            .prediction-card {
-                padding: 14px;
-            }
-
-            .stats-grid {
-                grid-template-columns: repeat(2, 1fr);
-                gap: 8px;
-            }
-
-            .stat-card {
-                padding: 10px;
-            }
-
-            .stat-label {
-                font-size: 11px;
-            }
-
-            .stat-value {
-                font-size: 22px;
-            }
-
-            .mini-forecasts {
-                gap: 4px;
-            }
-
-            .mini-chip {
-                font-size: 11px;
-                padding: 3px 8px;
-            }
-
-            .controls-section {
-                padding: 12px;
-            }
-
-            .controls {
-                gap: 8px;
-            }
-
-            .control-label {
-                font-size: 12px;
-            }
-
-            input[type="date"] {
-                font-size: 13px;
-                padding: 7px 8px;
-                border-radius: 8px;
-            }
-
-            .btn {
-                font-size: 13px;
-                padding: 8px 12px;
-                border-radius: 8px;
-            }
-
-            .chart-section {
-                padding: 14px;
-            }
-
-            .chart-title {
-                font-size: 14px;
-                margin-bottom: 10px;
-            }
-
-            .chart-container {
-                height: 260px;
-            }
-
-            .table-container {
-                padding: 0 12px 12px;
-            }
-
-            #dataTable {
-                font-size: 12px;
-            }
-
-            #dataTable th {
-                font-size: 11px;
-                padding: 10px 8px;
-            }
-
-            #dataTable td {
-                padding: 10px 8px;
-            }
-
-            .brand-right {
-                gap: 6px;
-                flex-wrap: wrap;
-                justify-content: flex-start;
-            }
-
-            .pill {
-                flex: 0 1 auto;
-            }
-
-            .pill .dot {
-                width: 5px;
-                height: 5px;
-            }
-
-            .last-update-label {
-                font-size: 10px;
-            }
-
-            .last-update-content {
-                font-size: 13px;
-                line-height: 1.35;
-            }
-        }
-
-        @media (min-width: 601px) {
-            .pill.logout-btn {
-                margin-top: 10px;
-                background: #e5e7eb;
-                color: var(--text-primary);
-                border: 1px solid var(--border-default);
-                font-size: 14px;
-                padding: 8px 14px;
-                border-radius: 12px;
-            }
-        }
-
-        .brand-right .pill-sep {
-            flex: 0 0 12px;
-        }
- /* Desktop: push Billing + Logout into the outer gutter and align with pill row */
-@media (min-width: 960px) {
-  #btn-billing,
-  #btn-logout {
-    position: relative;
-    left: calc(max(0px, (100vw - 1400px) / 2 - 12px));
-    margin-top: -6px; /* adjust to align with Live/NYC/KNYC */
-  }
-
-  .pill.logout-btn { margin-top: -6px; }
-}
-
-/* Desktop: nudge ONLY "Manage billing" down a smidge + light-blue look */
-@media (min-width: 960px) {
-  #btn-billing {
-    margin-top: -4px;          /* just a touch lower */
-    background: #dbeafe;       /* light blue */
-    color: #2563eb;            /* blue text */
-    border: 1px solid #93c5fd; /* subtle border */
-  }
-
-  #btn-billing:hover {
-    background: #bfdbfe;       /* hover shade */
-  }
-}
-
-/* Make billing + logout buttons clearly clickable */
-#btn-billing,
-#btn-logout {
-  cursor: pointer;
-  transition: transform .02s ease, box-shadow .15s ease, opacity .15s ease;
-}
-     
-#btn-billing:hover,
-#btn-logout:hover {
-  box-shadow: 0 2px 8px rgba(0,0,0,.08);
-}
-#btn-billing:active,
-#btn-logout:active {
-  transform: translateY(1px);
-  opacity: .9;
-}
-/* Desktop layout: pills + Manage Billing on one row; Logout below.
-   Also ease them slightly left and increase the vertical gap. */
-@media (min-width: 960px) {
-  /* Turn the right side into a 2-col grid */
-  .brand-right {
-    display: grid;
-    grid-template-columns: auto auto;
-    column-gap: 12px;  /* space between pills and Manage billing */
-    row-gap: 10px;     /* a bit more gap between billing and logout */
-    align-items: center;
-    justify-items: end;
-  }
-
-  /* Auto placement already does:
-     row1 col1 = pill-group, row1 col2 = #btn-billing, row2 col1 = #btn-logout */
-  .brand-right .pill-group { grid-column: 1; grid-row: 1; }
-  #btn-billing { grid-column: 2; grid-row: 1; }
-  #btn-logout  { grid-column: 2; grid-row: 2; }
-
-  /* Bring buttons a touch back left (smaller gutter push than before) */
-  #btn-billing,
-  #btn-logout {
-    position: relative;
-    left: calc(max(0px, (100vw - 1400px) / 2 - 6px)); /* was -12px */
-  }
-
-  /* Fine-tune vertical alignment of billing with the pill row */
-  #btn-billing { margin-top: -2px; }
-
-  /* Light-blue look for billing (keep your existing hover from earlier if you like) */
-  #btn-billing {
-    background: #dbeafe;
-    color: #2563eb;
-    border: 1px solid #93c5fd;
-  }
-  #btn-billing:hover { background: #bfdbfe; }
-}
-/* Date row with right-aligned badge (plain red text, no bubble) */
-.lu-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 20px;   /* space under the date row */
-  flex-wrap: wrap;      /* let the badge wrap on narrow screens */
-}
-
-.lu-date {
-  display: block;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text-primary);
-  text-transform: uppercase;
-  letter-spacing: .02em;
-  margin-bottom: 2px;
-}
-
-/* Plain red text badge (no background/border) */
-.lu-badge {
-  white-space: nowrap;
-  font-size: 12px;
-  font-weight: 800;
-  color: #b91c1c;  /* red-700 */
-  margin-top: 4px; /* breathing room if it wraps under the date */
-}
-
-/* Mobile: smaller + stacked under date */
-@media (max-width: 600px) {
-  .lu-top {
-    gap: 6px;           /* tighter spacing between date & badge */
-    margin-bottom: 2px; /* less space under the whole row */
-  }
-
-  .lu-date {
-    margin-bottom: 0;   /* no extra space pushing badge down */
-  }
-
-  .lu-badge {
-    font-size: 10px;       /* smaller text on mobile */
-    white-space: normal;   /* allow wrapping */
-    display: block;        /* stack under the date */
-    margin-top: 0;         /* no unnecessary top margin */
-    text-align: right;     /* keep it aligned right */
-  }
-
-  .last-update-label {
-    font-size: 11px;       /* smidge bigger than before */
-  }
-}
- /* Mobile-only: pull the red note closer to the date, leave everything below untouched */
-@media (max-width: 600px) {
-  .last-update .lu-badge {
-    display: block;     /* keep it on its own line under the date */
-    margin-top: -6px;   /* move it up toward the date (adjust as needed) */
-  }
-}
-/* tiny tooltip badge */
-.tip {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 16px; height: 16px; border-radius: 50%;
-  font-size: 11px; font-weight: 800; line-height: 1; cursor: help;
-  border: 1px solid var(--border-default); color: var(--text-secondary);
-  background: var(--bg-tertiary); margin-left: 6px;
-}
-.tip:hover { box-shadow: 0 1px 6px rgba(0,0,0,.08); }
-/* Accessible, CSS-only tooltip for .tip[data-tip] */
-.tip { position: relative; outline: none; }
-.tip:focus-visible { box-shadow: 0 0 0 3px var(--accent-blue-light); }
-
-.tip[data-tip]::after {
-  content: attr(data-tip);
-  position: absolute;
-  inset: auto auto calc(100% + 8px) 50%;
-  transform: translateX(-50%);
-  white-space: nowrap;
-  background: #111827;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 6px 8px;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,.15);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity .12s ease, transform .12s ease;
-}
-
-.tip[data-tip]::before {
-  content: "";
-  position: absolute;
-  inset: auto auto calc(100% + 3px) 50%;
-  transform: translateX(-50%);
-  border: 6px solid transparent;
-  border-top-color: #111827;
-  opacity: 0;
-  transition: opacity .12s ease;
-}
-
-.tip:hover[data-tip]::after,
-.tip:focus[data-tip]::after,
-.tip:hover[data-tip]::before,
-.tip:focus[data-tip]::before {
-  opacity: 1;
-}
-
-
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🌡️ Daily Dew Point Dashboard</title>
+
+  <!-- Performance hints -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+  <link rel="dns-prefetch" href="https://fonts.googleapis.com">
+
+  <!-- Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg-primary: #fafbfc;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #f8f9fa;
+      --bg-accent: #f1f5f9;
+      --text-primary: #0f172a;
+      --text-secondary: #334155;
+      --text-muted: #64748b;
+      --text-light: #94a3b8;
+      --border-subtle: #e2e8f0;
+      --border-default: #cbd5e1;
+      --accent-blue: #2563eb;
+      --accent-blue-light: #dbeafe;
+      --accent-green: #059669;
+      --accent-green-light: #d1fae5;
+      --accent-amber: #d97706;
+      --accent-amber-light: #fef3c7;
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, .05);
+    }
+
+    * { box-sizing: border-box; }
+
+    /* Gate (shows immediately, then hidden on boot) */
+    #gate {
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh;
+      background: var(--bg-primary); color: var(--text-primary);
+      font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+      padding: 24px; text-align: center;
+    }
+    .gate-card { background: var(--bg-secondary); border: 1px solid var(--border-subtle);
+      border-radius: 16px; padding: 24px 22px; box-shadow: var(--shadow-sm);
+      max-width: 520px; width: 100%;
+    }
+    .gate-title { font-size: 18px; font-weight: 800; margin: 0 0 6px; }
+    .gate-sub { font-size: 14px; color: var(--text-muted); margin: 0 0 12px; }
+    .gate-note { font-size: 12px; color: var(--text-light); }
+    .gate-spinner { width: 28px; height: 28px; border-radius: 50%;
+      border: 3px solid var(--border-subtle); border-top-color: var(--accent-blue);
+      margin: 12px auto 8px; animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* App */
+    body {
+      font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+      background: var(--bg-primary); color: var(--text-primary);
+      margin: 0; line-height: 1.6;
+      font-feature-settings: "tnum" 1, "lnum" 1;
+    }
+
+    .header {
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-subtle);
+      padding: 20px 0; position: sticky; top: 0; z-index: 10; backdrop-filter: blur(8px);
+    }
+    .header-content { max-width: 1400px; margin: 0 auto; padding: 0 20px;
+      display: flex; align-items: center; justify-content: space-between; }
+    .brand { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+    .brand-left { display: flex; align-items: center; gap: 12px; }
+    .brand-mark { display: grid; place-items: center; width: 40px; height: 40px;
+      border-radius: 12px; background: linear-gradient(135deg, var(--accent-blue-light), var(--accent-green-light));
+      box-shadow: var(--shadow-sm); border: 1px solid var(--border-subtle); position: relative; top: -3px; }
+    .brand-mark svg { display: block; transform: translate(1px, 1px); }
+    .brand-title { margin: 0; font-weight: 800; letter-spacing: .2px;
+      font-size: 28px; line-height: 1.15; color: var(--text-primary); }
+    .brand-title .thin { font-weight: 600; color: var(--text-secondary); }
+    .brand-sub { margin: 2px 0 0; font-size: 13px; color: var(--text-muted); }
+    .brand-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+    .brand-right .pill-group { display: flex; gap: 6px; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; font-size: 12px; font-weight: 700;
+      color: var(--text-secondary); background: var(--bg-accent); border: 1px solid var(--border-subtle); border-radius: 999px; }
+    .pill.live { background: var(--accent-green-light); color: var(--accent-green); border-color: transparent; }
+    .pill.live .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-green); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+    .pill.logout-btn { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-default); }
+
+    .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+
+    .last-update { background: var(--bg-secondary); border: 1px solid var(--border-subtle);
+      border-radius: 12px; padding: 18px 20px; margin-bottom: 20px; box-shadow: var(--shadow-sm); }
+    .last-update-label { font-size: 12px; color: var(--text-muted); letter-spacing: .06em; text-transform: uppercase; margin-bottom: 4px; font-weight: 600; }
+    .last-update-content { font-size: 15px; color: var(--text-secondary); font-weight: 600; }
+    #todayDate { display: block; font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px; }
+
+    .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 18px; margin-bottom: 22px; }
+    .metric-card { background: var(--bg-secondary); border: 1.5px solid var(--border-subtle); border-radius: 18px; padding: 24px;
+      box-shadow: var(--shadow-sm); position: relative; overflow: hidden; }
+    .metric-card::before { content: ''; position: absolute; inset: 0 0 auto; height: 4px;
+      background: linear-gradient(90deg, var(--accent-blue), var(--accent-green)); }
+    .metric-card.today-forecast::before { background: var(--accent-amber); }
+    .metric-card.today-obs::before { background: var(--accent-blue); }
+    .metric-card.today-actual::before { background: var(--accent-green); }
+    .metric-card.tomorrow-forecast::before { background: var(--accent-blue); }
+    .metric-label { font-size: 14px; color: var(--text-muted); margin-bottom: 6px; font-weight: 700; letter-spacing: .02em; }
+    .metric-value { font-size: 36px; font-weight: 800; color: var(--text-primary); margin-bottom: 10px; line-height: 1; }
+    .metric-subtitle { font-size: 13px; color: var(--text-light); }
+    .mini-forecasts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+    .mini-chip { background: var(--bg-accent); color: var(--text-secondary); padding: 4px 10px; border-radius: 999px;
+      font-size: 12px; font-weight: 700; border: 1px solid var(--border-subtle); }
+
+    .kalshi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; margin-bottom: 22px; }
+    .kalshi-card { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 16px; padding: 22px; }
+    .kalshi-badge { background: var(--accent-amber-light); color: var(--accent-amber);
+      padding: 8px 14px; border-radius: 999px; font-size: 14px; font-weight: 800; text-decoration: none; display: inline-block; }
+    .kalshi-pending { background: var(--bg-accent); color: var(--text-muted); padding: 8px 14px; border-radius: 999px; font-size: 14px; font-weight: 700; border: 2px dashed var(--border-default); }
+    .kalshi-note { font-size: 12px; color: var(--text-light); margin-top: 6px; }
+
+    .prediction-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 18px; margin-bottom: 22px; }
+    .prediction-card { background: linear-gradient(135deg, var(--accent-blue-light), var(--accent-green-light));
+      border: 1px solid var(--border-subtle); border-radius: 16px; padding: 24px; }
+    .prediction-title { font-size: 15px; font-weight: 800; margin-bottom: 12px; }
+    .prediction-content {}
+    .prediction-value { font-size: 28px; font-weight: 800; color: #1f2937; }
+    .prediction-subtitle { font-size: 13px; color: var(--text-secondary); }
+
+    .controls-section { background: var(--bg-secondary); border: 1px solid var(--border-subtle);
+      border-radius: 16px; padding: 18px; margin-bottom: 22px; }
+    .controls-title { font-size: 15px; font-weight: 800; margin-bottom: 10px; }
+    .controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .control-group { display: flex; align-items: center; gap: 6px; }
+    .control-label { font-size: 13px; font-weight: 700; color: var(--text-secondary); }
+    input[type="date"] { padding: 8px 10px; border: 1px solid var(--border-default); border-radius: 10px; font-size: 14px; background: var(--bg-secondary); }
+    input[type="date"]:focus { outline: none; border-color: var(--accent-blue); box-shadow: 0 0 0 3px var(--accent-blue-light); }
+    .btn { background: var(--accent-blue); color: #fff; border: none; border-radius: 10px; padding: 9px 16px; font-size: 14px; font-weight: 800; cursor: pointer; box-shadow: var(--shadow-sm); }
+    .btn.secondary { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-default); }
+
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px; margin-bottom: 22px; }
+    .stat-card { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 14px; padding: 18px; text-align: center; }
+    .stat-label { font-size: 13px; color: var(--text-muted); font-weight: 700; }
+    .stat-value { font-size: 28px; font-weight: 800; color: var(--accent-blue); }
+
+    .chart-section { background: var(--bg-secondary); border: 1px solid var(--border-subtle);
+      border-radius: 16px; padding: 24px; margin-bottom: 22px; }
+    .chart-title { font-size: 16px; font-weight: 800; margin-bottom: 14px; }
+    .chart-container { position: relative; height: clamp(220px, 38vh, 380px); width: 100%; }
+
+    .table-section { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 16px; padding: 0; overflow: hidden; }
+    .table-container { overflow-x: auto; border-top: 1px solid var(--border-subtle); padding: 0 18px 18px; }
+    #dataTable { width: 100%; border-collapse: collapse; font-size: 14px; background: var(--bg-secondary); }
+    #dataTable th { background: var(--bg-tertiary); color: var(--text-primary); padding: 12px 10px; text-align: left; font-weight: 800;
+      font-size: 12px; letter-spacing: .06em; text-transform: uppercase; border-bottom: 2px solid var(--border-default); position: sticky; top: 0; z-index: 1; }
+    #dataTable td { padding: 12px 10px; border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary); }
+    #dataTable tbody tr:hover { background: var(--bg-accent); }
+    .forecast-row { background: var(--accent-blue-light) !important; }
+    .actual-row { background: var(--accent-green-light) !important; }
+    .best { box-shadow: inset 0 0 0 2px var(--accent-green); }
+    details.table-wrap { border-top: 1px solid var(--border-subtle); }
+    details.table-wrap summary { background: var(--bg-accent); border-bottom: 1px solid var(--border-subtle);
+      list-style: none; cursor: pointer; padding: 16px 18px; font-weight: 800; display: flex; align-items: center; justify-content: space-between; }
+    details.table-wrap summary::-webkit-details-marker { display: none; }
+    .caret { transition: transform .2s ease; }
+    details[open] summary .caret { transform: rotate(90deg); }
+    .skel td::before { content: ""; display: block; height: 12px; margin: 4px 0; width: 70%;
+      background: linear-gradient(90deg, var(--bg-accent), var(--bg-tertiary), var(--bg-accent));
+      background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 4px; }
+    @keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
+
+    .footer { margin-top: 28px; padding: 18px 24px; background: var(--bg-tertiary); border-top: 1px solid var(--border-subtle);
+      text-align: center; font-size: 12px; color: var(--text-light); }
+    .footer a { color: var(--accent-blue); text-decoration: none; }
+
+    /* Month group header row */
+    #dataTable tr.month-row { background: var(--bg-tertiary); border-top: 2px solid var(--border-default); cursor: pointer; }
+    #dataTable tr.month-row td { font-weight: 800; font-size: 12px; letter-spacing: .06em; text-transform: uppercase;
+      color: var(--text-primary); padding: 10px 10px; }
+    #dataTable tr.month-row .caret { display: inline-block; transition: transform .18s ease; margin-right: 6px; }
+    #dataTable tr.month-row.collapsed .caret { transform: rotate(-90deg); }
+    #dataTable tr[data-month].is-hidden { display: none; }
+
+    /* Fluid sizes + mobile */
+    .brand-title { font-size: clamp(18px, 2.2vw, 28px); }
+    .metric-value { font-size: clamp(22px, 3vw, 36px); }
+    .prediction-value { font-size: clamp(20px, 2.6vw, 28px); }
+    .stat-value { font-size: clamp(18px, 2.4vw, 28px); }
+    .kalshi-badge { font-size: clamp(11px, 1.8vw, 14px); padding: 6px 10px; }
+    .pill { font-size: clamp(10px, 1.6vw, 12px); padding: 4px 8px; }
+
+    @media (max-width: 600px) {
+      .container { padding: 12px; }
+      .header { padding: 12px 0; }
+      .brand { gap: 8px; }
+      .brand-left { gap: 8px; }
+      .brand-mark { width: 32px; height: 32px; border-radius: 10px; top: -17px; }
+      .brand-mark svg { width: 28px; height: 28px; transform: translate(0, 0); }
+      .brand-sub { font-size: 12px; line-height: 1.35; }
+      .brand-right .pill-group { margin-top: -14px; }
+      .pill.logout-btn { margin-top: 18px; }
+      .metrics-grid, .prediction-grid, .kalshi-grid { grid-template-columns: 1fr; gap: 10px; }
+      .metric-card { padding: 14px; border-radius: 14px; }
+      .metric-label { font-size: 13px; }
+      .metric-subtitle { font-size: 12px; }
+      .prediction-card { padding: 14px; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+      .stat-card { padding: 10px; }
+      .stat-label { font-size: 11px; }
+      .stat-value { font-size: 22px; }
+      .mini-forecasts { gap: 4px; }
+      .mini-chip { font-size: 11px; padding: 3px 8px; }
+      .controls-section { padding: 12px; }
+      .controls { gap: 8px; }
+      .control-label { font-size: 12px; }
+      input[type="date"] { font-size: 13px; padding: 7px 8px; border-radius: 8px; }
+      .btn { font-size: 13px; padding: 8px 12px; border-radius: 8px; }
+      .chart-section { padding: 14px; }
+      .chart-title { font-size: 14px; margin-bottom: 10px; }
+      .chart-container { height: 260px; }
+      .table-container { padding: 0 12px 12px; }
+      #dataTable { font-size: 12px; }
+      #dataTable th { font-size: 11px; padding: 10px 8px; }
+      #dataTable td { padding: 10px 8px; }
+      .brand-right { gap: 6px; flex-wrap: wrap; justify-content: flex-start; }
+      .pill { flex: 0 1 auto; }
+      .pill .dot { width: 5px; height: 5px; }
+      .last-update-label { font-size: 10px; }
+      .last-update-content { font-size: 13px; line-height: 1.35; }
+    }
+
+    @media (min-width: 601px) {
+      .pill.logout-btn { margin-top: 10px; background: #e5e7eb; color: var(--text-primary);
+        border: 1px solid var(--border-default); font-size: 14px; padding: 8px 14px; border-radius: 12px; }
+    }
+
+    .brand-right .pill-sep { flex: 0 0 12px; }
+
+    /* Desktop gutter push + styling for billing/logout */
+    @media (min-width: 960px) {
+      #btn-billing, #btn-logout {
+        position: relative;
+        left: calc(max(0px, (100vw - 1400px) / 2 - 12px));
+        margin-top: -6px;
+      }
+      .pill.logout-btn { margin-top: -6px; }
+      #btn-billing {
+        margin-top: -4px; background: #dbeafe; color: #2563eb; border: 1px solid #93c5fd;
+      }
+      #btn-billing:hover { background: #bfdbfe; }
+    }
+    #btn-billing, #btn-logout { cursor: pointer; transition: transform .02s ease, box-shadow .15s ease, opacity .15s ease; }
+    #btn-billing:hover, #btn-logout:hover { box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+    #btn-billing:active, #btn-logout:active { transform: translateY(1px); opacity: .9; }
+
+    /* 2-col grid on desktop for pills/billing/logout */
+    @media (min-width: 960px) {
+      .brand-right { display: grid; grid-template-columns: auto auto; column-gap: 12px; row-gap: 10px; align-items: center; justify-items: end; }
+      .brand-right .pill-group { grid-column: 1; grid-row: 1; }
+      #btn-billing { grid-column: 2; grid-row: 1; }
+      #btn-logout { grid-column: 2; grid-row: 2; }
+      #btn-billing, #btn-logout { left: calc(max(0px, (100vw - 1400px) / 2 - 6px)); }
+      #btn-billing { margin-top: -2px; background: #dbeafe; color: #2563eb; border: 1px solid #93c5fd; }
+      #btn-billing:hover { background: #bfdbfe; }
+    }
+
+    /* Last update row + badge */
+    .lu-top { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:20px; flex-wrap:wrap; }
+    .lu-date { display:block; font-size:14px; font-weight:700; color:var(--text-primary); text-transform:uppercase; letter-spacing:.02em; margin-bottom:2px; }
+    .lu-badge { white-space:nowrap; font-size:12px; font-weight:800; color:#b91c1c; margin-top:4px; }
+    @media (max-width: 600px) {
+      .lu-top { gap:6px; margin-bottom:2px; }
+      .lu-date { margin-bottom:0; }
+      .lu-badge { font-size:10px; white-space:normal; display:block; margin-top:0; text-align:right; }
+      .last-update-label { font-size:11px; }
+    }
+    @media (max-width: 600px) {
+      .last-update .lu-badge { display:block; margin-top:-6px; }
+    }
+
+    /* Tooltip */
+    .tip { display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:50%;
+      font-size:11px; font-weight:800; line-height:1; cursor:help;
+      border:1px solid var(--border-default); color:var(--text-secondary);
+      background:var(--bg-tertiary); margin-left:6px; position:relative; outline:none; }
+    .tip:hover { box-shadow: 0 1px 6px rgba(0,0,0,.08); }
+    .tip:focus-visible { box-shadow: 0 0 0 3px var(--accent-blue-light); }
+    .tip[data-tip]::after{
+      content:attr(data-tip); position:absolute; inset:auto auto calc(100% + 8px) 50%; transform:translateX(-50%);
+      white-space:nowrap; background:#111827; color:#fff; font-size:12px; font-weight:600; padding:6px 8px; border-radius:8px;
+      box-shadow:0 4px 12px rgba(0,0,0,.15); opacity:0; pointer-events:none; transition:opacity .12s ease, transform .12s ease;
+    }
+    .tip[data-tip]::before{
+      content:""; position:absolute; inset:auto auto calc(100% + 3px) 50%; transform:translateX(-50%);
+      border:6px solid transparent; border-top-color:#111827; opacity:0; transition:opacity .12s ease;
+    }
+    .tip:hover[data-tip]::after,.tip:focus[data-tip]::after,.tip:hover[data-tip]::before,.tip:focus[data-tip]::before{opacity:1;}
+  </style>
 </head>
 
 <body>
-    <!-- ====== LOGIN GATE (kept for UX; hidden immediately) ====== -->
-    <div id="gate" role="status" aria-live="polite">
-        <div class="gate-card">
-            <div class="gate-title">Checking access…</div>
-            <div class="gate-sub">Loading the dashboard.</div>
-            <div class="gate-spinner" aria-hidden="true"></div>
-            <div class="gate-note">This will update automatically.</div>
-        </div>
+  <!-- ====== LOGIN GATE ====== -->
+  <div id="gate" role="status" aria-live="polite">
+    <div class="gate-card">
+      <div class="gate-title">Checking access…</div>
+      <div class="gate-sub">Loading the dashboard.</div>
+      <div class="gate-spinner" aria-hidden="true"></div>
+      <div class="gate-note">This will update automatically.</div>
     </div>
-
-    <!-- ====== APP ====== -->
-    <div id="app" style="display:none">
-        <header class="header">
-            <div class="header-content brand">
-                <div class="brand-left">
-                    <div class="brand-mark" aria-hidden="true">
-                        <svg viewBox="0 0 64 64" width="38" height="38" role="img">
-                            <defs>
-                                <linearGradient id="dpGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                                    <stop offset="0%" stop-color="var(--accent-blue)" />
-                                    <stop offset="100%" stop-color="var(--accent-green)" />
-                                </linearGradient>
-                            </defs>
-                            <path fill="url(#dpGrad)" d="M32 6c6 10 16 18 16 30 0 9.94-8.06 18-18 18s-18-8.06-18-18C12 24 26 16 32 6z"/>
-                        </svg>
-                    </div>
-                    <div class="brand-copy">
-                        <h1 class="brand-title"><span class="thin">Daily</span> Dew&nbsp;Point</h1>
-                        <p class="brand-sub">Automatically logs every NWS forecast update for Central Park and compares to the official daily high</p>
-                    </div>
-                </div>
-                <div class="brand-right">
-                    <div class="pill-group">
-                        <span class="pill live"><span class="dot"></span> Live</span>
-                        <span class="pill">NYC</span>
-                        <span class="pill">KNYC</span>
-                    </div>
-                    <button id="btn-billing" class="pill">Manage billing</button>
-                    <button id="btn-logout" class="pill logout-btn">Log out</button>
-                </div>
-            </div>
-        </header>
-
-        <div class="container">
-<div class="last-update">
-  <div class="lu-top">
-    <span id="todayDate" class="lu-date"></span>
-    <span class="lu-badge">
-      All times and day boundary are Eastern Time (aligned with NWS)
-    </span>
   </div>
 
-  <div class="last-update-label">Latest Forecast Update</div>
-  <div id="recentForecast" class="last-update-content">
-    Loading latest forecast data...
-  </div>
-</div>
-            <!-- Metrics -->
-            <div class="metrics-grid">
-                <div class="metric-card today-forecast">
-                    <div class="metric-label">Today's Latest Forecast</div>
-                    <div id="box-today-forecast" class="metric-value">–</div>
-                    <div class="metric-subtitle">Today's Forecasts</div>
-                    <div id="mini-today-forecasts" class="mini-forecasts"></div>
-                </div>
+  <!-- ====== APP ====== -->
+  <div id="app" style="display:none">
+    <header class="header">
+      <div class="header-content brand">
+        <div class="brand-left">
+          <div class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 64 64" width="38" height="38" role="img">
+              <defs>
+                <linearGradient id="dpGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="var(--accent-blue)" />
+                  <stop offset="100%" stop-color="var(--accent-green)" />
+                </linearGradient>
+              </defs>
+              <path fill="url(#dpGrad)" d="M32 6c6 10 16 18 16 30 0 9.94-8.06 18-18 18s-18-8.06-18-18C12 24 26 16 32 6z"/>
+            </svg>
+          </div>
+          <div class="brand-copy">
+            <h1 class="brand-title"><span class="thin">Daily</span> Dew&nbsp;Point</h1>
+            <p class="brand-sub">Automatically logs every NWS forecast update for Central Park and compares to the official daily high</p>
+          </div>
+        </div>
+        <div class="brand-right">
+          <div class="pill-group">
+            <span class="pill live"><span class="dot"></span> Live</span>
+            <span class="pill">NYC</span>
+            <span class="pill">KNYC</span>
+          </div>
+          <button id="btn-billing" class="pill">Manage billing</button>
+          <button id="btn-logout" class="pill logout-btn">Log out</button>
+        </div>
+      </div>
+    </header>
 
-                <div class="metric-card today-actual">
-                    <div class="metric-label">Today's High (DSM)</div>
-                    <div id="box-dsm-max" class="metric-value">–</div>
-                    <div id="box-dsm-note" class="metric-subtitle"></div>
-                    <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border-subtle);">
-                        <div class="metric-label" style="margin-bottom:6px;">Today's Actual High (CLI)</div>
-                        <div id="box-today-actual" class="metric-value">–</div>
-                        <div id="box-today-actual-note" class="metric-subtitle">NWS daily climatological report</div>
-                    </div>
-                </div>
+    <div class="container">
+      <div class="last-update">
+        <div class="lu-top">
+          <span id="todayDate" class="lu-date"></span>
+          <span class="lu-badge">All times and day boundary are Eastern Time (aligned with NWS)</span>
+        </div>
+        <div class="last-update-label">Latest Forecast Update</div>
+        <div id="recentForecast" class="last-update-content">Loading latest forecast data...</div>
+      </div>
 
-                <div class="metric-card today-obs">
-                    <div class="metric-label">6 Hr Max</div>
-                    <div id="box-6hr-max" class="metric-value">–</div>
-                    <div id="box-6hr-max-note" class="metric-subtitle"></div>
-                    <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border-subtle);">
-                        <div class="metric-label">Recent Observed Temperature</div>
-                        <div id="box-today-current" class="metric-value">–</div>
-                        <div id="box-today-current-note" class="metric-subtitle"></div>
-                    </div>
-                </div>
+      <!-- Metrics -->
+      <div class="metrics-grid">
+        <div class="metric-card today-forecast">
+          <div class="metric-label">Today's Latest Forecast</div>
+          <div id="box-today-forecast" class="metric-value">–</div>
+          <div class="metric-subtitle">Today's Forecasts</div>
+          <div id="mini-today-forecasts" class="mini-forecasts"></div>
+        </div>
 
-                <div class="metric-card tomorrow-forecast">
-                    <div class="metric-label">Tomorrow's Latest Forecast</div>
-                    <div id="box-tomorrow-forecast" class="metric-value">–</div>
-                    <div class="metric-subtitle">Tomorrow's Forecasts</div>
-                    <div id="mini-tomorrow-forecasts" class="mini-forecasts"></div>
-                </div>
-            </div>
+        <div class="metric-card today-actual">
+          <div class="metric-label">Today's High (DSM)</div>
+          <div id="box-dsm-max" class="metric-value">–</div>
+          <div id="box-dsm-note" class="metric-subtitle"></div>
+          <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border-subtle);">
+            <div class="metric-label" style="margin-bottom:6px;">Today's Actual High (CLI)</div>
+            <div id="box-today-actual" class="metric-value">–</div>
+            <div id="box-today-actual-note" class="metric-subtitle">NWS daily climatological report</div>
+          </div>
+        </div>
 
-            <!-- Bias-corrected -->
-           <div class="prediction-grid" style="display:grid; grid-template-columns:repeat(2,1fr); gap:18px; margin-bottom:22px;">
+        <div class="metric-card today-obs">
+          <div class="metric-label">6 Hr Max</div>
+          <div id="box-6hr-max" class="metric-value">–</div>
+          <div id="box-6hr-max-note" class="metric-subtitle"></div>
+          <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border-subtle);">
+            <div class="metric-label">Recent Observed Temperature</div>
+            <div id="box-today-current" class="metric-value">–</div>
+            <div id="box-today-current-note" class="metric-subtitle"></div>
+          </div>
+        </div>
+
+        <div class="metric-card tomorrow-forecast">
+          <div class="metric-label">Tomorrow's Latest Forecast</div>
+          <div id="box-tomorrow-forecast" class="metric-value">–</div>
+          <div class="metric-subtitle">Tomorrow's Forecasts</div>
+          <div id="mini-tomorrow-forecasts" class="mini-forecasts"></div>
+        </div>
+      </div>
+
+      <!-- Bias-corrected -->
+      <div class="prediction-grid" style="display:grid; grid-template-columns:repeat(2,1fr); gap:18px; margin-bottom:22px;">
         <div class="prediction-card">
           <div class="prediction-title">
             Today’s Bias-Corrected Prediction
-           <span class="tip" tabindex="0"
-      data-tip="Shows today’s forecast, using yesterday’s last update until today’s forecasts begin">i</span>
+            <span class="tip" tabindex="0" data-tip="Shows today’s forecast, using yesterday’s last update until today’s forecasts begin">i</span>
           </div>
           <div id="correctionBoxToday" class="prediction-content">Loading...</div>
         </div>
         <div class="prediction-card">
           <div class="prediction-title">
             Tomorrow’s Bias-Corrected Prediction
-           <span class="tip" tabindex="0"
-      data-tip="Shows tomorrow’s forecast using today’s updates. Once tomorrow begins, new forecasts are tracked as that day’s forecasts">i</span>
-
+            <span class="tip" tabindex="0" data-tip="Shows tomorrow’s forecast using today’s updates. Once tomorrow begins, new forecasts are tracked as that day’s forecasts">i</span>
           </div>
           <div id="correctionBoxTomorrow" class="prediction-content">Loading...</div>
         </div>
@@ -1208,736 +415,677 @@
         </div>
       </div>
 
-            <!-- Kalshi -->
-            <div class="kalshi-grid">
-                <div class="kalshi-card">
-                    <div class="metric-label">Today's Kalshi Market</div>
-                    <div id="box-today-kalshi" class="metric-value" style="font-size:18px;">Pending settlement</div>
-                    <div id="box-today-kalshi-note" class="kalshi-note"></div>
-                </div>
-                <div class="kalshi-card">
-                    <div class="metric-label">Yesterday's Kalshi Result</div>
-                    <div id="box-yday-kalshi" class="metric-value" style="font-size:18px;">–</div>
-                    <div id="box-yday-kalshi-note" class="kalshi-note"></div>
-                </div>
-            </div>
-
-            <!-- Controls -->
-            <div class="controls-section">
-                <div class="controls-title">Filter Data</div>
-                <div class="controls">
-                    <div class="control-group">
-                        <label class="control-label" for="fromDate">From:</label>
-                        <input type="date" id="fromDate"/>
-                    </div>
-                    <div class="control-group">
-                        <label class="control-label" for="toDate">To:</label>
-                        <input type="date" id="toDate"/>
-                    </div>
-                    <button class="btn" onclick="applyDateFilter()">Apply Filter</button>
-                    <button class="btn secondary" onclick="resetFilter()">Show All</button>
-                    <button class="btn secondary" onclick="reloadCSV()">Refresh Data</button>
-                </div>
-            </div>
-
-            <!-- Stats -->
-            <div class="stats-grid" id="stats">
-                <div class="stat-card">
-                    <div class="stat-label">Days Tracked</div>
-                    <div class="stat-value">0</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">Days With Actual</div>
-                    <div class="stat-value">0</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">Average Absolute Error</div>
-                    <div class="stat-value">--°F</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">Average Best Error</div>
-                    <div class="stat-value">--°F</div>
-                </div>
-            </div>
-
-            <!-- Chart -->
-            <div class="chart-section">
-                <div class="chart-title">Temperature Trends: Actual vs Predicted</div>
-                <div class="chart-container">
-                    <canvas id="dailyChart" width="1000" height="380"></canvas>
-                </div>
-            </div>
-
-            <!-- Collapsible Table -->
-            <div class="table-section">
-                <details class="table-wrap">
-                    <summary>
-                        <span>Detailed Forecast Log</span>
-                        <span class="caret">▸</span>
-                    </summary>
-                    <div class="table-container">
-                        <table id="dataTable">
-                            <thead>
-                                <tr>
-                                    <th>Date Pulled</th>
-                                    <th>Forecast Time</th>
-                                    <th>For Date</th>
-                                    <th>Forecasted High</th>
-                                    <th>Actual High</th>
-                                    <th>High Time</th>
-                                    <th>Error (°F)</th>
-                                    <th>Best?</th>
-                                    <th>Kalshi Range</th>
-                                </tr>
-                            </thead>
-                            <tbody></tbody>
-                        </table>
-                    </div>
-                </details>
-            </div>
+      <!-- Kalshi -->
+      <div class="kalshi-grid">
+        <div class="kalshi-card">
+          <div class="metric-label">Today's Kalshi Market</div>
+          <div id="box-today-kalshi" class="metric-value" style="font-size:18px;">Pending settlement</div>
+          <div id="box-today-kalshi-note" class="kalshi-note"></div>
         </div>
+        <div class="kalshi-card">
+          <div class="metric-label">Yesterday's Kalshi Result</div>
+          <div id="box-yday-kalshi" class="metric-value" style="font-size:18px;">–</div>
+          <div id="box-yday-kalshi-note" class="kalshi-note"></div>
+        </div>
+      </div>
 
-        <footer class="footer">
-            © 2025 Dewdrop Ventures, LLC ·
-            <a href="/terms.html">Terms</a> ·
-            <a href="/privacy.html">Privacy</a> ·
-            <span>Informational only — not financial advice. Do your own due diligence before placing any bets or making financial decisions.</span>
-        </footer>
+      <!-- Controls -->
+      <div class="controls-section">
+        <div class="controls-title">Filter Data</div>
+        <div class="controls">
+          <div class="control-group">
+            <label class="control-label" for="fromDate">From:</label>
+            <input type="date" id="fromDate"/>
+          </div>
+          <div class="control-group">
+            <label class="control-label" for="toDate">To:</label>
+            <input type="date" id="toDate"/>
+          </div>
+          <button class="btn" onclick="applyDateFilter()">Apply Filter</button>
+          <button class="btn secondary" onclick="resetFilter()">Show All</button>
+          <button class="btn secondary" onclick="reloadCSV()">Refresh Data</button>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-grid" id="stats">
+        <div class="stat-card">
+          <div class="stat-label">Days Tracked</div>
+          <div class="stat-value">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Days With Actual</div>
+          <div class="stat-value">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Average Absolute Error</div>
+          <div class="stat-value">--°F</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Average Best Error</div>
+          <div class="stat-value">--°F</div>
+        </div>
+      </div>
+
+      <!-- Chart -->
+      <div class="chart-section">
+        <div class="chart-title">Temperature Trends: Actual vs Predicted</div>
+        <div class="chart-container">
+          <canvas id="dailyChart" width="1000" height="380"></canvas>
+        </div>
+      </div>
+
+      <!-- Collapsible Table -->
+      <div class="table-section">
+        <details class="table-wrap">
+          <summary>
+            <span>Detailed Forecast Log</span>
+            <span class="caret">▸</span>
+          </summary>
+          <div class="table-container">
+            <table id="dataTable">
+              <thead>
+                <tr>
+                  <th>Date Pulled</th>
+                  <th>Forecast Time</th>
+                  <th>For Date</th>
+                  <th>Forecasted High</th>
+                  <th>Actual High</th>
+                  <th>High Time</th>
+                  <th>Error (°F)</th>
+                  <th>Best?</th>
+                  <th>Kalshi Range</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </details>
+      </div>
     </div>
 
-    <!-- Libraries -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <footer class="footer">
+      © 2025 Dewdrop Ventures, LLC ·
+      <a href="/terms.html">Terms</a> ·
+      <a href="/privacy.html">Privacy</a> ·
+      <span>Informational only — not financial advice. Do your own due diligence before placing any bets or making financial decisions.</span>
+    </footer>
+  </div>
 
-    <!-- App scripts -->
-    <script>
-        /* ========= SIMPLE GATE ========= */
-        const $gate = () => document.getElementById('gate');
-        const $app = () => document.getElementById('app');
+  <!-- Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-        function showApp() {
-            const g = $gate(), a = $app();
-            if (g) g.style.display = 'none';
-            if (a) a.style.display = '';
-        }
+  <!-- App scripts -->
+  <script>
+    /* ========= SIMPLE GATE ========= */
+    const $gate = () => document.getElementById('gate');
+    const $app  = () => document.getElementById('app');
 
-        function showGate(msg) {
-            const g = $gate();
-            if (!g) return;
-            g.style.display = '';
-            const sub = g.querySelector('.gate-sub');
-            if (sub && msg) sub.textContent = msg;
-        }
+    function showApp(){ const g=$gate(), a=$app(); if(g) g.style.display='none'; if(a) a.style.display=''; }
+    function showGate(msg){ const g=$gate(); if(!g) return; g.style.display=''; const sub=g.querySelector('.gate-sub'); if(sub&&msg) sub.textContent=msg; }
 
-        /* ========= DATA + UI ========= */
-        let allRows = [], filteredRows = [], chartInstance = null;
+    /* ========= DATA + UI ========= */
+    let allRows = [], filteredRows = [], chartInstance = null;
 
-        function nycISODate(offsetDays = 0) {
-            const fmt = new Intl.DateTimeFormat('en-CA', {
-                timeZone: 'America/New_York',
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit'
-            });
-            const parts = fmt.formatToParts(new Date(Date.now() + offsetDays * 86400000));
-            const g = k => parts.find(p => p.type === k).value;
-            return `${g('year')}-${g('month')}-${g('day')}`;
-        }
-
-       function kalshiAnchorForISO(dateISO) {
-          const [y, m, d] = dateISO.split('-').map(Number);
-          const dt = new Date(Date.UTC(y, m - 1, d));
-          const mon = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'][dt.getUTCMonth()];
-          const dd  = String(dt.getUTCDate()).padStart(2, '0');  // zero-pad day
-          const yy  = String(dt.getUTCFullYear()).slice(-2);
-          return `#kxhighny-${yy}${mon}${dd}`;
-      }
-
-
-        function showSkeleton(rows = 6) {
-            const tb = document.querySelector("#dataTable tbody");
-            if (!tb) return;
-            tb.innerHTML = "";
-            for (let i = 0; i < rows; i++) {
-                const tr = document.createElement("tr");
-                tr.className = "skel";
-                tr.innerHTML = "<td></td>".repeat(9);
-                tb.appendChild(tr);
-            }
-        }
-
-        function reloadCSV() {
-    showSkeleton();
-    return fetch(CSV_URL + "?" + Date.now())
-      .then(r => r.text())
-      .then(parseCSV)
-      .then(() => {
-        seedForecastSignatures();    // after parse
-        resetFilter();
-        showMostRecent();
-        updateSummaryBoxes();
-        updateCorrectionBoxes();
-        updateObservations();
-      })
-      .catch(err => {
-        alert("Could not load CSV. " + err);
-        throw err; // keeps bootApp from starting the poller if initial load failed
+    function nycISODate(offsetDays = 0) {
+      const fmt = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit'
       });
-  }
-
-        function csvToRows(text) {
-            const rows = [];
-            let row = [], field = '', q = false;
-            for (let i = 0; i < text.length; i++) {
-                const c = text[i], n = text[i + 1];
-                if (c === '"') {
-                    if (q && n === '"') {
-                        field += '"';
-                        i++;
-                    } else q = !q;
-                } else if (c === ',' && !q) {
-                    row.push(field);
-                    field = '';
-                } else if ((c === '\n' || c === '\r') && !q) {
-                    if (c === '\r' && n === '\n') i++;
-                    row.push(field);
-                    field = '';
-                    if (row.length && row.some(x => x !== '')) rows.push(row);
-                    row = [];
-                } else field += c;
-            }
-            if (field !== '' || row.length) {
-                row.push(field);
-                if (row.length && row.some(x => x !== '')) rows.push(row);
-            }
-            return rows;
-        }
-
-        function parseCSV(text) {
-            const rows = csvToRows(text);
-            if (!rows.length) return;
-            const header = rows[0].map(h => h.trim());
-            allRows = [];
-            for (let i = 1; i < rows.length; i++) {
-                const vals = rows[i];
-                const rec = {};
-                for (let j = 0; j < header.length; j++) {
-                    let v = (vals[j] ?? '').trim();
-                    if (v.startsWith('"') && v.endsWith('"')) {
-                        v = v.slice(1, -1).replace(/""/g, '"');
-                    }
-                    rec[header[j]] = v;
-                }
-                allRows.push(rec);
-            }
-        }
-
-        function rNum(x) {
-            const n = Number(x);
-            return Number.isFinite(n) ? n : null;
-        }
-
-        function toDateObj(t) {
-            if (!t) return null;
-            const clean = String(t).trim().replace(/:(\d{2})(?=\s*[AP]M)/i, '');
-            if (/[AP]M/i.test(clean)) {
-                const m = clean.match(/(\d{1,2}):(\d{2})\s*([AP]M)/i);
-                if (!m) return null;
-                const [, h, mn, amp] = m;
-                const hour = (Number(h) % 12) + (amp.toUpperCase() === "PM" ? 12 : 0);
-                return new Date(2020, 1, 1, hour, Number(mn));
-            }
-            if (/^\d{2}:\d{2}$/.test(clean)) {
-                const [h, mn] = clean.split(":");
-                return new Date(2020, 1, 1, Number(h), Number(mn));
-            }
-            return null;
-        }
-
-        function compareTimes(t1, t2) {
-            const d1 = toDateObj(t1), d2 = toDateObj(t2);
-            return (d1 && d2) ? d1 - d2 : 0;
-        }
-// ===== ET date helpers =====
-function etDateISOFromTS(ts) {
-  const s = (ts || "").replace(" ", "T"); const d = new Date(s);
-  if (!Number.isFinite(d.getTime())) return "";
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year:"numeric", month:"2-digit", day:"2-digit" }).format(d);
-}
-function prevISO(iso) { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
-function monthNum(iso){ return Number((iso||"").split("-")[1]||"0"); }
-function isWarmSeason(iso){ const m=monthNum(iso); return m>=5 && m<=9; }
-
-// ===== Lead kind =====
-function leadKind(row){
-  if (!row || !row.target_date) return "other";
-  const issueISO = etDateISOFromTS(row.timestamp || row.forecast_time || "");
-  if (!issueISO) return "other";
-  if (issueISO === row.target_date) return "D0";
-  if (issueISO === prevISO(row.target_date)) return "D1";
-  return "other";
-}
-
-// ===== Row selectors =====
-function getForecastRowsFor(targetISO, kind/*"D0"|"D1"*/){
-  const dayPrev = prevISO(targetISO);
-  return allRows.filter(r=>{
-    if (r.forecast_or_actual !== "forecast") return false;
-    if (r.target_date !== targetISO) return false;
-    const issueISO = etDateISOFromTS(r.timestamp || r.forecast_time || "");
-    if (kind==="D0") return issueISO === targetISO;
-    if (kind==="D1") return issueISO === dayPrev;
-    return false;
-  });
-}
-
-// Keep trend; collapse only consecutive duplicates by value
-function collapseConsecutiveDuplicates(sortedRows){
-  const out=[]; let lastVal=null;
-  for (const r of sortedRows){
-    const v = Number(r.predicted_high);
-    if (!Number.isFinite(v)) continue;
-    if (lastVal===null || v!==lastVal){ out.push(r); lastVal=v; }
-  }
-  return out;
-}
-
-// Representative issuance rows/values
-function latestPreHighRow(rows, highTime/* "" allowed */){
-  const pre = rows
-    .filter(r => r.predicted_high != null && r.predicted_high !== "")
-    .filter(r => {
-      if (!highTime) return true;
-      const fcHH = (r.forecast_time || "").substr(11,5);
-      return !(fcHH && compareTimes(fcHH, highTime) > 0);
-    })
-    .sort((a,b)=>((a.timestamp||a.forecast_time||"")).localeCompare(b.timestamp||b.forecast_time||""));
-  if (!pre.length) return null;
-  const dedup = collapseConsecutiveDuplicates(pre);
-  return dedup[dedup.length-1] || null;
-}
-function latestPreHighValue(rows, highTime){ const row=latestPreHighRow(rows, highTime); const v=Number(row?.predicted_high); return Number.isFinite(v)?v:null; }
-
-// Robust stats
-function winsorize(arr,p=0.10){ if(!arr.length) return arr.slice(); const s=arr.slice().sort((a,b)=>a-b);
-  const loIdx = Math.floor(p*(s.length-1)), hiIdx = Math.ceil((1-p)*(s.length-1));
-  const lo=s[loIdx], hi=s[hiIdx]; return s.map(x=>Math.max(lo, Math.min(hi,x)));
-}
-function median(a){ if(!a.length) return null; const s=a.slice().sort((x,y)=>x-y); const m=Math.floor(s.length/2); return s.length%2? s[m] : (s[m-1]+s[m])/2; }
-function mean(a){ return a.length? a.reduce((x,y)=>x+y,0)/a.length : null; }
-function robustMean(arr){ if(arr.length>=15) return mean(winsorize(arr,0.10)); if(arr.length>=7){ const m=median(arr); return m==null? mean(arr):m; } return mean(arr); }
-
-// ===== Candidate builders =====
-function d0CandidatesFor(dayISO, highTime) {
-  const d0 = getForecastRowsFor(dayISO, "D0").filter(r => r.predicted_high != null && r.predicted_high !== "");
-  const sorted = d0
-    .filter(r => {
-      if (!highTime) return true;
-      const fcHH = (r.forecast_time || "").substr(11,5);
-      return !(fcHH && compareTimes(fcHH, highTime) > 0);
-    })
-    .sort((a,b)=>((a.timestamp||a.forecast_time||"")).localeCompare(b.timestamp||b.forecast_time||""));
-  const dedup = collapseConsecutiveDuplicates(sorted);
-
-  const first = dedup.length ? Number(dedup[0].predicted_high) : null;
-  const latest = dedup.length ? Number(dedup[dedup.length-1].predicted_high) : null;
-  const trimmed = (() => {
-    const vals = dedup.map(r=>Number(r.predicted_high)).filter(Number.isFinite);
-    if (!vals.length) return null;
-    vals.sort((a,b)=>a-b);
-    const k = Math.max(1, Math.floor(vals.length*0.1));
-    const core = vals.slice(k, vals.length-k);
-    const arr = core.length ? core : vals;
-    return mean(arr);
-  })();
-
-  // carry-over D1 (yesterday’s issuance for this target)
-  const d1Carry = latestPreHighValue(getForecastRowsFor(dayISO, "D1"), "");
-
-  return { first, latest, trimmed, carry: d1Carry, _hasD0: dedup.length>0 };
-}
-
-function d1CandidatesFor(tomorrowISO) {
-  const d1 = getForecastRowsFor(tomorrowISO, "D1").filter(r => r.predicted_high != null && r.predicted_high !== "");
-  const sorted = collapseConsecutiveDuplicates(
-    d1.sort((a,b)=>((a.timestamp||a.forecast_time||"")).localeCompare(b.timestamp||b.forecast_time||""))
-  );
-  const first = sorted.length ? Number(sorted[0].predicted_high) : null;
-  const latest = sorted.length ? Number(sorted[sorted.length-1].predicted_high) : null;
-  const trimmed = (() => {
-    const vals = sorted.map(r=>Number(r.predicted_high)).filter(Number.isFinite);
-    if (!vals.length) return null;
-    vals.sort((a,b)=>a-b);
-    const k = Math.max(1, Math.floor(vals.length*0.1));
-    const core = vals.slice(k, vals.length-k);
-    const arr = core.length ? core : vals;
-    return mean(arr);
-  })();
-  return { first, latest, trimmed };
-}
-
-// ===== Learn per-bucket blend + bias =====
-function buildBiasAndBlend() {
-  // Assemble per-day examples
-  const dayMap = new Map();
-  for (const r of allRows) {
-    const d = (r.forecast_or_actual==="actual" ? r.cli_date : r.target_date);
-    if (!d) continue;
-    if (!dayMap.has(d)) dayMap.set(d, {D0:[], D1:[], actual:null});
-    const bucket = dayMap.get(d);
-    if (r.forecast_or_actual==="forecast") {
-      const k = leadKind(r);
-      if (k==="D0") bucket.D0.push(r);
-      else if (k==="D1") bucket.D1.push(r);
-    } else if (r.actual_high) bucket.actual = r;
-  }
-
-  const examples = []; // {iso, season, lead, actual, cand:{first,latest,trimmed,carry?}}
-  for (const [iso, {D0,D1,actual}] of dayMap.entries()) {
-    if (!actual || !actual.actual_high) continue;
-    const act = Number(actual.actual_high);
-    const highTime = actual.high_time || "";
-    const warm = isWarmSeason(iso) ? "warm" : "cool";
-
-    const c0 = d0CandidatesFor(iso, highTime);
-    if (c0._hasD0) examples.push({ iso, season:warm, lead:"D0", actual:act, cand:{ first:c0.first, latest:c0.latest, trimmed:c0.trimmed, carry:c0.carry } });
-
-    const c1 = d1CandidatesFor(iso);
-    if (c1.latest!=null || c1.first!=null || c1.trimmed!=null) {
-      examples.push({ iso, season:warm, lead:"D1", actual:act, cand:{ first:c1.first, latest:c1.latest, trimmed:c1.trimmed } });
+      const parts = fmt.formatToParts(new Date(Date.now() + offsetDays * 86400000));
+      const g = k => parts.find(p => p.type === k).value;
+      return `${g('year')}-${g('month')}-${g('day')}`;
     }
-  }
 
-  // Convex weight learning by coarse grid (step 0.1)
-  function learnWeights(rows, allowCarry) {
-    if (!rows.length) return { w:{first:0, latest:1, trimmed:0, carry:0}, mae:Infinity };
-    let best = { w:null, mae:Infinity };
-    const step = 0.1;
-    for (let f=0; f<=1; f+=step) {
-      for (let l=0; l<=1-f; l+=step) {
-        for (let t=0; t<=1-f-l; t+=step) {
-          const c = allowCarry ? (1 - f - l - t) : 0;
-          if (!allowCarry && Math.abs(1 - f - l - t) > 1e-9) continue;
-          const w = { first:f, latest:l, trimmed:t, carry:c };
-          // MAE over rows (renormalize if some cands missing)
-          let absSum = 0, n = 0;
-          for (const r of rows) {
-            const parts = [];
-            if (r.cand.first   != null) parts.push({v:r.cand.first,   w:w.first});
-            if (r.cand.latest  != null) parts.push({v:r.cand.latest,  w:w.latest});
-            if (r.cand.trimmed != null) parts.push({v:r.cand.trimmed, w:w.trimmed});
-            if (allowCarry && r.cand.carry != null) parts.push({v:r.cand.carry, w:w.carry});
-            if (!parts.length) continue;
-            const sumW = parts.reduce((a,b)=>a+b.w,0) || 1;
-            const rep = parts.reduce((a,b)=>a + b.v * (b.w/sumW), 0);
-            absSum += Math.abs(r.actual - rep);
-            n++;
-          }
-          if (!n) continue;
-          const mae = absSum / n;
-          if (mae < best.mae) best = { w, mae };
-        }
+    function kalshiAnchorForISO(dateISO) {
+      const [y,m,d] = dateISO.split('-').map(Number);
+      const dt = new Date(Date.UTC(y, m-1, d));
+      const mon = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'][dt.getUTCMonth()];
+      const dd = String(dt.getUTCDate()).padStart(2,'0');
+      const yy = String(dt.getUTCFullYear()).slice(-2);
+      return `#kxhighny-${yy}${mon}${dd}`;
+    }
+
+    function showSkeleton(rows = 6) {
+      const tb = document.querySelector("#dataTable tbody");
+      if (!tb) return;
+      tb.innerHTML = "";
+      for (let i = 0; i < rows; i++) {
+        const tr = document.createElement("tr");
+        tr.className = "skel";
+        tr.innerHTML = "<td></td>".repeat(9);
+        tb.appendChild(tr);
       }
     }
-    if (!best.w) best = { w:{first:0,latest:1,trimmed:0,carry:0}, mae:Infinity };
-    return best;
-  }
 
-  const buckets = {
-    D0_warm: learnWeights(examples.filter(e=>e.lead==="D0" && e.season==="warm"), true),
-    D0_cool: learnWeights(examples.filter(e=>e.lead==="D0" && e.season==="cool"), true),
-    D1_warm: learnWeights(examples.filter(e=>e.lead==="D1" && e.season==="warm"), false),
-    D1_cool: learnWeights(examples.filter(e=>e.lead==="D1" && e.season==="cool"), false),
-  };
-
-  // Build residuals for robust bias (global per-lead; easy to split by season later)
-  const res = { D0:[], D1:[] };
-  for (const e of examples) {
-    const key = `${e.lead}_${e.season}`;
-    const allowCarry = e.lead==="D0";
-    const w = buckets[key]?.w || {first:0,latest:1,trimmed:0,carry:0};
-    const parts = [];
-    if (e.cand.first   != null) parts.push({v:e.cand.first,   w:w.first});
-    if (e.cand.latest  != null) parts.push({v:e.cand.latest,  w:w.latest});
-    if (e.cand.trimmed != null) parts.push({v:e.cand.trimmed, w:w.trimmed});
-    if (allowCarry && e.cand.carry != null) parts.push({v:e.cand.carry, w:w.carry});
-    if (!parts.length) continue;
-    const sumW = parts.reduce((a,b)=>a+b.w,0) || 1;
-    const rep = parts.reduce((a,b)=>a + b.v * (b.w/sumW), 0);
-    res[e.lead].push(e.actual - rep);
-  }
-
-  const tables = {
-    weights: {
-      D0_warm: buckets.D0_warm.w, D0_cool: buckets.D0_cool.w,
-      D1_warm: buckets.D1_warm.w, D1_cool: buckets.D1_cool.w
-    },
-    bias: {
-      D0: robustMean(res.D0),
-      D1: robustMean(res.D1),
-      global: robustMean([...res.D0, ...res.D1])
-    },
-    rmse: {
-      D0: (()=>{ const m=mean(res.D0.map(x=>x*x)); return m==null?null:Math.sqrt(m); })(),
-      D1: (()=>{ const m=mean(res.D1.map(x=>x*x)); return m==null?null:Math.sqrt(m); })()
+    function reloadCSV() {
+      showSkeleton();
+      return fetch(CSV_URL + "?" + Date.now())
+        .then(r => r.text())
+        .then(parseCSV)
+        .then(() => {
+          seedForecastSignatures();      // after parse, prevents boot-logs
+          forecastChanged.today = false; // initial load never logs
+          forecastChanged.tomorrow = false;
+          resetFilter();
+          showMostRecent();
+          updateSummaryBoxes();
+          updateCorrectionBoxes();
+          updateObservations();
+        })
+        .catch(err => {
+          alert("Could not load CSV. " + err);
+          throw err;
+        });
     }
-  };
-  return tables;
-}
 
-// Pick bias (lead-level with safe fallback)
-function pickBiasFrom(tables, lead){
-  const b = lead==="D0" ? tables.bias.D0 : lead==="D1" ? tables.bias.D1 : null;
-  return (b==null || !Number.isFinite(b)) ? (tables.bias.global ?? 0) : b;
-}
-
-// Blend helper
-function blendedRep(cands, weights, allowCarry) {
-  const parts = [];
-  if (cands.first   != null) parts.push({v:cands.first,   w:weights.first ?? 0});
-  if (cands.latest  != null) parts.push({v:cands.latest,  w:weights.latest ?? 0});
-  if (cands.trimmed != null) parts.push({v:cands.trimmed, w:weights.trimmed ?? 0});
-  if (allowCarry && cands.carry != null) parts.push({v:cands.carry, w:weights.carry ?? 0});
-  if (!parts.length) return null;
-  const sumW = parts.reduce((a,b)=>a+b.w,0);
-  if (sumW <= 1e-9) return cands.latest ?? cands.first ?? cands.trimmed ?? cands.carry ?? null;
-  return parts.reduce((a,b)=>a + b.v * (b.w/sumW), 0);
-}
-
-// ===== Feature helpers for logging =====
- function issuanceISOUTC(row){
-   const src = (row?.timestamp || row?.forecast_time || "").replace(" ", "T");
-   const d = new Date(src);
-   if (!Number.isFinite(d.getTime())) return null;
-   // send canonical UTC (Postgres timestamptz-safe)
-   return d.toISOString().slice(0,19) + "Z"; // e.g. "2025-09-05T13:42:00Z"
- }
-function issuanceHourET(row){
-  const s = (row?.timestamp || row?.forecast_time || "").replace(" ", "T"); const d=new Date(s);
-  if (!Number.isFinite(d.getTime())) return null;
-  const hh = new Intl.DateTimeFormat("en-CA",{timeZone:"America/New_York",hour:"2-digit",hour12:false}).format(d);
-  return Number(hh);
-}
-function rowSig(r){ return `${r.timestamp || r.forecast_time || ""}|${r.predicted_high}`; }
-
-function deltaLast3(rows, repRow, highTime){
-  const sorted = rows
-    .filter(r => r.predicted_high != null && r.predicted_high !== "")
-    .filter(r => {
-      if (!highTime) return true;
-      // consider timestamp as fallback, in case forecast_time is missing
-      const fcHH = (r.forecast_time || r.timestamp || "").substr(11,5);
-      return !(fcHH && compareTimes(fcHH, highTime) > 0);
-    })
-    .sort((a,b)=>((a.timestamp||a.forecast_time||"")).localeCompare(b.timestamp||b.forecast_time||""));
-
-  const dedup = collapseConsecutiveDuplicates(sorted);
-  if (!repRow || !dedup.length) return 0;
-
-  const repS = rowSig(repRow);
-  let idx = dedup.findIndex(x => rowSig(x) === repS);
-  if (idx < 0) idx = dedup.length - 1; // fallback to last if not found
-
-  const prevs = dedup.slice(Math.max(0, idx - 2), idx)
-    .map(r => Number(r.predicted_high))
-    .filter(Number.isFinite);
-
-  if (!prevs.length) return 0;
-  const medPrev = median(prevs);
-  const rep = Number(repRow.predicted_high);
-  return (Number.isFinite(rep) && medPrev != null) ? (rep - medPrev) : 0;
-}
-// === Client idempotency helpers (avoid logging the same prediction repeatedly) ===
-function stableRound(x, d=1){
-  const n = Number(x);
-  if (!Number.isFinite(n)) return null;
-  const p = Math.pow(10, d);
-  return Math.round(n * p) / p;
-}
-
-// === Display-friendly rounding helpers (for bias-corrected cards) ===
-function round1(x){ const n = Number(x); return Number.isFinite(n) ? Math.round(n*10)/10 : null; }
-function round2(x){ const n = Number(x); return Number.isFinite(n) ? Math.round(n*100)/100 : null; }
-
-function buildPredSignature({
-  target_date, lead_used, issuance_iso,
-  rep_forecast, bias_applied, prediction_value,
-  model_name, version
-}) {
-  const rep = stableRound(rep_forecast, 1);
-  const bias = stableRound(bias_applied, 2);
-  const pred = stableRound(prediction_value, 1);
-  return [
-    target_date || '',
-    lead_used || '',
-    issuance_iso || '',
-    rep ?? '',
-    bias ?? '',
-    pred ?? '',
-    model_name || '',
-    version || ''
-  ].join('|');
-}
-
-function shouldLogPrediction(sig) {
-  try {
-    const key = 'last_pred_sig';
-    const last = localStorage.getItem(key);
-    if (last === sig) return false;
-    localStorage.setItem(key, sig);
-    return true;
-  } catch {
-    // if storage not available, allow logging; server upsert still protects you
-    return true;
-  }
-}
-
-// ===== Prediction logging toggle + helpers =====
-let PREDICTION_LOGGING_ENABLED = false; // off until we detect availability
-
-async function probeLoggingEndpoint() {
-  try {
-    const r = await fetch(`${API_BASE}/log-prediction`, { method: "OPTIONS" });
-    PREDICTION_LOGGING_ENABLED = r.ok;
-  } catch {
-    PREDICTION_LOGGING_ENABLED = false;
-  }
-}
- 
-     
-// POST logger (no-op if disabled)
-async function logPrediction(payload){
-  if (!PREDICTION_LOGGING_ENABLED) return;
-  try{
-    const r = await fetch(`${API_BASE}/log-prediction`, {
-      method:"POST",
-      headers: { "Content-Type":"application/json" },
-      body: JSON.stringify(payload)
-    });
-    if (!r.ok) {
-      // If it ever 404s/500s, just turn it off quietly to avoid console noise
-      if (r.status === 404) PREDICTION_LOGGING_ENABLED = false;
+    function csvToRows(text) {
+      const rows = [];
+      let row = [], field = '', q = false;
+      for (let i = 0; i < text.length; i++) {
+        const c = text[i], n = text[i + 1];
+        if (c === '"') {
+          if (q && n === '"') { field += '"'; i++; } else q = !q;
+        } else if (c === ',' && !q) {
+          row.push(field); field = '';
+        } else if ((c === '\n' || c === '\r') && !q) {
+          if (c === '\r' && n === '\n') i++;
+          row.push(field); field = '';
+          if (row.length && row.some(x => x !== '')) rows.push(row);
+          row = [];
+        } else field += c;
+      }
+      if (field !== '' || row.length) {
+        row.push(field);
+        if (row.length && row.some(x => x !== '')) rows.push(row);
+      }
+      return rows;
     }
-  } catch(e){ /* silent in UI, debug in console if you want */ }
-}
 
-     // Normalize "YYYY-MM-DD HH:MM:SS" → "YYYY-MM-DDTHH:MM:SS" and return a Date or null
-function safeParseTimestamp(ts) {
-  const s = (ts || "").trim();
-  if (!s) return null;
-  // If there’s a space between date and time, make it ISO
-  const isoish = s.includes("T") ? s : s.replace(" ", "T");
-  const d = new Date(isoish);
-  return Number.isFinite(d.getTime()) ? d : null;
-}
-
-// Format a Date in ET safely (returns "" if invalid)
-function safeFormatET(d) {
-  if (!(d instanceof Date) || !Number.isFinite(d.getTime())) return "";
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit"
-  }).format(d);
-}
-
-// ---- Helpers for robust ET formatting (Safari-safe) ----
-function fmtMonthDayET(d) {
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    month: "short",
-    day: "numeric"
-  }).format(d);
-}
-function fmtTimeET(d) {
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    hour: "numeric",
-    minute: "2-digit"
-  }).format(d);
-}
-function monthDayFromISO(iso) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || "")) return "";
-  return fmtMonthDayET(new Date(iso + "T00:00:00"));
-}
-function hhmmFromTS(s) {
-  const m = String(s || "").match(/\b(\d{1,2}:\d{2})\b/);
-  return m ? m[1] : "";
-}
-
-// ---- Replace your existing showMostRecent with this ----
-function showMostRecent() {
-  const el = document.getElementById("recentForecast");
-  if (!el) return;
-  if (!allRows.length) { el.textContent = ""; return; }
-
-  for (let i = allRows.length - 1; i >= 0; i--) {
-    const r = allRows[i];
-    if (r && r.forecast_or_actual === "forecast" && r.predicted_high && r.target_date) {
-      // Prefer timestamp; fall back to forecast_time; both normalized via safeParseTimestamp
-      const d =
-        safeParseTimestamp(r.timestamp) ||
-        safeParseTimestamp(r.forecast_time);
-
-      // Build "Sep 4 at 2:50 ET" safely
-      const dateLabel = d
-        ? fmtMonthDayET(d)
-        : monthDayFromISO((r.timestamp || r.forecast_time || "").slice(0, 10)) ||
-          monthDayFromISO(nycISODate(0));  // last-ditch: today ET
-
-      const timeLabel = d
-        ? fmtTimeET(d)
-        : hhmmFromTS(r.timestamp || r.forecast_time) || "";
-
-      const whenLabel = timeLabel ? `${dateLabel} at ${timeLabel} ET` : `${dateLabel}`;
-
-      el.innerHTML =
-        `<strong>${whenLabel}</strong> — ` +
-        `<strong>${r.predicted_high}°F</strong> for <strong>${r.target_date}</strong>`;
-      return;
-    }
-  }
-  el.textContent = "";
-}
-
-
-        function getForecastsForDate(dateISO) {
-            const rows = allRows
-                .filter(r => r.forecast_or_actual === "forecast" && r.target_date === dateISO && r.predicted_high)
-                .map(r => ({
-                    tstamp: r.timestamp || r.forecast_time || "",
-                    timeHHMM: (r.forecast_time || "").substr(11, 5),
-                    val: Number(r.predicted_high)
-                }))
-                .filter(x => Number.isFinite(x.val));
-            rows.sort((a, b) => (a.tstamp || "").localeCompare(b.tstamp || ""));
-            return rows;
+    function parseCSV(text) {
+      const rows = csvToRows(text);
+      if (!rows.length) return;
+      const header = rows[0].map(h => h.trim());
+      allRows = [];
+      for (let i = 1; i < rows.length; i++) {
+        const vals = rows[i];
+        const rec = {};
+        for (let j = 0; j < header.length; j++) {
+          let v = (vals[j] ?? '').trim();
+          if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1).replace(/""/g, '"');
+          rec[header[j]] = v;
         }
+        allRows.push(rec);
+      }
+    }
 
-        function renderMiniForecastChips(rows, elId) {
-            const host = document.getElementById(elId);
-            if (!host) return;
-            host.innerHTML = "";
-            const compact = [];
-            rows.forEach((r, i) => {
-                if (i === 0 || r.val !== rows[i - 1].val) compact.push(r);
-            });
-            if (!compact.length) {
-                host.innerHTML = `<span class="mini-chip">No forecasts yet</span>`;
-                return;
+    function rNum(x){ const n=Number(x); return Number.isFinite(n)? n : null; }
+
+    function toDateObj(t) {
+      if (!t) return null;
+      const clean = String(t).trim().replace(/:(\d{2})(?=\s*[AP]M)/i, '');
+      if (/[AP]M/i.test(clean)) {
+        const m = clean.match(/(\d{1,2}):(\d{2})\s*([AP]M)/i);
+        if (!m) return null;
+        const [, h, mn, amp] = m;
+        const hour = (Number(h) % 12) + (amp.toUpperCase() === "PM" ? 12 : 0);
+        return new Date(2020, 1, 1, hour, Number(mn));
+      }
+      if (/^\d{2}:\d{2}$/.test(clean)) {
+        const [h, mn] = clean.split(":");
+        return new Date(2020, 1, 1, Number(h), Number(mn));
+      }
+      return null;
+    }
+    function compareTimes(t1, t2) { const d1=toDateObj(t1), d2=toDateObj(t2); return (d1&&d2)? d1-d2 : 0; }
+
+    // ===== ET date helpers =====
+    function etDateISOFromTS(ts) {
+      const s = (ts || "").replace(" ", "T"); const d = new Date(s);
+      if (!Number.isFinite(d.getTime())) return "";
+      return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year:"numeric", month:"2-digit", day:"2-digit" }).format(d);
+    }
+    function prevISO(iso) { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
+    function monthNum(iso){ return Number((iso||"").split("-")[1]||"0"); }
+    function isWarmSeason(iso){ const m=monthNum(iso); return m>=5 && m<=9; }
+
+    // ===== Lead kind =====
+    function leadKind(row){
+      if (!row || !row.target_date) return "other";
+      const issueISO = etDateISOFromTS(row.timestamp || row.forecast_time || "");
+      if (!issueISO) return "other";
+      if (issueISO === row.target_date) return "D0";
+      if (issueISO === prevISO(row.target_date)) return "D1";
+      return "other";
+    }
+
+    // ===== Row selectors =====
+    function getForecastRowsFor(targetISO, kind){
+      const dayPrev = prevISO(targetISO);
+      return allRows.filter(r=>{
+        if (r.forecast_or_actual !== "forecast") return false;
+        if (r.target_date !== targetISO) return false;
+        const issueISO = etDateISOFromTS(r.timestamp || r.forecast_time || "");
+        if (kind==="D0") return issueISO === targetISO;
+        if (kind==="D1") return issueISO === dayPrev;
+        return false;
+      });
+    }
+
+    // Keep trend; collapse only consecutive duplicates by value
+    function collapseConsecutiveDuplicates(sortedRows){
+      const out=[]; let lastVal=null;
+      for (const r of sortedRows){
+        const v = Number(r.predicted_high);
+        if (!Number.isFinite(v)) continue;
+        if (lastVal===null || v!==lastVal){ out.push(r); lastVal=v; }
+      }
+      return out;
+    }
+
+    // Representative issuance rows/values
+    function latestPreHighRow(rows, highTime/* "" allowed */){
+      const pre = rows
+        .filter(r => r.predicted_high != null && r.predicted_high !== "")
+        .filter(r => {
+          if (!highTime) return true;
+          const fcHH = (r.forecast_time || "").substr(11,5);
+          return !(fcHH && compareTimes(fcHH, highTime) > 0);
+        })
+        .sort((a,b)=>((a.timestamp||a.forecast_time||"")).localeCompare(b.timestamp||b.forecast_time||""));
+      if (!pre.length) return null;
+      const dedup = collapseConsecutiveDuplicates(pre);
+      return dedup[dedup.length-1] || null;
+    }
+    function latestPreHighValue(rows, highTime){ const row=latestPreHighRow(rows, highTime); const v=Number(row?.predicted_high); return Number.isFinite(v)?v:null; }
+
+    // Robust stats
+    function winsorize(arr,p=0.10){ if(!arr.length) return arr.slice(); const s=arr.slice().sort((a,b)=>a-b);
+      const loIdx = Math.floor(p*(s.length-1)), hiIdx = Math.ceil((1-p)*(s.length-1));
+      const lo=s[loIdx], hi=s[hiIdx]; return s.map(x=>Math.max(lo, Math.min(hi,x)));
+    }
+    function median(a){ if(!a.length) return null; const s=a.slice().sort((x,y)=>x-y); const m=Math.floor(s.length/2); return s.length%2? s[m] : (s[m-1]+s[m])/2; }
+    function mean(a){ return a.length? a.reduce((x,y)=>x+y,0)/a.length : null; }
+    function robustMean(arr){ if(arr.length>=15) return mean(winsorize(arr,0.10)); if(arr.length>=7){ const m=median(arr); return m==null? mean(arr):m; } return mean(arr); }
+
+    // ===== Candidate builders =====
+    function d0CandidatesFor(dayISO, highTime) {
+      const d0 = getForecastRowsFor(dayISO, "D0").filter(r => r.predicted_high != null && r.predicted_high !== "");
+      const sorted = d0
+        .filter(r => {
+          if (!highTime) return true;
+          const fcHH = (r.forecast_time || "").substr(11,5);
+          return !(fcHH && compareTimes(fcHH, highTime) > 0);
+        })
+        .sort((a,b)=>((a.timestamp||a.forecast_time||"")).localeCompare(b.timestamp||b.forecast_time||""));
+      const dedup = collapseConsecutiveDuplicates(sorted);
+
+      const first  = dedup.length ? Number(dedup[0].predicted_high) : null;
+      const latest = dedup.length ? Number(dedup[dedup.length-1].predicted_high) : null;
+      const trimmed = (() => {
+        const vals = dedup.map(r=>Number(r.predicted_high)).filter(Number.isFinite);
+        if (!vals.length) return null;
+        vals.sort((a,b)=>a-b);
+        const k = Math.max(1, Math.floor(vals.length*0.1));
+        const core = vals.slice(k, vals.length-k);
+        const arr = core.length ? core : vals;
+        return mean(arr);
+      })();
+
+      // carry-over D1 (yesterday’s issuance for this target)
+      const d1Carry = latestPreHighValue(getForecastRowsFor(dayISO, "D1"), "");
+
+      return { first, latest, trimmed, carry: d1Carry, _hasD0: dedup.length>0 };
+    }
+
+    function d1CandidatesFor(tomorrowISO) {
+      const d1 = getForecastRowsFor(tomorrowISO, "D1").filter(r => r.predicted_high != null && r.predicted_high !== "");
+      const sorted = collapseConsecutiveDuplicates(
+        d1.sort((a,b)=>((a.timestamp||a.forecast_time||"")).localeCompare(b.timestamp||b.forecast_time||""))
+      );
+      const first  = sorted.length ? Number(sorted[0].predicted_high) : null;
+      const latest = sorted.length ? Number(sorted[sorted.length-1].predicted_high) : null;
+      const trimmed = (() => {
+        const vals = sorted.map(r=>Number(r.predicted_high)).filter(Number.isFinite);
+        if (!vals.length) return null;
+        vals.sort((a,b)=>a-b);
+        const k = Math.max(1, Math.floor(vals.length*0.1));
+        const core = vals.slice(k, vals.length-k);
+        const arr = core.length ? core : vals;
+        return mean(arr);
+      })();
+      return { first, latest, trimmed };
+    }
+
+    // ===== Learn per-bucket blend + bias =====
+    function buildBiasAndBlend() {
+      // Assemble per-day examples
+      const dayMap = new Map();
+      for (const r of allRows) {
+        const d = (r.forecast_or_actual==="actual" ? r.cli_date : r.target_date);
+        if (!d) continue;
+        if (!dayMap.has(d)) dayMap.set(d, {D0:[], D1:[], actual:null});
+        const bucket = dayMap.get(d);
+        if (r.forecast_or_actual==="forecast") {
+          const k = leadKind(r);
+          if (k==="D0") bucket.D0.push(r);
+          else if (k==="D1") bucket.D1.push(r);
+        } else if (r.actual_high) bucket.actual = r;
+      }
+
+      const examples = [];
+      for (const [iso, {D0,D1,actual}] of dayMap.entries()) {
+        if (!actual || !actual.actual_high) continue;
+        const act = Number(actual.actual_high);
+        const highTime = actual.high_time || "";
+        const warm = isWarmSeason(iso) ? "warm" : "cool";
+
+        const c0 = d0CandidatesFor(iso, highTime);
+        if (c0._hasD0) examples.push({ iso, season:warm, lead:"D0", actual:act, cand:{ first:c0.first, latest:c0.latest, trimmed:c0.trimmed, carry:c0.carry } });
+
+        const c1 = d1CandidatesFor(iso);
+        if (c1.latest!=null || c1.first!=null || c1.trimmed!=null) {
+          examples.push({ iso, season:warm, lead:"D1", actual:act, cand:{ first:c1.first, latest:c1.latest, trimmed:c1.trimmed } });
+        }
+      }
+
+      function learnWeights(rows, allowCarry) {
+        if (!rows.length) return { w:{first:0, latest:1, trimmed:0, carry:0}, mae:Infinity };
+        let best = { w:null, mae:Infinity };
+        const step = 0.1;
+        for (let f=0; f<=1; f+=step) {
+          for (let l=0; l<=1-f; l+=step) {
+            for (let t=0; t<=1-f-l; t+=step) {
+              const c = allowCarry ? (1 - f - l - t) : 0;
+              if (!allowCarry && Math.abs(1 - f - l - t) > 1e-9) continue;
+              const w = { first:f, latest:l, trimmed:t, carry:c };
+              let absSum = 0, n = 0;
+              for (const r of rows) {
+                const parts = [];
+                if (r.cand.first   != null) parts.push({v:r.cand.first,   w:w.first});
+                if (r.cand.latest  != null) parts.push({v:r.cand.latest,  w:w.latest});
+                if (r.cand.trimmed != null) parts.push({v:r.cand.trimmed, w:w.trimmed});
+                if (allowCarry && r.cand.carry != null) parts.push({v:r.cand.carry, w:w.carry});
+                if (!parts.length) continue;
+                const sumW = parts.reduce((a,b)=>a+b.w,0) || 1;
+                const rep = parts.reduce((a,b)=>a + b.v * (b.w/sumW), 0);
+                absSum += Math.abs(r.actual - rep);
+                n++;
+              }
+              if (!n) continue;
+              const mae = absSum / n;
+              if (mae < best.mae) best = { w, mae };
             }
-            compact.forEach(r => {
-                const label = `${r.timeHHMM || "—"}, ${r.val.toFixed(0)}°`;
-                const chip = document.createElement("span");
-                chip.className = "mini-chip";
-                chip.textContent = label;
-                host.appendChild(chip);
-            });
+          }
         }
+        if (!best.w) best = { w:{first:0,latest:1,trimmed:0,carry:0}, mae:Infinity };
+        return best;
+      }
+
+      const buckets = {
+        D0_warm: learnWeights(examples.filter(e=>e.lead==="D0" && e.season==="warm"), true),
+        D0_cool: learnWeights(examples.filter(e=>e.lead==="D0" && e.season==="cool"), true),
+        D1_warm: learnWeights(examples.filter(e=>e.lead==="D1" && e.season==="warm"), false),
+        D1_cool: learnWeights(examples.filter(e=>e.lead==="D1" && e.season==="cool"), false),
+      };
+
+      const res = { D0:[], D1:[] };
+      for (const e of examples) {
+        const key = `${e.lead}_${e.season}`;
+        const allowCarry = e.lead==="D0";
+        const w = buckets[key]?.w || {first:0,latest:1,trimmed:0,carry:0};
+        const parts = [];
+        if (e.cand.first   != null) parts.push({v:e.cand.first,   w:w.first});
+        if (e.cand.latest  != null) parts.push({v:e.cand.latest,  w:w.latest});
+        if (e.cand.trimmed != null) parts.push({v:e.cand.trimmed, w:w.trimmed});
+        if (allowCarry && e.cand.carry != null) parts.push({v:e.cand.carry, w:w.carry});
+        if (!parts.length) continue;
+        const sumW = parts.reduce((a,b)=>a+b.w,0) || 1;
+        const rep = parts.reduce((a,b)=>a + b.v * (b.w/sumW), 0);
+        res[e.lead].push(e.actual - rep);
+      }
+
+      const tables = {
+        weights: {
+          D0_warm: buckets.D0_warm.w, D0_cool: buckets.D0_cool.w,
+          D1_warm: buckets.D1_warm.w, D1_cool: buckets.D1_cool.w
+        },
+        bias: {
+          D0: robustMean(res.D0),
+          D1: robustMean(res.D1),
+          global: robustMean([...res.D0, ...res.D1])
+        },
+        rmse: {
+          D0: (()=>{ const m=mean(res.D0.map(x=>x*x)); return m==null?null:Math.sqrt(m); })(),
+          D1: (()=>{ const m=mean(res.D1.map(x=>x*x)); return m==null?null:Math.sqrt(m); })()
+        }
+      };
+      return tables;
+    }
+
+    // Pick bias (lead-level with safe fallback)
+    function pickBiasFrom(tables, lead){
+      const b = lead==="D0" ? tables.bias.D0 : lead==="D1" ? tables.bias.D1 : null;
+      return (b==null || !Number.isFinite(b)) ? (tables.bias.global ?? 0) : b;
+    }
+
+    // Blend helper
+    function blendedRep(cands, weights, allowCarry) {
+      const parts = [];
+      if (cands.first   != null) parts.push({v:cands.first,   w:weights.first ?? 0});
+      if (cands.latest  != null) parts.push({v:cands.latest,  w:weights.latest ?? 0});
+      if (cands.trimmed != null) parts.push({v:cands.trimmed, w:weights.trimmed ?? 0});
+      if (allowCarry && cands.carry != null) parts.push({v:cands.carry, w:weights.carry ?? 0});
+      if (!parts.length) return null;
+      const sumW = parts.reduce((a,b)=>a+b.w,0);
+      if (sumW <= 1e-9) return cands.latest ?? cands.first ?? cands.trimmed ?? cands.carry ?? null;
+      return parts.reduce((a,b)=>a + b.v * (b.w/sumW), 0);
+    }
+
+    // ===== Feature helpers for logging =====
+    function issuanceISOUTC(row){
+      const src = (row?.timestamp || row?.forecast_time || "").replace(" ", "T");
+      const d = new Date(src);
+      if (!Number.isFinite(d.getTime())) return null;
+      return d.toISOString().slice(0,19) + "Z"; // canonical UTC
+    }
+    function issuanceHourET(row){
+      const s = (row?.timestamp || row?.forecast_time || "").replace(" ", "T"); const d=new Date(s);
+      if (!Number.isFinite(d.getTime())) return null;
+      const hh = new Intl.DateTimeFormat("en-CA",{timeZone:"America/New_York",hour:"2-digit",hour12:false}).format(d);
+      return Number(hh);
+    }
+    function rowSig(r){ return `${r.timestamp || r.forecast_time || ""}|${r.predicted_high}`; }
+
+    function deltaLast3(rows, repRow, highTime){
+      const sorted = rows
+        .filter(r => r.predicted_high != null && r.predicted_high !== "")
+        .filter(r => {
+          if (!highTime) return true;
+          const fcHH = (r.forecast_time || r.timestamp || "").substr(11,5);
+          return !(fcHH && compareTimes(fcHH, highTime) > 0);
+        })
+        .sort((a,b)=>((a.timestamp||a.forecast_time||"")).localeCompare(b.timestamp||b.forecast_time||""));
+
+      const dedup = collapseConsecutiveDuplicates(sorted);
+      if (!repRow || !dedup.length) return 0;
+
+      const repS = rowSig(repRow);
+      let idx = dedup.findIndex(x => rowSig(x) === repS);
+      if (idx < 0) idx = dedup.length - 1;
+
+      const prevs = dedup.slice(Math.max(0, idx - 2), idx)
+        .map(r => Number(r.predicted_high))
+        .filter(Number.isFinite);
+
+      if (!prevs.length) return 0;
+      const medPrev = median(prevs);
+      const rep = Number(repRow.predicted_high);
+      return (Number.isFinite(rep) && medPrev != null) ? (rep - medPrev) : 0;
+    }
+
+    // === Client idempotency helpers (avoid logging the same prediction repeatedly) ===
+    function stableRound(x, d=1){
+      const n = Number(x);
+      if (!Number.isFinite(n)) return null;
+      const p = Math.pow(10, d);
+      return Math.round(n * p) / p;
+    }
+    function round1(x){ const n = Number(x); return Number.isFinite(n) ? Math.round(n*10)/10 : null; }
+
+    function buildPredSignature({
+      target_date, lead_used, issuance_iso,
+      rep_forecast, bias_applied, prediction_value,
+      model_name, version
+    }) {
+      const rep = stableRound(rep_forecast, 1);
+      const bias = stableRound(bias_applied, 2);
+      const pred = stableRound(prediction_value, 1);
+      return [
+        target_date || '',
+        lead_used || '',
+        issuance_iso || '',
+        rep ?? '',
+        bias ?? '',
+        pred ?? '',
+        model_name || '',
+        version || ''
+      ].join('|');
+    }
+
+    // remembers the last forecast_signature we actually logged
+    const loggedSig = {
+      today:    localStorage.getItem("loggedSig_today")    || null,
+      tomorrow: localStorage.getItem("loggedSig_tomorrow") || null,
+    };
+    function setLoggedSig(which, sig) {
+      loggedSig[which] = sig;
+      try { localStorage.setItem(`loggedSig_${which}`, sig); } catch {}
+    }
+
+    // ===== Prediction logging toggle + helpers =====
+    let PREDICTION_LOGGING_ENABLED = false; // off until we detect availability
+    async function probeLoggingEndpoint() {
+      try {
+        const r = await fetch(`${API_BASE}/log-prediction`, { method: "OPTIONS" });
+        PREDICTION_LOGGING_ENABLED = r.ok;
+      } catch {
+        PREDICTION_LOGGING_ENABLED = false;
+      }
+    }
+    async function logPrediction(payload){
+      if (!PREDICTION_LOGGING_ENABLED) return;
+      try{
+        const r = await fetch(`${API_BASE}/log-prediction`, {
+          method:"POST",
+          headers: { "Content-Type":"application/json" },
+          body: JSON.stringify(payload)
+        });
+        if (!r.ok) {
+          if (r.status === 404) PREDICTION_LOGGING_ENABLED = false;
+        }
+      } catch(e){ /* quiet */ }
+    }
+
+    // ---- Friendly ET date display helpers ----
+    function safeParseTimestamp(ts) {
+      const s = (ts || "").trim();
+      if (!s) return null;
+      const isoish = s.includes("T") ? s : s.replace(" ", "T");
+      const d = new Date(isoish);
+      return Number.isFinite(d.getTime()) ? d : null;
+    }
+    function fmtMonthDayET(d) {
+      return new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        month: "short",
+        day: "numeric"
+      }).format(d);
+    }
+    function fmtTimeET(d) {
+      return new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        hour: "numeric",
+        minute: "2-digit"
+      }).format(d);
+    }
+    function monthDayFromISO(iso) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || "")) return "";
+      return fmtMonthDayET(new Date(iso + "T00:00:00"));
+    }
+    function hhmmFromTS(s) {
+      const m = String(s || "").match(/\b(\d{1,2}:\d{2})\b/);
+      return m ? m[1] : "";
+    }
+    function showMostRecent() {
+      const el = document.getElementById("recentForecast");
+      if (!el) return;
+      if (!allRows.length) { el.textContent = ""; return; }
+
+      for (let i = allRows.length - 1; i >= 0; i--) {
+        const r = allRows[i];
+        if (r && r.forecast_or_actual === "forecast" && r.predicted_high && r.target_date) {
+          const d =
+            safeParseTimestamp(r.timestamp) ||
+            safeParseTimestamp(r.forecast_time);
+
+          const dateLabel = d
+            ? fmtMonthDayET(d)
+            : monthDayFromISO((r.timestamp || r.forecast_time || "").slice(0, 10)) ||
+              monthDayFromISO(nycISODate(0));
+
+          const timeLabel = d
+            ? fmtTimeET(d)
+            : hhmmFromTS(r.timestamp || r.forecast_time) || "";
+
+          const whenLabel = timeLabel ? `${dateLabel} at ${timeLabel} ET` : `${dateLabel}`;
+
+          el.innerHTML =
+            `<strong>${whenLabel}</strong> — ` +
+            `<strong>${r.predicted_high}°F</strong> for <strong>${r.target_date}</strong>`;
+          return;
+        }
+      }
+      el.textContent = "";
+    }
+
+    function getForecastsForDate(dateISO) {
+      const rows = allRows
+        .filter(r => r.forecast_or_actual === "forecast" && r.target_date === dateISO && r.predicted_high)
+        .map(r => ({
+          tstamp: r.timestamp || r.forecast_time || "",
+          timeHHMM: (r.forecast_time || "").substr(11, 5),
+          val: Number(r.predicted_high)
+        }))
+        .filter(x => Number.isFinite(x.val));
+      rows.sort((a, b) => (a.tstamp || "").localeCompare(b.tstamp || ""));
+      return rows;
+    }
+
+    function renderMiniForecastChips(rows, elId) {
+      const host = document.getElementById(elId);
+      if (!host) return;
+      host.innerHTML = "";
+      const compact = [];
+      rows.forEach((r, i) => {
+        if (i === 0 || r.val !== rows[i - 1].val) compact.push(r);
+      });
+      if (!compact.length) {
+        host.innerHTML = `<span class="mini-chip">No forecasts yet</span>`;
+        return;
+      }
+      compact.forEach(r => {
+        const label = `${r.timeHHMM || "—"}, ${r.val.toFixed(0)}°`;
+        const chip = document.createElement("span");
+        chip.className = "mini-chip";
+        chip.textContent = label;
+        host.appendChild(chip);
+      });
+    }
+
     // ---- Forecast change watcher (GLOBAL scope) ----
     let lastSig = { today: null, tomorrow: null };
-    
+    let forecastChanged = { today: false, tomorrow: false };
+
     function forecastSignatureFor(dateISO, rows = allRows) {
       return rows
         .filter(r => r.forecast_or_actual === "forecast" && r.target_date === dateISO && r.predicted_high)
@@ -1945,18 +1093,16 @@ function showMostRecent() {
         .sort()
         .join("~");
     }
-    
     function seedForecastSignatures() {
       lastSig.today = forecastSignatureFor(nycISODate(0));
       lastSig.tomorrow = forecastSignatureFor(nycISODate(1));
     }
-    
+
     async function pollCsvAndUpdate() {
       try {
-        const txt = await fetch(CSV_URL + "?" + Date.now(), { cache: "no-cache", mode: "cors" })
-          .then(r => r.text());
-    
-        // reuse your parser
+        const txt = await fetch(CSV_URL + "?" + Date.now(), { cache: "no-cache", mode: "cors" }).then(r => r.text());
+
+        // reuse parser
         const raw = csvToRows(txt);
         if (!raw.length) return;
         const header = raw[0].map(h => h.trim());
@@ -1970,1050 +1116,938 @@ function showMostRecent() {
           }
           rows.push(rec);
         }
-    
+
         const todayISO = nycISODate(0);
         const tomorrowISO = nycISODate(1);
-        const sigToday = forecastSignatureFor(todayISO, rows);
-        const sigTomorrow = forecastSignatureFor(tomorrowISO, rows);
-    
-        if (sigToday === lastSig.today && sigTomorrow === lastSig.tomorrow) return; // no change
-    
-        // change detected → adopt + refresh
+        const sigTodayNew = forecastSignatureFor(todayISO, rows);
+        const sigTmrwNew  = forecastSignatureFor(tomorrowISO, rows);
+
+        const changedToday   = sigTodayNew !== lastSig.today;
+        const changedTomorrow= sigTmrwNew  !== lastSig.tomorrow;
+
+        if (!changedToday && !changedTomorrow) return; // no change
+
+        // adopt + mark which changed
+        lastSig.today    = sigTodayNew;
+        lastSig.tomorrow = sigTmrwNew;
+        forecastChanged.today    = changedToday;
+        forecastChanged.tomorrow = changedTomorrow;
+
+        // swap data + refresh UI
         allRows = rows;
         filteredRows = allRows.slice();
-        lastSig.today = sigToday;
-        lastSig.tomorrow = sigTomorrow;
-    
         showMostRecent();
         updateSummaryBoxes();
-        updateCorrectionBoxes();
+        updateCorrectionBoxes(); // <-- will log only for the flagged sides
         // optionally: displayTable(); showStats(); showChart();
       } catch (e) {
         console.debug("pollCsvAndUpdate error:", e);
       }
     }
 
-        /* ========= NETWORK: SAME-ORIGIN → PROXY → UPSTREAM ========= */
-        const CSV_URL = "https://raw.githubusercontent.com/hwaheed13/nws-forecast-logger/main/nws_forecast_log.csv";   
-        const KALSHI_BASE_URL = "https://kalshi.com/markets/kxhighny/highest-temperature-in-nyc";
-        const API_BASE = "/api"; // relative works from / or /dashboard/
+    /* ========= NETWORK: SAME-ORIGIN → PROXY → UPSTREAM ========= */
+    const CSV_URL = "https://raw.githubusercontent.com/hwaheed13/nws-forecast-logger/main/nws_forecast_log.csv";
+    const KALSHI_BASE_URL = "https://kalshi.com/markets/kxhighny/highest-temperature-in-nyc";
+    const API_BASE = "/api"; // relative works from / or /dashboard/
 
-        // Ordered URL fallbacks
-        const KALSHI_BY_DATE_URLS = [
-            `${API_BASE}/kalshi`,
-        ];
+    const KALSHI_BY_DATE_URLS = [ `${API_BASE}/kalshi` ];
+    const KALSHI_LIVE_URLS    = [ `${API_BASE}/kalshi-live` ];
+    const NWS_HIGH_SO_FAR_URLS= [ `${API_BASE}/nws-high-so-far` ];
+    const NWS_CURRENT_TEMP_URLS=[ `${API_BASE}/nws-current-temp` ];
+    const NWS_DSM_URLS        = [
+      `${API_BASE}/nws-dsm?issuedby=NYC`,
+      "https://forecast.weather.gov/product.php?site=NWS&issuedby=NYC&product=DSM&format=CI&version=1&glossary=1",
+    ];
+    const NWS_6HR_JSON_URLS = [
+      `${API_BASE}/nws-6hr-json`,
+      "https://www.weather.gov/source/wrh/timeseries/obs.js",
+    ];
 
-        const KALSHI_LIVE_URLS = [
-            `${API_BASE}/kalshi-live`,
-        ];
-
-        const NWS_HIGH_SO_FAR_URLS = [
-            `${API_BASE}/nws-high-so-far`,
-        ];
-
-        const NWS_CURRENT_TEMP_URLS = [
-            `${API_BASE}/nws-current-temp`,
-        ];
-
-        const NWS_DSM_URLS = [
-            `${API_BASE}/nws-dsm?issuedby=NYC`,
-            "https://forecast.weather.gov/product.php?site=NWS&issuedby=NYC&product=DSM&format=CI&version=1&glossary=1",
-        ];
-
-        const NWS_6HR_JSON_URLS = [
-            `${API_BASE}/nws-6hr-json`,
-            "https://www.weather.gov/source/wrh/timeseries/obs.js",
-        ];
-
-        async function fetchJSON(urls, qs) {
-            for (const base of urls) {
-                try {
-                    const u = new URL(base, location.origin);
-                    if (qs) {
-                        for (const [k, v] of Object.entries(qs)) {
-                            u.searchParams.set(k, v);
-                        }
-                    }
-                    const r = await fetch(u.toString(), {
-                        cache: "no-cache",
-                        mode: "cors",
-                        headers: { Accept: "application/json" }
-                    });
-                    if (r.ok) return await r.json();
-                } catch (_) {}
-            }
-            return null;
-        }
-
-        async function fetchTEXT(urls, qs) {
-            for (const base of urls) {
-                try {
-                    const u = new URL(base, location.origin);
-                    if (qs) {
-                        for (const [k, v] of Object.entries(qs)) {
-                            u.searchParams.set(k, v);
-                        }
-                    }
-                    const r = await fetch(u.toString(), {
-                        cache: "no-cache",
-                        mode: "cors"
-                    });
-                    if (r.ok) return await r.text();
-                } catch (_) {}
-            }
-            return null;
-        }
-
-        // Kalshi + NWS fetchers using the helpers
-        async function fetchKalshiWinningRange(dateISO) {
-            return fetchJSON(KALSHI_BY_DATE_URLS, { date: dateISO });
-        }
-
-       async function fetchKalshiLiveLeader(dateISO) {
-      return fetchJSON(KALSHI_LIVE_URLS, { date: dateISO, cb: Date.now() });
+    async function fetchJSON(urls, qs) {
+      for (const base of urls) {
+        try {
+          const u = new URL(base, location.origin);
+          if (qs) for (const [k, v] of Object.entries(qs)) u.searchParams.set(k, v);
+          const r = await fetch(u.toString(), { cache: "no-cache", mode: "cors", headers: { Accept: "application/json" } });
+          if (r.ok) return await r.json();
+        } catch (_) {}
+      }
+      return null;
+    }
+    async function fetchTEXT(urls, qs) {
+      for (const base of urls) {
+        try {
+          const u = new URL(base, location.origin);
+          if (qs) for (const [k, v] of Object.entries(qs)) u.searchParams.set(k, v);
+          const r = await fetch(u.toString(), { cache: "no-cache", mode: "cors" });
+          if (r.ok) return await r.text();
+        } catch (_) {}
+      }
+      return null;
     }
 
+    async function fetchKalshiWinningRange(dateISO) { return fetchJSON(KALSHI_BY_DATE_URLS, { date: dateISO }); }
+    async function fetchKalshiLiveLeader(dateISO)   { return fetchJSON(KALSHI_LIVE_URLS, { date: dateISO, cb: Date.now() }); }
+    async function fetchNwsHighSoFar(station = "KNYC") { return fetchJSON(NWS_HIGH_SO_FAR_URLS, { station }); }
+    async function fetchNwsCurrentTemp(station = "KNYC") { return fetchJSON(NWS_CURRENT_TEMP_URLS, { station, cb: Date.now() }); }
 
-        async function fetchNwsHighSoFar(station = "KNYC") {
-            return fetchJSON(NWS_HIGH_SO_FAR_URLS, { station });
-        }
-
-        async function fetchNwsCurrentTemp(station = "KNYC") {
-            return fetchJSON(NWS_CURRENT_TEMP_URLS, { station, cb: Date.now() });
-        }
-
-        // Kalshi cache
-        const kalshiCache = new Map();
-
+    // Kalshi cache
+    const kalshiCache = new Map();
     async function getKalshiLabel(dateISO) {
       const today = nycISODate(0);
       const yesterday = nycISODate(-1);
-    
-      // Never cache "today" — always refetch
-      if (dateISO === today) {
-        return await fetchKalshiWinningRange(dateISO);
-      }
-    
-      // Small TTL for yesterday; unlimited cache for older days
+
+      // Never cache "today"
+      if (dateISO === today) return await fetchKalshiWinningRange(dateISO);
+
       const now = Date.now();
       const cached = kalshiCache.get(dateISO);
-      if (cached && (dateISO !== yesterday || (now - cached._ts) < 120000)) {
-        return cached.data;
-      }
-    
+      if (cached && (dateISO !== yesterday || (now - cached._ts) < 120000)) return cached.data;
+
       const fresh = await fetchKalshiWinningRange(dateISO);
       kalshiCache.set(dateISO, { _ts: now, data: fresh });
       return fresh;
     }
 
-
-        // DSM parsing
-        function parseDSM(text) {
-            if (!text) return null;
-            const t = text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-            const dateMatch = t.match(/\b(\d{1,2})\/(\d{2})\b/);
-            if (!dateMatch) return null;
-            const after = t.slice(t.indexOf(dateMatch[0]) + dateMatch[0].length);
-            const hiBlock = after.match(/\b(\d{6})\b/);
-            if (!hiBlock) return null;
-            const block = hiBlock[1];
-            const tempF = Number(block.slice(0, 2));
-            const hh = block.slice(2, 4);
-            const mm = block.slice(4, 6);
-            if (!Number.isFinite(tempF)) return null;
-            const now = new Date();
-            const year = now.getFullYear();
-            const dd = String(dateMatch[1]).padStart(2, "0");
-            const mmMon = String(dateMatch[2]).padStart(2, "0");
-            const isoLocal = `${year}-${mmMon}-${dd}T${hh}:${mm}:00`;
-            const dayISO = `${year}-${mmMon}-${dd}`;
-            const when = new Date(isoLocal);
-            const fmtET = new Intl.DateTimeFormat("en-US", {
-                timeZone: "America/New_York",
-                hour: "numeric",
-                minute: "2-digit"
-            }).format(when);
-            return {
-                tempF,
-                timeET: fmtET,
-                iso: isoLocal,
-                dayISO,
-                raw: block
-            };
-        }
-
-        // Month helpers (for table)
-        function monthKeyFromISO(iso) {
-            const [y, m] = iso.split('-');
-            return `${y}-${m}`;
-        }
-
-        function monthLabelFromKey(key) {
-            const [y, m] = key.split('-').map(Number);
-            const d = new Date(y, m - 1, 1);
-            return new Intl.DateTimeFormat('en-US', {
-                month: 'long',
-                year: 'numeric'
-            }).format(d);
-        }
-
-        // DSM (single, non-duplicated)
-        let lastDSMDay = nycISODate(0);
-
-        function clearDSMOnly() {
-            const max = document.getElementById("box-dsm-max");
-            const note = document.getElementById("box-dsm-note");
-            if (max) max.textContent = "–";
-            if (note) note.textContent = "";
-        }
-
-        async function updateDSM() {
-            const el = document.getElementById("box-dsm-max");
-            const note = document.getElementById("box-dsm-note");
-            if (!el || !note) return;
-            const today = nycISODate(0);
-            if (today !== lastDSMDay) {
-                clearDSMOnly();
-                lastDSMDay = today;
-            }
-            el.textContent = "–";
-            note.textContent = "";
-            const txt = await fetchTEXT(NWS_DSM_URLS);
-            const parsed = parseDSM(txt);
-            if (parsed && parsed.dayISO === today) {
-                el.textContent = `${parsed.tempF.toFixed(0)}°F`;
-                note.textContent = `${parsed.timeET} ET • daily summary message`;
-            } else {
-                clearDSMOnly();
-            }
-        }
-
-        // 6-hr max
-        async function updateSixHourMax() {
-            const el = document.getElementById("box-6hr-max");
-            const note = document.getElementById("box-6hr-max-note");
-            if (!el || !note) return;
-            el.textContent = "–";
-            note.textContent = "";
-            try {
-                const parsed = await fetchJSON(NWS_6HR_JSON_URLS, { station: "KNYC" });
-                if (parsed && parsed.value != null) {
-                    el.textContent = `${parsed.value}°F`;
-                    note.textContent = parsed.time ? `as of ${parsed.time} • 6-hr max` : "Latest 6-hr max";
-                } else {
-                    note.textContent = "6-Hr Max not available";
-                }
-            } catch (err) {
-                console.error("6HR fetch error:", err);
-                note.textContent = "6-Hr Max unavailable";
-            }
-        }
-
-        // Observations: current temp only
-        function updateObservations() {
-            fetchNwsCurrentTemp("KNYC").then(cur => {
-                const el = document.getElementById("box-today-current");
-                const note = document.getElementById("box-today-current-note");
-                if (!el || !note) return;
-                if (cur && cur.currentF != null) {
-                    el.textContent = `${Number(cur.currentF).toFixed(1)}°F`;
-                    const ts = cur.atISO ? new Date(cur.atISO) : null;
-                    const tNY = ts ? new Intl.DateTimeFormat("en-US", {
-                        timeZone: "America/New_York",
-                        hour: "numeric",
-                        minute: "2-digit"
-                    }).format(ts) : "";
-                    note.textContent = tNY ? `as of ${tNY} ET • station ${cur.station}` : `station ${cur.station}`;
-                } else {
-                    el.textContent = "–";
-                    note.textContent = "";
-                }
-            });
-        }
-
-      async function updateSummaryBoxes() {
-  const today = nycISODate(0);
-  const tomorrow = nycISODate(1);
-  const yesterday = nycISODate(-1);
-
-  const latestForDate = (date) => {
-    const rows = allRows
-      .filter(r => r.forecast_or_actual === "forecast" && r.target_date === date && r.predicted_high);
-    if (!rows.length) return null;
-    rows.sort((a, b) => {
-      const A = a.timestamp || a.forecast_time || "";
-      const B = b.timestamp || b.forecast_time || "";
-      return B.localeCompare(A);
-    });
-    return Number(rows[0].predicted_high);
-  };
-
-  // Update the four metric boxes + mini chips
-  const tLatest  = latestForDate(today);
-  const tActRow  = allRows.find(r => r.forecast_or_actual === "actual" && r.cli_date === today && r.actual_high);
-  const tActual  = tActRow ? Number(tActRow.actual_high) : null;
-  const tmLatest = latestForDate(tomorrow);
-
-  const e = (id) => document.getElementById(id);
-  if (e("box-today-forecast"))   e("box-today-forecast").textContent   = (tLatest  == null) ? "–" : `${tLatest.toFixed(0)}°F`;
-  if (e("box-today-actual"))     e("box-today-actual").textContent     = (tActual  == null) ? "–" : `${tActual.toFixed(0)}°F`;
-  if (e("box-tomorrow-forecast"))e("box-tomorrow-forecast").textContent= (tmLatest == null) ? "–" : `${tmLatest.toFixed(0)}°F`;
-
-  const todayRows    = getForecastsForDate(today);
-  const tomorrowRows = getForecastsForDate(tomorrow);
-  renderMiniForecastChips(todayRows, "mini-today-forecasts");
-  renderMiniForecastChips(tomorrowRows, "mini-tomorrow-forecasts");
-
-  // ===== Kalshi badges =====
-  const tBox  = e('box-today-kalshi');
-  const tNote = e('box-today-kalshi-note');
-  const yBox  = e('box-yday-kalshi');
-  const yNote = e('box-yday-kalshi-note');
-
-  try {
-    // Pull both in parallel
-    const [ktoday, kyday, live] = await Promise.all([
-      getKalshiLabel(today),
-      getKalshiLabel(yesterday),
-      fetchKalshiLiveLeader(today)
-    ]);
-
-    // --- TODAY ---
-    // Prefer fresh LIVE; fall back to settled by-date; else Pending
-    if (live && live.leadingLabel) {
-      const pct = (live.leadingProb != null) ? ` (${Math.round(live.leadingProb * 100)}%)` : "";
-      if (tBox)  tBox.innerHTML  = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${live.leadingLabel}${pct}</a>`;
-      if (tNote) tNote.textContent = "Live leader (can flip before settlement).";
-    } else if (ktoday && ktoday.settled === true && ktoday.label) {
-      if (tBox)  tBox.innerHTML  = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${ktoday.label}</a>`;
-      if (tNote) tNote.textContent = (ktoday.exactTemp != null) ? `Settled at ${ktoday.exactTemp.toFixed(1)}°F.` : "";
-    } else {
-      if (tBox)  tBox.innerHTML  = `<span class="kalshi-pending">Pending settlement</span>`;
-      if (tNote) tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
+    // DSM parsing
+    function parseDSM(text) {
+      if (!text) return null;
+      const t = text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      const dateMatch = t.match(/\b(\d{1,2})\/(\d{2})\b/);
+      if (!dateMatch) return null;
+      const after = t.slice(t.indexOf(dateMatch[0]) + dateMatch[0].length);
+      const hiBlock = after.match(/\b(\d{6})\b/);
+      if (!hiBlock) return null;
+      const block = hiBlock[1];
+      const tempF = Number(block.slice(0, 2));
+      const hh = block.slice(2, 4);
+      const mm = block.slice(4, 6);
+      if (!Number.isFinite(tempF)) return null;
+      const now = new Date();
+      const year = now.getFullYear();
+      const dd = String(dateMatch[1]).padStart(2, "0");
+      const mmMon = String(dateMatch[2]).padStart(2, "0");
+      const isoLocal = `${year}-${mmMon}-${dd}T${hh}:${mm}:00`;
+      const dayISO = `${year}-${mmMon}-${dd}`;
+      const when = new Date(isoLocal);
+      const fmtET = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        hour: "numeric",
+        minute: "2-digit"
+      }).format(when);
+      return { tempF, timeET: fmtET, iso: isoLocal, dayISO, raw: block };
     }
 
-    // --- YESTERDAY ---
-    const anchor = kalshiAnchorForISO(yesterday);
-    const yHref = `${KALSHI_BASE_URL}${anchor}`;
-    if (kyday && kyday.label) {
-      const exact = (kyday.exactTemp != null) ? ` (settled ${kyday.exactTemp.toFixed(1)}°F)` : "";
-      if (yBox)  yBox.innerHTML  = `<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">${kyday.label}${exact}</a>`;
-      if (yNote) yNote.textContent = "Links directly to yesterday's contract.";
-    } else {
-      if (yBox)  yBox.innerHTML  = `<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">Open yesterday's market</a>`;
-      if (yNote) yNote.textContent = "No proxy data; linking via anchor.";
+    // Month helpers (for table)
+    function monthKeyFromISO(iso) { const [y,m] = iso.split('-'); return `${y}-${m}`; }
+    function monthLabelFromKey(key) {
+      const [y, m] = key.split('-').map(Number);
+      const d = new Date(y, m - 1, 1);
+      return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(d);
     }
-  } catch {
-    // Fallbacks if either endpoint errors
-    if (tBox)  tBox.innerHTML  = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">Open market</a>`;
-    if (tNote) tNote.textContent = "Could not load proxy data.";
-    const yHref = `${KALSHI_BASE_URL}${kalshiAnchorForISO(yesterday)}`;
-    if (yBox)  yBox.innerHTML  = `<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">Open yesterday's market</a>`;
-    if (yNote) yNote.textContent = "Proxy error; using anchor link.";
-  }
-}
 
-
-        function calcBiases() {
-            const biasList = [], dayMap = {};
-            allRows.forEach(r => {
-                const d = r.forecast_or_actual === "actual" ? r.cli_date : r.target_date;
-                if (!d) return;
-                if (!dayMap[d]) dayMap[d] = [];
-                dayMap[d].push(r);
-            });
-            const dates = Object.keys(dayMap).sort();
-            dates.forEach(d => {
-                const rows = dayMap[d];
-                const actual = rows.find(r => r.forecast_or_actual === "actual" && r.actual_high);
-                if (!actual) return;
-                const actualHigh = Number(actual.actual_high);
-                const highTime = actual.high_time || "";
-                const fcVals = [];
-                rows.forEach(r => {
-                    if (r.forecast_or_actual !== "forecast" || !r.predicted_high) return;
-                    if (highTime) {
-                        const fcHH = (r.forecast_time || "").substr(11, 5);
-                        if (fcHH && compareTimes(fcHH, highTime) > 0) return;
-                    }
-                    fcVals.push(Number(r.predicted_high));
-                });
-                if (fcVals.length) {
-                    const meanFc = fcVals.reduce((a, b) => a + b, 0) / fcVals.length;
-                    biasList.push(actualHigh - meanFc);
-                }
-            });
-            return biasList;
-        }
-
-          function hasActualFor(dateISO) {
-       return allRows.some(r =>
-         r.forecast_or_actual === "actual" &&
-         r.cli_date === dateISO &&
-         r.actual_high && String(r.actual_high).trim() !== ""
-       );
-     }
-
- function updateCorrectionBoxes() {
-  const tables = buildBiasAndBlend();
-  const today = nycISODate(0);
-  const tomorrow = nycISODate(1);
-
-  // Today actual (to enforce pre-high)
-  const todayActual = allRows.find(
-    r => r.forecast_or_actual === "actual" && r.cli_date === today && r.actual_high
-  );
-  const highTime = todayActual ? todayActual.high_time : "";
-
-  // ---------- TODAY ----------
-  const todayBox = document.getElementById("correctionBoxToday");
-  if (todayBox) {
-    if (todayActual) {
-      todayBox.innerHTML = `
-        <div class="prediction-value">—</div>
-        <div class="prediction-subtitle">Actual published for ${today}</div>
-      `;
-    } else {
-      const c0 = d0CandidatesFor(today, highTime);
-      const warmKey = isWarmSeason(today) ? "D0_warm" : "D0_cool";
-      const w0 = tables.weights[warmKey] || { first:0, latest:1, trimmed:0, carry:0 };
-      const rep = blendedRep(c0, w0, /*allowCarry*/ true);
-
-      const bias = pickBiasFrom(tables, "D0");
-      const pred = (rep == null) ? null : rep + bias;
-
-      const pDisp = round1(pred);
-      const rDisp = round1(rep);
-      const bDisp = round1(bias ?? 0);
-
-      todayBox.innerHTML = `
-        <div class="prediction-value">${pDisp == null ? "–" : `${pDisp.toFixed(1)}°F`}</div>
-        <div class="prediction-subtitle">
-          For ${today}
-          ${rDisp==null ? "" : `<br><small style="opacity:.7">
-            blend=${rDisp.toFixed(1)}°F · bias=${bDisp.toFixed(1)} · w={f:${(w0.first??0).toFixed(1)}, l:${(w0.latest??0).toFixed(1)}, t:${(w0.trimmed??0).toFixed(1)}, c:${(w0.carry??0).toFixed(1)}}
-          </small>`}
-        </div>
-      `;
-
-      // ✅ Logging (Today)
-      if (rep != null) {
-        const repRow = latestPreHighRow(getForecastRowsFor(today, c0._hasD0 ? "D0" : "D1"), c0._hasD0 ? highTime : "");
-        const dlt = deltaLast3(
-          c0._hasD0 ? getForecastRowsFor(today,"D0") : getForecastRowsFor(today,"D1"),
-          repRow,
-          c0._hasD0 ? highTime : ""
-        );
-
-        const payload = {
-          timestamp_et: new Date().toISOString(),
-          target_date: today,
-          lead_used: c0._hasD0 ? "D0" : "D1",
-          is_carryover: c0._hasD0 ? 0 : 1,
-          rep_forecast: Number(rep),               // full precision
-           delta_last3:  Number(dlt),
-          issuance_iso: issuanceISOUTC(repRow),
-          issuance_hour_local: issuanceHourET(repRow),
-          season: isWarmSeason(today) ? "warm" : "cool",
-          bias_applied: Number(bias ?? 0),
-          prediction_value: Number(pred),          // full precision
-          uncertainty_rmse: stableRound(tables.rmse.D0 ?? 0, 1),
-          model_name: "seasonal_lead_bias_blended_rep",
-          version: "v1.1"
-        };
-
-        const sigToday = buildPredSignature({
-          target_date: payload.target_date,
-          lead_used: payload.lead_used,
-          issuance_iso: payload.issuance_iso,
-          rep_forecast: payload.rep_forecast,
-          bias_applied: payload.bias_applied,
-          prediction_value: payload.prediction_value,
-          model_name: payload.model_name,
-          version: payload.version
-        });
-        if (shouldLogPrediction(sigToday)) logPrediction(payload);
+    // DSM (single, non-duplicated)
+    let lastDSMDay = nycISODate(0);
+    function clearDSMOnly() {
+      const max = document.getElementById("box-dsm-max");
+      const note = document.getElementById("box-dsm-note");
+      if (max) max.textContent = "–";
+      if (note) note.textContent = "";
+    }
+    async function updateDSM() {
+      const el = document.getElementById("box-dsm-max");
+      const note = document.getElementById("box-dsm-note");
+      if (!el || !note) return;
+      const today = nycISODate(0);
+      if (today !== lastDSMDay) { clearDSMOnly(); lastDSMDay = today; }
+      el.textContent = "–";
+      note.textContent = "";
+      const txt = await fetchTEXT(NWS_DSM_URLS);
+      const parsed = parseDSM(txt);
+      if (parsed && parsed.dayISO === today) {
+        el.textContent = `${parsed.tempF.toFixed(0)}°F`;
+        note.textContent = `${parsed.timeET} ET • daily summary message`;
+      } else {
+        clearDSMOnly();
       }
     }
-  }
 
-  // ---------- TOMORROW ----------
-  const tmrwBox = document.getElementById("correctionBoxTomorrow");
-  if (tmrwBox) {
-    const c1 = d1CandidatesFor(tomorrow);
-    const warmKey1 = isWarmSeason(tomorrow) ? "D1_warm" : "D1_cool";
-    const w1 = tables.weights[warmKey1] || { first:0, latest:1, trimmed:0 };
-    const rep1 = blendedRep(c1, w1, /*allowCarry*/ false);
-
-    const bias1 = pickBiasFrom(tables, "D1");
-    const pred1 = (rep1 == null) ? null : rep1 + bias1;
-
-    const pDisp1 = round1(pred1);
-    const rDisp1 = round1(rep1);
-    const bDisp1 = round1(bias1 ?? 0);
-
-    tmrwBox.innerHTML = `
-      <div class="prediction-value">${pDisp1 == null ? "–" : `${pDisp1.toFixed(1)}°F`}</div>
-      <div class="prediction-subtitle">
-        For ${tomorrow}
-        ${rDisp1==null ? "" : `<br><small style="opacity:.7">
-          blend=${rDisp1.toFixed(1)}°F · bias=${bDisp1.toFixed(1)} · w={f:${(w1.first??0).toFixed(1)}, l:${(w1.latest??0).toFixed(1)}, t:${(w1.trimmed??0).toFixed(1)}}
-        </small>`}
-      </div>
-    `;
-    // (intentional: no logging for D1 here, unless you want to add it too)
-  }
-}
-
-
-  function showChart() {
-    const byDate = {};
-    filteredRows.forEach(r => {
-      const d = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
-      if (!d) return;
-      (byDate[d] ??= []).push(r);
-    });
-  
-    const haveDays = Object.keys(byDate)
-      .filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d))
-      .sort();
-  
-    if (!haveDays.length) {
-      const ctx = document.getElementById('dailyChart').getContext('2d');
-      if (chartInstance) chartInstance.destroy();
-      chartInstance = new Chart(ctx, { type: 'line', data: { labels: [], datasets: [] }, options: {} });
-      return;
+    // 6-hr max
+    async function updateSixHourMax() {
+      const el = document.getElementById("box-6hr-max");
+      const note = document.getElementById("box-6hr-max-note");
+      if (!el || !note) return;
+      el.textContent = "–";
+      note.textContent = "";
+      try {
+        const parsed = await fetchJSON(NWS_6HR_JSON_URLS, { station: "KNYC" });
+        if (parsed && parsed.value != null) {
+          el.textContent = `${parsed.value}°F`;
+          note.textContent = parsed.time ? `as of ${parsed.time} • 6-hr max` : "Latest 6-hr max";
+        } else {
+          note.textContent = "6-Hr Max not available";
+        }
+      } catch (err) {
+        console.error("6HR fetch error:", err);
+        note.textContent = "6-Hr Max unavailable";
+      }
     }
 
-            const isoToDate = (iso) => {
-                const [Y, M, D] = iso.split('-').map(Number);
-                return new Date(Y, M - 1, D);
+    // Observations: current temp only
+    function updateObservations() {
+      fetchNwsCurrentTemp("KNYC").then(cur => {
+        const el = document.getElementById("box-today-current");
+        const note = document.getElementById("box-today-current-note");
+        if (!el || !note) return;
+        if (cur && cur.currentF != null) {
+          el.textContent = `${Number(cur.currentF).toFixed(1)}°F`;
+          const ts = cur.atISO ? new Date(cur.atISO) : null;
+          const tNY = ts ? new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/New_York",
+            hour: "numeric",
+            minute: "2-digit"
+          }).format(ts) : "";
+          note.textContent = tNY ? `as of ${tNY} ET • station ${cur.station}` : `station ${cur.station}`;
+        } else {
+          el.textContent = "–";
+          note.textContent = "";
+        }
+      });
+    }
+
+    async function updateSummaryBoxes() {
+      const today = nycISODate(0);
+      const tomorrow = nycISODate(1);
+      const yesterday = nycISODate(-1);
+
+      const latestForDate = (date) => {
+        const rows = allRows
+          .filter(r => r.forecast_or_actual === "forecast" && r.target_date === date && r.predicted_high);
+        if (!rows.length) return null;
+        rows.sort((a, b) => {
+          const A = a.timestamp || a.forecast_time || "";
+          const B = b.timestamp || b.forecast_time || "";
+          return B.localeCompare(A);
+        });
+        return Number(rows[0].predicted_high);
+      };
+
+      // Update the four metric boxes + mini chips
+      const tLatest  = latestForDate(today);
+      const tActRow  = allRows.find(r => r.forecast_or_actual === "actual" && r.cli_date === today && r.actual_high);
+      const tActual  = tActRow ? Number(tActRow.actual_high) : null;
+      const tmLatest = latestForDate(tomorrow);
+
+      const e = (id) => document.getElementById(id);
+      if (e("box-today-forecast"))    e("box-today-forecast").textContent    = (tLatest  == null) ? "–" : `${tLatest.toFixed(0)}°F`;
+      if (e("box-today-actual"))      e("box-today-actual").textContent      = (tActual  == null) ? "–" : `${tActual.toFixed(0)}°F`;
+      if (e("box-tomorrow-forecast")) e("box-tomorrow-forecast").textContent = (tmLatest == null) ? "–" : `${tmLatest.toFixed(0)}°F`;
+
+      const todayRows    = getForecastsForDate(today);
+      const tomorrowRows = getForecastsForDate(tomorrow);
+      renderMiniForecastChips(todayRows, "mini-today-forecasts");
+      renderMiniForecastChips(tomorrowRows, "mini-tomorrow-forecasts");
+
+      // ===== Kalshi badges =====
+      const tBox  = e('box-today-kalshi');
+      const tNote = e('box-today-kalshi-note');
+      const yBox  = e('box-yday-kalshi');
+      const yNote = e('box-yday-kalshi-note');
+
+      try {
+        const [ktoday, kyday, live] = await Promise.all([
+          getKalshiLabel(today),
+          getKalshiLabel(yesterday),
+          fetchKalshiLiveLeader(today)
+        ]);
+
+        // --- TODAY ---
+        if (live && live.leadingLabel) {
+          const pct = (live.leadingProb != null) ? ` (${Math.round(live.leadingProb * 100)}%)` : "";
+          if (tBox)  tBox.innerHTML  = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${live.leadingLabel}${pct}</a>`;
+          if (tNote) tNote.textContent = "Live leader (can flip before settlement).";
+        } else if (ktoday && ktoday.settled === true && ktoday.label) {
+          if (tBox)  tBox.innerHTML  = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${ktoday.label}</a>`;
+          if (tNote) tNote.textContent = (ktoday.exactTemp != null) ? `Settled at ${ktoday.exactTemp.toFixed(1)}°F.` : "";
+        } else {
+          if (tBox)  tBox.innerHTML  = `<span class="kalshi-pending">Pending settlement</span>`;
+          if (tNote) tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
+        }
+
+        // --- YESTERDAY ---
+        const anchor = kalshiAnchorForISO(yesterday);
+        const yHref = `${KALSHI_BASE_URL}${anchor}`;
+        if (kyday && kyday.label) {
+          const exact = (kyday.exactTemp != null) ? ` (settled ${kyday.exactTemp.toFixed(1)}°F)` : "";
+          if (yBox)  yBox.innerHTML  = `<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">${kyday.label}${exact}</a>`;
+          if (yNote) yNote.textContent = "Links directly to yesterday's contract.";
+        } else {
+          if (yBox)  yBox.innerHTML  = `<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">Open yesterday's market</a>`;
+          if (yNote) yNote.textContent = "No proxy data; linking via anchor.";
+        }
+      } catch {
+        if (tBox)  tBox.innerHTML  = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">Open market</a>`;
+        if (tNote) tNote.textContent = "Could not load proxy data.";
+        const yHref = `${KALSHI_BASE_URL}${kalshiAnchorForISO(yesterday)}`;
+        if (yBox)  yBox.innerHTML  = `<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">Open yesterday's market</a>`;
+        if (yNote) yNote.textContent = "Proxy error; using anchor link.";
+      }
+    }
+
+    function hasActualFor(dateISO) {
+      return allRows.some(r =>
+        r.forecast_or_actual === "actual" &&
+        r.cli_date === dateISO &&
+        r.actual_high && String(r.actual_high).trim() !== ""
+      );
+    }
+
+    function updateCorrectionBoxes() {
+      const tables = buildBiasAndBlend();
+      const today = nycISODate(0);
+      const tomorrow = nycISODate(1);
+
+      // Today actual (to enforce pre-high)
+      const todayActual = allRows.find(
+        r => r.forecast_or_actual === "actual" && r.cli_date === today && r.actual_high
+      );
+      const highTime = todayActual ? todayActual.high_time : "";
+
+      // ---------- TODAY ----------
+      const todayBox = document.getElementById("correctionBoxToday");
+      if (todayBox) {
+        if (todayActual) {
+          todayBox.innerHTML = `
+            <div class="prediction-value">—</div>
+            <div class="prediction-subtitle">Actual published for ${today}</div>
+          `;
+        } else {
+          const c0 = d0CandidatesFor(today, highTime);
+          const warmKey = isWarmSeason(today) ? "D0_warm" : "D0_cool";
+          const w0 = tables.weights[warmKey] || { first:0, latest:1, trimmed:0, carry:0 };
+          const rep = blendedRep(c0, w0, /*allowCarry*/ true);
+
+          const bias = pickBiasFrom(tables, "D0");
+          const pred = (rep == null) ? null : rep + bias;
+
+          const pDisp = round1(pred);
+          const rDisp = round1(rep);
+          const bDisp = round1(bias ?? 0);
+
+          todayBox.innerHTML = `
+            <div class="prediction-value">${pDisp == null ? "–" : `${pDisp.toFixed(1)}°F`}</div>
+            <div class="prediction-subtitle">
+              For ${today}
+              ${rDisp==null ? "" : `<br><small style="opacity:.7">
+                blend=${rDisp.toFixed(1)}°F · bias=${bDisp.toFixed(1)} · w={f:${(w0.first??0).toFixed(1)}, l:${(w0.latest??0).toFixed(1)}, t:${(w0.trimmed??0).toFixed(1)}, c:${(w0.carry??0).toFixed(1)}}
+              </small>`}
+            </div>
+          `;
+
+          // ✅ Logging (Today) — only if forecast changed AND still pre-high
+          if (rep != null && forecastChanged.today === true) {
+            const repRow = latestPreHighRow(getForecastRowsFor(today, c0._hasD0 ? "D0" : "D1"), c0._hasD0 ? highTime : "");
+            const dlt = deltaLast3(
+              c0._hasD0 ? getForecastRowsFor(today,"D0") : getForecastRowsFor(today,"D1"),
+              repRow,
+              c0._hasD0 ? highTime : ""
+            );
+
+            const payload = {
+              timestamp_et: new Date().toISOString(),
+              target_date: today,
+              lead_used: c0._hasD0 ? "D0" : "D1",
+              is_carryover: c0._hasD0 ? 0 : 1,
+              rep_forecast: Number(rep),
+              delta_last3:  Number(dlt),
+              issuance_iso: issuanceISOUTC(repRow),
+              issuance_hour_local: issuanceHourET(repRow),
+              season: isWarmSeason(today) ? "warm" : "cool",
+              bias_applied: Number(bias ?? 0),
+              prediction_value: Number(pred),
+              uncertainty_rmse: stableRound(tables.rmse.D0 ?? 0, 1),
+              model_name: "seasonal_lead_bias_blended_rep",
+              version: "v1.1"
             };
 
-            const dateToISO = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
-
-            const addDays = (dt, n) => {
-                const d = new Date(dt);
-                d.setDate(d.getDate() + n);
-                return d;
-            };
-
-            const first = isoToDate(haveDays[0]);
-            const dow = first.getDay();
-            const back = (dow + 6) % 7;
-            const start = addDays(first, -back);
-            const end = isoToDate(haveDays[haveDays.length - 1]);
-            const labels = [];
-            for (let d = new Date(start); d <= end; d = addDays(d, 1)) {
-                labels.push(dateToISO(d));
-            }
-
-            const actualMap = new Map();
-            const bestMap = new Map();
-            labels.forEach(d => {
-                const rows = byDate[d] || [];
-                const a = rows.find(r => r.forecast_or_actual === "actual" && r.actual_high);
-                if (a) {
-                    const actualHigh = Number(a.actual_high);
-                    actualMap.set(d, Number.isFinite(actualHigh) ? actualHigh : null);
-                    const highTime = a.high_time || "";
-                    const pre = rows
-                        .filter(r => r.forecast_or_actual === "forecast" && r.predicted_high)
-                        .filter(r => {
-                            if (highTime) {
-                                const fcHH = (r.forecast_time || "").substr(11, 5);
-                                if (fcHH && compareTimes(fcHH, highTime) > 0) return false;
-                            }
-                            return true;
-                        })
-                        .map(r => Number(r.predicted_high))
-                        .filter(Number.isFinite);
-                    if (pre.length) {
-                        const errs = pre.map(v => ({ v, e: Math.abs(v - actualHigh) }));
-                        errs.sort((a, b) => a.e - b.e);
-                        bestMap.set(d, errs[0].v);
-                    }
-                }
+            const sigToday = buildPredSignature({
+              target_date: payload.target_date,
+              lead_used: payload.lead_used,
+              issuance_iso: payload.issuance_iso,
+              rep_forecast: payload.rep_forecast,
+              bias_applied: payload.bias_applied,
+              prediction_value: payload.prediction_value,
+              model_name: payload.model_name,
+              version: payload.version
             });
 
-            const actual = labels.map(d => actualMap.has(d) ? actualMap.get(d) : null);
-            const best = labels.map(d => bestMap.has(d) ? bestMap.get(d) : null);
+            if (sigToday && sigToday !== loggedSig.today) {
+              logPrediction(payload);
+              setLoggedSig("today", sigToday);
+            }
+          }
+        }
+      }
 
-            const ctx = document.getElementById('dailyChart').getContext('2d');
-            if (chartInstance) chartInstance.destroy();
-            chartInstance = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels,
-                    datasets: [
-                        {
-                            label: 'Actual High',
-                            data: actual,
-                            borderWidth: 3,
-                            tension: .3,
-                            pointRadius: 0,
-                            pointHitRadius: 10,
-                            borderColor: '#2563eb'
-                        },
-                        {
-                            label: 'Best Forecast (pre-high)',
-                            data: best,
-                            borderWidth: 3,
-                            tension: .3,
-                            pointRadius: 0,
-                            pointHitRadius: 10,
-                            borderColor: '#059669'
-                        }
-                    ]
+      // ---------- TOMORROW ----------
+      const tmrwBox = document.getElementById("correctionBoxTomorrow");
+      if (tmrwBox) {
+        const c1 = d1CandidatesFor(tomorrow);
+        const warmKey1 = isWarmSeason(tomorrow) ? "D1_warm" : "D1_cool";
+        const w1 = tables.weights[warmKey1] || { first:0, latest:1, trimmed:0 };
+        const rep1 = blendedRep(c1, w1, /*allowCarry*/ false);
+
+        const bias1 = pickBiasFrom(tables, "D1");
+        const pred1 = (rep1 == null) ? null : rep1 + bias1;
+
+        tmrwBox.innerHTML = `
+          <div class="prediction-value">${pred1 == null ? "–" : `${pred1.toFixed(1)}°F`}</div>
+          <div class="prediction-subtitle">For ${tomorrow}</div>
+        `;
+
+        // ✅ Logging (Tomorrow) — only if forecast changed
+        if (rep1 != null && forecastChanged.tomorrow === true) {
+          const repRow1 = latestPreHighRow(getForecastRowsFor(tomorrow,"D1"), "");
+          const dlt1 = deltaLast3(getForecastRowsFor(tomorrow,"D1"), repRow1, "");
+          const payload = {
+            timestamp_et: new Date().toISOString(),
+            target_date: tomorrow,
+            lead_used: "D1",
+            is_carryover: 0,
+            rep_forecast: Number(rep1),
+            delta_last3: Number(dlt1),
+            issuance_iso: issuanceISOUTC(repRow1),
+            issuance_hour_local: issuanceHourET(repRow1),
+            season: isWarmSeason(tomorrow) ? "warm" : "cool",
+            bias_applied: Number(bias1 ?? 0),
+            prediction_value: Number(pred1),
+            uncertainty_rmse: stableRound(tables.rmse.D1 ?? 0, 1),
+            model_name: "seasonal_lead_bias_blended_rep",
+            version: "v1.1"
+          };
+
+          const sigTomorrow = buildPredSignature({
+            target_date: payload.target_date,
+            lead_used: payload.lead_used,
+            issuance_iso: payload.issuance_iso,
+            rep_forecast: payload.rep_forecast,
+            bias_applied: payload.bias_applied,
+            prediction_value: payload.prediction_value,
+            model_name: payload.model_name,
+            version: payload.version
+          });
+
+          if (sigTomorrow && sigTomorrow !== loggedSig.tomorrow) {
+            logPrediction(payload);
+            setLoggedSig("tomorrow", sigTomorrow);
+          }
+        }
+      }
+    }
+
+    function showChart() {
+      const byDate = {};
+      filteredRows.forEach(r => {
+        const d = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
+        if (!d) return;
+        (byDate[d] ??= []).push(r);
+      });
+
+      const haveDays = Object.keys(byDate)
+        .filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d))
+        .sort();
+
+      const ctx = document.getElementById('dailyChart').getContext('2d');
+      if (!haveDays.length) {
+        if (chartInstance) chartInstance.destroy();
+        chartInstance = new Chart(ctx, { type: 'line', data: { labels: [], datasets: [] }, options: {} });
+        return;
+      }
+
+      const isoToDate = (iso) => { const [Y,M,D] = iso.split('-').map(Number); return new Date(Y, M-1, D); };
+      const dateToISO = (dt) => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+      const addDays = (dt, n) => { const d = new Date(dt); d.setDate(d.getDate()+n); return d; };
+
+      const first = isoToDate(haveDays[0]);
+      const dow = first.getDay();
+      const back = (dow + 6) % 7;
+      const start = addDays(first, -back);
+      const end = isoToDate(haveDays[haveDays.length - 1]);
+      const labels = [];
+      for (let d = new Date(start); d <= end; d = addDays(d, 1)) labels.push(dateToISO(d));
+
+      const actualMap = new Map();
+      const bestMap = new Map();
+      labels.forEach(d => {
+        const rows = byDate[d] || [];
+        const a = rows.find(r => r.forecast_or_actual === "actual" && r.actual_high);
+        if (a) {
+          const actualHigh = Number(a.actual_high);
+          actualMap.set(d, Number.isFinite(actualHigh) ? actualHigh : null);
+          const highTime = a.high_time || "";
+          const pre = rows
+            .filter(r => r.forecast_or_actual === "forecast" && r.predicted_high)
+            .filter(r => {
+              if (highTime) {
+                const fcHH = (r.forecast_time || "").substr(11, 5);
+                if (fcHH && compareTimes(fcHH, highTime) > 0) return false;
+              }
+              return true;
+            })
+            .map(r => Number(r.predicted_high))
+            .filter(Number.isFinite);
+          if (pre.length) {
+            const errs = pre.map(v => ({ v, e: Math.abs(v - actualHigh) }));
+            errs.sort((a, b) => a.e - b.e);
+            bestMap.set(d, errs[0].v);
+          }
+        }
+      });
+
+      const actual = labels.map(d => actualMap.has(d) ? actualMap.get(d) : null);
+      const best = labels.map(d => bestMap.has(d) ? bestMap.get(d) : null);
+
+      if (chartInstance) chartInstance.destroy();
+      chartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'Actual High',
+              data: actual,
+              borderWidth: 3,
+              tension: .3,
+              pointRadius: 0,
+              pointHitRadius: 10,
+              borderColor: '#2563eb'
+            },
+            {
+              label: 'Best Forecast (pre-high)',
+              data: best,
+              borderWidth: 3,
+              tension: .3,
+              pointRadius: 0,
+              pointHitRadius: 10,
+              borderColor: '#059669'
+            }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, spanGaps: true, animation: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: true },
+            tooltip: {
+              mode: 'index', intersect: false,
+              callbacks: {
+                title: (items) => {
+                  const iso = labels[items[0].dataIndex];
+                  const [Y, M, D] = iso.split('-').map(Number);
+                  const jsDate = new Date(Y, M - 1, D);
+                  return new Intl.DateTimeFormat('en-US', {
+                    weekday: 'short', month: 'short', day: 'numeric'
+                  }).format(jsDate);
                 },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    spanGaps: true,
-                    animation: false,
-                    interaction: { mode: 'index', intersect: false },
-                    plugins: {
-                        legend: { display: true },
-                        tooltip: {
-                            mode: 'index',
-                            intersect: false,
-                            callbacks: {
-                                title: (items) => {
-                                    const iso = labels[items[0].dataIndex];
-                                    const [Y, M, D] = iso.split('-').map(Number);
-                                    const jsDate = new Date(Y, M - 1, D);
-                                    return new Intl.DateTimeFormat('en-US', {
-                                        weekday: 'short',
-                                        month: 'short',
-                                        day: 'numeric'
-                                    }).format(jsDate);
-                                },
-                                label: (ctx) => {
-                                    const y = ctx.parsed.y;
-                                    if (y == null) return `${ctx.dataset.label}: —`;
-                                    return `${ctx.dataset.label}: ${Number(y).toFixed(1)}°F`;
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            title: { display: true, text: 'Day' },
-                            grid: { color: 'rgba(0,0,0,0.05)' },
-                            offset: true,
-                            ticks: {
-                                autoSkip: true,
-                                autoSkipPadding: 8,
-                                maxRotation: 0,
-                                minRotation: 0,
-                                callback: (val, idx) => {
-                                    const iso = labels[idx];
-                                    if (!iso) return '';
-                                    const [Y, M, D] = iso.split('-').map(Number);
-                                    const jsDate = new Date(Y, M - 1, D);
-                                    if (idx === 0 || idx === labels.length - 1 || jsDate.getDate() === 1 || jsDate.getDay() === 1) {
-                                        return new Intl.DateTimeFormat('en-US', {
-                                            month: 'short',
-                                            day: 'numeric'
-                                        }).format(jsDate);
-                                    }
-                                    return '';
-                                }
-                            }
-                        },
-                        y: {
-                            title: { display: true, text: 'Temperature (°F)' },
-                            grid: { color: 'rgba(0,0,0,.05)' }
-                        }
-                    }
+                label: (ctx) => {
+                  const y = ctx.parsed.y;
+                  if (y == null) return `${ctx.dataset.label}: —`;
+                  return `${ctx.dataset.label}: ${Number(y).toFixed(1)}°F`;
                 }
-            });
-        }
-
-        async function displayTable() {
-            const tb = document.querySelector("#dataTable tbody");
-            if (!tb) return;
-            tb.innerHTML = "";
-
-            const dayMap = {};
-            filteredRows.forEach(r => {
-                const date = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
-                if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "")) return;
-                (dayMap[date] ??= []).push(r);
-            });
-
-            const dates = Object.keys(dayMap).sort();
-            const months = {};
-            dates.forEach(d => {
-                const mk = monthKeyFromISO(d);
-                (months[mk] ??= []).push(d);
-            });
-
-            const kalshiByDate = {};
-            await Promise.all(dates.map(async d => {
-                try {
-                    kalshiByDate[d] = await getKalshiLabel(d);
-                } catch {
-                    kalshiByDate[d] = null;
+              }
+            }
+          },
+          scales: {
+            x: {
+              title: { display: true, text: 'Day' },
+              grid: { color: 'rgba(0,0,0,0.05)' },
+              offset: true,
+              ticks: {
+                autoSkip: true, autoSkipPadding: 8, maxRotation: 0, minRotation: 0,
+                callback: (val, idx) => {
+                  const iso = labels[idx];
+                  if (!iso) return '';
+                  const [Y, M, D] = iso.split('-').map(Number);
+                  const jsDate = new Date(Y, M - 1, D);
+                  if (idx === 0 || idx === labels.length - 1 || jsDate.getDate() === 1 || jsDate.getDay() === 1) {
+                    return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(jsDate);
+                  }
+                  return '';
                 }
-            }));
-
-            const todayISO = nycISODate(0);
-            const yISO = nycISODate(-1);
-
-            Object.keys(months).sort().forEach(mk => {
-                const label = monthLabelFromKey(mk);
-                const hdr = document.createElement("tr");
-                hdr.className = "month-row collapsed";
-                hdr.dataset.month = mk;
-                hdr.innerHTML = `<td colspan="9"><span class="caret">▸</span>${label}</td>`;
-                tb.appendChild(hdr);
-
-                months[mk].forEach(date => {
-                    const rows = dayMap[date];
-                    const forecasts = rows.filter(r => r.forecast_or_actual === "forecast");
-                    const actual = rows.find(r => r.forecast_or_actual === "actual") || null;
-
-                    forecasts.sort((a, b) => {
-                        const A = (a.timestamp || a.forecast_time || "");
-                        const B = (b.timestamp || b.forecast_time || "");
-                        return A.localeCompare(B);
-                    });
-
-                    let bestIdx = -1, bestErr = Infinity;
-                    const actualHigh = actual && actual.actual_high ? Number(actual.actual_high) : null;
-                    const highTime = actual && actual.high_time ? actual.high_time : "";
-
-                    forecasts.forEach((r, i) => {
-                        if (!r.predicted_high || actualHigh == null) return;
-                        if (highTime) {
-                            const fcHH = (r.forecast_time || "").substr(11, 5);
-                            if (fcHH && compareTimes(fcHH, highTime) > 0) return;
-                        }
-                        const err = Math.abs(Number(r.predicted_high) - actualHigh);
-                        if (err < bestErr) {
-                            bestErr = err;
-                            bestIdx = i;
-                        }
-                    });
-
-                    forecasts.forEach((r, i) => {
-                        const cls = "forecast-row" + (i === bestIdx ? " best" : "");
-                        const pulled = r.timestamp || r.date_pulled || "";
-                        const fcTime = (r.forecast_time || "").substr(11, 5);
-                        const pred = r.predicted_high ? `${r.predicted_high}°F` : "";
-                        const actTxt = (actual && actual.actual_high) ? `${actual.actual_high}°F` : "";
-                        const errTxt = (r.predicted_high && actualHigh != null) ?
-                            (Math.abs(Number(r.predicted_high) - actualHigh)).toFixed(1) : "";
-
-                        const tr = document.createElement("tr");
-                        tr.className = cls + " is-hidden";
-                        tr.dataset.month = mk;
-                        tr.innerHTML = `
-                            <td>${pulled}</td>
-                            <td>${fcTime}</td>
-                            <td>${date}</td>
-                            <td>${pred}</td>
-                            <td>${actTxt}</td>
-                            <td>${highTime || ""}</td>
-                            <td>${errTxt}</td>
-                            <td>${i === bestIdx ? "✅" : ""}</td>
-                            <td></td>
-                        `;
-                        tb.appendChild(tr);
-                    });
-
-                    if (actual) {
-                        const pulled = actual.timestamp || actual.date_pulled || "";
-                        const actTxt = actual.actual_high ? `${actual.actual_high}°F` : "";
-                        const k = kalshiByDate[date];
-                        const label = k && k.label ? k.label : "";
-                        const exact = (k && k.exactTemp != null) ? ` (${k.exactTemp.toFixed(1)}°F)` : "";
-
-                        let kalshiCell = "—";
-                        if (date === yISO) {
-                            kalshiCell = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}${kalshiAnchorForISO(yISO)}" target="_blank" rel="noopener noreferrer">${label || "Open market"}${exact}</a>`;
-                        } else if (date === todayISO) {
-                            kalshiCell = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${label || "Open market"}</a>`;
-                        } else if (label) {
-                            kalshiCell = `<span class="kalshi-badge">${label}${exact}</span>`;
-                        }
-
-                        const tr = document.createElement("tr");
-                        tr.className = "actual-row is-hidden";
-                        tr.dataset.month = mk;
-                        tr.innerHTML = `
-                            <td>${pulled}</td>
-                            <td></td>
-                            <td>${date}</td>
-                            <td></td>
-                            <td>${actTxt}</td>
-                            <td>${actual.high_time || ""}</td>
-                            <td></td>
-                            <td></td>
-                            <td>${kalshiCell}</td>
-                        `;
-                        tb.appendChild(tr);
-                    }
-                });
-            });
-
-            tb.onclick = (e) => {
-                const tr = e.target.closest("tr.month-row");
-                if (!tr) return;
-                const mk = tr.dataset.month;
-                const collapsed = tr.classList.toggle("collapsed");
-                tb.querySelectorAll(`tr[data-month="${mk}"]:not(.month-row)`).forEach(r => 
-                    r.classList.toggle("is-hidden", collapsed)
-                );
-            };
+              }
+            },
+            y: {
+              title: { display: true, text: 'Temperature (°F)' },
+              grid: { color: 'rgba(0,0,0,.05)' }
+            }
+          }
         }
+      });
+    }
 
-        function resetFilter() {
-            filteredRows = allRows.slice();
-            document.getElementById('fromDate').value = "";
-            document.getElementById('toDate').value = "";
-            displayTable();
-            showStats();
-            showChart();
-            showMostRecent();
-            updateCorrectionBoxes();
-            updateSummaryBoxes();
-        }
+    async function displayTable() {
+      const tb = document.querySelector("#dataTable tbody");
+      if (!tb) return;
+      tb.innerHTML = "";
 
-        function applyDateFilter() {
-            const from = document.getElementById('fromDate').value;
-            const to = document.getElementById('toDate').value;
-            filteredRows = allRows.filter(row => {
-                const date = row.forecast_or_actual === "actual" ? row.cli_date : row.target_date;
-                if (!date) return false;
-                if (from && date < from) return false;
-                if (to && date > to) return false;
-                return true;
-            });
-            displayTable();
-            showStats();
-            showChart();
-            showMostRecent();
-            updateCorrectionBoxes();
-            updateSummaryBoxes();
-        }
+      const dayMap = {};
+      filteredRows.forEach(r => {
+        const date = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "")) return;
+        (dayMap[date] ??= []).push(r);
+      });
 
-        function showStats() {
-            const stats = document.getElementById('stats');
-            if (!stats) return;
+      const dates = Object.keys(dayMap).sort();
+      const months = {};
+      dates.forEach(d => {
+        const mk = monthKeyFromISO(d);
+        (months[mk] ??= []).push(d);
+      });
 
-            const dayMap = {};
-            filteredRows.forEach(r => {
-                const date = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
-                if (!date) return;
-                (dayMap[date] ??= []).push(r);
-            });
+      const kalshiByDate = {};
+      await Promise.all(dates.map(async d => {
+        try { kalshiByDate[d] = await getKalshiLabel(d); }
+        catch { kalshiByDate[d] = null; }
+      }));
 
-            const dates = Object.keys(dayMap).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d));
-            const daysWithActual = dates.filter(d => {
-                const rows = dayMap[d] || [];
-                return rows.some(r => r.forecast_or_actual === "actual" && r.actual_high);
-            });
+      const todayISO = nycISODate(0);
+      const yISO = nycISODate(-1);
 
-            let totalAbsErr = 0, totalBestErr = 0, errCount = 0, bestCount = 0;
+      Object.keys(months).sort().forEach(mk => {
+        const label = monthLabelFromKey(mk);
+        const hdr = document.createElement("tr");
+        hdr.className = "month-row collapsed";
+        hdr.dataset.month = mk;
+        hdr.innerHTML = `<td colspan="9"><span class="caret">▸</span>${label}</td>`;
+        tb.appendChild(hdr);
 
-            daysWithActual.forEach(d => {
-                const rows = dayMap[d] || [];
-                const actual = rows.find(r => r.forecast_or_actual === "actual" && r.actual_high);
-                if (!actual) return;
-                const actualHigh = Number(actual.actual_high);
-                const highTime = actual.high_time || "";
+        months[mk].forEach(date => {
+          const rows = dayMap[date];
+          const forecasts = rows.filter(r => r.forecast_or_actual === "forecast");
+          const actual = rows.find(r => r.forecast_or_actual === "actual") || null;
 
-                const forecasts = rows
-                    .filter(r => r.forecast_or_actual === "forecast" && r.predicted_high)
-                    .filter(r => {
-                        if (highTime) {
-                            const fcHH = (r.forecast_time || "").substr(11, 5);
-                            if (fcHH && compareTimes(fcHH, highTime) > 0) return false;
-                        }
-                        return true;
-                    })
-                    .map(r => Number(r.predicted_high))
-                    .filter(Number.isFinite);
+          forecasts.sort((a, b) => {
+            const A = (a.timestamp || a.forecast_time || "");
+            const B = (b.timestamp || b.forecast_time || "");
+            return A.localeCompare(B);
+          });
 
-                if (forecasts.length) {
-                    const allErrors = forecasts.map(f => Math.abs(f - actualHigh));
-                    const avgErr = allErrors.reduce((a, b) => a + b, 0) / allErrors.length;
-                    const bestErr = Math.min(...allErrors);
-                    totalAbsErr += avgErr;
-                    totalBestErr += bestErr;
-                    errCount++;
-                    bestCount++;
-                }
-            });
+          let bestIdx = -1, bestErr = Infinity;
+          const actualHigh = actual && actual.actual_high ? Number(actual.actual_high) : null;
+          const highTime = actual && actual.high_time ? actual.high_time : "";
 
-            const avgAbsErr = errCount > 0 ? (totalAbsErr / errCount).toFixed(1) : "--";
-            const avgBestErr = bestCount > 0 ? (totalBestErr / bestCount).toFixed(1) : "--";
+          forecasts.forEach((r, i) => {
+            if (!r.predicted_high || actualHigh == null) return;
+            if (highTime) {
+              const fcHH = (r.forecast_time || "").substr(11, 5);
+              if (fcHH && compareTimes(fcHH, highTime) > 0) return;
+            }
+            const err = Math.abs(Number(r.predicted_high) - actualHigh);
+            if (err < bestErr) { bestErr = err; bestIdx = i; }
+          });
 
-            stats.innerHTML = `
-                <div class="stat-card">
-                    <div class="stat-label">Days Tracked</div>
-                    <div class="stat-value">${dates.length}</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">Days With Actual</div>
-                    <div class="stat-value">${daysWithActual.length}</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">Average Absolute Error</div>
-                    <div class="stat-value">${avgAbsErr}°F</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">Average Best Error</div>
-                    <div class="stat-value">${avgBestErr}°F</div>
-                </div>
+          forecasts.forEach((r, i) => {
+            const cls = "forecast-row" + (i === bestIdx ? " best" : "");
+            const pulled = r.timestamp || r.date_pulled || "";
+            const fcTime = (r.forecast_time || "").substr(11, 5);
+            const pred = r.predicted_high ? `${r.predicted_high}°F` : "";
+            const actTxt = (actual && actual.actual_high) ? `${actual.actual_high}°F` : "";
+            const errTxt = (r.predicted_high && actualHigh != null) ?
+              (Math.abs(Number(r.predicted_high) - actualHigh)).toFixed(1) : "";
+
+            const tr = document.createElement("tr");
+            tr.className = cls + " is-hidden";
+            tr.dataset.month = mk;
+            tr.innerHTML = `
+              <td>${pulled}</td>
+              <td>${fcTime}</td>
+              <td>${date}</td>
+              <td>${pred}</td>
+              <td>${actTxt}</td>
+              <td>${highTime || ""}</td>
+              <td>${errTxt}</td>
+              <td>${i === bestIdx ? "✅" : ""}</td>
+              <td></td>
             `;
-        }
-    </script>
+            tb.appendChild(tr);
+          });
 
-    <!-- Auth + boot (module) -->
-    <script type="module">
-        import { createClient } from "https://esm.sh/@supabase/supabase-js";
+          if (actual) {
+            const pulled = actual.timestamp || actual.date_pulled || "";
+            const actTxt = actual.actual_high ? `${actual.actual_high}°F` : "";
+            const k = kalshiByDate[date];
+            const label = k && k.label ? k.label : "";
+            const exact = (k && k.exactTemp != null) ? ` (${k.exactTemp.toFixed(1)}°F)` : "";
 
-        const supabase = createClient(
-            "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
-            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
+            let kalshiCell = "—";
+            if (date === yISO) {
+              kalshiCell = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}${kalshiAnchorForISO(yISO)}" target="_blank" rel="noopener noreferrer">${label || "Open market"}${exact}</a>`;
+            } else if (date === todayISO) {
+              kalshiCell = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${label || "Open market"}</a>`;
+            } else if (label) {
+              kalshiCell = `<span class="kalshi-badge">${label}${exact}</span>`;
+            }
+
+            const tr = document.createElement("tr");
+            tr.className = "actual-row is-hidden";
+            tr.dataset.month = mk;
+            tr.innerHTML = `
+              <td>${pulled}</td>
+              <td></td>
+              <td>${date}</td>
+              <td></td>
+              <td>${actTxt}</td>
+              <td>${actual.high_time || ""}</td>
+              <td></td>
+              <td></td>
+              <td>${kalshiCell}</td>
+            `;
+            tb.appendChild(tr);
+          }
+        });
+      });
+
+      tb.onclick = (e) => {
+        const tr = e.target.closest("tr.month-row");
+        if (!tr) return;
+        const mk = tr.dataset.month;
+        const collapsed = tr.classList.toggle("collapsed");
+        tb.querySelectorAll(`tr[data-month="${mk}"]:not(.month-row)`).forEach(r =>
+          r.classList.toggle("is-hidden", collapsed)
         );
+      };
+    }
 
-        function showTodayDate() {
-            const el = document.getElementById("todayDate");
-            if (!el) return;
-            const today = new Date();
-            const fmt = new Intl.DateTimeFormat("en-US", {
-                timeZone: "America/New_York",
-                weekday: "short",
-                month: "short",
-                day: "numeric",
-                year: "numeric"
-            });
-            el.textContent = fmt.format(today);
-        }
+    function resetFilter() {
+      filteredRows = allRows.slice();
+      const f = document.getElementById('fromDate'); if (f) f.value = "";
+      const t = document.getElementById('toDate');   if (t) t.value = "";
+      displayTable();
+      showStats();
+      showChart();
+      showMostRecent();
+      updateCorrectionBoxes();
+      updateSummaryBoxes();
+    }
 
-        function scheduleMidnightUpdate() {
-            function msUntilMidnightET() {
-                const now = new Date();
-                const tzNowStr = new Intl.DateTimeFormat("en-US", {
-                    timeZone: "America/New_York",
-                    year: "numeric",
-                    month: "2-digit",
-                    day: "2-digit",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    second: "2-digit",
-                    hour12: false
-                }).format(now).replace(/(\d{2})\/(\d{2})\/(\d{4}),\s*(\d{2}):(\d{2}):(\d{2})/, "$3-$1-$2T$4:$5:$6");
-                const tzNow = new Date(tzNowStr);
-                const nextMidnight = new Date(tzNow);
-                nextMidnight.setDate(nextMidnight.getDate() + 1);
-                nextMidnight.setHours(0, 0, 0, 0);
-                return nextMidnight - tzNow;
+    function applyDateFilter() {
+      const from = document.getElementById('fromDate').value;
+      const to   = document.getElementById('toDate').value;
+      filteredRows = allRows.filter(row => {
+        const date = row.forecast_or_actual === "actual" ? row.cli_date : row.target_date;
+        if (!date) return false;
+        if (from && date < from) return false;
+        if (to && date > to) return false;
+        return true;
+      });
+      displayTable();
+      showStats();
+      showChart();
+      showMostRecent();
+      updateCorrectionBoxes();
+      updateSummaryBoxes();
+    }
+
+    function showStats() {
+      const stats = document.getElementById('stats');
+      if (!stats) return;
+
+      const dayMap = {};
+      filteredRows.forEach(r => {
+        const date = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
+        if (!date) return;
+        (dayMap[date] ??= []).push(r);
+      });
+
+      const dates = Object.keys(dayMap).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d));
+      const daysWithActual = dates.filter(d => {
+        const rows = dayMap[d] || [];
+        return rows.some(r => r.forecast_or_actual === "actual" && r.actual_high);
+      });
+
+      let totalAbsErr = 0, totalBestErr = 0, errCount = 0, bestCount = 0;
+
+      daysWithActual.forEach(d => {
+        const rows = dayMap[d] || [];
+        const actual = rows.find(r => r.forecast_or_actual === "actual" && r.actual_high);
+        if (!actual) return;
+        const actualHigh = Number(actual.actual_high);
+        const highTime = actual.high_time || "";
+
+        const forecasts = rows
+          .filter(r => r.forecast_or_actual === "forecast" && r.predicted_high)
+          .filter(r => {
+            if (highTime) {
+              const fcHH = (r.forecast_time || "").substr(11, 5);
+              if (fcHH && compareTimes(fcHH, highTime) > 0) return false;
             }
+            return true;
+          })
+          .map(r => Number(r.predicted_high))
+          .filter(Number.isFinite);
 
-            setTimeout(function run() {
-                showTodayDate();
-                setInterval(showTodayDate, 24 * 60 * 60 * 1000);
-            }, msUntilMidnightET());
+        if (forecasts.length) {
+          const allErrors = forecasts.map(f => Math.abs(f - actualHigh));
+          const avgErr = allErrors.reduce((a, b) => a + b, 0) / allErrors.length;
+          const bestErr = Math.min(...allErrors);
+          totalAbsErr += avgErr;
+          totalBestErr += bestErr;
+          errCount++;
+          bestCount++;
         }
+      });
 
-async function checkAccess() {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) {
-    document.getElementById("gate")?.querySelector(".gate-sub")?.insertAdjacentText("beforeend", " Redirecting to login…");
-    return (window.location.href = "/login.html");
-  }
+      const avgAbsErr = errCount > 0 ? (totalAbsErr / errCount).toFixed(1) : "--";
+      const avgBestErr = bestCount > 0 ? (totalBestErr / bestCount).toFixed(1) : "--";
 
-  // pull extra fields so we can show a trial countdown + route correctly
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("subscription_status, current_period_end, trial_used")
-    .eq("id", session.user.id)
-    .single();
+      stats.innerHTML = `
+        <div class="stat-card">
+          <div class="stat-label">Days Tracked</div>
+          <div class="stat-value">${dates.length}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Days With Actual</div>
+          <div class="stat-value">${daysWithActual.length}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Average Absolute Error</div>
+          <div class="stat-value">${avgAbsErr}°F</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Average Best Error</div>
+          <div class="stat-value">${avgBestErr}°F</div>
+        </div>
+      `;
+    }
+  </script>
 
-  const status = profile?.subscription_status ?? "inactive";
-  const ALLOW = new Set(["active", "trialing"]);
+  <!-- Auth + boot (module) -->
+  <script type="module">
+    import { createClient } from "https://esm.sh/@supabase/supabase-js";
 
-  if (!ALLOW.has(status)) {
-    // If they've already used their trial, show the dedicated banner on subscribe
-    const dest = profile?.trial_used
-      ? "/subscribe.html?reason=trial_expired"
-      : "/subscribe.html";
-    document.getElementById("gate")?.querySelector(".gate-sub")?.insertAdjacentText("beforeend", " Redirecting to subscribe…");
-    return (window.location.href = dest);
-  }
+    const supabase = createClient(
+      "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
+    );
 
-   // ✅ allowed in
-  window.showApp();
-  bootApp();
+    function showTodayDate() {
+      const el = document.getElementById("todayDate");
+      if (!el) return;
+      const today = new Date();
+      const fmt = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        weekday: "short", month: "short", day: "numeric", year: "numeric"
+      });
+      el.textContent = fmt.format(today);
+    }
 
+    function scheduleMidnightUpdate() {
+      function msUntilMidnightET() {
+        const now = new Date();
+        const tzNowStr = new Intl.DateTimeFormat("en-US", {
+          timeZone: "America/New_York",
+          year: "numeric", month: "2-digit", day: "2-digit",
+          hour: "2-digit", minute: "2-digit", second: "2-digit",
+          hour12: false
+        }).format(now).replace(/(\d{2})\/(\d{2})\/(\d{4}),\s*(\d{2}):(\d{2}):(\d{2})/, "$3-$1-$2T$4:$5:$6");
+        const tzNow = new Date(tzNowStr);
+        const nextMidnight = new Date(tzNow);
+        nextMidnight.setDate(nextMidnight.getDate() + 1);
+        nextMidnight.setHours(0, 0, 0, 0);
+        return nextMidnight - tzNow;
+      }
+      setTimeout(function run() {
+        showTodayDate();
+        setInterval(showTodayDate, 24 * 60 * 60 * 1000);
+      }, msUntilMidnightET());
+    }
 
-}
+    async function checkAccess() {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        document.getElementById("gate")?.querySelector(".gate-sub")?.insertAdjacentText("beforeend", " Redirecting to login…");
+        return (window.location.href = "/login.html");
+      }
 
-        // Buttons
-        document.getElementById("btn-logout")?.addEventListener("click", async () => {
-            await supabase.auth.signOut();
-            localStorage.removeItem("dashboard_heartbeat");
-            window.location.href = "/login.html";
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("subscription_status, current_period_end, trial_used")
+        .eq("id", session.user.id)
+        .single();
+
+      const status = profile?.subscription_status ?? "inactive";
+      const ALLOW = new Set(["active", "trialing"]);
+
+      if (!ALLOW.has(status)) {
+        const dest = profile?.trial_used
+          ? "/subscribe.html?reason=trial_expired"
+          : "/subscribe.html";
+        document.getElementById("gate")?.querySelector(".gate-sub")?.insertAdjacentText("beforeend", " Redirecting to subscribe…");
+        return (window.location.href = dest);
+      }
+
+      window.showApp();
+      bootApp();
+    }
+
+    // Buttons
+    document.getElementById("btn-logout")?.addEventListener("click", async () => {
+      await supabase.auth.signOut();
+      localStorage.removeItem("dashboard_heartbeat");
+      window.location.href = "/login.html";
+    });
+
+    document.getElementById("btn-billing")?.addEventListener("click", async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return (window.location.href = "/login.html");
+      try {
+        const r = await fetch("/api/create-portal-session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ supabaseAccessToken: session.access_token })
         });
+        const j = await r.json();
+        if (!r.ok || !j?.url) return alert(j?.error || "Could not open billing portal");
+        window.location.href = j.url;
+      } catch (err) {
+        alert("Could not open billing portal");
+      }
+    });
 
-        document.getElementById("btn-billing")?.addEventListener("click", async () => {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) return (window.location.href = "/login.html");
-            try {
-                const r = await fetch("/api/create-portal-session", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ supabaseAccessToken: session.access_token })
-                });
-                const j = await r.json();
-                if (!r.ok || !j?.url) return alert(j?.error || "Could not open billing portal");
-                window.location.href = j.url;
-            } catch (err) {
-                alert("Could not open billing portal");
-            }
-        });
+    async function bootApp() {
+      showTodayDate();
+      scheduleMidnightUpdate?.();
 
-   // ---- App boot ----
-   async function bootApp() {
-     showTodayDate();
-     scheduleMidnightUpdate?.();
-   
-    // ✅ check if logging endpoint exists
-    await probeLoggingEndpoint();
-    
-     // Initial loads (wait for CSV to finish before starting poller)
-     await reloadCSV();
-     updateDSM();
-     updateSixHourMax();
-     updateObservations();
-     updateSummaryBoxes?.();
-   
-     // Light refresh cadences
-     setInterval(updateObservations, 5 * 60 * 1000);
-     setInterval(updateDSM, 10 * 60 * 1000);
-     setInterval(updateSixHourMax, 10 * 60 * 1000);
-     setInterval(updateSummaryBoxes, 60 * 1000);
-     setInterval(updateCorrectionBoxes, 10 * 60 * 1000); 
-   
-     // Start the forecast-change watcher *after* first CSV load
-     pollCsvAndUpdate();
-     setInterval(pollCsvAndUpdate, 60 * 1000);
-   
-     // Optional heartbeat for UX/session
-     try {
-       localStorage.setItem("dashboard_heartbeat", String(Date.now()));
-       setInterval(() => localStorage.setItem("dashboard_heartbeat", String(Date.now())), 60 * 1000);
-     } catch {}
-   }
+      // ✅ check if logging endpoint exists
+      await probeLoggingEndpoint();
 
+      // Initial loads (wait for CSV to finish before starting poller)
+      await reloadCSV();
+      updateDSM();
+      updateSixHourMax();
+      updateObservations();
+      updateSummaryBoxes?.();
 
-        // 🚀 Kick off
-        checkAccess();
-    </script>
+      // Light refresh cadences
+      setInterval(updateObservations, 5 * 60 * 1000);
+      setInterval(updateDSM,        10 * 60 * 1000);
+      setInterval(updateSixHourMax, 10 * 60 * 1000);
+      setInterval(updateSummaryBoxes,   60 * 1000);
+      setInterval(updateCorrectionBoxes,10 * 60 * 1000);
+
+      // Start the forecast-change watcher *after* first CSV load
+      pollCsvAndUpdate();
+      setInterval(pollCsvAndUpdate, 60 * 1000);
+
+      // Optional heartbeat for UX/session
+      try {
+        localStorage.setItem("dashboard_heartbeat", String(Date.now()));
+        setInterval(() => localStorage.setItem("dashboard_heartbeat", String(Date.now())), 60 * 1000);
+      } catch {}
+    }
+
+    // 🚀 Kick off
+    checkAccess();
+  </script>
 </body>
 </html>
