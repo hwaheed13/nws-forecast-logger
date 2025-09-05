@@ -51,7 +51,9 @@ export default async function handler(req, res) {
       user_id: p.user_id ?? null,
     };
 
-    const { error } = await supabase.from('prediction_logs').insert(row);
+    const { error } = await supabase
+  .from('prediction_logs')
+  .upsert(row, { onConflict: 'target_date,lead_used,issuance_iso,model_name,version' });
     if (error) throw error;
 
     // CORS header on response too (handy if you ever call cross-origin)
