@@ -1741,32 +1741,8 @@ async function probeLoggingEndpoint() {
     PREDICTION_LOGGING_ENABLED = false;
   }
 }
-
-async function logPrediction(payload){
-  if (!PREDICTION_LOGGING_ENABLED) return;
-  try {
-    const r = await fetch(`${API_BASE}/log-prediction`, {
-      method:"POST",
-      headers: { "Content-Type":"application/json" },
-      body: JSON.stringify(payload)
-    });
-    if (!r.ok && r.status === 404) {
-      PREDICTION_LOGGING_ENABLED = false; // shut it off if endpoint missing
-    }
-  } catch (_) {
-    PREDICTION_LOGGING_ENABLED = false;
-  }
-}     
+ 
      
-async function detectLoggingSupport() {
-  try {
-    const res = await fetch(`${API_BASE}/log-prediction`, { method: "OPTIONS" });
-    PREDICTION_LOGGING_ENABLED = res.ok; // enable only if endpoint answers
-  } catch (_) {
-    PREDICTION_LOGGING_ENABLED = false;
-  }
-}
-
 // POST logger (no-op if disabled)
 async function logPrediction(payload){
   if (!PREDICTION_LOGGING_ENABLED) return;
