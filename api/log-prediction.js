@@ -1,24 +1,41 @@
 // api/log-prediction.js
 import { createClient } from '@supabase/supabase-js';
 
+// Force Node runtime on Vercel (Edge can't use service-role keys)
+export const config = { runtime: 'nodejs18.x' };
+
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY // server-side secret (never ship to client)
+  process.env.SUPABASE_SERVICE_ROLE_KEY // server-side secret (never expose to client)
 );
 
-export default async function handler(req, res) {
-  // CORS / probe for your client-side OPTIONS check
-  if (req.method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    return res.status(200).end();
-  }
+function withCORS(res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
 
+function num(x) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : null;
+}
+function int0_23(x) {
+  const n = Number(x);
+  return Number.isInteger(n) && n >= 0 && n <= 23 ? n : null;
+}
+
+export default async function handler(req, res) {
+  withCORS(res);
+
+  // CORS preflight / probe for your client-side OPTIONS check
+  if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).end();
 
   try {
-    const p = req.body || {};
+    // Some hosts deliver body as a string
+    const p = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+
+    // Minimal validation
     if (!p.target_date || !p.lead_used) {
       return res.status(400).json({ error: 'target_date and lead_used required' });
     }
@@ -48,28 +65,30 @@ export default async function handler(req, res) {
       forecast_signature: p.forecast_signature ?? null,
       representative_kind: p.representative_kind ?? 'blend',
       source_card: p.source_card ?? null,
-      user_id: p.user_id ?? null,
+      user_id: p.user_id ?? null
     };
 
+    // Build an idempotency key on the server so the client doesn't need to
+    const idKey = [
+      row.target_date,
+      row.lead_used,
+      (row.issuance_iso || ''),   // normalize null to ''
+      (row.model_name || ''),
+      (row.version || '')
+    ].join('|');
+
+    row.idempotency_key = idKey;
+
+    // Upsert on the single unique key (requires unique index on idempotency_key)
     const { error } = await supabase
-  .from('prediction_logs')
-  .upsert(row, { onConflict: 'target_date,lead_used,issuance_iso,model_name,version' });
+      .from('prediction_logs')
+      .upsert(row, { onConflict: 'idempotency_key' });
+
     if (error) throw error;
 
-    // CORS header on response too (handy if you ever call cross-origin)
-    res.setHeader('Access-Control-Allow-Origin', '*');
     return res.status(201).json({ ok: true });
   } catch (e) {
     console.error('/api/log-prediction error', e);
     return res.status(500).json({ error: 'insert failed' });
   }
-}
-
-function num(x) {
-  const n = Number(x);
-  return Number.isFinite(n) ? n : null;
-}
-function int0_23(x) {
-  const n = Number(x);
-  return Number.isInteger(n) && n >= 0 && n <= 23 ? n : null;
 }
