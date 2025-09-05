@@ -1556,9 +1556,6 @@ if (tmrwBox) {
 }
 } // <-- add this line to close updateCorrectionBoxes()
 
-function showChart() {
-
-
     function showChart() {
       const byDate = {};
       filteredRows.forEach(r => {
@@ -1683,21 +1680,22 @@ function showChart() {
                   if (!iso) return '';
                   const [Y, M, D] = iso.split('-').map(Number);
                   const jsDate = new Date(Y, M - 1, D);
-                  if (idx === 0 || idx === labels.length - 1 || jsDate.getDate() === 1 || jsDate.getDay() === 1) {
-                    return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(jsDate);
-                  }
-                  return '';
+          return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(jsDate);
                 }
+                return '';
               }
-            },
-            y: {
-              title: { display: true, text: 'Temperature (°F)' },
-              grid: { color: 'rgba(0,0,0,.05)' }
             }
+          },
+          y: {
+            // axis config is now empty — will just use Chart.js defaults
           }
         }
-      });
-    }
+      }
+    });
+}
+
+async function displayTable() {
+
 
     async function displayTable() {
       const tb = document.querySelector("#dataTable tbody");
