@@ -2315,28 +2315,26 @@ function showMostRecent() {
         model_name: "seasonal_lead_bias_blended_rep",
         version: "v1.1"
       };
-      logPrediction(payload);
-    }
-  }
-} // ← closes the tmrwBox if-block
-} // ← closes function updateCorrectionBoxes
-
-function showChart() {
-        function showChart() {
-            const byDate = {};
-            filteredRows.forEach(r => {
-                const d = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
-                if (!d) return;
-                (byDate[d] ??= []).push(r);
-            });
-
-            const haveDays = Object.keys(byDate).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
-            if (!haveDays.length) {
-                const ctx = document.getElementById('dailyChart').getContext('2d');
-                if (chartInstance) chartInstance.destroy();
-                chartInstance = new Chart(ctx, { type: 'line', data: { labels: [], datasets: [] }, options: {} });
-                return;
-            }
+             logPrediction(payload);
+        }
+      } // ← closes if (tmrwBox)
+    }   // ← closes function updateCorrectionBoxes
+    
+    function showChart() {
+      const byDate = {};
+      filteredRows.forEach(r => {
+        const d = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
+        if (!d) return;
+        (byDate[d] ??= []).push(r);
+      });
+    
+      const haveDays = Object.keys(byDate).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+      if (!haveDays.length) {
+        const ctx = document.getElementById('dailyChart').getContext('2d');
+        if (chartInstance) chartInstance.destroy();
+        chartInstance = new Chart(ctx, { type: 'line', data: { labels: [], datasets: [] }, options: {} });
+        return;
+      }
 
             const isoToDate = (iso) => {
                 const [Y, M, D] = iso.split('-').map(Number);
@@ -2800,9 +2798,10 @@ async function checkAccess() {
     return (window.location.href = dest);
   }
 
-  // ✅ allowed in
-  showApp();
+   // ✅ allowed in
+  window.showApp();
   bootApp();
+
 
 }
 
