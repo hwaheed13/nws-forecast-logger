@@ -2035,21 +2035,27 @@ function showMostRecent() {
         // Kalshi cache
         const kalshiCache = new Map();
 
-        async function getKalshiLabel(dateISO) {
-            if (!/^\d{4}-\d{2}-\d{2}$/.test(dateISO)) return null;
-            if (kalshiCache.has(dateISO)) {
-                const cached = kalshiCache.get(dateISO);
-                if (cached === null) {
-                    const fresh = await fetchKalshiWinningRange(dateISO);
-                    kalshiCache.set(dateISO, fresh);
-                    return fresh;
-                }
-                return cached;
-            }
-            const data = await fetchKalshiWinningRange(dateISO);
-            kalshiCache.set(dateISO, data);
-            return data;
-        }
+    async function getKalshiLabel(dateISO) {
+      const today = nycISODate(0);
+      const yesterday = nycISODate(-1);
+    
+      // Never cache "today" — always refetch
+      if (dateISO === today) {
+        return await fetchKalshiWinningRange(dateISO);
+      }
+    
+      // Small TTL for yesterday; unlimited cache for older days
+      const now = Date.now();
+      const cached = kalshiCache.get(dateISO);
+      if (cached && (dateISO !== yesterday || (now - cached._ts) < 120000)) {
+        return cached.data;
+      }
+    
+      const fresh = await fetchKalshiWinningRange(dateISO);
+      kalshiCache.set(dateISO, { _ts: now, data: fresh });
+      return fresh;
+    }
+
 
         // DSM parsing
         function parseDSM(text) {
