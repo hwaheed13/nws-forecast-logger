@@ -529,6 +529,29 @@
     /* ========= DATA + UI ========= */
     let allRows = [], filteredRows = [], chartInstance = null;
 
+    // === Header date (ET) ===
+      function showTodayDate() {
+        const el = document.getElementById('todayDate');
+        if (!el) return;
+        const label = new Intl.DateTimeFormat('en-US', {
+          timeZone: 'America/New_York',
+          weekday: 'short',
+          month: 'short',
+          day: 'numeric'
+        }).format(new Date());
+        el.textContent = label;
+      }
+      
+      function scheduleMidnightUpdate() {
+        showTodayDate();                   // set immediately
+        setInterval(showTodayDate, 60 * 1000); // refresh once a minute
+      }
+      
+      // expose to the UMD boot block
+      window.showTodayDate = showTodayDate;
+      window.scheduleMidnightUpdate = scheduleMidnightUpdate;
+
+
     function nycISODate(offsetDays = 0) {
       const fmt = new Intl.DateTimeFormat('en-CA', {
         timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit'
