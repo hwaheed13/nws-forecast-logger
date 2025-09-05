@@ -2,7 +2,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 // Force Node runtime on Vercel (Edge can't use service-role keys)
-export const config = { runtime: 'nodejs18.x' };
+export const config = { runtime: 'nodejs' };
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
