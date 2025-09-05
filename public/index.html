@@ -2265,30 +2265,6 @@ function showMostRecent() {
 }
 
 
-                const anchor = kalshiAnchorForISO(yesterday);
-                const yHref = `${KALSHI_BASE_URL}${anchor}`;
-                if (kyday && kyday.label) {
-                    const exact = kyday.exactTemp != null ? ` (settled ${kyday.exactTemp.toFixed(1)}°F)` : "";
-                    yBox.innerHTML = `<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">${kyday.label}${exact}</a>`;
-                    yNote.textContent = "Links directly to yesterday's contract.";
-                } else {
-                    yBox.innerHTML = `<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">Open yesterday's market</a>`;
-                    yNote.textContent = "No proxy data; linking via anchor.";
-                }
-            })
-            .catch(() => {
-                const tBox = document.getElementById('box-today-kalshi');
-                const tNote = document.getElementById('box-today-kalshi-note');
-                const yBox = document.getElementById('box-yday-kalshi');
-                const yNote = document.getElementById('box-yday-kalshi-note');
-                if (tBox) tBox.innerHTML = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">Open market</a>`;
-                if (tNote) tNote.textContent = "Could not load proxy data.";
-                const yHref = `${KALSHI_BASE_URL}${kalshiAnchorForISO(nycISODate(-1))}`;
-                if (yBox) yBox.innerHTML = `<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">Open yesterday's market</a>`;
-                if (yNote) yNote.textContent = "Proxy error; using anchor link.";
-            });
-        }
-
         function calcBiases() {
             const biasList = [], dayMap = {};
             allRows.forEach(r => {
