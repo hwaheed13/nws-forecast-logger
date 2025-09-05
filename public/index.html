@@ -1043,6 +1043,46 @@
   background: var(--bg-tertiary); margin-left: 6px;
 }
 .tip:hover { box-shadow: 0 1px 6px rgba(0,0,0,.08); }
+/* Accessible, CSS-only tooltip for .tip[data-tip] */
+.tip { position: relative; outline: none; }
+.tip:focus-visible { box-shadow: 0 0 0 3px var(--accent-blue-light); }
+
+.tip[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  inset: auto auto calc(100% + 8px) 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  background: #111827;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 8px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,.15);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .12s ease, transform .12s ease;
+}
+
+.tip[data-tip]::before {
+  content: "";
+  position: absolute;
+  inset: auto auto calc(100% + 3px) 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: #111827;
+  opacity: 0;
+  transition: opacity .12s ease;
+}
+
+.tip:hover[data-tip]::after,
+.tip:focus[data-tip]::after,
+.tip:hover[data-tip]::before,
+.tip:focus[data-tip]::before {
+  opacity: 1;
+}
+
 
     </style>
 </head>
@@ -1149,14 +1189,17 @@
         <div class="prediction-card">
           <div class="prediction-title">
             Today’s Bias-Corrected Prediction
-            <span class="tip" title="Uses D0 pre-high; before first D0 arrives after midnight, uses last D1 carry-over.">i</span>
+           <span class="tip" tabindex="0"
+      data-tip="Uses D0 pre-high. Before first D0 after midnight, uses yesterday’s D1 carry-over.">i</span>
           </div>
           <div id="correctionBoxToday" class="prediction-content">Loading...</div>
         </div>
         <div class="prediction-card">
           <div class="prediction-title">
             Tomorrow’s Bias-Corrected Prediction
-            <span class="tip" title="Uses today’s D1 issuances targeting tomorrow (no post-target info).">i</span>
+           <span class="tip" tabindex="0"
+      data-tip="Uses today’s D1 issuances targeting tomorrow (no post-target info).">i</span>
+
           </div>
           <div id="correctionBoxTomorrow" class="prediction-content">Loading...</div>
         </div>
@@ -1687,17 +1730,59 @@ function deltaLast3(rows, repRow, highTime){
   return Number.isFinite(rep) && medPrev!=null ? (rep - medPrev) : 0;
 }
 
-// POST logger (adjust endpoint if needed)
+// ===== Prediction logging toggle + helpers =====
+let PREDICTION_LOGGING_ENABLED = false; // off until we detect availability
+
+async function probeLoggingEndpoint() {
+  try {
+    const r = await fetch(`${API_BASE}/log-prediction`, { method: "OPTIONS" });
+    PREDICTION_LOGGING_ENABLED = r.ok;
+  } catch {
+    PREDICTION_LOGGING_ENABLED = false;
+  }
+}
+
 async function logPrediction(payload){
-  try{
-    await fetch(`${API_BASE}/log-prediction`, {
+  if (!PREDICTION_LOGGING_ENABLED) return;
+  try {
+    const r = await fetch(`${API_BASE}/log-prediction`, {
       method:"POST",
       headers: { "Content-Type":"application/json" },
       body: JSON.stringify(payload)
     });
-  } catch(e){ console.debug("logPrediction failed", e); }
-}
+    if (!r.ok && r.status === 404) {
+      PREDICTION_LOGGING_ENABLED = false; // shut it off if endpoint missing
+    }
+  } catch (_) {
+    PREDICTION_LOGGING_ENABLED = false;
+  }
+}     
      
+async function detectLoggingSupport() {
+  try {
+    const res = await fetch(`${API_BASE}/log-prediction`, { method: "OPTIONS" });
+    PREDICTION_LOGGING_ENABLED = res.ok; // enable only if endpoint answers
+  } catch (_) {
+    PREDICTION_LOGGING_ENABLED = false;
+  }
+}
+
+// POST logger (no-op if disabled)
+async function logPrediction(payload){
+  if (!PREDICTION_LOGGING_ENABLED) return;
+  try{
+    const r = await fetch(`${API_BASE}/log-prediction`, {
+      method:"POST",
+      headers: { "Content-Type":"application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!r.ok) {
+      // If it ever 404s/500s, just turn it off quietly to avoid console noise
+      if (r.status === 404) PREDICTION_LOGGING_ENABLED = false;
+    }
+  } catch(e){ /* silent in UI, debug in console if you want */ }
+}
+
      // Normalize "YYYY-MM-DD HH:MM:SS" → "YYYY-MM-DDTHH:MM:SS" and return a Date or null
 function safeParseTimestamp(ts) {
   const s = (ts || "").trim();
@@ -2239,19 +2324,24 @@ function showMostRecent() {
         <div class="prediction-value">—</div>
         <div class="prediction-subtitle">Actual published for ${today}</div>
       `;
-    } else {
-      const c0 = d0CandidatesFor(today, highTime);
-      const warmKey = isWarmSeason(today) ? "D0_warm" : "D0_cool";
-      const w0 = tables.weights[warmKey] || { first:0, latest:1, trimmed:0, carry:0 };
-      const rep = blendedRep(c0, w0, /*allowCarry*/ true);
+  } else {
+  const c0 = d0CandidatesFor(today, highTime);
+  const warmKey = isWarmSeason(today) ? "D0_warm" : "D0_cool";
+  const w0 = tables.weights[warmKey] || { first:0, latest:1, trimmed:0, carry:0 };
+  const rep = blendedRep(c0, w0, /*allowCarry*/ true);
 
-      const bias = pickBiasFrom(tables, "D0");
-      const pred = (rep == null) ? null : rep + bias;
+  const bias = pickBiasFrom(tables, "D0");
+  const pred = (rep == null) ? null : rep + bias;
 
-      todayBox.innerHTML = `
-        <div class="prediction-value">${pred == null ? "–" : `${pred.toFixed(1)}°F`}</div>
-        <div class="prediction-subtitle">For ${today}</div>
-      `;
+  todayBox.innerHTML = `
+    <div class="prediction-value">${pred == null ? "–" : `${pred.toFixed(1)}°F`}</div>
+    <div class="prediction-subtitle">
+      For ${today}
+      ${rep==null ? "" : `<br><small style="opacity:.7">
+        blend=${rep.toFixed(1)}°F · bias=${(bias ?? 0).toFixed(1)} · w={f:${(w0.first??0).toFixed(1)}, l:${(w0.latest??0).toFixed(1)}, t:${(w0.trimmed??0).toFixed(1)}, c:${(w0.carry??0).toFixed(1)}}
+      </small>`}
+    </div>
+  `;
 
       // Logging (Today)
       if (rep != null) {
@@ -2290,51 +2380,59 @@ function showMostRecent() {
     const bias1 = pickBiasFrom(tables, "D1");
     const pred1 = (rep1 == null) ? null : rep1 + bias1;
 
-    tmrwBox.innerHTML = `
+   tmrwBox.innerHTML = `
       <div class="prediction-value">${pred1 == null ? "–" : `${pred1.toFixed(1)}°F`}</div>
-      <div class="prediction-subtitle">For ${tomorrow}</div>
+      <div class="prediction-subtitle">
+        For ${tomorrow}
+        ${rep1==null ? "" : `<br><small style="opacity:.7">
+          blend=${rep1.toFixed(1)}°F · bias=${(bias1 ?? 0).toFixed(1)} · w={f:${(w1.first??0).toFixed(1)}, l:${(w1.latest??0).toFixed(1)}, t:${(w1.trimmed??0).toFixed(1)}}
+        </small>`}
+      </div>
     `;
-
+   
     // Logging (Tomorrow)
-    if (rep1 != null) {
-      const repRow1 = latestPreHighRow(getForecastRowsFor(tomorrow,"D1"), "");
-      const dlt1 = deltaLast3(getForecastRowsFor(tomorrow,"D1"), repRow1, "");
-      const payload = {
-        timestamp_et: new Date().toISOString(),
-        target_date: tomorrow,
-        lead_used: "D1",
-        is_carryover: 0,
-        rep_forecast: Number(rep1.toFixed(1)),
-        delta_last3: Number(dlt1.toFixed(1)),
-        issuance_iso: issuanceETISO(repRow1),
-        issuance_hour_local: issuanceHourET(repRow1),
-        season: isWarmSeason(tomorrow) ? "warm" : "cool",
-        bias_applied: Number(bias1?.toFixed(2) ?? 0),
-        prediction_value: Number(pred1.toFixed(1)),
-        uncertainty_rmse: Number((tables.rmse.D1)?.toFixed(1) ?? 0),
-        model_name: "seasonal_lead_bias_blended_rep",
-        version: "v1.1"
-      };
-             logPrediction(payload);
-        }
-      } // ← closes if (tmrwBox)
-    }   // ← closes function updateCorrectionBoxes
-    
-    function showChart() {
-      const byDate = {};
-      filteredRows.forEach(r => {
-        const d = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
-        if (!d) return;
-        (byDate[d] ??= []).push(r);
-      });
-    
-      const haveDays = Object.keys(byDate).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
-      if (!haveDays.length) {
-        const ctx = document.getElementById('dailyChart').getContext('2d');
-        if (chartInstance) chartInstance.destroy();
-        chartInstance = new Chart(ctx, { type: 'line', data: { labels: [], datasets: [] }, options: {} });
-        return;
-      }
+     if (rep1 != null) {
+       const repRow1 = latestPreHighRow(getForecastRowsFor(tomorrow,"D1"), "");
+       const dlt1 = deltaLast3(getForecastRowsFor(tomorrow,"D1"), repRow1, "");
+       const payload = {
+         timestamp_et: new Date().toISOString(),
+         target_date: tomorrow,
+         lead_used: "D1",
+         is_carryover: 0,
+         rep_forecast: Number(rep1.toFixed(1)),
+         delta_last3: Number(dlt1.toFixed(1)),
+         issuance_iso: issuanceETISO(repRow1),
+         issuance_hour_local: issuanceHourET(repRow1),
+         season: isWarmSeason(tomorrow) ? "warm" : "cool",
+         bias_applied: Number(bias1?.toFixed(2) ?? 0),
+         prediction_value: Number(pred1.toFixed(1)),
+         uncertainty_rmse: Number((tables.rmse.D1)?.toFixed(1) ?? 0),
+         model_name: "seasonal_lead_bias_blended_rep",
+         version: "v1.1"
+       };
+       logPrediction(payload);
+     }
+   } // ← closes if (tmrwBox)
+ }   // ← closes function updateCorrectionBoxes
+
+  function showChart() {
+    const byDate = {};
+    filteredRows.forEach(r => {
+      const d = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
+      if (!d) return;
+      (byDate[d] ??= []).push(r);
+    });
+  
+    const haveDays = Object.keys(byDate)
+      .filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d))
+      .sort();
+  
+    if (!haveDays.length) {
+      const ctx = document.getElementById('dailyChart').getContext('2d');
+      if (chartInstance) chartInstance.destroy();
+      chartInstance = new Chart(ctx, { type: 'line', data: { labels: [], datasets: [] }, options: {} });
+      return;
+    }
 
             const isoToDate = (iso) => {
                 const [Y, M, D] = iso.split('-').map(Number);
@@ -2834,6 +2932,9 @@ async function checkAccess() {
      showTodayDate();
      scheduleMidnightUpdate?.();
    
+    // ✅ check if logging endpoint exists
+    await probeLoggingEndpoint();
+    
      // Initial loads (wait for CSV to finish before starting poller)
      await reloadCSV();
      updateDSM();
