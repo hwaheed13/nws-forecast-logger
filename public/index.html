@@ -1489,61 +1489,70 @@
         }
       }
 
-      // ---------- TOMORROW ----------
-      const tmrwBox = document.getElementById("correctionBoxTomorrow");
-      if (tmrwBox) {
-        const c1 = d1CandidatesFor(tomorrow);
-        const warmKey1 = isWarmSeason(tomorrow) ? "D1_warm" : "D1_cool";
-        const w1 = tables.weights[warmKey1] || { first:0, latest:1, trimmed:0 };
-        const rep1 = blendedRep(c1, w1, /*allowCarry*/ false);
+   // ---------- TOMORROW ----------
+const tmrwBox = document.getElementById("correctionBoxTomorrow");
+if (tmrwBox) {
+  const c1 = d1CandidatesFor(tomorrow);
+  const warmKey1 = isWarmSeason(tomorrow) ? "D1_warm" : "D1_cool";
+  const w1 = tables.weights[warmKey1] || { first:0, latest:1, trimmed:0 };
+  const rep1 = blendedRep(c1, w1, /*allowCarry*/ false);
 
-        const bias1 = pickBiasFrom(tables, "D1");
-        const pred1 = (rep1 == null) ? null : rep1 + bias1;
+  const bias1 = pickBiasFrom(tables, "D1");
+  const pred1 = (rep1 == null) ? null : rep1 + bias1;
 
-        tmrwBox.innerHTML = `
-          <div class="prediction-value">${pred1 == null ? "–" : `${pred1.toFixed(1)}°F`}</div>
-          <div class="prediction-subtitle">For ${tomorrow}</div>
-        `;
+  const p1Disp = round1(pred1);
+  const r1Disp = round1(rep1);
+  const b1Disp = round1(bias1 ?? 0);
 
-        // ✅ Logging (Tomorrow) — only if forecast changed
-        if (rep1 != null && forecastChanged.tomorrow === true) {
-          const repRow1 = latestPreHighRow(getForecastRowsFor(tomorrow,"D1"), "");
-          const dlt1 = deltaLast3(getForecastRowsFor(tomorrow,"D1"), repRow1, "");
-          const payload = {
-            timestamp_et: new Date().toISOString(),
-            target_date: tomorrow,
-            lead_used: "D1",
-            is_carryover: 0,
-            rep_forecast: Number(rep1),
-            delta_last3: Number(dlt1),
-            issuance_iso: issuanceISOUTC(repRow1),
-            issuance_hour_local: issuanceHourET(repRow1),
-            season: isWarmSeason(tomorrow) ? "warm" : "cool",
-            bias_applied: Number(bias1 ?? 0),
-            prediction_value: Number(pred1),
-            uncertainty_rmse: stableRound(tables.rmse.D1 ?? 0, 1),
-            model_name: "seasonal_lead_bias_blended_rep",
-            version: "v1.1"
-          };
+  tmrwBox.innerHTML = `
+    <div class="prediction-value">${p1Disp == null ? "–" : `${p1Disp.toFixed(1)}°F`}</div>
+    <div class="prediction-subtitle">
+      For ${tomorrow}
+      ${r1Disp==null ? "" : `<br><small style="opacity:.7">
+        blend=${r1Disp.toFixed(1)}°F · bias=${b1Disp.toFixed(1)} · w={f:${(w1.first??0).toFixed(1)}, l:${(w1.latest??0).toFixed(1)}, t:${(w1.trimmed??0).toFixed(1)}}
+      </small>`}
+    </div>
+  `;
 
-          const sigTomorrow = buildPredSignature({
-            target_date: payload.target_date,
-            lead_used: payload.lead_used,
-            issuance_iso: payload.issuance_iso,
-            rep_forecast: payload.rep_forecast,
-            bias_applied: payload.bias_applied,
-            prediction_value: payload.prediction_value,
-            model_name: payload.model_name,
-            version: payload.version
-          });
+  // ✅ Logging (Tomorrow) — only if forecast changed
+  if (rep1 != null && forecastChanged.tomorrow === true) {
+    const repRow1 = latestPreHighRow(getForecastRowsFor(tomorrow,"D1"), "");
+    const dlt1 = deltaLast3(getForecastRowsFor(tomorrow,"D1"), repRow1, "");
+    const payload = {
+      timestamp_et: new Date().toISOString(),
+      target_date: tomorrow,
+      lead_used: "D1",
+      is_carryover: 0,
+      rep_forecast: Number(rep1),
+      delta_last3: Number(dlt1),
+      issuance_iso: issuanceISOUTC(repRow1),
+      issuance_hour_local: issuanceHourET(repRow1),
+      season: isWarmSeason(tomorrow) ? "warm" : "cool",
+      bias_applied: Number(bias1 ?? 0),
+      prediction_value: Number(pred1),
+      uncertainty_rmse: stableRound(tables.rmse.D1 ?? 0, 1),
+      model_name: "seasonal_lead_bias_blended_rep",
+      version: "v1.1"
+    };
 
-          if (sigTomorrow && sigTomorrow !== loggedSig.tomorrow) {
-            logPrediction(payload);
-            setLoggedSig("tomorrow", sigTomorrow);
-          }
-        }
-      }
+    const sigTomorrow = buildPredSignature({
+      target_date: payload.target_date,
+      lead_used: payload.lead_used,
+      issuance_iso: payload.issuance_iso,
+      rep_forecast: payload.rep_forecast,
+      bias_applied: payload.bias_applied,
+      prediction_value: payload.prediction_value,
+      model_name: payload.model_name,
+      version: payload.version
+    });
+
+    if (sigTomorrow && sigTomorrow !== loggedSig.tomorrow) {
+      logPrediction(payload);
+      setLoggedSig("tomorrow", sigTomorrow);
     }
+  }
+}
+
 
     function showChart() {
       const byDate = {};
