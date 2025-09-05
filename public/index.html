@@ -1711,24 +1711,36 @@ function issuanceHourET(row){
   const hh = new Intl.DateTimeFormat("en-CA",{timeZone:"America/New_York",hour:"2-digit",hour12:false}).format(d);
   return Number(hh);
 }
+function rowSig(r){ return `${r.timestamp || r.forecast_time || ""}|${r.predicted_high}`; }
+
 function deltaLast3(rows, repRow, highTime){
   const sorted = rows
     .filter(r => r.predicted_high != null && r.predicted_high !== "")
     .filter(r => {
       if (!highTime) return true;
-      const fcHH = (r.forecast_time || "").substr(11,5);
+      // consider timestamp as fallback, in case forecast_time is missing
+      const fcHH = (r.forecast_time || r.timestamp || "").substr(11,5);
       return !(fcHH && compareTimes(fcHH, highTime) > 0);
     })
     .sort((a,b)=>((a.timestamp||a.forecast_time||"")).localeCompare(b.timestamp||b.forecast_time||""));
+
   const dedup = collapseConsecutiveDuplicates(sorted);
-  if (!repRow) return 0;
-  const idx = dedup.lastIndexOf(repRow);
-  const prevs = dedup.slice(Math.max(0, idx-2), idx).map(r=>Number(r.predicted_high)).filter(Number.isFinite);
+  if (!repRow || !dedup.length) return 0;
+
+  const repS = rowSig(repRow);
+  let idx = dedup.findIndex(x => rowSig(x) === repS);
+  if (idx < 0) idx = dedup.length - 1; // fallback to last if not found
+
+  const prevs = dedup.slice(Math.max(0, idx - 2), idx)
+    .map(r => Number(r.predicted_high))
+    .filter(Number.isFinite);
+
   if (!prevs.length) return 0;
   const medPrev = median(prevs);
   const rep = Number(repRow.predicted_high);
-  return Number.isFinite(rep) && medPrev!=null ? (rep - medPrev) : 0;
+  return (Number.isFinite(rep) && medPrev != null) ? (rep - medPrev) : 0;
 }
+
 
 // ===== Prediction logging toggle + helpers =====
 let PREDICTION_LOGGING_ENABLED = false; // off until we detect availability
