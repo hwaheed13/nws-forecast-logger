@@ -523,6 +523,8 @@
 
     function showApp(){ const g=$gate(), a=$app(); if(g) g.style.display='none'; if(a) a.style.display=''; }
     function showGate(msg){ const g=$gate(); if(!g) return; g.style.display=''; const sub=g.querySelector('.gate-sub'); if(sub&&msg) sub.textContent=msg; }
+    window.showApp = showApp;
+    window.showGate = showGate;
 
     /* ========= DATA + UI ========= */
     let allRows = [], filteredRows = [], chartInstance = null;
@@ -1546,12 +1548,15 @@ if (tmrwBox) {
       version: payload.version
     });
 
-    if (sigTomorrow && sigTomorrow !== loggedSig.tomorrow) {
+       if (sigTomorrow && sigTomorrow !== loggedSig.tomorrow) {
       logPrediction(payload);
       setLoggedSig("tomorrow", sigTomorrow);
     }
   }
 }
+} // <-- add this line to close updateCorrectionBoxes()
+
+function showChart() {
 
 
     function showChart() {
