@@ -1704,7 +1704,13 @@ function blendedRep(cands, weights, allowCarry) {
 }
 
 // ===== Feature helpers for logging =====
-function issuanceETISO(row){ return etDateISOFromTS(row?.timestamp || row?.forecast_time || ""); }
+ function issuanceISOUTC(row){
+   const src = (row?.timestamp || row?.forecast_time || "").replace(" ", "T");
+   const d = new Date(src);
+   if (!Number.isFinite(d.getTime())) return null;
+   // send canonical UTC (Postgres timestamptz-safe)
+   return d.toISOString().slice(0,19) + "Z"; // e.g. "2025-09-05T13:42:00Z"
+ }
 function issuanceHourET(row){
   const s = (row?.timestamp || row?.forecast_time || "").replace(" ", "T"); const d=new Date(s);
   if (!Number.isFinite(d.getTime())) return null;
@@ -2404,13 +2410,13 @@ function showMostRecent() {
           target_date: today,
           lead_used: c0._hasD0 ? "D0" : "D1",
           is_carryover: c0._hasD0 ? 0 : 1,
-          rep_forecast: stableRound(rep, 1),
-          delta_last3:  stableRound(dlt, 1),
-          issuance_iso: issuanceETISO(repRow),
+          rep_forecast: Number(rep),               // full precision
+           delta_last3:  Number(dlt),
+          issuance_iso: issuanceISOUTC(repRow),
           issuance_hour_local: issuanceHourET(repRow),
           season: isWarmSeason(today) ? "warm" : "cool",
-          bias_applied: stableRound(bias ?? 0, 2),
-          prediction_value: stableRound(pred, 1),
+          bias_applied: Number(bias ?? 0),
+          prediction_value: Number(pred),          // full precision
           uncertainty_rmse: stableRound(tables.rmse.D0 ?? 0, 1),
           model_name: "seasonal_lead_bias_blended_rep",
           version: "v1.1"
