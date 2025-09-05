@@ -1931,74 +1931,28 @@ if (tmrwBox) {
   </script>
 
   <!-- Auth + boot (module) -->
-<script type="module">
-  import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-  const supabase = createClient(
+<!-- Auth + boot (UMD – replaces the module block) -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+(() => {
+  const supabase = window.supabase.createClient(
     "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
   );
 
   const gate = document.getElementById("gate");
-  function gateMsg(msg) {
-    const sub = gate?.querySelector(".gate-sub");
-    if (sub && msg) sub.textContent = msg;
-  }
-
-  async function checkAccess() {
-    try {
-      const { data: { session }, error: sErr } = await supabase.auth.getSession();
-      if (sErr) {
-        console.error("getSession error", sErr);
-        gateMsg("Auth error. Redirecting to login…");
-        return (window.location.href = "/login.html");
-      }
-      if (!session) {
-        gateMsg("No session. Redirecting to login…");
-        return (window.location.href = "/login.html");
-      }
-
-      const { data: profile, error } = await supabase
-        .from("profiles")
-        .select("subscription_status, current_period_end, trial_used")
-        .eq("id", session.user.id)
-        .single();
-
-      if (error) console.warn("profiles fetch error:", error);
-
-      const status = profile?.subscription_status ?? "inactive";
-      const ALLOW = new Set(["active", "trialing"]);
-
-      if (!ALLOW.has(status)) {
-        const dest = profile?.trial_used
-          ? "/subscribe.html?reason=trial_expired"
-          : "/subscribe.html";
-        gateMsg("Subscription inactive. Redirecting…");
-        return (window.location.href = dest);
-      }
-
-      // ✅ Good to load the app
-      window.showApp?.();
-      await bootApp();
-
-    } catch (e) {
-      console.error("checkAccess failed", e);
-      // Fail-open so you can see the dashboard instead of hanging on the gate.
-      window.showApp?.();
-      await bootApp();
-    }
-  }
+  function gateMsg(msg){ const sub = gate?.querySelector(".gate-sub"); if (sub && msg) sub.textContent = msg; }
 
   // Buttons
   document.getElementById("btn-logout")?.addEventListener("click", async () => {
     await supabase.auth.signOut();
-    localStorage.removeItem("dashboard_heartbeat");
-    window.location.href = "/login.html";
+    try { localStorage.removeItem("dashboard_heartbeat"); } catch {}
+    window.location.href = "login.html";
   });
 
   document.getElementById("btn-billing")?.addEventListener("click", async () => {
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return (window.location.href = "/login.html");
+    if (!session) return (window.location.href = "login.html");
     try {
       const r = await fetch("/api/create-portal-session", {
         method: "POST",
@@ -2008,13 +1962,11 @@ if (tmrwBox) {
       const j = await r.json();
       if (!r.ok || !j?.url) return alert(j?.error || "Could not open billing portal");
       window.location.href = j.url;
-    } catch {
-      alert("Could not open billing portal");
-    }
+    } catch { alert("Could not open billing portal"); }
   });
 
   async function bootApp() {
-    // Everything below is defined in the non-module script.
+    // Uses functions from your non-module “App scripts” block above
     window.showTodayDate?.();
     window.scheduleMidnightUpdate?.();
 
@@ -2040,11 +1992,58 @@ if (tmrwBox) {
     } catch {}
   }
 
-  // If the auth state changes (logout elsewhere), kick back to login.
+  async function checkAccess() {
+    try {
+      gateMsg("Checking access…");
+
+      const { data: { session }, error: sErr } = await supabase.auth.getSession();
+      if (sErr) {
+        console.error("getSession error", sErr);
+        gateMsg("Auth error. Redirecting to login…");
+        return (window.location.href = "login.html");
+      }
+      if (!session) {
+        gateMsg("No session. Redirecting to login…");
+        return (window.location.href = "login.html");
+      }
+
+      const { data: profile, error } = await supabase
+        .from("profiles")
+        .select("subscription_status, current_period_end, trial_used")
+        .eq("id", session.user.id)
+        .single();
+
+      if (error) console.warn("profiles fetch error:", error);
+
+      const status = profile?.subscription_status ?? "inactive";
+      if (!new Set(["active", "trialing"]).has(status)) {
+        const dest = profile?.trial_used ? "subscribe.html?reason=trial_expired" : "subscribe.html";
+        gateMsg("Subscription inactive. Redirecting…");
+        return (window.location.href = dest);
+      }
+
+      showApp();
+      await bootApp();
+
+    } catch (e) {
+      console.error("checkAccess failed", e);
+      // Fail-open so you’re never stuck on the gate
+      showApp();
+      await bootApp();
+    }
+  }
+
+  // Safety net: if anything blocks, show the app after 5s
+  setTimeout(() => {
+    const app = document.getElementById('app');
+    if (app && getComputedStyle(app).display === 'none') { showApp(); bootApp(); }
+  }, 5000);
+
   supabase.auth.onAuthStateChange((_event, session) => {
-    if (!session) window.location.href = "/login.html";
+    if (!session) window.location.href = "login.html";
   });
 
-  // 🚀 Kick off
   checkAccess();
+})();
 </script>
+
