@@ -2318,43 +2318,10 @@ function showMostRecent() {
       logPrediction(payload);
     }
   }
-}
+} // ← closes the tmrwBox if-block
+} // ← closes function updateCorrectionBoxes
 
-  const biasTxt = (avgBias > 0 ? "+" : "") + avgBias.toFixed(2);
-  const daysTxt = `(${biasList.length} days)`;
-
-  // ---- TODAY: freeze once actual exists
-  const todayBox = document.getElementById("correctionBoxToday");
-  if (todayBox) {
-    if (hasActualFor(today)) {
-      // Actual is published → no more “prediction” for today
-      todayBox.innerHTML = `
-        <div class="prediction-value">—</div>
-        <div class="prediction-subtitle">
-          Actual published for ${today} • Historical bias now includes today ${daysTxt}
-        </div>
-      `;
-    } else {
-      const tAvg = meanForecastForDate(today);
-      const tPred = (tAvg == null) ? null : tAvg + avgBias;
-      todayBox.innerHTML = `
-        <div class="prediction-value">${tPred == null ? "–" : tPred.toFixed(1) + "°F"}</div>
-        <div class="prediction-subtitle">For ${today} • Historical bias: ${biasTxt} ${daysTxt}</div>
-      `;
-    }
-  }
-
-  // ---- TOMORROW: still show prediction (it benefits from today being added to bias)
-  const tmrwBox = document.getElementById("correctionBoxTomorrow");
-  if (tmrwBox) {
-    const tmAvg = meanForecastForDate(tomorrow);
-    const tmPred = (tmAvg == null) ? null : tmAvg + avgBias;
-    tmrwBox.innerHTML = `
-      <div class="prediction-value">${tmPred == null ? "–" : tmPred.toFixed(1) + "°F"}</div>
-      <div class="prediction-subtitle">For ${tomorrow} • Historical bias: ${biasTxt} ${daysTxt}</div>
-    `;
-  }
-}
+function showChart() {
         function showChart() {
             const byDate = {};
             filteredRows.forEach(r => {
