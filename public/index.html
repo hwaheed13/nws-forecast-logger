@@ -1740,7 +1740,46 @@ function deltaLast3(rows, repRow, highTime){
   const rep = Number(repRow.predicted_high);
   return (Number.isFinite(rep) && medPrev != null) ? (rep - medPrev) : 0;
 }
+// === Client idempotency helpers (avoid logging the same prediction repeatedly) ===
+function stableRound(x, d=1){
+  const n = Number(x);
+  if (!Number.isFinite(n)) return null;
+  const p = Math.pow(10, d);
+  return Math.round(n * p) / p;
+}
 
+function buildPredSignature({
+  target_date, lead_used, issuance_iso,
+  rep_forecast, bias_applied, prediction_value,
+  model_name, version
+}) {
+  const rep = stableRound(rep_forecast, 1);
+  const bias = stableRound(bias_applied, 2);
+  const pred = stableRound(prediction_value, 1);
+  return [
+    target_date || '',
+    lead_used || '',
+    issuance_iso || '',
+    rep ?? '',
+    bias ?? '',
+    pred ?? '',
+    model_name || '',
+    version || ''
+  ].join('|');
+}
+
+function shouldLogPrediction(sig) {
+  try {
+    const key = 'last_pred_sig';
+    const last = localStorage.getItem(key);
+    if (last === sig) return false;
+    localStorage.setItem(key, sig);
+    return true;
+  } catch {
+    // if storage not available, allow logging; server upsert still protects you
+    return true;
+  }
+}
 
 // ===== Prediction logging toggle + helpers =====
 let PREDICTION_LOGGING_ENABLED = false; // off until we detect availability
@@ -2362,7 +2401,21 @@ function showMostRecent() {
           model_name: "seasonal_lead_bias_blended_rep",
           version: "v1.1"
         };
-        logPrediction(payload);
+       const sigToday = buildPredSignature({
+       target_date: payload.target_date,
+       lead_used: payload.lead_used,
+       issuance_iso: payload.issuance_iso,
+       rep_forecast: payload.rep_forecast,
+       bias_applied: payload.bias_applied,
+       prediction_value: payload.prediction_value,
+       model_name: payload.model_name,
+       version: payload.version
+     });
+     if (shouldLogPrediction(sigToday)) {
+       // optional: payload.idempotency_key = sigToday;
+       logPrediction(payload);
+}
+
       }
     }
   }
@@ -2408,7 +2461,21 @@ function showMostRecent() {
          model_name: "seasonal_lead_bias_blended_rep",
          version: "v1.1"
        };
-       logPrediction(payload);
+      const sigTomorrow = buildPredSignature({
+     target_date: payload.target_date,
+     lead_used: payload.lead_used,
+     issuance_iso: payload.issuance_iso,
+     rep_forecast: payload.rep_forecast,
+     bias_applied: payload.bias_applied,
+     prediction_value: payload.prediction_value,
+     model_name: payload.model_name,
+     version: payload.version
+   });
+   if (shouldLogPrediction(sigTomorrow)) {
+     // optional: payload.idempotency_key = sigTomorrow;
+     logPrediction(payload);
+   }
+
      }
    } // ← closes if (tmrwBox)
  }   // ← closes function updateCorrectionBoxes
