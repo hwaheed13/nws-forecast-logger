@@ -2837,10 +2837,6 @@ async function checkAccess() {
   showApp();
   bootApp();
 
-  // If they're in a free trial, show a live countdown pill
-  if (status === "trialing" && profile?.current_period_end) {
-    showTrialCountdown(new Date(profile.current_period_end));
-  }
 }
 
         // Buttons
