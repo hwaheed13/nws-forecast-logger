@@ -2020,9 +2020,10 @@ function showMostRecent() {
             return fetchJSON(KALSHI_BY_DATE_URLS, { date: dateISO });
         }
 
-        async function fetchKalshiLiveLeader(dateISO) {
-            return fetchJSON(KALSHI_LIVE_URLS, { date: dateISO });
-        }
+       async function fetchKalshiLiveLeader(dateISO) {
+      return fetchJSON(KALSHI_LIVE_URLS, { date: dateISO, cb: Date.now() });
+    }
+
 
         async function fetchNwsHighSoFar(station = "KNYC") {
             return fetchJSON(NWS_HIGH_SO_FAR_URLS, { station });
@@ -2181,61 +2182,88 @@ function showMostRecent() {
             });
         }
 
-        function updateSummaryBoxes() {
-            const today = nycISODate(0);
-            const tomorrow = nycISODate(1);
-            const yesterday = nycISODate(-1);
+      async function updateSummaryBoxes() {
+  const today = nycISODate(0);
+  const tomorrow = nycISODate(1);
+  const yesterday = nycISODate(-1);
 
-            const latestForDate = (date) => {
-                const rows = allRows
-                    .filter(r => r.forecast_or_actual === "forecast" && r.target_date === date && r.predicted_high);
-                if (!rows.length) return null;
-                rows.sort((a, b) => {
-                    const A = a.timestamp || a.forecast_time || "";
-                    const B = b.timestamp || b.forecast_time || "";
-                    return B.localeCompare(A);
-                });
-                return Number(rows[0].predicted_high);
-            };
+  const latestForDate = (date) => {
+    const rows = allRows
+      .filter(r => r.forecast_or_actual === "forecast" && r.target_date === date && r.predicted_high);
+    if (!rows.length) return null;
+    rows.sort((a, b) => {
+      const A = a.timestamp || a.forecast_time || "";
+      const B = b.timestamp || b.forecast_time || "";
+      return B.localeCompare(A);
+    });
+    return Number(rows[0].predicted_high);
+  };
 
-            const tLatest = latestForDate(today);
-            const tActRow = allRows.find(r => r.forecast_or_actual === "actual" && r.cli_date === today && r.actual_high);
-            const tActual = tActRow ? Number(tActRow.actual_high) : null;
-            const tmLatest = latestForDate(tomorrow);
+  // Update the four metric boxes + mini chips
+  const tLatest  = latestForDate(today);
+  const tActRow  = allRows.find(r => r.forecast_or_actual === "actual" && r.cli_date === today && r.actual_high);
+  const tActual  = tActRow ? Number(tActRow.actual_high) : null;
+  const tmLatest = latestForDate(tomorrow);
 
-            document.getElementById("box-today-forecast").textContent = (tLatest == null) ? "–" : tLatest.toFixed(0) + "°F";
-            document.getElementById("box-today-actual").textContent = (tActual == null) ? "–" : tActual.toFixed(0) + "°F";
-            document.getElementById("box-tomorrow-forecast").textContent = (tmLatest == null) ? "–" : tmLatest.toFixed(0) + "°F";
+  const e = (id) => document.getElementById(id);
+  if (e("box-today-forecast"))   e("box-today-forecast").textContent   = (tLatest  == null) ? "–" : `${tLatest.toFixed(0)}°F`;
+  if (e("box-today-actual"))     e("box-today-actual").textContent     = (tActual  == null) ? "–" : `${tActual.toFixed(0)}°F`;
+  if (e("box-tomorrow-forecast"))e("box-tomorrow-forecast").textContent= (tmLatest == null) ? "–" : `${tmLatest.toFixed(0)}°F`;
 
-            const todayRows = getForecastsForDate(today);
-            const tomorrowRows = getForecastsForDate(tomorrow);
-            renderMiniForecastChips(todayRows, "mini-today-forecasts");
-            renderMiniForecastChips(tomorrowRows, "mini-tomorrow-forecasts");
+  const todayRows    = getForecastsForDate(today);
+  const tomorrowRows = getForecastsForDate(tomorrow);
+  renderMiniForecastChips(todayRows, "mini-today-forecasts");
+  renderMiniForecastChips(tomorrowRows, "mini-tomorrow-forecasts");
 
-            Promise.all([
-                getKalshiLabel(today),
-                getKalshiLabel(yesterday)
-            ])
-            .then(async ([ktoday, kyday]) => {
-                const tBox = document.getElementById('box-today-kalshi');
-                const tNote = document.getElementById('box-today-kalshi-note');
-                const yBox = document.getElementById('box-yday-kalshi');
-                const yNote = document.getElementById('box-yday-kalshi-note');
+  // ===== Kalshi badges =====
+  const tBox  = e('box-today-kalshi');
+  const tNote = e('box-today-kalshi-note');
+  const yBox  = e('box-yday-kalshi');
+  const yNote = e('box-yday-kalshi-note');
 
-                if (ktoday && ktoday.label) {
-                    tBox.innerHTML = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${ktoday.label}</a>`;
-                    tNote.textContent = ktoday.exactTemp != null ? `Settled at ${ktoday.exactTemp.toFixed(1)}°F.` : "";
-                } else {
-                    const live = await fetchKalshiLiveLeader(today);
-                    if (live && live.leadingLabel) {
-                        const pct = (live.leadingProb != null) ? ` (${Math.round(live.leadingProb * 100)}%)` : "";
-                        tBox.innerHTML = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${live.leadingLabel}${pct}</a>`;
-                        tNote.textContent = "Live leader (can flip before settlement).";
-                    } else {
-                        tBox.innerHTML = `<span class="kalshi-pending">Pending settlement</span>`;
-                        tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
-                    }
-                }
+  try {
+    // Pull both in parallel
+    const [ktoday, kyday, live] = await Promise.all([
+      getKalshiLabel(today),
+      getKalshiLabel(yesterday),
+      fetchKalshiLiveLeader(today)
+    ]);
+
+    // --- TODAY ---
+    // Prefer fresh LIVE; fall back to settled by-date; else Pending
+    if (live && live.leadingLabel) {
+      const pct = (live.leadingProb != null) ? ` (${Math.round(live.leadingProb * 100)}%)` : "";
+      if (tBox)  tBox.innerHTML  = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${live.leadingLabel}${pct}</a>`;
+      if (tNote) tNote.textContent = "Live leader (can flip before settlement).";
+    } else if (ktoday && ktoday.settled === true && ktoday.label) {
+      if (tBox)  tBox.innerHTML  = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${ktoday.label}</a>`;
+      if (tNote) tNote.textContent = (ktoday.exactTemp != null) ? `Settled at ${ktoday.exactTemp.toFixed(1)}°F.` : "";
+    } else {
+      if (tBox)  tBox.innerHTML  = `<span class="kalshi-pending">Pending settlement</span>`;
+      if (tNote) tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
+    }
+
+    // --- YESTERDAY ---
+    const anchor = kalshiAnchorForISO(yesterday);
+    const yHref = `${KALSHI_BASE_URL}${anchor}`;
+    if (kyday && kyday.label) {
+      const exact = (kyday.exactTemp != null) ? ` (settled ${kyday.exactTemp.toFixed(1)}°F)` : "";
+      if (yBox)  yBox.innerHTML  = `<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">${kyday.label}${exact}</a>`;
+      if (yNote) yNote.textContent = "Links directly to yesterday's contract.";
+    } else {
+      if (yBox)  yBox.innerHTML  = `<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">Open yesterday's market</a>`;
+      if (yNote) yNote.textContent = "No proxy data; linking via anchor.";
+    }
+  } catch {
+    // Fallbacks if either endpoint errors
+    if (tBox)  tBox.innerHTML  = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">Open market</a>`;
+    if (tNote) tNote.textContent = "Could not load proxy data.";
+    const yHref = `${KALSHI_BASE_URL}${kalshiAnchorForISO(yesterday)}`;
+    if (yBox)  yBox.innerHTML  = `<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">Open yesterday's market</a>`;
+    if (yNote) yNote.textContent = "Proxy error; using anchor link.";
+  }
+}
+
 
                 const anchor = kalshiAnchorForISO(yesterday);
                 const yHref = `${KALSHI_BASE_URL}${anchor}`;
@@ -2940,7 +2968,7 @@ async function checkAccess() {
      setInterval(updateObservations, 5 * 60 * 1000);
      setInterval(updateDSM, 10 * 60 * 1000);
      setInterval(updateSixHourMax, 10 * 60 * 1000);
-     setInterval(updateSummaryBoxes, 10 * 60 * 1000);
+     setInterval(updateSummaryBoxes, 60 * 1000);
      setInterval(updateCorrectionBoxes, 10 * 60 * 1000); 
    
      // Start the forecast-change watcher *after* first CSV load
