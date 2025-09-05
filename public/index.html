@@ -1556,146 +1556,123 @@ if (tmrwBox) {
 }
 } // <-- add this line to close updateCorrectionBoxes()
 
-    function showChart() {
-      const byDate = {};
-      filteredRows.forEach(r => {
-        const d = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
-        if (!d) return;
-        (byDate[d] ??= []).push(r);
-      });
+ function showChart() {
+  const byDate = {};
+  filteredRows.forEach(r => {
+    const d = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
+    if (!d) return;
+    (byDate[d] ??= []).push(r);
+  });
 
-      const haveDays = Object.keys(byDate)
-        .filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d))
-        .sort();
+  const haveDays = Object.keys(byDate)
+    .filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d))
+    .sort();
 
-      const ctx = document.getElementById('dailyChart').getContext('2d');
-      if (!haveDays.length) {
-        if (chartInstance) chartInstance.destroy();
-        chartInstance = new Chart(ctx, { type: 'line', data: { labels: [], datasets: [] }, options: {} });
-        return;
-      }
+  const ctx = document.getElementById('dailyChart').getContext('2d');
+  if (!haveDays.length) {
+    if (chartInstance) chartInstance.destroy();
+    chartInstance = new Chart(ctx, { type: 'line', data: { labels: [], datasets: [] }, options: {} });
+    return;
+  }
 
-      const isoToDate = (iso) => { const [Y,M,D] = iso.split('-').map(Number); return new Date(Y, M-1, D); };
-      const dateToISO = (dt) => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
-      const addDays = (dt, n) => { const d = new Date(dt); d.setDate(d.getDate()+n); return d; };
+  const isoToDate = (iso) => { const [Y,M,D] = iso.split('-').map(Number); return new Date(Y, M-1, D); };
+  const dateToISO = (dt) => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+  const addDays = (dt, n) => { const d = new Date(dt); d.setDate(d.getDate()+n); return d; };
 
-      const first = isoToDate(haveDays[0]);
-      const dow = first.getDay();
-      const back = (dow + 6) % 7;
-      const start = addDays(first, -back);
-      const end = isoToDate(haveDays[haveDays.length - 1]);
-      const labels = [];
-      for (let d = new Date(start); d <= end; d = addDays(d, 1)) labels.push(dateToISO(d));
+  const first = isoToDate(haveDays[0]);
+  const dow = first.getDay();
+  const back = (dow + 6) % 7;
+  const start = addDays(first, -back);
+  const end = isoToDate(haveDays[haveDays.length - 1]);
+  const labels = [];
+  for (let d = new Date(start); d <= end; d = addDays(d, 1)) labels.push(dateToISO(d));
 
-      const actualMap = new Map();
-      const bestMap = new Map();
-      labels.forEach(d => {
-        const rows = byDate[d] || [];
-        const a = rows.find(r => r.forecast_or_actual === "actual" && r.actual_high);
-        if (a) {
-          const actualHigh = Number(a.actual_high);
-          actualMap.set(d, Number.isFinite(actualHigh) ? actualHigh : null);
-          const highTime = a.high_time || "";
-          const pre = rows
-            .filter(r => r.forecast_or_actual === "forecast" && r.predicted_high)
-            .filter(r => {
-              if (highTime) {
-                const fcHH = (r.forecast_time || "").substr(11, 5);
-                if (fcHH && compareTimes(fcHH, highTime) > 0) return false;
-              }
-              return true;
-            })
-            .map(r => Number(r.predicted_high))
-            .filter(Number.isFinite);
-          if (pre.length) {
-            const errs = pre.map(v => ({ v, e: Math.abs(v - actualHigh) }));
-            errs.sort((a, b) => a.e - b.e);
-            bestMap.set(d, errs[0].v);
+  const actualMap = new Map();
+  const bestMap = new Map();
+  labels.forEach(d => {
+    const rows = byDate[d] || [];
+    const a = rows.find(r => r.forecast_or_actual === "actual" && r.actual_high);
+    if (a) {
+      const actualHigh = Number(a.actual_high);
+      actualMap.set(d, Number.isFinite(actualHigh) ? actualHigh : null);
+      const highTime = a.high_time || "";
+      const pre = rows
+        .filter(r => r.forecast_or_actual === "forecast" && r.predicted_high)
+        .filter(r => {
+          if (highTime) {
+            const fcHH = (r.forecast_time || "").substr(11, 5);
+            if (fcHH && compareTimes(fcHH, highTime) > 0) return false;
           }
-        }
-      });
+          return true;
+        })
+        .map(r => Number(r.predicted_high))
+        .filter(Number.isFinite);
+      if (pre.length) {
+        const errs = pre.map(v => ({ v, e: Math.abs(v - actualHigh) }));
+        errs.sort((a, b) => a.e - b.e);
+        bestMap.set(d, errs[0].v);
+      }
+    }
+  });
 
-      const actual = labels.map(d => actualMap.has(d) ? actualMap.get(d) : null);
-      const best = labels.map(d => bestMap.has(d) ? bestMap.get(d) : null);
+  const actual = labels.map(d => actualMap.has(d) ? actualMap.get(d) : null);
+  const best   = labels.map(d => bestMap.has(d)   ? bestMap.get(d)   : null);
 
-      if (chartInstance) chartInstance.destroy();
-      chartInstance = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels,
-          datasets: [
-            {
-              label: 'Actual High',
-              data: actual,
-              borderWidth: 3,
-              tension: .3,
-              pointRadius: 0,
-              pointHitRadius: 10,
-              borderColor: '#2563eb'
+  if (chartInstance) chartInstance.destroy();
+  chartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label:'Actual High', data: actual, borderWidth:3, tension:.3, pointRadius:0, pointHitRadius:10, borderColor:'#2563eb' },
+        { label:'Best Forecast (pre-high)', data: best, borderWidth:3, tension:.3, pointRadius:0, pointHitRadius:10, borderColor:'#059669' }
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false, spanGaps:true, animation:false,
+      interaction:{ mode:'index', intersect:false },
+      plugins:{
+        legend:{ display:true },
+        tooltip:{
+          mode:'index', intersect:false,
+          callbacks:{
+            title:(items)=>{
+              const iso = labels[items[0].dataIndex];
+              const [Y,M,D] = iso.split('-').map(Number);
+              const jsDate = new Date(Y, M-1, D);
+              return new Intl.DateTimeFormat('en-US',{ weekday:'short', month:'short', day:'numeric' }).format(jsDate);
             },
-            {
-              label: 'Best Forecast (pre-high)',
-              data: best,
-              borderWidth: 3,
-              tension: .3,
-              pointRadius: 0,
-              pointHitRadius: 10,
-              borderColor: '#059669'
+            label:(ctx)=>{
+              const y = ctx.parsed.y;
+              if (y == null) return `${ctx.dataset.label}: —`;
+              return `${ctx.dataset.label}: ${Number(y).toFixed(1)}°F`;
             }
-          ]
-        },
-        options: {
-          responsive: true, maintainAspectRatio: false, spanGaps: true, animation: false,
-          interaction: { mode: 'index', intersect: false },
-          plugins: {
-            legend: { display: true },
-            tooltip: {
-              mode: 'index', intersect: false,
-              callbacks: {
-                title: (items) => {
-                  const iso = labels[items[0].dataIndex];
-                  const [Y, M, D] = iso.split('-').map(Number);
-                  const jsDate = new Date(Y, M - 1, D);
-                  return new Intl.DateTimeFormat('en-US', {
-                    weekday: 'short', month: 'short', day: 'numeric'
-                  }).format(jsDate);
-                },
-                label: (ctx) => {
-                  const y = ctx.parsed.y;
-                  if (y == null) return `${ctx.dataset.label}: —`;
-                  return `${ctx.dataset.label}: ${Number(y).toFixed(1)}°F`;
-                }
-              }
-            }
-          },
-          scales: {
-            x: {
-              title: { display: true, text: 'Day' },
-              grid: { color: 'rgba(0,0,0,0.05)' },
-              offset: true,
-              ticks: {
-                autoSkip: true, autoSkipPadding: 8, maxRotation: 0, minRotation: 0,
-                callback: (val, idx) => {
-                  const iso = labels[idx];
-                  if (!iso) return '';
-                  const [Y, M, D] = iso.split('-').map(Number);
-                  const jsDate = new Date(Y, M - 1, D);
-          return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(jsDate);
-                }
-                return '';
-              }
-            }
-          },
-          y: {
-            // axis config is now empty — will just use Chart.js defaults
           }
         }
+      },
+      scales:{
+        x:{
+          title:{ display:true, text:'Day' },
+          grid:{ color:'rgba(0,0,0,0.05)' },
+          offset:true,
+          ticks:{
+            autoSkip:true, autoSkipPadding:8, maxRotation:0, minRotation:0,
+            callback:(val, idx)=>{
+              const iso = labels[idx];
+              if (!iso) return '';
+              const [Y,M,D] = iso.split('-').map(Number);
+              const jsDate = new Date(Y, M-1, D);
+              return new Intl.DateTimeFormat('en-US',{ month:'short', day:'numeric' }).format(jsDate);
+            }
+          }
+        },
+        y:{
+          // default y-axis
+        }
       }
-    });
+    }
+  });
 }
-
-async function displayTable() {
-
 
     async function displayTable() {
       const tb = document.querySelector("#dataTable tbody");
