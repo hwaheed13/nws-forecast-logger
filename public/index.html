@@ -2154,7 +2154,14 @@ function actualSignatureFor(rows) {
         .eq("id", session.user.id)
         .single();
   
-      if (error) console.warn("profiles fetch error:", error);
+           if (error) {
+        console.warn("profiles fetch error:", error);
+        // FAIL-OPEN so you never get stuck on the gate
+        showApp();
+        await bootApp();
+        return;
+      }
+      
   
       const status = profile?.subscription_status ?? "inactive";
       if (!new Set(["active", "trialing"]).has(status)) {
@@ -2164,9 +2171,10 @@ function actualSignatureFor(rows) {
         return;
       }
   
-      // ✅ Access granted → show app
-      showApp();
-      await bootApp();
+     // ✅ Access granted → show app
+    gateMsg("Access granted — loading dashboard…");
+    showApp();
+    await bootApp();
   
     } catch (e) {
       console.error("checkAccess failed", e);
@@ -2176,15 +2184,19 @@ function actualSignatureFor(rows) {
     }
   }
 
-    // Safety net: fail-open quickly
+   // Safety net: if anything above silently fails, show the app anyway
     setTimeout(() => {
       try {
         const app = document.getElementById('app');
-        if (app && getComputedStyle(app).display === 'none') { showApp(); bootApp(); }
-      } catch { try { showApp(); } catch {} }
-    }, 1500);
-
-
+        if (app && getComputedStyle(app).display === 'none') {
+          showApp();
+          bootApp();
+        }
+      } catch {
+        try { showApp(); } catch {}
+      }
+    }, 2000);
+    
   supabase.auth.onAuthStateChange((_event, session) => {
     if (!session) window.location.href = "login.html";
   });
