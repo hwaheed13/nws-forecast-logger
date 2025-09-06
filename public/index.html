@@ -398,15 +398,15 @@
       <div class="prediction-grid" style="display:grid; grid-template-columns:repeat(2,1fr); gap:18px; margin-bottom:22px;">
         <div class="prediction-card">
           <div class="prediction-title">
-            Today’s Bias-Corrected Prediction
-            <span class="tip" tabindex="0" data-tip="Shows today’s forecast, using yesterday’s last update until today’s forecasts begin">i</span>
+            Today's Bias-Corrected Prediction
+            <span class="tip" tabindex="0" data-tip="Shows today's forecast, using yesterday's last update until today's forecasts begin">i</span>
           </div>
           <div id="correctionBoxToday" class="prediction-content">Loading...</div>
         </div>
         <div class="prediction-card">
           <div class="prediction-title">
-            Tomorrow’s Bias-Corrected Prediction
-            <span class="tip" tabindex="0" data-tip="Shows tomorrow’s forecast using today’s updates. Once tomorrow begins, new forecasts are tracked as that day’s forecasts">i</span>
+            Tomorrow's Bias-Corrected Prediction
+            <span class="tip" tabindex="0" data-tip="Shows tomorrow's forecast using today's updates. Once tomorrow begins, new forecasts are tracked as that day's forecasts">i</span>
           </div>
           <div id="correctionBoxTomorrow" class="prediction-content">Loading...</div>
         </div>
@@ -765,7 +765,7 @@
       return mean(arr);
     })();
   
-    // carry-over D1 (yesterday’s issuance for this target)
+    // carry-over D1 (yesterday's issuance for this target)
     const d1Carry = latestPreHighValue(getForecastRowsFor(dayISO, "D1"), "");
   
     return { first, latest, trimmed, carry: d1Carry, series, _hasD0: series.length>0 };
@@ -1549,7 +1549,7 @@ function actualSignatureFor(rows) {
     const warmKey  = isWarmSeason(today) ? "D0_warm" : "D0_cool";
     const w0       = tables.weights[warmKey] || { first:0, latest:1, trimmed:0, carry:0 };
     
-    // If no D0 yet, use yesterday’s D1 series for today as the series_rep input
+    // If no D0 yet, use yesterday's D1 series for today as the series_rep input
     const preD0    = !c0._hasD0;
     const series0  = preD0 ? d1CandidatesFor(today).series : c0.series;
     
@@ -1564,7 +1564,7 @@ function actualSignatureFor(rows) {
     // Build the subtitle formula (series vs blend)
     let parts = "";
     if (repSeries0 != null && Array.isArray(series0)) {
-      parts = `pred = series_rep (n=${series0.length}, newest-weighted${preD0 ? ", from yesterday’s D1" : ""}) + ${(round1(bias ?? 0))?.toFixed(1) ?? "0.0"}`;
+      parts = `pred = series_rep (n=${series0.length}, newest-weighted${preD0 ? ", from yesterday's D1" : ""}) + ${(round1(bias ?? 0))?.toFixed(1) ?? "0.0"}`;
     } else {
       const ex = blendExplainer(c0, w0, /*allowCarry*/ true);
       parts = ex.partsTxt ? `pred = (${ex.partsTxt}) + ${(round1(bias ?? 0))?.toFixed(1) ?? "0.0"}` : `pred = — + ${(round1(bias ?? 0))?.toFixed(1) ?? "0.0"}`;
@@ -1698,6 +1698,7 @@ if (tmrwBox) {
       setLoggedSig("tomorrow", sigTomorrow);
     }
   }
+}
 }
 
  function showChart() {
@@ -2053,10 +2054,19 @@ if (tmrwBox) {
         </div>
       `;
     }
+
+    // Expose necessary functions globally for auth script
+    window.probeLoggingEndpoint = probeLoggingEndpoint;
+    window.reloadCSV = reloadCSV;
+    window.updateDSM = updateDSM;
+    window.updateSixHourMax = updateSixHourMax;
+    window.updateObservations = updateObservations;
+    window.updateSummaryBoxes = updateSummaryBoxes;
+    window.updateCorrectionBoxes = updateCorrectionBoxes;
+    window.pollCsvAndUpdate = pollCsvAndUpdate;
   </script>
 
-  <!-- Auth + boot (module) -->
-<!-- Auth + boot (UMD – replaces the module block) -->
+  <!-- Auth + boot (UMD) -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
 (() => {
@@ -2091,7 +2101,7 @@ if (tmrwBox) {
   });
 
   async function bootApp() {
-    // Uses functions from your non-module “App scripts” block above
+    // Uses functions from your non-module "App scripts" block above
     window.showTodayDate?.();
     window.scheduleMidnightUpdate?.();
 
@@ -2147,13 +2157,13 @@ if (tmrwBox) {
         return (window.location.href = dest);
       }
 
-      showApp();
+      window.showApp();
       await bootApp();
 
     } catch (e) {
       console.error("checkAccess failed", e);
-      // Fail-open so you’re never stuck on the gate
-      showApp();
+      // Fail-open so you're never stuck on the gate
+      window.showApp();
       await bootApp();
     }
   }
@@ -2161,7 +2171,10 @@ if (tmrwBox) {
   // Safety net: if anything blocks, show the app after 5s
   setTimeout(() => {
     const app = document.getElementById('app');
-    if (app && getComputedStyle(app).display === 'none') { showApp(); bootApp(); }
+    if (app && getComputedStyle(app).display === 'none') { 
+      window.showApp(); 
+      bootApp(); 
+    }
   }, 5000);
 
   supabase.auth.onAuthStateChange((_event, session) => {
@@ -2171,3 +2184,6 @@ if (tmrwBox) {
   checkAccess();
 })();
 </script>
+
+</body>
+</html>
