@@ -2075,6 +2075,9 @@ function actualSignatureFor(rows) {
     "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
   );
+  // Fail-open on any script error or unhandled promise
+  window.addEventListener('error', () => { try { showApp(); } catch {} });
+  window.addEventListener('unhandledrejection', () => { try { showApp(); } catch {} });
 
   const gate = document.getElementById("gate");
   function gateMsg(msg){ const sub = gate?.querySelector(".gate-sub"); if (sub && msg) sub.textContent = msg; }
@@ -2128,40 +2131,51 @@ function actualSignatureFor(rows) {
     } catch {}
   }
 
-  async function checkAccess() {
+   async function checkAccess() {
     try {
       gateMsg("Checking access…");
-
+  
       const { data: { session }, error: sErr } = await supabase.auth.getSession();
       if (sErr) {
         console.error("getSession error", sErr);
         gateMsg("Auth error. Redirecting to login…");
-        return (window.location.href = "login.html");
+        window.location.href = "login.html";
+        return; // stop here; navigating
       }
       if (!session) {
         gateMsg("No session. Redirecting to login…");
-        return (window.location.href = "login.html");
+        window.location.href = "login.html";
+        return;
       }
-
+  
       const { data: profile, error } = await supabase
         .from("profiles")
         .select("subscription_status, current_period_end, trial_used")
         .eq("id", session.user.id)
         .single();
-
+  
       if (error) console.warn("profiles fetch error:", error);
-
+  
       const status = profile?.subscription_status ?? "inactive";
       if (!new Set(["active", "trialing"]).has(status)) {
         const dest = profile?.trial_used ? "subscribe.html?reason=trial_expired" : "subscribe.html";
         gateMsg("Subscription inactive. Redirecting…");
-        return (window.location.href = dest);
+        window.location.href = dest;
+        return;
       }
-
+  
+      // ✅ Access granted → show app
       showApp();
       await bootApp();
-
+  
     } catch (e) {
+      console.error("checkAccess failed", e);
+      // ✅ Fail-open no matter what
+      try { showApp(); } catch {}
+      try { await bootApp(); } catch {}
+    }
+  }
+
       console.error("checkAccess failed", e);
       // Fail-open so you’re never stuck on the gate
       showApp();
@@ -2169,11 +2183,14 @@ function actualSignatureFor(rows) {
     }
   }
 
-  // Safety net: if anything blocks, show the app after 5s
-  setTimeout(() => {
-    const app = document.getElementById('app');
-    if (app && getComputedStyle(app).display === 'none') { showApp(); bootApp(); }
-  }, 5000);
+    // Safety net: fail-open quickly
+    setTimeout(() => {
+      try {
+        const app = document.getElementById('app');
+        if (app && getComputedStyle(app).display === 'none') { showApp(); bootApp(); }
+      } catch { try { showApp(); } catch {} }
+    }, 1500);
+
 
   supabase.auth.onAuthStateChange((_event, session) => {
     if (!session) window.location.href = "login.html";
