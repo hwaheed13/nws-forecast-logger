@@ -1983,78 +1983,109 @@ if (tmrwBox) {
       updateSummaryBoxes();
     }
 
-    function showStats() {
-      const stats = document.getElementById('stats');
-      if (!stats) return;
+   function showStats() {
+  const stats = document.getElementById('stats');
+  if (!stats) return;
 
-      const dayMap = {};
-      filteredRows.forEach(r => {
-        const date = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
-        if (!date) return;
-        (dayMap[date] ??= []).push(r);
-      });
+  const dayMap = {};
+  filteredRows.forEach(r => {
+    const date = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
+    if (!date) return;
+    (dayMap[date] ??= []).push(r);
+  });
 
-      const dates = Object.keys(dayMap).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d));
-      const daysWithActual = dates.filter(d => {
-        const rows = dayMap[d] || [];
-        return rows.some(r => r.forecast_or_actual === "actual" && r.actual_high);
-      });
+  const dates = Object.keys(dayMap).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d));
+  const daysWithActual = dates.filter(d => {
+    const rows = dayMap[d] || [];
+    return rows.some(r => r.forecast_or_actual === "actual" && r.actual_high);
+  });
 
-      let totalAbsErr = 0, totalBestErr = 0, errCount = 0, bestCount = 0;
+  let totalAbsErr = 0, totalBestErr = 0, errCount = 0, bestCount = 0;
+  let totalSignedErr = 0, totalBestSignedErr = 0;  // NEW: track signed errors
 
-      daysWithActual.forEach(d => {
-        const rows = dayMap[d] || [];
-        const actual = rows.find(r => r.forecast_or_actual === "actual" && r.actual_high);
-        if (!actual) return;
-        const actualHigh = Number(actual.actual_high);
-        const highTime = actual.high_time || "";
+  daysWithActual.forEach(d => {
+    const rows = dayMap[d] || [];
+    const actual = rows.find(r => r.forecast_or_actual === "actual" && r.actual_high);
+    if (!actual) return;
+    const actualHigh = Number(actual.actual_high);
+    const highTime = actual.high_time || "";
 
-        const forecasts = rows
-          .filter(r => r.forecast_or_actual === "forecast" && r.predicted_high)
-          .filter(r => {
-            if (highTime) {
-              const fcHH = (r.forecast_time || "").substr(11, 5);
-              if (fcHH && compareTimes(fcHH, highTime) > 0) return false;
-            }
-            return true;
-          })
-          .map(r => Number(r.predicted_high))
-          .filter(Number.isFinite);
-
-        if (forecasts.length) {
-          const allErrors = forecasts.map(f => Math.abs(f - actualHigh));
-          const avgErr = allErrors.reduce((a, b) => a + b, 0) / allErrors.length;
-          const bestErr = Math.min(...allErrors);
-          totalAbsErr += avgErr;
-          totalBestErr += bestErr;
-          errCount++;
-          bestCount++;
+    const forecasts = rows
+      .filter(r => r.forecast_or_actual === "forecast" && r.predicted_high)
+      .filter(r => {
+        if (highTime) {
+          const fcHH = (r.forecast_time || "").substr(11, 5);
+          if (fcHH && compareTimes(fcHH, highTime) > 0) return false;
         }
-      });
+        return true;
+      })
+      .map(r => Number(r.predicted_high))
+      .filter(Number.isFinite);
 
-      const avgAbsErr = errCount > 0 ? (totalAbsErr / errCount).toFixed(1) : "--";
-      const avgBestErr = bestCount > 0 ? (totalBestErr / bestCount).toFixed(1) : "--";
-
-      stats.innerHTML = `
-        <div class="stat-card">
-          <div class="stat-label">Days Tracked</div>
-          <div class="stat-value">${dates.length}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Days With Actual</div>
-          <div class="stat-value">${daysWithActual.length}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Average Absolute Error</div>
-          <div class="stat-value">${avgAbsErr}°F</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Average Best Error</div>
-          <div class="stat-value">${avgBestErr}°F</div>
-        </div>
-      `;
+    if (forecasts.length) {
+      const signedErrors = forecasts.map(f => f - actualHigh);  // NEW: keep sign
+      const allErrors = forecasts.map(f => Math.abs(f - actualHigh));
+      
+      const avgErr = allErrors.reduce((a, b) => a + b, 0) / allErrors.length;
+      const avgSignedErr = signedErrors.reduce((a, b) => a + b, 0) / signedErrors.length;  // NEW
+      
+      const bestIdx = allErrors.indexOf(Math.min(...allErrors));
+      const bestErr = allErrors[bestIdx];
+      const bestSignedErr = signedErrors[bestIdx];  // NEW: signed error of best forecast
+      
+      totalAbsErr += avgErr;
+      totalSignedErr += avgSignedErr;  // NEW
+      totalBestErr += bestErr;
+      totalBestSignedErr += bestSignedErr;  // NEW
+      errCount++;
+      bestCount++;
     }
+  });
 
+  const avgAbsErr = errCount > 0 ? (totalAbsErr / errCount).toFixed(1) : "--";
+  const avgBestErr = bestCount > 0 ? (totalBestErr / bestCount).toFixed(1) : "--";
+  const meanBias = errCount > 0 ? (totalSignedErr / errCount) : null;  // NEW
+  const bestBias = bestCount > 0 ? (totalBestSignedErr / bestCount) : null;  // NEW
+
+  // Format bias with + or - sign
+  const meanBiasStr = meanBias != null 
+    ? (meanBias >= 0 ? "+" : "") + meanBias.toFixed(1) + "°F"
+    : "--";
+  const bestBiasStr = bestBias != null
+    ? (bestBias >= 0 ? "+" : "") + bestBias.toFixed(1) + "°F" 
+    : "--";
+
+  stats.innerHTML = `
+    <div class="stat-card">
+      <div class="stat-label">Days Tracked</div>
+      <div class="stat-value">${dates.length}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Days With Actual</div>
+      <div class="stat-value">${daysWithActual.length}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Avg Absolute Error</div>
+      <div class="stat-value">${avgAbsErr}°F</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Avg Forecast Bias</div>
+      <div class="stat-value" style="color: ${meanBias > 0 ? '#d97706' : meanBias < 0 ? '#2563eb' : 'inherit'}">
+        ${meanBiasStr}
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Best Absolute Error</div>
+      <div class="stat-value">${avgBestErr}°F</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Best Forecast Bias</div>
+      <div class="stat-value" style="color: ${bestBias > 0 ? '#d97706' : bestBias < 0 ? '#2563eb' : 'inherit'}">
+        ${bestBiasStr}
+      </div>
+    </div>
+  `;
+}
     // Expose necessary functions globally for auth script
     window.probeLoggingEndpoint = probeLoggingEndpoint;
     window.reloadCSV = reloadCSV;
