@@ -1544,30 +1544,40 @@ function actualSignatureFor(rows) {
         <div class="prediction-subtitle">Actual published for ${today}</div>
       `;
     } else {
-      const c0      = d0CandidatesFor(today, highTime);  // D0 intraday; carries D1 until first D0 appears
-      const warmKey = isWarmSeason(today) ? "D0_warm" : "D0_cool";
-      const w0      = tables.weights[warmKey] || { first:0, latest:1, trimmed:0, carry:0 };
-     const rep     = repFromSeries(c0.series) ?? blendedRep(c0, w0, /*allowCarry*/ true);
-      const bias    = pickBiasFrom(tables, "D0");
-      const pred    = (rep == null) ? null : rep + bias;
+ // ——— TODAY (replace your whole block with this) ———
+    const c0       = d0CandidatesFor(today, highTime);  // D0 intraday; series may be empty at 00:00
+    const warmKey  = isWarmSeason(today) ? "D0_warm" : "D0_cool";
+    const w0       = tables.weights[warmKey] || { first:0, latest:1, trimmed:0, carry:0 };
+    
+    // If no D0 yet, use yesterday’s D1 series for today as the series_rep input
+    const preD0    = !c0._hasD0;
+    const series0  = preD0 ? d1CandidatesFor(today).series : c0.series;
+    
+    const repSeries0 = repFromSeries(series0);
+    const repBlend0  = blendedRep(c0, w0, /*allowCarry*/ true);   // fallback if series is empty
+    const rep        = (repSeries0 != null) ? repSeries0 : repBlend0;
+    
+    const bias    = pickBiasFrom(tables, "D0");
+    const pred    = (rep == null) ? null : rep + bias;
+    const pDisp   = round1(pred);
+    
+    // Build the subtitle formula (series vs blend)
+    let parts = "";
+    if (repSeries0 != null && Array.isArray(series0)) {
+      parts = `pred = series_rep (n=${series0.length}, newest-weighted${preD0 ? ", from yesterday’s D1" : ""}) + ${(round1(bias ?? 0))?.toFixed(1) ?? "0.0"}`;
+    } else {
+      const ex = blendExplainer(c0, w0, /*allowCarry*/ true);
+      parts = ex.partsTxt ? `pred = (${ex.partsTxt}) + ${(round1(bias ?? 0))?.toFixed(1) ?? "0.0"}` : `pred = — + ${(round1(bias ?? 0))?.toFixed(1) ?? "0.0"}`;
+    }
+    
+    todayBox.innerHTML = `
+      <div class="prediction-value">${pDisp == null ? "–" : `${pDisp.toFixed(1)}°F`}</div>
+      <div class="prediction-subtitle">
+        For ${today}
+        ${parts ? `<br><small style="opacity:.75">${parts}</small>` : ""}
+      </div>
+    `;
 
-         const pDisp = round1(pred);
-      const ex    = blendExplainer(c0, w0, /*allowCarry*/ true);
-      const usedSeries = repFromSeries(c0.series) != null;
-      const parts = explainPred({
-        usedSeries,
-        series: c0.series,
-        bias,
-        partsTxt: ex.partsTxt
-      });
-
-      todayBox.innerHTML = `
-        <div class="prediction-value">${pDisp == null ? "–" : `${pDisp.toFixed(1)}°F`}</div>
-        <div class="prediction-subtitle">
-          For ${today}
-          ${parts ? `<br><small style="opacity:.75">${parts}</small>` : ""}
-        </div>
-      `;
 
       // ✅ Logging (Today) — only if forecast set changed AND still pre-high
       if (rep != null && forecastChanged.today === true) {
@@ -1618,32 +1628,42 @@ function actualSignatureFor(rows) {
   }
 
   // ---------- TOMORROW ----------
-  const tmrwBox = document.getElementById("correctionBoxTomorrow");
-  if (tmrwBox) {
-    const c1       = d1CandidatesFor(tomorrow); // all of today's issuances for tomorrow
-    const warmKey1 = isWarmSeason(tomorrow) ? "D1_warm" : "D1_cool";
-    const w1       = tables.weights[warmKey1] || { first:0, latest:1, trimmed:0 };
-    const rep1     = repFromSeries(c1.series) ?? blendedRep(c1, w1, /*allowCarry*/ false);
-    const bias1    = pickBiasFrom(tables, "D1");
-    const pred1    = (rep1 == null) ? null : rep1 + bias1;
+    const tmrwBox = document.getElementById("correctionBoxTomorrow");
+    if (tmrwBox) {
+      const c1       = d1CandidatesFor(tomorrow); // all of today's issuances for tomorrow
+      const warmKey1 = isWarmSeason(tomorrow) ? "D1_warm" : "D1_cool";
+      const w1       = tables.weights[warmKey1] || { first:0, latest:1, trimmed:0 };
+    
+      // Prefer newest-weighted series_rep; fall back to weighted blend
+      const repSeries1 = repFromSeries(c1.series);
+      const repBlend1  = blendedRep(c1, w1, /*allowCarry*/ false);
+      const rep1       = (repSeries1 != null) ? repSeries1 : repBlend1;
+    
+      const bias1   = pickBiasFrom(tables, "D1");
+      const pred1   = (rep1 == null) ? null : rep1 + bias1;
+      const p1Disp  = round1(pred1);
+    
+      // Subtitle formula
+      let parts1 = "";
+      if (repSeries1 != null && Array.isArray(c1.series)) {
+        parts1 = `pred = series_rep (n=${c1.series.length}, newest-weighted) + ${(round1(bias1 ?? 0))?.toFixed(1) ?? "0.0"}`;
+      } else {
+        const ex1 = blendExplainer(c1, w1, /*allowCarry*/ false);
+        parts1 = ex1.partsTxt ? `pred = (${ex1.partsTxt}) + ${(round1(bias1 ?? 0))?.toFixed(1) ?? "0.0"}` : "";
+      }
+    
+      tmrwBox.innerHTML = `
+        <div class="prediction-value">${p1Disp == null ? "–" : `${p1Disp.toFixed(1)}°F`}</div>
+        <div class="prediction-subtitle">
+          For ${tomorrow}
+          ${parts1 ? `<br><small style="opacity:.75">${parts1}</small>` : ""}
+        </div>
+      `;
 
-     const p1Disp = round1(pred1);
-    const ex1    = blendExplainer(c1, w1, /*allowCarry*/ false);
-    const usedSeries1 = repFromSeries(c1.series) != null;
-    const parts1 = explainPred({
-      usedSeries: usedSeries1,
-      series: c1.series,
-      bias: bias1,
-      partsTxt: ex1.partsTxt
-    });
+  // (If you have a logging block for “tomorrow” below this, keep it as-is;
+  // it will now use the computed rep1/pred1 values.)
+}
 
-    tmrwBox.innerHTML = `
-      <div class="prediction-value">${p1Disp == null ? "–" : `${p1Disp.toFixed(1)}°F`}</div>
-      <div class="prediction-subtitle">
-        For ${tomorrow}
-        ${parts1 ? `<br><small style="opacity:.75">${parts1}</small>` : ""}
-      </div>
-    `;
 
 
     // ✅ Logging (Tomorrow) — only when tomorrow's forecast set changed
