@@ -1596,10 +1596,11 @@ function actualSignatureFor(rows) {
   const INSTANT_DEADBAND        = 0.3;  // ignore tiny noise
   const INSTANT_CAP             = 2.0;  // max absolute nudge (°F)
 
-  // Today actual (to enforce pre-high gating)
+ // Today actual (to enforce pre-high gating)
   const todayActual = allRows.find(
     r => r.forecast_or_actual === "actual" && r.cli_date === today && r.actual_high
   );
+
   const highTime = todayActual ? todayActual.high_time : "";
 
   // ---------- TODAY ----------
@@ -1624,7 +1625,7 @@ function actualSignatureFor(rows) {
     const repBlend0  = blendedRep(c0, w0, /*allowCarry*/ true);   // fallback if series is empty
     const rep        = (repSeries0 != null) ? repSeries0 : repBlend0;
     
-    const bias    = pickBiasFrom(tables, "D0");
+    const bias    = pickBiasFrom(tables, preD0 ? "D1" : "D0");
     const pred    = (rep == null) ? null : rep + bias;
     const pDisp   = round1(pred);
     
