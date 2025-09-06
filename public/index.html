@@ -1,1077 +1,4 @@
-if (cands.first   != null)  present.push({label:"first",   v:Number(cands.first),   w:weights.first ?? 0});
-        if (cands.latest  != null)  present.push({label:"latest",  v:Number(cands.latest),  w:weights.latest ?? 0});
-        if (cands.trimmed != null)  present.push({label:"trimmed", v:Number(cands.trimmed), w:weights.trimmed ?? 0});
-        if (allowCarry && cands.carry != null) present.push({label:"carry", v:Number(cands.carry), w:weights.carry ?? 0});
-      
-        const sumW = present.reduce((a,p)=>a+p.w,0);
-        const used = sumW > 1e-9
-          ? present.map(p => ({...p, wn: p.w/sumW}))
-          : present.map(p => ({...p, wn: (p.label==="latest") ? 1 : 0})); // mirrors blendedRep fallback
-      
-        const partsTxt = used
-          .filter(p => p.wn > 0)
-          .map(p => `${p.wn.toFixed(2)}×${p.label} ${p.v.toFixed(1)}°F`)
-          .join(" + ");
-      
-        return { partsTxt };
-      }
-    // === Series helpers (0.5°F de-noise + recency rep) =========================
-function quantize05(x){
-  const n = Number(x);
-  if (!Number.isFinite(n)) return null;
-  return Math.round(n * 2) / 2; // nearest 0.5°F
-}
-
-// rowsChrono: chronological rows (oldest → newest), each has predicted_high
-// alpha=0.85 weights newest more (w, w*alpha, w*alpha^2, ... from newest back)
-function repFromSeries(rowsChrono, alpha = 0.85){
-  if (!rowsChrono || !rowsChrono.length) return null;
-  let vsum = 0, wsum = 0, w = 1;               // start from newest
-  for (let i = rowsChrono.length - 1; i >= 0; i--) {
-    const v = Number(rowsChrono[i].predicted_high);
-    if (!Number.isFinite(v)) continue;
-    vsum += w * v;
-    wsum += w;
-    w *= alpha;
-  }
-  return wsum > 0 ? (vsum / wsum) : null;
-}
-
-    // ===== Feature helpers for logging =====
-    function issuanceISOUTC(row){
-      const src = (row?.timestamp || row?.forecast_time || "").replace(" ", "T");
-      const d = new Date(src);
-      if (!Number.isFinite(d.getTime())) return null;
-      return d.toISOString().slice(0,19) + "Z"; // canonical UTC
-    }
-    function issuanceHourET(row){
-      const s = (row?.timestamp || row?.forecast_time || "").replace(" ", "T"); const d=new Date(s);
-      if (!Number.isFinite(d.getTime())) return null;
-      const hh = new Intl.DateTimeFormat("en-CA",{timeZone:"America/New_York",hour:"2-digit",hour12:false}).format(d);
-      return Number(hh);
-    }
-    function rowSig(r){ return `${r.timestamp || r.forecast_time || ""}|${r.predicted_high}`; }
-
-    function deltaLast3(rows, repRow, highTime){
-      const sorted = rows
-        .filter(r => r.predicted_high != null && r.predicted_high !== "")
-        .filter(r => {
-          if (!highTime) return true;
-          const fcHH = (r.forecast_time || r.timestamp || "").substr(11,5);
-          return !(fcHH && compareTimes(fcHH, highTime) > 0);
-        })
-        .sort((a,b)=>((a.timestamp||a.forecast_time||"")).localeCompare(b.timestamp||b.forecast_time||""));
-
-      const dedup = collapseConsecutiveDuplicates(sorted);
-      if (!repRow || !dedup.length) return 0;
-
-      const repS = rowSig(repRow);
-      let idx = dedup.findIndex(x => rowSig(x) === repS);
-      if (idx < 0) idx = dedup.length - 1;
-
-      const prevs = dedup.slice(Math.max(0, idx - 2), idx)
-        .map(r => Number(r.predicted_high))
-        .filter(Number.isFinite);
-
-      if (!prevs.length) return 0;
-      const medPrev = median(prevs);
-      const rep = Number(repRow.predicted_high);
-      return (Number.isFinite(rep) && medPrev != null) ? (rep - medPrev) : 0;
-    }
-
-    // === Client idempotency helpers (avoid logging the same prediction repeatedly) ===
-    function stableRound(x, d=1){
-      const n = Number(x);
-      if (!Number.isFinite(n)) return null;
-      const p = Math.pow(10, d);
-      return Math.round(n * p) / p;
-    }
-    function round1(x){ const n = Number(x); return Number.isFinite(n) ? Math.round(n*10)/10 : null; }
-
-    function buildPredSignature({
-      target_date, lead_used, issuance_iso,
-      rep_forecast, bias_applied, prediction_value,
-      model_name, version
-    }) {
-      const rep = stableRound(rep_forecast, 1);
-      const bias = stableRound(bias_applied, 2);
-      const pred = stableRound(prediction_value, 1);
-      return [
-        target_date || '',
-        lead_used || '',
-        issuance_iso || '',
-        rep ?? '',
-        bias ?? '',
-        pred ?? '',
-        model_name || '',
-        version || ''
-      ].join('|');
-    }
-
-    // remembers the last forecast_signature we actually logged
-    const loggedSig = {
-      today:    localStorage.getItem("loggedSig_today")    || null,
-      tomorrow: localStorage.getItem("loggedSig_tomorrow") || null,
-    };
-    function setLoggedSig(which, sig) {
-      loggedSig[which] = sig;
-      try { localStorage.setItem(`loggedSig_${which}`, sig); } catch {}
-    }
-
-    // ===== Prediction logging toggle + helpers =====
-    let PREDICTION_LOGGING_ENABLED = false; // off until we detect availability
-    async function probeLoggingEndpoint() {
-      try {
-        const r = await fetch(`${API_BASE}/log-prediction`, { method: "OPTIONS" });
-        PREDICTION_LOGGING_ENABLED = r.ok;
-      } catch {
-        PREDICTION_LOGGING_ENABLED = false;
-      }
-    }
-    
-    // Make this available globally
-    window.probeLoggingEndpoint = probeLoggingEndpoint;
-    
-     async function logPrediction(payload){
-      if (!PREDICTION_LOGGING_ENABLED) return;
-      try{
-        const r = await fetch(`${API_BASE}/log-prediction`, {
-          method:"POST",
-          headers: { "Content-Type":"application/json" },
-          body: JSON.stringify(payload)
-        });
-        if (!r.ok) {
-          let j = null; try { j = await r.json(); } catch {}
-          const dup = r.status === 409 || (j && (j.code === '23505' || /duplicate key/i.test(j.message||"")));
-          if (dup) return;                   // silently ignore duplicates
-          if (r.status === 404) PREDICTION_LOGGING_ENABLED = false; // endpoint missing: stop trying
-          console.debug("/api/log-prediction error", r.status, j?.message || r.statusText);
-        }
-      } catch(_) { /* quiet */ }
-    }
-
-    // ---- Friendly ET date display helpers ----
-    function safeParseTimestamp(ts) {
-      const s = (ts || "").trim();
-      if (!s) return null;
-      const isoish = s.includes("T") ? s : s.replace(" ", "T");
-      const d = new Date(isoish);
-      return Number.isFinite(d.getTime()) ? d : null;
-    }
-    function fmtMonthDayET(d) {
-      return new Intl.DateTimeFormat("en-US", {
-        timeZone: "America/New_York",
-        month: "short",
-        day: "numeric"
-      }).format(d);
-    }
-    function fmtTimeET(d) {
-      return new Intl.DateTimeFormat("en-US", {
-        timeZone: "America/New_York",
-        hour: "numeric",
-        minute: "2-digit"
-      }).format(d);
-    }
-    function monthDayFromISO(iso) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || "")) return "";
-      return fmtMonthDayET(new Date(iso + "T00:00:00"));
-    }
-    function hhmmFromTS(s) {
-      const m = String(s || "").match(/\b(\d{1,2}:\d{2})\b/);
-      return m ? m[1] : "";
-    }
-    function showMostRecent() {
-      const el = document.getElementById("recentForecast");
-      if (!el) return;
-      if (!allRows.length) { el.textContent = ""; return; }
-
-      for (let i = allRows.length - 1; i >= 0; i--) {
-        const r = allRows[i];
-        if (r && r.forecast_or_actual === "forecast" && r.predicted_high && r.target_date) {
-          const d =
-            safeParseTimestamp(r.timestamp) ||
-            safeParseTimestamp(r.forecast_time);
-
-          const dateLabel = d
-            ? fmtMonthDayET(d)
-            : monthDayFromISO((r.timestamp || r.forecast_time || "").slice(0, 10)) ||
-              monthDayFromISO(nycISODate(0));
-
-          const timeLabel = d
-            ? fmtTimeET(d)
-            : hhmmFromTS(r.timestamp || r.forecast_time) || "";
-
-          const whenLabel = timeLabel ? `${dateLabel} at ${timeLabel} ET` : `${dateLabel}`;
-
-          el.innerHTML =
-            `<strong>${whenLabel}</strong> — ` +
-            `<strong>${r.predicted_high}°F</strong> for <strong>${r.target_date}</strong>`;
-          return;
-        }
-      }
-      el.textContent = "";
-    }
-
-    function getForecastsForDate(dateISO) {
-      const rows = allRows
-        .filter(r => r.forecast_or_actual === "forecast" && r.target_date === dateISO && r.predicted_high)
-        .map(r => ({
-          tstamp: r.timestamp || r.forecast_time || "",
-          timeHHMM: (r.forecast_time || "").substr(11, 5),
-          val: Number(r.predicted_high)
-        }))
-        .filter(x => Number.isFinite(x.val));
-      rows.sort((a, b) => (a.tstamp || "").localeCompare(b.tstamp || ""));
-      return rows;
-    }
-
-    function renderMiniForecastChips(rows, elId) {
-      const host = document.getElementById(elId);
-      if (!host) return;
-      host.innerHTML = "";
-      const compact = [];
-      rows.forEach((r, i) => {
-        if (i === 0 || r.val !== rows[i - 1].val) compact.push(r);
-      });
-      if (!compact.length) {
-        host.innerHTML = `<span class="mini-chip">No forecasts yet</span>`;
-        return;
-      }
-      compact.forEach(r => {
-        const label = `${r.timeHHMM || "—"}, ${r.val.toFixed(0)}°`;
-        const chip = document.createElement("span");
-        chip.className = "mini-chip";
-        chip.textContent = label;
-        host.appendChild(chip);
-      });
-    }
-
-    // ---- Forecast change watcher (GLOBAL scope) ----
-    let lastSig = { today: null, tomorrow: null };
-    let forecastChanged = { today: false, tomorrow: false };
-
-    let lastActualSig = null;
-function actualSignatureFor(rows) {
-  const todayISO = nycISODate(0);
-  const a = rows.find(r =>
-    r.forecast_or_actual === "actual" &&
-    r.cli_date === todayISO &&
-    r.actual_high
-  );
-  if (!a) return "";
-  return [
-    a.cli_date,
-    a.actual_high,
-    a.high_time || "",
-    a.timestamp || a.date_pulled || ""
-  ].join("|");
-}
-
-    function forecastSignatureFor(dateISO, rows = allRows) {
-      return rows
-        .filter(r => r.forecast_or_actual === "forecast" && r.target_date === dateISO && r.predicted_high)
-        .map(r => `${r.timestamp || r.forecast_time || ""}|${r.predicted_high}`)
-        .sort()
-        .join("~");
-    }
-    function seedForecastSignatures() {
-      lastSig.today = forecastSignatureFor(nycISODate(0));
-      lastSig.tomorrow = forecastSignatureFor(nycISODate(1));
-    }
-
-    async function pollCsvAndUpdate() {
-      try {
-        const txt = await fetch(CSV_URL + "?" + Date.now(), { cache: "no-cache", mode: "cors" }).then(r => r.text());
-
-        // reuse parser
-        const raw = csvToRows(txt);
-        if (!raw.length) return;
-        const header = raw[0].map(h => h.trim());
-        const rows = [];
-        for (let i = 1; i < raw.length; i++) {
-          const rec = {};
-          for (let j = 0; j < header.length; j++) {
-            let v = (raw[i][j] ?? '').trim();
-            if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1).replace(/""/g, '"');
-            rec[header[j]] = v;
-          }
-          rows.push(rec);
-        }
-
-        const todayISO = nycISODate(0);
-        const tomorrowISO = nycISODate(1);
-        const sigTodayNew = forecastSignatureFor(todayISO, rows);
-        const sigTmrwNew  = forecastSignatureFor(tomorrowISO, rows);
-        const actSigNew = actualSignatureFor(rows);
-        const actualChanged = actSigNew !== lastActualSig;
-        if (actualChanged) lastActualSig = actSigNew;
-
-      const changedToday    = sigTodayNew !== lastSig.today;
-      const changedTomorrow = sigTmrwNew  !== lastSig.tomorrow;
-      
-      // If nothing changed at all, bail
-      if (!changedToday && !changedTomorrow && !actualChanged) return;
-      
-      // Adopt new signatures (we still only *log* on forecast changes)
-      lastSig.today    = sigTodayNew;
-      lastSig.tomorrow = sigTmrwNew;
-      forecastChanged.today    = changedToday;
-      forecastChanged.tomorrow = changedTomorrow;
-      
-      // Swap data + refresh UI
-      allRows = rows;
-      filteredRows = allRows.slice();
-      showMostRecent();
-      updateSummaryBoxes();
-      updateCorrectionBoxes();  // <-- runs on actual-only changes as well (UI updates immediately)
-
-      } catch (e) {
-        console.debug("pollCsvAndUpdate error:", e);
-      }
-    }
-
-    // Make this available globally
-    window.pollCsvAndUpdate = pollCsvAndUpdate;
-
-    /* ========= NETWORK: SAME-ORIGIN → PROXY → UPSTREAM ========= */
-    const CSV_URL = "https://raw.githubusercontent.com/hwaheed13/nws-forecast-logger/main/nws_forecast_log.csv";
-    const KALSHI_BASE_URL = "https://kalshi.com/markets/kxhighny/highest-temperature-in-nyc";
-    const API_BASE = "/api"; // relative works from / or /dashboard/
-
-    const KALSHI_BY_DATE_URLS = [ `${API_BASE}/kalshi` ];
-    const KALSHI_LIVE_URLS    = [ `${API_BASE}/kalshi-live` ];
-    const NWS_HIGH_SO_FAR_URLS= [ `${API_BASE}/nws-high-so-far` ];
-    const NWS_CURRENT_TEMP_URLS=[ `${API_BASE}/nws-current-temp` ];
-    const NWS_DSM_URLS        = [
-      `${API_BASE}/nws-dsm?issuedby=NYC`,
-      "https://forecast.weather.gov/product.php?site=NWS&issuedby=NYC&product=DSM&format=CI&version=1&glossary=1",
-    ];
-    const NWS_6HR_JSON_URLS = [
-      `${API_BASE}/nws-6hr-json`,
-      "https://www.weather.gov/source/wrh/timeseries/obs.js",
-    ];
-
-    async function fetchJSON(urls, qs) {
-      for (const base of urls) {
-        try {
-          const u = new URL(base, location.origin);
-          if (qs) for (const [k, v] of Object.entries(qs)) u.searchParams.set(k, v);
-          const r = await fetch(u.toString(), { cache: "no-cache", mode: "cors", headers: { Accept: "application/json" } });
-          if (r.ok) return await r.json();
-        } catch (_) {}
-      }
-      return null;
-    }
-    async function fetchTEXT(urls, qs) {
-      for (const base of urls) {
-        try {
-          const u = new URL(base, location.origin);
-          if (qs) for (const [k, v] of Object.entries(qs)) u.searchParams.set(k, v);
-          const r = await fetch(u.toString(), { cache: "no-cache", mode: "cors" });
-          if (r.ok) return await r.text();
-        } catch (_) {}
-      }
-      return null;
-    }
-
-    async function fetchKalshiWinningRange(dateISO) { return fetchJSON(KALSHI_BY_DATE_URLS, { date: dateISO }); }
-    async function fetchKalshiLiveLeader(dateISO)   { return fetchJSON(KALSHI_LIVE_URLS, { date: dateISO, cb: Date.now() }); }
-    async function fetchNwsHighSoFar(station = "KNYC") { return fetchJSON(NWS_HIGH_SO_FAR_URLS, { station }); }
-    async function fetchNwsCurrentTemp(station = "KNYC") { return fetchJSON(NWS_CURRENT_TEMP_URLS, { station, cb: Date.now() }); }
-
-    // Kalshi cache
-    const kalshiCache = new Map();
-    async function getKalshiLabel(dateISO) {
-      const today = nycISODate(0);
-      const yesterday = nycISODate(-1);
-
-      // Never cache "today"
-      if (dateISO === today) return await fetchKalshiWinningRange(dateISO);
-
-      const now = Date.now();
-      const cached = kalshiCache.get(dateISO);
-      if (cached && (dateISO !== yesterday || (now - cached._ts) < 120000)) return cached.data;
-
-      const fresh = await fetchKalshiWinningRange(dateISO);
-      kalshiCache.set(dateISO, { _ts: now, data: fresh });
-      return fresh;
-    }
-
-    // DSM parsing
-    function parseDSM(text) {
-      if (!text) return null;
-      const t = text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-      const dateMatch = t.match(/\b(\d{1,2})\/(\d{2})\b/);
-      if (!dateMatch) return null;
-      const after = t.slice(t.indexOf(dateMatch[0]) + dateMatch[0].length);
-      const hiBlock = after.match(/\b(\d{6})\b/);
-      if (!hiBlock) return null;
-      const block = hiBlock[1];
-      const tempF = Number(block.slice(0, 2));
-      const hh = block.slice(2, 4);
-      const mm = block.slice(4, 6);
-      if (!Number.isFinite(tempF)) return null;
-      const now = new Date();
-      const year = now.getFullYear();
-      const dd = String(dateMatch[1]).padStart(2, "0");
-      const mmMon = String(dateMatch[2]).padStart(2, "0");
-      const isoLocal = `${year}-${mmMon}-${dd}T${hh}:${mm}:00`;
-      const dayISO = `${year}-${mmMon}-${dd}`;
-      const when = new Date(isoLocal);
-      const fmtET = new Intl.DateTimeFormat("en-US", {
-        timeZone: "America/New_York",
-        hour: "numeric",
-        minute: "2-digit"
-      }).format(when);
-      return { tempF, timeET: fmtET, iso: isoLocal, dayISO, raw: block };
-    }
-
-    // Month helpers (for table)
-    function monthKeyFromISO(iso) { const [y,m] = iso.split('-'); return `${y}-${m}`; }
-    function monthLabelFromKey(key) {
-      const [y, m] = key.split('-').map(Number);
-      const d = new Date(y, m - 1, 1);
-      return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(d);
-    }
-
-    // DSM (single, non-duplicated)
-    let lastDSMDay = nycISODate(0);
-    function clearDSMOnly() {
-      const max = document.getElementById("box-dsm-max");
-      const note = document.getElementById("box-dsm-note");
-      if (max) max.textContent = "–";
-      if (note) note.textContent = "";
-    }
-    async function updateDSM() {
-      const el = document.getElementById("box-dsm-max");
-      const note = document.getElementById("box-dsm-note");
-      if (!el || !note) return;
-      const today = nycISODate(0);
-      if (today !== lastDSMDay) { clearDSMOnly(); lastDSMDay = today; }
-      el.textContent = "–";
-      note.textContent = "";
-      const txt = await fetchTEXT(NWS_DSM_URLS);
-      const parsed = parseDSM(txt);
-      if (parsed && parsed.dayISO === today) {
-        el.textContent = `${parsed.tempF.toFixed(0)}°F`;
-        note.textContent = `${parsed.timeET} ET • daily summary message`;
-      } else {
-        clearDSMOnly();
-      }
-    }
-
-    // Make this available globally
-    window.updateDSM = updateDSM;
-
-    // 6-hr max
-    async function updateSixHourMax() {
-      const el = document.getElementById("box-6hr-max");
-      const note = document.getElementById("box-6hr-max-note");
-      if (!el || !note) return;
-      el.textContent = "–";
-      note.textContent = "";
-      try {
-        const parsed = await fetchJSON(NWS_6HR_JSON_URLS, { station: "KNYC" });
-        if (parsed && parsed.value != null) {
-          el.textContent = `${parsed.value}°F`;
-          note.textContent = parsed.time ? `as of ${parsed.time} • 6-hr max` : "Latest 6-hr max";
-        } else {
-          note.textContent = "6-Hr Max not available";
-        }
-      } catch (err) {
-        console.error("6HR fetch error:", err);
-        note.textContent = "6-Hr Max unavailable";
-      }
-    }
-
-    // Make this available globally
-    window.updateSixHourMax = updateSixHourMax;
-
-    // Observations: current temp only
-    function updateObservations() {
-      fetchNwsCurrentTemp("KNYC").then(cur => {
-        const el = document.getElementById("box-today-current");
-        const note = document.getElementById("box-today-current-note");
-        if (!el || !note) return;
-        if (cur && cur.currentF != null) {
-          el.textContent = `${Number(cur.currentF).toFixed(1)}°F`;
-          const ts = cur.atISO ? new Date(cur.atISO) : null;
-          const tNY = ts ? new Intl.DateTimeFormat("en-US", {
-            timeZone: "America/New_York",
-            hour: "numeric",
-            minute: "2-digit"
-          }).format(ts) : "";
-          note.textContent = tNY ? `as of ${tNY} ET • station ${cur.station}` : `station ${cur.station}`;
-        } else {
-          el.textContent = "–";
-          note.textContent = "";
-        }
-      });
-    }
-
-    // Make this available globally
-    window.updateObservations = updateObservations;
-
-    async function updateSummaryBoxes() {
-      const today = nycISODate(0);
-      const tomorrow = nycISODate(1);
-      const yesterday = nycISODate(-1);
-
-      const latestForDate = (date) => {
-        const rows = allRows
-          .filter(r => r.forecast_or_actual === "forecast" && r.target_date === date && r.predicted_high);
-        if (!rows.length) return null;
-        rows.sort((a, b) => {
-          const A = a.timestamp || a.forecast_time || "";
-          const B = b.timestamp || b.forecast_time || "";
-          return B.localeCompare(A);
-        });
-        return Number(rows[0].predicted_high);
-      };
-
-      // Update the four metric boxes + mini chips
-      const tLatest  = latestForDate(today);
-      const tActRow  = allRows.find(r => r.forecast_or_actual === "actual" && r.cli_date === today && r.actual_high);
-      const tActual  = tActRow ? Number(tActRow.actual_high) : null;
-      const tmLatest = latestForDate(tomorrow);
-
-      const e = (id) => document.getElementById(id);
-      if (e("box-today-forecast"))    e("box-today-forecast").textContent    = (tLatest  == null) ? "–" : `${tLatest.toFixed(0)}°F`;
-      if (e("box-today-actual"))      e("box-today-actual").textContent      = (tActual  == null) ? "–" : `${tActual.toFixed(0)}°F`;
-      if (e("box-tomorrow-forecast")) e("box-tomorrow-forecast").textContent = (tmLatest == null) ? "–" : `${tmLatest.toFixed(0)}°F`;
-
-      const todayRows    = getForecastsForDate(today);
-      const tomorrowRows = getForecastsForDate(tomorrow);
-      renderMiniForecastChips(todayRows, "mini-today-forecasts");
-      renderMiniForecastChips(tomorrowRows, "mini-tomorrow-forecasts");
-
-      // ===== Kalshi badges =====
-      const tBox  = e('box-today-kalshi');
-      const tNote = e('box-today-kalshi-note');
-      const yBox  = e('box-yday-kalshi');
-      const yNote = e('box-yday-kalshi-note');
-
-      try {
-        const [ktoday, kyday, live] = await Promise.all([
-          getKalshiLabel(today),
-          getKalshiLabel(yesterday),
-          fetchKalshiLiveLeader(today)
-        ]);
-
-        // --- TODAY ---
-        if (live && live.leadingLabel) {
-          const pct = (live.leadingProb != null) ? ` (${Math.round(live.leadingProb * 100)}%)` : "";
-          if (tBox)  tBox.innerHTML  = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${live.leadingLabel}${pct}</a>`;
-          if (tNote) tNote.textContent = "Live leader (can flip before settlement).";
-        } else if (ktoday && ktoday.settled === true && ktoday.label) {
-          if (tBox)  tBox.innerHTML  = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${ktoday.label}</a>`;
-          if (tNote) tNote.textContent = (ktoday.exactTemp != null) ? `Settled at ${ktoday.exactTemp.toFixed(1)}°F.` : "";
-        } else {
-          if (tBox)  tBox.innerHTML  = `<span class="kalshi-pending">Pending settlement</span>`;
-          if (tNote) tNote.textContent = "Closes 11:59 PM ET; settles after NWS daily report.";
-        }
-
-        // --- YESTERDAY ---
-        const anchor = kalshiAnchorForISO(yesterday);
-        const yHref = `${KALSHI_BASE_URL}${anchor}`;
-        if (kyday && kyday.label) {
-          const exact = (kyday.exactTemp != null) ? ` (settled ${kyday.exactTemp.toFixed(1)}°F)` : "";
-          if (yBox)  yBox.innerHTML  = `<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">Open yesterday's market</a>`;
-        if (yNote) yNote.textContent = "Proxy error; using anchor link.";
-      }
-    }
-
-    // Make this available globally
-    window.updateSummaryBoxes = updateSummaryBoxes;
-
-    function hasActualFor(dateISO) {
-      return allRows.some(r =>
-        r.forecast_or_actual === "actual" &&
-        r.cli_date === dateISO &&
-        r.actual_high && String(r.actual_high).trim() !== ""
-      );
-    }
-
-   function updateCorrectionBoxes() {
-  const tables   = buildBiasAndBlend();
-  const today    = nycISODate(0);
-  const tomorrow = nycISODate(1);
-  const INSTANT_FEEDBACK_LAMBDA = 0.30; // 0.2–0.5 typical
-  const INSTANT_DEADBAND        = 0.3;  // ignore tiny noise
-  const INSTANT_CAP             = 2.0;  // max absolute nudge (°F)
-
-  // Today actual (to enforce pre-high gating)
-  const todayActual = allRows.find(
-    r => r.forecast_or_actual === "actual" && r.cli_date === today && r.actual_high
-  );
-  const highTime = todayActual ? todayActual.high_time : "";
-
-  // ---------- TODAY ----------
-  const todayBox = document.getElementById("correctionBoxToday");
-  if (todayBox) {
-    if (todayActual) {
-      todayBox.innerHTML = `
-        <div class="prediction-value">—</div>
-        <div class="prediction-subtitle">Actual published for ${today}</div>
-      `;
-    } else {
-      const c0      = d0CandidatesFor(today, highTime);  // D0 intraday; carries D1 until first D0 appears
-      const warmKey = isWarmSeason(today) ? "D0_warm" : "D0_cool";
-      const w0      = tables.weights[warmKey] || { first:0, latest:1, trimmed:0, carry:0 };
-     const rep     = repFromSeries(c0.series) ?? blendedRep(c0, w0, /*allowCarry*/ true);
-      const bias    = pickBiasFrom(tables, "D0");
-      const pred    = (rep == null) ? null : rep + bias;
-
-      const pDisp = round1(pred);
-      const ex    = blendExplainer(c0, w0, /*allowCarry*/ true);
-      const parts = ex.partsTxt
-      ? `pred = (${ex.partsTxt}) + ${(((round1(bias ?? 0)) ?? 0)).toFixed(1)}`
-      : "";
-
-      todayBox.innerHTML = `
-        <div class="prediction-value">${pDisp == null ? "–" : `${pDisp.toFixed(1)}°F`}</div>
-        <div class="prediction-subtitle">
-          For ${today}
-          ${parts ? `<br><small style="opacity:.75">${parts}</small>` : ""}
-        </div>
-      `;
-
-      // ✅ Logging (Today) — only if forecast set changed AND still pre-high
-      if (rep != null && forecastChanged.today === true) {
-        const repRow = latestPreHighRow(
-          getForecastRowsFor(today, c0._hasD0 ? "D0" : "D1"),
-          c0._hasD0 ? highTime : ""
-        );
-        const dlt = deltaLast3(
-          c0._hasD0 ? getForecastRowsFor(today,"D0") : getForecastRowsFor(today,"D1"),
-          repRow,
-          c0._hasD0 ? highTime : ""
-        );
-
-        const payload = {
-          timestamp_et: new Date().toISOString(),
-          target_date: today,
-          lead_used: c0._hasD0 ? "D0" : "D1",
-          is_carryover: c0._hasD0 ? 0 : 1,
-          rep_forecast: Number(rep),
-          delta_last3:  Number(dlt),
-          issuance_iso: issuanceISOUTC(repRow),
-          issuance_hour_local: issuanceHourET(repRow),
-          season: isWarmSeason(today) ? "warm" : "cool",
-          bias_applied: Number(bias ?? 0),
-          prediction_value: Number(pred),
-          uncertainty_rmse: stableRound(tables.rmse.D0 ?? 0, 1),
-          model_name: "seasonal_lead_bias_blended_rep",
-          version: "v1.1"
-        };
-
-        const sigToday = buildPredSignature({
-          target_date: payload.target_date,
-          lead_used: payload.lead_used,
-          issuance_iso: payload.issuance_iso,
-          rep_forecast: payload.rep_forecast,
-          bias_applied: payload.bias_applied,
-          prediction_value: payload.prediction_value,
-          model_name: payload.model_name,
-          version: payload.version
-        });
-
-        if (sigToday && sigToday !== loggedSig.today) {
-          logPrediction(payload);
-          setLoggedSig("today", sigToday);
-        }
-      }
-    }
-  }
-
- // ---------- TOMORROW ----------
-  const tmrwBox = document.getElementById("correctionBoxTomorrow");
-  if (tmrwBox) {
-    // Base (D1) using all of today's issuances for tomorrow
-  const c1       = d1CandidatesFor(tomorrow);
-  const warmKey1 = isWarmSeason(tomorrow) ? "D1_warm" : "D1_cool";
-  const w1       = tables.weights[warmKey1] || { first:0, latest:1, trimmed:0 };
-  const rep1     = repFromSeries(c1.series) ?? blendedRep(c1, w1, /*allowCarry*/ false);
-  const bias1    = pickBiasFrom(tables, "D1");
-  const pred1Base = (rep1 == null) ? null : (rep1 + bias1);
-
-  let adj = 0;
-
-  const todayActualRow = allRows.find(
-    r => r.forecast_or_actual === "actual" && r.cli_date === today && r.actual_high
-  );
-  if (todayActualRow) {
-    const highTime = todayActualRow.high_time || "";
-    const c0Today  = d0CandidatesFor(today, highTime); // includes carry until first D0 shows
-    const w0Today  = tables.weights[isWarmSeason(today) ? "D0_warm" : "D0_cool"] || { first:0, latest:1, trimmed:0, carry:0 };
-    const repTodayD0 = repFromSeries(c0Today.series) ?? blendedRep(c0Today, w0Today, /*allowCarry*/ true);
-
-    if (repTodayD0 != null) {
-      const actualToday = Number(todayActualRow.actual_high);
-      let instantError = actualToday - Number(repTodayD0); // pure miss vs D0 rep
-      if (Math.abs(instantError) < INSTANT_DEADBAND) instantError = 0;
-      adj = INSTANT_FEEDBACK_LAMBDA * instantError;
-      if (adj >  INSTANT_CAP) adj =  INSTANT_CAP;
-      if (adj < -INSTANT_CAP) adj = -INSTANT_CAP;
-    }
-  }
-
-  // Final (base + instant)
-  const pred1 = (pred1Base == null) ? null : (pred1Base + adj);
-
-  // UI (with exact formula line)
-  const p1Disp = round1(pred1);
-  const ex1    = blendExplainer(c1, w1, /*allowCarry*/ false);
-  const parts1 = ex1.partsTxt
-  ? `base = (${ex1.partsTxt}) + ${(((round1(bias1 ?? 0)) ?? 0)).toFixed(1)}`
-  : "";
-  const adjTxt = (adj && Math.abs(adj) >= 0.05) ? `; instant=${(round1(adj)).toFixed(1)}°` : "";
-
-  tmrwBox.innerHTML = `
-    <div class="prediction-value">${p1Disp == null ? "–" : `${p1Disp.toFixed(1)}°F`}</div>
-    <div class="prediction-subtitle">
-      For ${tomorrow}
-      ${parts1 ? `<br><small style="opacity:.75">${parts1}${adjTxt}</small>` : ""}
-    </div>
-  `;
-
-  // ✅ Logging (Tomorrow) — only when tomorrow's forecast set changed
-  if (rep1 != null && forecastChanged.tomorrow === true) {
-    const repRow1 = latestPreHighRow(getForecastRowsFor(tomorrow,"D1"), "");
-    const dlt1    = deltaLast3(getForecastRowsFor(tomorrow,"D1"), repRow1, "");
-    const payload = {
-      timestamp_et: new Date().toISOString(),
-      target_date: tomorrow,
-      lead_used: "D1",
-      is_carryover: 0,
-      rep_forecast: Number(rep1),
-      delta_last3: Number(dlt1),
-      issuance_iso: issuanceISOUTC(repRow1),
-      issuance_hour_local: issuanceHourET(repRow1),
-      season: isWarmSeason(tomorrow) ? "warm" : "cool",
-      bias_applied: Number(bias1 ?? 0),
-      prediction_value: Number(pred1),
-      uncertainty_rmse: stableRound(tables.rmse.D1 ?? 0, 1),
-      model_name: "seasonal_lead_bias_blended_rep+instant",
-      version: "v1.1"
-    };
-
-    const sigTomorrow = buildPredSignature({
-      target_date: payload.target_date,
-      lead_used: payload.lead_used,
-      issuance_iso: payload.issuance_iso,
-      rep_forecast: payload.rep_forecast,
-      bias_applied: payload.bias_applied,
-      prediction_value: payload.prediction_value,
-      model_name: payload.model_name,
-      version: payload.version
-    });
-
-    if (sigTomorrow && sigTomorrow !== loggedSig.tomorrow) {
-      logPrediction(payload);
-      setLoggedSig("tomorrow", sigTomorrow);
-    }
-  }
-}
-}
-
-    // Make this available globally
-    window.updateCorrectionBoxes = updateCorrectionBoxes;
-
-    // Filter functions - make these global
-    function applyDateFilter() {
-      const from = document.getElementById('fromDate').value;
-      const to = document.getElementById('toDate').value;
-      filteredRows = allRows.filter(row => {
-        const date = row.forecast_or_actual === "actual" ? row.cli_date : row.target_date;
-        if (!date) return false;
-        if (from && date < from) return false;
-        if (to && date > to) return false;
-        return true;
-      });
-      displayTable();
-      showStats();
-      showChart();
-      showMostRecent();
-      updateCorrectionBoxes();
-      updateSummaryBoxes();
-    }
-
-    function resetFilter() {
-      filteredRows = allRows.slice();
-      const f = document.getElementById('fromDate'); if (f) f.value = "";
-      const t = document.getElementById('toDate');   if (t) t.value = "";
-      displayTable();
-      showStats();
-      showChart();
-      showMostRecent();
-      updateCorrectionBoxes();
-      updateSummaryBoxes();
-    }
-
-    // Make filter functions global
-    window.applyDateFilter = applyDateFilter;
-    window.resetFilter = resetFilter;
-
-    // Add placeholder implementations for missing functions
-    function displayTable() {
-      console.log('displayTable() called - placeholder');
-    }
-
-    function showStats() {
-      console.log('showStats() called - placeholder');
-    }
-
-    function showChart() {
-      console.log('showChart() called - placeholder');
-    }
-
-    /* ========= SUPABASE AUTH HANDLING ========= */
-    function withTimeout(promise, ms, label = "operation") {
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-          reject(new Error(`${label} timed out after ${ms}ms`));
-        }, ms);
-        
-        promise.then(
-          value => {
-            clearTimeout(timer);
-            resolve(value);
-          },
-          error => {
-            clearTimeout(timer);
-            reject(error);
-          }
-        );
-      });
-    }
-
-    async function checkAccess() {
-      console.log('checkAccess() starting');
-      
-      try {
-        showGate('Initializing Supabase...');
-        
-        // Check if Supabase is available
-        if (typeof window.supabase === 'undefined') {
-          throw new Error('Supabase library not loaded');
-        }
-
-        const supabase = window.supabase.createClient(
-          "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
-          "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
-        );
-
-        showGate('Checking session...');
-        
-        // Get session with timeout
-        const { data: { session }, error: sessionError } = await withTimeout(
-          supabase.auth.getSession(),
-          8000,
-          'getSession'
-        );
-
-        if (sessionError) {
-          console.error('Session error:', sessionError);
-          throw new Error(`Session error: ${sessionError.message}`);
-        }
-
-        if (!session) {
-          console.log('No session found, redirecting to login');
-          showGate('No session found. Redirecting to login...');
-          setTimeout(() => {
-            window.location.href = 'login.html';
-          }, 2000);
-          return;
-        }
-
-        console.log('Session found:', session.user.id);
-        showGate('Checking subscription...');
-
-        // Check subscription with timeout
-        const { data: profile, error: profileError } = await withTimeout(
-          supabase
-            .from('profiles')
-            .select('subscription_status, current_period_end, trial_used')
-            .eq('id', session.user.id)
-            .single(),
-          8000,
-          'profile check'
-        );
-
-        if (profileError) {
-          console.error('Profile error:', profileError);
-          // Don't fail hard on profile errors - might be network issue
-          showGate('Profile check failed, proceeding anyway...');
-          setTimeout(() => {
-            showApp();
-            bootApp();
-          }, 1000);
-          return;
-        }
-
-        const status = profile?.subscription_status || 'inactive';
-        console.log('Subscription status:', status);
-
-        if (!['active', 'trialing'].includes(status)) {
-          const redirectUrl = profile?.trial_used 
-            ? 'subscribe.html?reason=trial_expired' 
-            : 'subscribe.html';
-          
-          showGate('Subscription inactive. Redirecting...');
-          setTimeout(() => {
-            window.location.href = redirectUrl;
-          }, 2000);
-          return;
-        }
-
-        // Success!
-        console.log('Access granted');
-        showGate('Access granted! Loading dashboard...');
-        setTimeout(() => {
-          showApp();
-          bootApp();
-          setupEventListeners(supabase);
-        }, 500);
-
-      } catch (error) {
-        console.error('Access check failed:', error);
-        // Show error but don't block - provide fallback
-        showGate(`Error: ${error.message}. Loading dashboard anyway...`);
-        setTimeout(() => {
-          showApp();
-          bootApp();
-        }, 2000);
-      }
-    }
-
-    function setupEventListeners(supabase) {
-      console.log('Setting up event listeners...');
-      
-      // Setup logout button
-      const logoutBtn = document.getElementById('btn-logout');
-      if (logoutBtn) {
-        logoutBtn.addEventListener('click', async () => {
-          console.log('Logout clicked');
-          try {
-            if (supabase) await supabase.auth.signOut();
-            localStorage.removeItem('dashboard_heartbeat');
-            window.location.href = 'login.html';
-          } catch (error) {
-            console.error('Logout error:', error);
-            window.location.href = 'login.html';
-          }
-        });
-      }
-
-      // Setup billing button  
-      const billingBtn = document.getElementById('btn-billing');
-      if (billingBtn) {
-        billingBtn.addEventListener('click', async () => {
-          console.log('Billing clicked');
-          try {
-            if (!supabase) {
-              alert('Authentication service unavailable');
-              return;
-            }
-            
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) {
-              window.location.href = 'login.html';
-              return;
-            }
-
-            const response = await fetch('/api/create-portal-session', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                supabaseAccessToken: session.access_token
-              })
-            });
-
-            const data = await response.json();
-            if (response.ok && data.url) {
-              window.location.href = data.url;
-            } else {
-              alert(data.error || 'Could not open billing portal');
-            }
-          } catch (error) {
-            console.error('Billing error:', error);
-            alert('Could not open billing portal');
-          }
-        });
-      }
-    }
-
-    async function bootApp() {
-      console.log('Booting app...');
-      showTodayDate();
-      scheduleMidnightUpdate();
-      
-      await probeLoggingEndpoint();
-      await reloadCSV();
-      updateDSM();
-      updateSixHourMax();
-      updateObservations();
-      updateSummaryBoxes();
-      
-      // Set up periodic updates
-      pollCsvAndUpdate();
-      setInterval(() => updateObservations(), 5 * 60 * 1000);
-      setInterval(() => updateDSM(), 10 * 60 * 1000);
-      setInterval(() => updateSixHourMax(), 10 * 60 * 1000);
-      setInterval(() => updateSummaryBoxes(), 60 * 1000);
-      setInterval(() => updateCorrectionBoxes(), 60 * 1000);
-      setInterval(() => pollCsvAndUpdate(), 60 * 1000);
-      
-      try {
-        localStorage.setItem("dashboard_heartbeat", String(Date.now()));
-        setInterval(() => localStorage.setItem("dashboard_heartbeat", String(Date.now())), 60 * 1000);
-      } catch {}
-    }
-
-    // Fail-safe mechanisms
-    window.addEventListener('error', (event) => {
-      console.error('Global error:', event.error);
-    });
-
-    window.addEventListener('unhandledrejection', (event) => {
-      console.error('Unhandled promise rejection:', event.reason);
-    });
-
-    // Ultimate fail-safe: show app after 10 seconds no matter what
-    setTimeout(() => {
-      const app = document.getElementById('app');
-      if (app && app.style.display === 'none') {
-        console.warn('Fail-safe: showing app after timeout');
-        showApp();
-        bootApp();
-      }
-    }, 10000);
-
-    // Initialize when DOM is ready
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', checkAccess);
-    } else {
-      checkAccess();
-    }
-
-    console.log('App scripts loaded OK');
-  </script>
-</body>
-</html>="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">${kyday.label}${exact}</a>`;
-          if (yNote) yNote.textContent = "Links directly to yesterday's contract.";
-        } else {
-          if (yBox)  yBox.innerHTML  = `<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">Open yesterday's market</a>`;
-          if (yNote) yNote.textContent = "No proxy data; linking via anchor.";
-        }
-      } catch {
-        if (tBox)  tBox.innerHTML  = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">Open market</a>`;
-        if (tNote) tNote.textContent = "Could not load proxy data.";
-        const yHref = `${KALSHI_BASE_URL}${kalshiAnchorForISO(yesterday)}`;
-        if (yBox)  yBox.innerHTML  = `<a class<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -1108,7 +35,7 @@ function actualSignatureFor(rows) {
 
     * { box-sizing: border-box; }
 
-    /* Gate (shows immediately, then hidden on boot) */
+    /* Gate */
     #gate {
       display: flex; align-items: center; justify-content: center;
       min-height: 100vh;
@@ -1127,7 +54,9 @@ function actualSignatureFor(rows) {
       border: 3px solid var(--border-subtle); border-top-color: var(--accent-blue);
       margin: 12px auto 8px; animation: spin 1s linear infinite;
     }
-     body.app-ready #gate { display: none !important; }
+    .gate-error { color: #dc2626; font-size: 14px; margin: 12px 0; display:none; }
+    .gate-btn { background: var(--accent-blue); color: white; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px; margin: 4px; display:none; }
+    body.app-ready #gate { display: none !important; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
     /* App */
@@ -1138,27 +67,18 @@ function actualSignatureFor(rows) {
       font-feature-settings: "tnum" 1, "lnum" 1;
     }
 
-    .header {
-      background: var(--bg-secondary);
-      border-bottom: 1px solid var(--border-subtle);
-      padding: 20px 0; position: sticky; top: 0; z-index: 10; backdrop-filter: blur(8px);
-    }
-    .header-content { max-width: 1400px; margin: 0 auto; padding: 0 20px;
-      display: flex; align-items: center; justify-content: space-between; }
+    .header { background: var(--bg-secondary); border-bottom: 1px solid var(--border-subtle); padding: 20px 0; position: sticky; top: 0; z-index: 10; backdrop-filter: blur(8px); }
+    .header-content { max-width: 1400px; margin: 0 auto; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; }
     .brand { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
     .brand-left { display: flex; align-items: center; gap: 12px; }
-    .brand-mark { display: grid; place-items: center; width: 40px; height: 40px;
-      border-radius: 12px; background: linear-gradient(135deg, var(--accent-blue-light), var(--accent-green-light));
-      box-shadow: var(--shadow-sm); border: 1px solid var(--border-subtle); position: relative; top: -3px; }
+    .brand-mark { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: linear-gradient(135deg, var(--accent-blue-light), var(--accent-green-light)); box-shadow: var(--shadow-sm); border: 1px solid var(--border-subtle); position: relative; top: -3px; }
     .brand-mark svg { display: block; transform: translate(1px, 1px); }
-    .brand-title { margin: 0; font-weight: 800; letter-spacing: .2px;
-      font-size: 28px; line-height: 1.15; color: var(--text-primary); }
+    .brand-title { margin: 0; font-weight: 800; letter-spacing: .2px; font-size: 28px; line-height: 1.15; color: var(--text-primary); }
     .brand-title .thin { font-weight: 600; color: var(--text-secondary); }
     .brand-sub { margin: 2px 0 0; font-size: 13px; color: var(--text-muted); }
     .brand-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
     .brand-right .pill-group { display: flex; gap: 6px; }
-    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; font-size: 12px; font-weight: 700;
-      color: var(--text-secondary); background: var(--bg-accent); border: 1px solid var(--border-subtle); border-radius: 999px; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; font-size: 12px; font-weight: 700; color: var(--text-secondary); background: var(--bg-accent); border: 1px solid var(--border-subtle); border-radius: 999px; }
     .pill.live { background: var(--accent-green-light); color: var(--accent-green); border-color: transparent; }
     .pill.live .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-green); animation: pulse 2s infinite; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
@@ -1166,18 +86,14 @@ function actualSignatureFor(rows) {
 
     .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
 
-    .last-update { background: var(--bg-secondary); border: 1px solid var(--border-subtle);
-      border-radius: 12px; padding: 18px 20px; margin-bottom: 20px; box-shadow: var(--shadow-sm); }
+    .last-update { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 12px; padding: 18px 20px; margin-bottom: 20px; box-shadow: var(--shadow-sm); }
     .last-update-label { font-size: 12px; color: var(--text-muted); letter-spacing: .06em; text-transform: uppercase; margin-bottom: 4px; font-weight: 600; }
     .last-update-content { font-size: 15px; color: var(--text-secondary); font-weight: 600; }
     #todayDate { display: block; font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px; }
 
-    .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 18px; margin-bottom: 22px; }
-    .metric-card { background: var(--bg-secondary); border: 1.5px solid var(--border-subtle); border-radius: 18px; padding: 24px;
-      box-shadow: var(--shadow-sm); position: relative; overflow: hidden; }
-    .metric-card::before { content: ''; position: absolute; inset: 0 0 auto; height: 4px;
-      background: linear-gradient(90deg, var(--accent-blue), var(--accent-green)); }
+    .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; margin-bottom: 22px; }
+    .metric-card { background: var(--bg-secondary); border: 1.5px solid var(--border-subtle); border-radius: 18px; padding: 24px; box-shadow: var(--shadow-sm); position: relative; overflow: hidden; }
+    .metric-card::before { content: ''; position: absolute; inset: 0 0 auto; height: 4px; background: linear-gradient(90deg, var(--accent-blue), var(--accent-green)); }
     .metric-card.today-forecast::before { background: var(--accent-amber); }
     .metric-card.today-obs::before { background: var(--accent-blue); }
     .metric-card.today-actual::before { background: var(--accent-green); }
@@ -1186,26 +102,20 @@ function actualSignatureFor(rows) {
     .metric-value { font-size: 36px; font-weight: 800; color: var(--text-primary); margin-bottom: 10px; line-height: 1; }
     .metric-subtitle { font-size: 13px; color: var(--text-light); }
     .mini-forecasts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-    .mini-chip { background: var(--bg-accent); color: var(--text-secondary); padding: 4px 10px; border-radius: 999px;
-      font-size: 12px; font-weight: 700; border: 1px solid var(--border-subtle); }
+    .mini-chip { background: var(--bg-accent); color: var(--text-secondary); padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; border: 1px solid var(--border-subtle); }
 
     .kalshi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; margin-bottom: 22px; }
     .kalshi-card { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 16px; padding: 22px; }
-    .kalshi-badge { background: var(--accent-amber-light); color: var(--accent-amber);
-      padding: 8px 14px; border-radius: 999px; font-size: 14px; font-weight: 800; text-decoration: none; display: inline-block; }
-    .kalshi-pending { background: var(--bg-accent); color: var(--text-muted); padding: 8px 14px; border-radius: 999px; font-size: 14px; font-weight: 700; border: 2px dashed var(--border-default); }
     .kalshi-note { font-size: 12px; color: var(--text-light); margin-top: 6px; }
 
     .prediction-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 18px; margin-bottom: 22px; }
-    .prediction-card { background: linear-gradient(135deg, var(--accent-blue-light), var(--accent-green-light));
-      border: 1px solid var(--border-subtle); border-radius: 16px; padding: 24px; }
+    .prediction-card { background: linear-gradient(135deg, var(--accent-blue-light), var(--accent-green-light)); border: 1px solid var(--border-subtle); border-radius: 16px; padding: 24px; }
     .prediction-title { font-size: 15px; font-weight: 800; margin-bottom: 12px; }
     .prediction-content {}
     .prediction-value { font-size: 28px; font-weight: 800; color: #1f2937; }
     .prediction-subtitle { font-size: 13px; color: var(--text-secondary); }
 
-    .controls-section { background: var(--bg-secondary); border: 1px solid var(--border-subtle);
-      border-radius: 16px; padding: 18px; margin-bottom: 22px; }
+    .controls-section { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 16px; padding: 18px; margin-bottom: 22px; }
     .controls-title { font-size: 15px; font-weight: 800; margin-bottom: 10px; }
     .controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
     .control-group { display: flex; align-items: center; gap: 6px; }
@@ -1220,8 +130,7 @@ function actualSignatureFor(rows) {
     .stat-label { font-size: 13px; color: var(--text-muted); font-weight: 700; }
     .stat-value { font-size: 28px; font-weight: 800; color: var(--accent-blue); }
 
-    .chart-section { background: var(--bg-secondary); border: 1px solid var(--border-subtle);
-      border-radius: 16px; padding: 24px; margin-bottom: 22px; }
+    .chart-section { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 16px; padding: 24px; margin-bottom: 22px; }
     .chart-title { font-size: 16px; font-weight: 800; margin-bottom: 14px; }
     .chart-container { position: relative; height: clamp(220px, 38vh, 380px); width: 100%; }
 
@@ -1250,15 +159,7 @@ function actualSignatureFor(rows) {
       text-align: center; font-size: 12px; color: var(--text-light); }
     .footer a { color: var(--accent-blue); text-decoration: none; }
 
-    /* Month group header row */
-    #dataTable tr.month-row { background: var(--bg-tertiary); border-top: 2px solid var(--border-default); cursor: pointer; }
-    #dataTable tr.month-row td { font-weight: 800; font-size: 12px; letter-spacing: .06em; text-transform: uppercase;
-      color: var(--text-primary); padding: 10px 10px; }
-    #dataTable tr.month-row .caret { display: inline-block; transition: transform .18s ease; margin-right: 6px; }
-    #dataTable tr.month-row.collapsed .caret { transform: rotate(-90deg); }
-    #dataTable tr[data-month].is-hidden { display: none; }
-
-    /* Fluid sizes + mobile */
+    /* Fluid/mobile */
     .brand-title { font-size: clamp(18px, 2.2vw, 28px); }
     .metric-value { font-size: clamp(22px, 3vw, 36px); }
     .prediction-value { font-size: clamp(20px, 2.6vw, 28px); }
@@ -1313,24 +214,16 @@ function actualSignatureFor(rows) {
 
     .brand-right .pill-sep { flex: 0 0 12px; }
 
-    /* Desktop gutter push + styling for billing/logout */
     @media (min-width: 960px) {
-      #btn-billing, #btn-logout {
-        position: relative;
-        left: calc(max(0px, (100vw - 1400px) / 2 - 12px));
-        margin-top: -6px;
-      }
+      #btn-billing, #btn-logout { position: relative; left: calc(max(0px, (100vw - 1400px) / 2 - 12px)); margin-top: -6px; }
       .pill.logout-btn { margin-top: -6px; }
-      #btn-billing {
-        margin-top: -4px; background: #dbeafe; color: #2563eb; border: 1px solid #93c5fd;
-      }
+      #btn-billing { margin-top: -4px; background: #dbeafe; color: #2563eb; border: 1px solid #93c5fd; }
       #btn-billing:hover { background: #bfdbfe; }
     }
     #btn-billing, #btn-logout { cursor: pointer; transition: transform .02s ease, box-shadow .15s ease, opacity .15s ease; }
     #btn-billing:hover, #btn-logout:hover { box-shadow: 0 2px 8px rgba(0,0,0,.08); }
     #btn-billing:active, #btn-logout:active { transform: translateY(1px); opacity: .9; }
 
-    /* 2-col grid on desktop for pills/billing/logout */
     @media (min-width: 960px) {
       .brand-right { display: grid; grid-template-columns: auto auto; column-gap: 12px; row-gap: 10px; align-items: center; justify-items: end; }
       .brand-right .pill-group { grid-column: 1; grid-row: 1; }
@@ -1341,7 +234,6 @@ function actualSignatureFor(rows) {
       #btn-billing:hover { background: #bfdbfe; }
     }
 
-    /* Last update row + badge */
     .lu-top { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:20px; flex-wrap:wrap; }
     .lu-date { display:block; font-size:14px; font-weight:700; color:var(--text-primary); text-transform:uppercase; letter-spacing:.02em; margin-bottom:2px; }
     .lu-badge { white-space:nowrap; font-size:12px; font-weight:800; color:#b91c1c; margin-top:4px; }
@@ -1355,10 +247,8 @@ function actualSignatureFor(rows) {
       .last-update .lu-badge { display:block; margin-top:-6px; }
     }
 
-    /* Tooltip */
     .tip { display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:50%;
-      font-size:11px; font-weight:800; line-height:1; cursor:help;
-      border:1px solid var(--border-default); color:var(--text-secondary);
+      font-size:11px; font-weight:800; line-height:1; cursor:help; border:1px solid var(--border-default); color:var(--text-secondary);
       background:var(--bg-tertiary); margin-left:6px; position:relative; outline:none; }
     .tip:hover { box-shadow: 0 1px 6px rgba(0,0,0,.08); }
     .tip:focus-visible { box-shadow: 0 0 0 3px var(--accent-blue-light); }
@@ -1383,6 +273,11 @@ function actualSignatureFor(rows) {
       <div class="gate-sub">Loading the dashboard.</div>
       <div class="gate-spinner" aria-hidden="true"></div>
       <div class="gate-note">This will update automatically.</div>
+      <div id="gate-error" class="gate-error"></div>
+      <div>
+        <button id="gate-retry" class="gate-btn">Retry</button>
+        <button id="gate-skip" class="gate-btn">Skip to Dashboard</button>
+      </div>
     </div>
   </div>
 
@@ -1450,11 +345,11 @@ function actualSignatureFor(rows) {
         </div>
 
         <div class="metric-card today-obs">
-          <div class="metric-label">6 Hr Max</div>
+          <div class="metric-label">High Time</div>
           <div id="box-6hr-max" class="metric-value">–</div>
           <div id="box-6hr-max-note" class="metric-subtitle"></div>
           <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border-subtle);">
-            <div class="metric-label">Recent Observed Temperature</div>
+            <div class="metric-label">Most Recent Forecasted High</div>
             <div id="box-today-current" class="metric-value">–</div>
             <div id="box-today-current-note" class="metric-subtitle"></div>
           </div>
@@ -1471,21 +366,21 @@ function actualSignatureFor(rows) {
       <!-- Bias-corrected -->
       <div class="prediction-grid" style="display:grid; grid-template-columns:repeat(2,1fr); gap:18px; margin-bottom:22px;">
         <div class="prediction-card">
-          <div class="prediction-title">
-            Today's Bias-Corrected Prediction
-            <span class="tip" tabindex="0" data-tip="Shows today's forecast, using yesterday's last update until today's forecasts begin">i</span>
+          <div class="prediction-title">Today’s Bias-Corrected Prediction</div>
+          <div id="correctionBoxToday" class="prediction-content">
+            <div class="prediction-value">—</div>
+            <div class="prediction-subtitle">Based on rolling 30-day mean bias</div>
           </div>
-          <div id="correctionBoxToday" class="prediction-content">Loading...</div>
         </div>
         <div class="prediction-card">
-          <div class="prediction-title">
-            Tomorrow's Bias-Corrected Prediction
-            <span class="tip" tabindex="0" data-tip="Shows tomorrow's forecast using today's updates. Once tomorrow begins, new forecasts are tracked as that day's forecasts">i</span>
+          <div class="prediction-title">Tomorrow’s Bias-Corrected Prediction</div>
+          <div id="correctionBoxTomorrow" class="prediction-content">
+            <div class="prediction-value">—</div>
+            <div class="prediction-subtitle">Based on rolling 30-day mean bias</div>
           </div>
-          <div id="correctionBoxTomorrow" class="prediction-content">Loading...</div>
         </div>
         <div style="grid-column:1 / span 2; font-size:12px; color:var(--text-light); margin-top:-4px;">
-          Based on historical forecast accuracy patterns; updates as new forecasts arrive
+          Corrected = Latest Forecast − Mean(Forecast − Actual) over last 30 days with data.
         </div>
       </div>
 
@@ -1493,12 +388,12 @@ function actualSignatureFor(rows) {
       <div class="kalshi-grid">
         <div class="kalshi-card">
           <div class="metric-label">Today's Kalshi Market</div>
-          <div id="box-today-kalshi" class="metric-value" style="font-size:18px;">Pending settlement</div>
+          <div id="box-today-kalshi" class="metric-value" style="font-size:18px;">—</div>
           <div id="box-today-kalshi-note" class="kalshi-note"></div>
         </div>
         <div class="kalshi-card">
           <div class="metric-label">Yesterday's Kalshi Result</div>
-          <div id="box-yday-kalshi" class="metric-value" style="font-size:18px;">–</div>
+          <div id="box-yday-kalshi" class="metric-value" style="font-size:18px;">—</div>
           <div id="box-yday-kalshi-note" class="kalshi-note"></div>
         </div>
       </div>
@@ -1523,39 +418,22 @@ function actualSignatureFor(rows) {
 
       <!-- Stats -->
       <div class="stats-grid" id="stats">
-        <div class="stat-card">
-          <div class="stat-label">Days Tracked</div>
-          <div class="stat-value">0</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Days With Actual</div>
-          <div class="stat-value">0</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Average Absolute Error</div>
-          <div class="stat-value">--°F</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Average Best Error</div>
-          <div class="stat-value">--°F</div>
-        </div>
+        <div class="stat-card"><div class="stat-label">Days Tracked</div><div class="stat-value">0</div></div>
+        <div class="stat-card"><div class="stat-label">Days With Actual</div><div class="stat-value">0</div></div>
+        <div class="stat-card"><div class="stat-label">Average Absolute Error</div><div class="stat-value">--°F</div></div>
+        <div class="stat-card"><div class="stat-label">Average Best Error</div><div class="stat-value">--°F</div></div>
       </div>
 
       <!-- Chart -->
       <div class="chart-section">
         <div class="chart-title">Temperature Trends: Actual vs Predicted</div>
-        <div class="chart-container">
-          <canvas id="dailyChart" width="1000" height="380"></canvas>
-        </div>
+        <div class="chart-container"><canvas id="dailyChart" width="1000" height="380"></canvas></div>
       </div>
 
       <!-- Collapsible Table -->
       <div class="table-section">
-        <details class="table-wrap">
-          <summary>
-            <span>Detailed Forecast Log</span>
-            <span class="caret">▸</span>
-          </summary>
+        <details class="table-wrap" open>
+          <summary><span>Detailed Forecast Log</span><span class="caret">▸</span></summary>
           <div class="table-container">
             <table id="dataTable">
               <thead>
@@ -1590,445 +468,520 @@ function actualSignatureFor(rows) {
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <!-- App scripts -->
+  <!-- ===================== DATA + UI ===================== -->
   <script>
-    /* ========= GATE FUNCTIONS FIRST ========= */
-    const $gate = () => document.getElementById('gate');
-    const $app  = () => document.getElementById('app');
+    // -------- Gate helpers
+    function showApp(){ const g=document.getElementById('gate'), a=document.getElementById('app'); document.body.classList.add('app-ready'); if(a) a.style.display=''; if(g) g.style.display='none'; }
+    function showGate(msg){ const g=document.getElementById('gate'); if(!g) return; g.style.display=''; const sub=g.querySelector('.gate-sub'); if(sub&&msg) sub.textContent=msg; }
+    function showGateError(message){ const err=document.getElementById('gate-error'); const spinner=document.querySelector('.gate-spinner'); if(err){ err.textContent=message||'Something went wrong.'; err.style.display='block'; } if(spinner) spinner.style.display='none'; document.getElementById('gate-retry').style.display='inline-block'; document.getElementById('gate-skip').style.display='inline-block'; }
 
-    function showApp(){
-      const g = $gate(), a = $app();
-      try { document.body.classList.add('app-ready'); } catch {}
-      if (a && getComputedStyle(a).display === 'none') a.style.display = '';
-      if (g && getComputedStyle(g).display !== 'none') g.style.display = 'none';
-    }
+    // -------- Date/time helpers
+    function showTodayDate(){ const el=document.getElementById('todayDate'); if(!el) return; const label=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',weekday:'short',month:'short',day:'numeric',year:'numeric'}).format(new Date()); el.textContent=label; }
+    function scheduleMidnightUpdate(){ showTodayDate(); setInterval(showTodayDate, 60*1000); }
+    function nycISODate(offsetDays=0){ const fmt=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}); const parts=fmt.formatToParts(new Date(Date.now()+offsetDays*86400000)); const g=k=>parts.find(p=>p.type===k).value; return `${g('year')}-${g('month')}-${g('day')}`; }
 
-    function showGate(msg){ const g=$gate(); if(!g) return; g.style.display=''; const sub=g.querySelector('.gate-sub'); if(sub&&msg) sub.textContent=msg; }
-    
-    // Make these available globally
-    window.showApp = showApp;
-    window.showGate = showGate;
+    // -------- CSV fetch/parse
+    const CSV_URL="https://raw.githubusercontent.com/hwaheed13/nws-forecast-logger/main/nws_forecast_log.csv";
+    let allRows=[], filteredRows=[], chartInstance=null;
 
-    /* ========= ALL YOUR ORIGINAL DASHBOARD CODE ========= */
-    let allRows = [], filteredRows = [], chartInstance = null;
-
-    // === Header date (ET) ===
-      function showTodayDate() {
-        const el = document.getElementById('todayDate');
-        if (!el) return;
-        const label = new Intl.DateTimeFormat('en-US', {
-          timeZone: 'America/New_York',
-          weekday: 'short',
-          month: 'short',
-          day: 'numeric',
-          year: 'numeric'
-        }).format(new Date());
-        el.textContent = label;
+    function csvToRows(text){
+      const rows=[]; let row=[], field='', q=false;
+      for(let i=0;i<text.length;i++){ const c=text[i], n=text[i+1];
+        if(c==='"'){ if(q&&n==='"'){ field+='"'; i++; } else q=!q; }
+        else if(c===',' && !q){ row.push(field); field=''; }
+        else if((c==='\n'||c==='\r') && !q){ if(c==='\r' && n==='\n') i++; row.push(field); field=''; if(row.length && row.some(x=>x!=='')) rows.push(row); row=[]; }
+        else field+=c;
       }
-      
-      function scheduleMidnightUpdate() {
-        showTodayDate();                   // set immediately
-        setInterval(showTodayDate, 60 * 1000); // refresh once a minute
-      }
-      
-      // expose to the UMD boot block
-      window.showTodayDate = showTodayDate;
-      window.scheduleMidnightUpdate = scheduleMidnightUpdate;
-
-
-    function nycISODate(offsetDays = 0) {
-      const fmt = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit'
-      });
-      const parts = fmt.formatToParts(new Date(Date.now() + offsetDays * 86400000));
-      const g = k => parts.find(p => p.type === k).value;
-      return `${g('year')}-${g('month')}-${g('day')}`;
-    }
-
-    function kalshiAnchorForISO(dateISO) {
-      const [y,m,d] = dateISO.split('-').map(Number);
-      const dt = new Date(Date.UTC(y, m-1, d));
-      const mon = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'][dt.getUTCMonth()];
-      const dd = String(dt.getUTCDate()).padStart(2,'0');
-      const yy = String(dt.getUTCFullYear()).slice(-2);
-      return `#kxhighny-${yy}${mon}${dd}`;
-    }
-
-    function showSkeleton(rows = 6) {
-      const tb = document.querySelector("#dataTable tbody");
-      if (!tb) return;
-      tb.innerHTML = "";
-      for (let i = 0; i < rows; i++) {
-        const tr = document.createElement("tr");
-        tr.className = "skel";
-        tr.innerHTML = "<td></td>".repeat(9);
-        tb.appendChild(tr);
-      }
-    }
-
-    function reloadCSV() {
-      showSkeleton();
-      return fetch(CSV_URL + "?" + Date.now())
-        .then(r => r.text())
-        .then(parseCSV)
-        .then(() => {
-          seedForecastSignatures();      // after parse, prevents boot-logs
-          lastActualSig = actualSignatureFor(allRows);
-          forecastChanged.today = false; // initial load never logs
-          forecastChanged.tomorrow = false;
-          resetFilter();
-          showMostRecent();
-          updateSummaryBoxes();
-          updateCorrectionBoxes();
-          updateObservations();
-        })
-        .catch(err => {
-          alert("Could not load CSV. " + err);
-          throw err;
-        });
-    }
-
-    // Make reloadCSV available globally
-    window.reloadCSV = reloadCSV;
-
-    function csvToRows(text) {
-      const rows = [];
-      let row = [], field = '', q = false;
-      for (let i = 0; i < text.length; i++) {
-        const c = text[i], n = text[i + 1];
-        if (c === '"') {
-          if (q && n === '"') { field += '"'; i++; } else q = !q;
-        } else if (c === ',' && !q) {
-          row.push(field); field = '';
-        } else if ((c === '\n' || c === '\r') && !q) {
-          if (c === '\r' && n === '\n') i++;
-          row.push(field); field = '';
-          if (row.length && row.some(x => x !== '')) rows.push(row);
-          row = [];
-        } else field += c;
-      }
-      if (field !== '' || row.length) {
-        row.push(field);
-        if (row.length && row.some(x => x !== '')) rows.push(row);
-      }
+      if(field!==''||row.length){ row.push(field); if(row.length && row.some(x=>x!=='')) rows.push(row); }
       return rows;
     }
-
-    function parseCSV(text) {
-      const rows = csvToRows(text);
-      if (!rows.length) return;
-      const header = rows[0].map(h => h.trim());
-      allRows = [];
-      for (let i = 1; i < rows.length; i++) {
-        const vals = rows[i];
-        const rec = {};
-        for (let j = 0; j < header.length; j++) {
-          let v = (vals[j] ?? '').trim();
-          if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1).replace(/""/g, '"');
-          rec[header[j]] = v;
-        }
+    function parseCSV(text){
+      const rows=csvToRows(text); if(!rows.length) return;
+      const header=rows[0].map(h=>h.trim()); allRows=[];
+      for(let i=1;i<rows.length;i++){ const vals=rows[i]; const rec={};
+        for(let j=0;j<header.length;j++){ let v=(vals[j]??'').trim(); if(v.startsWith('"')&&v.endsWith('"')) v=v.slice(1,-1).replace(/""/g,'"'); rec[header[j]]=v; }
         allRows.push(rec);
       }
     }
+    function reloadCSV(){
+      showSkeleton();
+      return fetch(CSV_URL+"?"+Date.now())
+        .then(r=>r.text())
+        .then(parseCSV)
+        .then(()=>{ filteredRows=allRows.slice(); driveUIFromData(); })
+        .catch(err=>{ console.error("CSV load error:", err); const rf=document.getElementById('recentForecast'); if(rf) rf.textContent='Error loading data'; });
+    }
 
-    function rNum(x){ const n=Number(x); return Number.isFinite(n)? n : null; }
+    // -------- Skeleton table
+    function showSkeleton(rows=6){ const tb=document.querySelector("#dataTable tbody"); if(!tb) return; tb.innerHTML=""; for(let i=0;i<rows;i++){ const tr=document.createElement("tr"); tr.className="skel"; tr.innerHTML="<td></td>".repeat(9); tb.appendChild(tr); } }
 
-    function toDateObj(t) {
-      if (!t) return null;
-      const clean = String(t).trim().replace(/:(\d{2})(?=\s*[AP]M)/i, '');
-      if (/[AP]M/i.test(clean)) {
-        const m = clean.match(/(\d{1,2}):(\d{2})\s*([AP]M)/i);
-        if (!m) return null;
-        const [, h, mn, amp] = m;
-        const hour = (Number(h) % 12) + (amp.toUpperCase() === "PM" ? 12 : 0);
-        return new Date(2020, 1, 1, hour, Number(mn));
+    // -------- Helpers for access to fields safely
+    const asNum = v => (v===''||v==null||Number.isNaN(Number(v))) ? null : Number(v);
+    const sliceTime = s => (s||'').slice(11,16);
+    const sliceDate = s => (s||'').slice(0,10);
+
+    // -------- Build day map: aggregates per calendar day
+    function buildDayMap(){
+      const map = new Map();
+      for(const r of allRows){
+        const day = r.target_date || r.cli_date;
+        if(!day) continue;
+        const obj = map.get(day) || { forecasts: [], lastForecast: null, actual: null, highTime: null, kalshi: r.kalshi_range || null };
+        if(r.forecast_or_actual === 'forecast'){
+          const when = r.timestamp || r.forecast_time || '';
+          const val  = asNum(r.predicted_high);
+          if(val!=null){
+            obj.forecasts.push({ when, val });
+            if(!obj.lastForecast || (when || '').localeCompare(obj.lastForecast.when || '') > 0){
+              obj.lastForecast = { when, val };
+            }
+          }
+        } else if (r.forecast_or_actual === 'actual'){
+          const act = asNum(r.actual_high);
+          if(act!=null) obj.actual = act;
+          if(r.high_time) obj.highTime = r.high_time;
+        }
+        if(r.kalshi_range) obj.kalshi = r.kalshi_range;
+        map.set(day, obj);
       }
-      if (/^\d{2}:\d{2}$/.test(clean)) {
-        const [h, mn] = clean.split(":");
-        return new Date(2020, 1, 1, Number(h), Number(mn));
+      // sort forecast arrays
+      for(const v of map.values()){
+        v.forecasts.sort((a,b)=>(a.when||'').localeCompare(b.when||''));
       }
-      return null;
+      return map;
     }
-    function compareTimes(t1, t2) { const d1=toDateObj(t1), d2=toDateObj(t2); return (d1&&d2)? d1-d2 : 0; }
 
-    // ===== ET date helpers =====
-      function etDateISOFromTS(ts){
-      const raw = String(ts || "").trim();
-      if (!raw) return "";
-      // normalize single space -> 'T' (keeps existing 'T' as-is)
-      const isoish = raw.includes("T") ? raw : raw.replace(" ", "T");
-      let d = new Date(isoish);
-    
-      // If still invalid, and there is no timezone info, try as UTC to avoid local skew
-      const hasTZ = /[zZ]$|[+\-]\d{2}:?\d{2}$/.test(isoish);
-      if (!Number.isFinite(d.getTime()) && !hasTZ && /\dT\d/.test(isoish)) {
-        d = new Date(isoish + "Z");
+    // -------- UI Drivers
+    function driveUIFromData(){
+      showTodayDate();
+      showMostRecent();
+      updateSummaryBoxes();
+      updateBiasCorrected();
+      updateObservationalFromCSV();
+      updateKalshi();
+      displayTable();
+      showStats();
+      showChart();
+    }
+
+    function showMostRecent(){
+      const el=document.getElementById("recentForecast"); if(!el) return;
+      for(let i=allRows.length-1;i>=0;i--){
+        const r=allRows[i];
+        if(r && r.forecast_or_actual==="forecast" && r.predicted_high && (r.target_date || r.cli_date)){
+          const d=(r.timestamp||r.forecast_time||""); const date=sliceDate(d), time=sliceTime(d);
+          const tgt=r.target_date || r.cli_date;
+          el.innerHTML=`<strong>${date}${time?` ${time}`:''} ET</strong> — <strong>${Number(r.predicted_high).toFixed(0)}°F</strong> for <strong>${tgt}</strong>`;
+          return;
+        }
       }
-    
-      if (!Number.isFinite(d.getTime())) return "";
-      return new Intl.DateTimeFormat("en-CA", {
-        timeZone: "America/New_York",
-        year: "numeric", month: "2-digit", day: "2-digit"
-      }).format(d);
+      el.textContent="No recent forecasts found";
     }
 
-    function prevISO(iso){
-      const parts = String(iso || "").split("-");
-      const y = Number(parts[0]), m = Number(parts[1]), d = Number(parts[2]);
-      if (!y || !m || !d) return "";
-      const dt = new Date(Date.UTC(y, m - 1, d));
-      dt.setUTCDate(dt.getUTCDate() - 1);
-      const y2 = dt.getUTCFullYear();
-      const m2 = String(dt.getUTCMonth() + 1).padStart(2, "0");
-      const d2 = String(dt.getUTCDate()).padStart(2, "0");
-      return `${y2}-${m2}-${d2}`;
+    function getForecastsForDate(dateISO){
+      return allRows
+        .filter(r=>r.forecast_or_actual==="forecast" && (r.target_date===dateISO) && r.predicted_high)
+        .map(r=>({tstamp:r.timestamp||r.forecast_time||"", timeHHMM:sliceTime(r.forecast_time||r.timestamp||""), val:asNum(r.predicted_high)}))
+        .filter(x=>Number.isFinite(x.val))
+        .sort((a,b)=> (a.tstamp||"").localeCompare(b.tstamp||""));
     }
 
-    function monthNum(iso){ return Number((iso||"").split("-")[1]||"0"); }
-    function isWarmSeason(iso){ const m=monthNum(iso); return m>=5 && m<=9; }
-
-    // ===== Lead kind =====
-    function leadKind(row){
-      if (!row || !row.target_date) return "other";
-      const issueISO = etDateISOFromTS(row.timestamp || row.forecast_time || "");
-      if (!issueISO) return "other";
-      if (issueISO === row.target_date) return "D0";
-      if (issueISO === prevISO(row.target_date)) return "D1";
-      return "other";
+    function renderMiniForecastChips(rows, elId){
+      const host=document.getElementById(elId); if(!host) return;
+      host.innerHTML="";
+      const compact=[];
+      rows.forEach((r,i)=>{ if(i===0 || r.val!==rows[i-1].val) compact.push(r); });
+      if(!compact.length){ host.innerHTML=`<span class="mini-chip">No forecasts yet</span>`; return; }
+      compact.forEach(r=>{ const chip=document.createElement("span"); chip.className="mini-chip"; chip.textContent=`${r.timeHHMM||"—"}, ${r.val.toFixed(0)}°`; host.appendChild(chip); });
     }
 
-    // ===== Row selectors =====
-    function getForecastRowsFor(targetISO, kind){
-      const dayPrev = prevISO(targetISO);
-      return allRows.filter(r=>{
-        if (r.forecast_or_actual !== "forecast") return false;
-        if (r.target_date !== targetISO) return false;
-        const issueISO = etDateISOFromTS(r.timestamp || r.forecast_time || "");
-        if (kind==="D0") return issueISO === targetISO;
-        if (kind==="D1") return issueISO === dayPrev;
-        return false;
+    function updateSummaryBoxes(){
+      const today=nycISODate(0), tomorrow=nycISODate(1), map=buildDayMap();
+
+      const tLast = map.get(today)?.lastForecast?.val ?? null;
+      const tmLast = map.get(tomorrow)?.lastForecast?.val ?? null;
+      const tActual = map.get(today)?.actual ?? null;
+
+      const setTxt = (id, v) => { const e=document.getElementById(id); if(e) e.textContent = (v==null?'—':`${Math.round(v)}°F`); };
+      setTxt('box-today-forecast', tLast);
+      setTxt('box-tomorrow-forecast', tmLast);
+      const actEl=document.getElementById('box-today-actual'); if(actEl) actEl.textContent = (tActual==null?'—':`${Math.round(tActual)}°F`);
+
+      renderMiniForecastChips(getForecastsForDate(today), "mini-today-forecasts");
+      renderMiniForecastChips(getForecastsForDate(tomorrow), "mini-tomorrow-forecasts");
+
+      // also reflect the most recent forecast into the right-hand mini "Recent Forecasted High"
+      const rc=document.getElementById('box-today-current'); if(rc) rc.textContent = (tLast==null?'—':`${Math.round(tLast)}°F`);
+      const rcNote=document.getElementById('box-today-current-note'); if(rcNote){
+        const last = map.get(today)?.lastForecast?.when;
+        rcNote.textContent = last ? `Latest for today at ${sliceTime(last)} ET` : '';
+      }
+    }
+
+    // -------- Bias correction (rolling 30-day mean bias of last forecast)
+    function computeRollingBias(daysBack=30){
+      const map=buildDayMap();
+      const keys=Array.from(map.keys()).sort();
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-daysBack);
+      const errs=[];
+      for(const k of keys){
+        const d=new Date(k+"T00:00:00");
+        if(d<cutoff) continue;
+        const v=map.get(k);
+        const f=v?.lastForecast?.val;
+        const a=v?.actual;
+        if(f!=null && a!=null){
+          errs.push(f - a);
+        }
+      }
+      if(!errs.length) return null;
+      const mean = errs.reduce((s,x)=>s+x,0)/errs.length;
+      return { mean, n: errs.length };
+    }
+
+    function updateBiasCorrected(){
+      const today=nycISODate(0), tomorrow=nycISODate(1), map=buildDayMap();
+      const bias = computeRollingBias(30);
+      const tLast = map.get(today)?.lastForecast?.val ?? null;
+      const tmLast = map.get(tomorrow)?.lastForecast?.val ?? null;
+
+      const setBox = (id, val, n) => {
+        const host=document.getElementById(id);
+        if(!host) return;
+        const pv = host.querySelector('.prediction-value');
+        const ps = host.querySelector('.prediction-subtitle');
+        if(val==null){
+          if(pv) pv.textContent='—';
+          if(ps) ps.textContent = bias ? `Mean bias from ${n} days` : 'Insufficient history';
+        }else{
+          if(pv) pv.textContent = `${Math.round(val)}°`;
+          if(ps) ps.textContent = bias ? `Using mean bias from ${n} days` : 'No bias history (uncorrected)';
+        }
+      };
+
+      if(bias){
+        const correctedToday = (tLast==null ? null : (tLast - bias.mean));
+        const correctedTomorrow = (tmLast==null ? null : (tmLast - bias.mean));
+        setBox('correctionBoxToday', correctedToday, bias.n);
+        setBox('correctionBoxTomorrow', correctedTomorrow, bias.n);
+      }else{
+        // No bias history — show latest as-is
+        setBox('correctionBoxToday', tLast, 0);
+        setBox('correctionBoxTomorrow', tmLast, 0);
+      }
+    }
+
+    // -------- Observational from CSV (CLI actual + high time)
+    function updateObservationalFromCSV(){
+      const today=nycISODate(0), map=buildDayMap();
+      const v = map.get(today);
+      const cli = v?.actual ?? null;
+      const highTime = v?.highTime || null;
+
+      const dsmEl=document.getElementById('box-dsm-max'); // we map DSM to CLI actual since DSM series isn’t in CSV
+      const dsmNote=document.getElementById('box-dsm-note');
+      if(dsmEl) dsmEl.textContent = (cli==null?'—':`${Math.round(cli)}°F`);
+      if(dsmNote) dsmNote.textContent = highTime ? `High at ${sliceTime(highTime)} ET` : '';
+
+      const tActNote=document.getElementById('box-today-actual-note');
+      if(tActNote) tActNote.textContent = cli==null ? 'No CLI value yet for today' : 'NWS daily climatological report';
+      const hiTimeEl=document.getElementById('box-6hr-max');
+      const hiTimeNote=document.getElementById('box-6hr-max-note');
+      if(hiTimeEl) hiTimeEl.textContent = highTime ? `${sliceTime(highTime)} ET` : '—';
+      if(hiTimeNote) hiTimeNote.textContent = highTime ? 'From CLI high_time' : '';
+    }
+
+    // -------- Kalshi (derive basic status if range stored per-day)
+    function updateKalshi(){
+      const map=buildDayMap();
+      const today=nycISODate(0), yday=nycISODate(-1);
+      const tObj=map.get(today)||{}, yObj=map.get(yday)||{};
+
+      const todayTxt=document.getElementById('box-today-kalshi');
+      const todayNote=document.getElementById('box-today-kalshi-note');
+      if(todayTxt) todayTxt.textContent = tObj.kalshi || '—';
+      if(todayNote) todayNote.textContent = tObj.kalshi ? 'Range recorded alongside forecast log' : '';
+
+      const yTxt=document.getElementById('box-yday-kalshi');
+      const yNote=document.getElementById('box-yday-kalshi-note');
+      if(yTxt){
+        if(yObj.actual!=null && yObj.kalshi){
+          // naive statement: actual fell into/relative to range string (free-form)
+          yTxt.textContent = `${Math.round(yObj.actual)}°F (actual)`;
+          yNote.textContent = `Yesterday’s market range: ${yObj.kalshi}`;
+        }else if(yObj.actual!=null){
+          yTxt.textContent = `${Math.round(yObj.actual)}°F (actual)`;
+          yNote.textContent = 'No market range recorded for yesterday';
+        }else{
+          yTxt.textContent = '—';
+          yNote.textContent = 'No actual reported yet for yesterday';
+        }
+      }
+    }
+
+    // -------- Table
+    function displayTable(){
+      const tb=document.querySelector("#dataTable tbody"); if(!tb) return;
+      tb.innerHTML="";
+      const rows = (filteredRows.length?filteredRows:allRows).slice(-1000); // cap for perf
+      rows.forEach(r=>{
+        const tr=document.createElement("tr");
+        const isForecast = r.forecast_or_actual==="forecast";
+        tr.className = isForecast ? "forecast-row" : "actual-row";
+        const fVal = asNum(r.predicted_high);
+        const aVal = asNum(r.actual_high);
+        const err = (isForecast && fVal!=null && aVal!=null) ? (fVal - aVal) : "";
+        tr.innerHTML = `
+          <td>${sliceDate(r.timestamp||r.forecast_time||'')}</td>
+          <td>${sliceTime(r.timestamp||r.forecast_time||'')}</td>
+          <td>${r.target_date||r.cli_date||''}</td>
+          <td>${fVal!=null?`${fVal.toFixed(0)}°`:''}</td>
+          <td>${aVal!=null?`${aVal.toFixed(0)}°`:''}</td>
+          <td>${r.high_time? sliceTime(r.high_time): ''}</td>
+          <td>${err===""?'':Number(err).toFixed(1)}</td>
+          <td>${r.is_best||''}</td>
+          <td>${r.kalshi_range||''}</td>`;
+        tb.appendChild(tr);
       });
     }
 
-    // Keep trend; collapse only consecutive duplicates by value
-   function collapseConsecutiveDuplicates(sortedRows){
-        const out = [];
-        let lastBin = null;
-        for (const r of sortedRows){
-          const v = Number(r.predicted_high);
-          if (!Number.isFinite(v)) continue;
-          const bin = quantize05(v);  // bucket by 0.5°F
-          if (lastBin === null || bin !== lastBin){
-            out.push(r);
-            lastBin = bin;
+    // -------- Stats
+    function showStats(){
+      const byDay = new Map();
+      allRows.forEach(r=>{
+        const key = r.target_date || r.cli_date;
+        if(!key) return;
+        const o = byDay.get(key) || { forecasts:[], actual:null };
+        if(r.forecast_or_actual==="forecast" && r.predicted_high!=null && r.predicted_high!=='') o.forecasts.push(asNum(r.predicted_high));
+        if(r.forecast_or_actual==="actual" && r.actual_high!=null && r.actual_high!=='') o.actual = asNum(r.actual_high);
+        byDay.set(key,o);
+      });
+
+      let daysTracked = byDay.size;
+      let daysWithActual = 0, absErrSum = 0, bestErrSum = 0, bestErrCount = 0, absErrCount = 0;
+
+      for (const v of byDay.values()) {
+        if (typeof v.actual === 'number') {
+          daysWithActual++;
+          if (v.forecasts.length) {
+            const last = v.forecasts[v.forecasts.length-1];
+            absErrSum += Math.abs(last - v.actual); absErrCount++;
+            const best = v.forecasts.reduce((m, x)=> Math.abs(x-v.actual)<Math.abs(m-v.actual)?x:m, v.forecasts[0]);
+            bestErrSum += Math.abs(best - v.actual); bestErrCount++;
           }
         }
-        return out;
       }
 
-
-    // Representative issuance rows/values
-    function latestPreHighRow(rows, highTime/* "" allowed */){
-      const pre = rows
-        .filter(r => r.predicted_high != null && r.predicted_high !== "")
-        .filter(r => {
-          if (!highTime) return true;
-          const fcHH = (r.forecast_time || "").substr(11,5);
-          return !(fcHH && compareTimes(fcHH, highTime) > 0);
-        })
-        .sort((a,b)=>((a.timestamp||a.forecast_time||"")).localeCompare(b.timestamp||b.forecast_time||""));
-      if (!pre.length) return null;
-      const dedup = collapseConsecutiveDuplicates(pre);
-      return dedup[dedup.length-1] || null;
-    }
-    function latestPreHighValue(rows, highTime){ const row=latestPreHighRow(rows, highTime); const v=Number(row?.predicted_high); return Number.isFinite(v)?v:null; }
-
-    // Robust stats
-    function winsorize(arr,p=0.10){ if(!arr.length) return arr.slice(); const s=arr.slice().sort((a,b)=>a-b);
-      const loIdx = Math.floor(p*(s.length-1)), hiIdx = Math.ceil((1-p)*(s.length-1));
-      const lo=s[loIdx], hi=s[hiIdx]; return s.map(x=>Math.max(lo, Math.min(hi,x)));
-    }
-    function median(a){ if(!a.length) return null; const s=a.slice().sort((x,y)=>x-y); const m=Math.floor(s.length/2); return s.length%2? s[m] : (s[m-1]+s[m])/2; }
-    function mean(a){ return a.length? a.reduce((x,y)=>x+y,0)/a.length : null; }
-    function robustMean(arr){ if(arr.length>=15) return mean(winsorize(arr,0.10)); if(arr.length>=7){ const m=median(arr); return m==null? mean(arr):m; } return mean(arr); }
-
-    // ===== Candidate builders =====
-  function d0CandidatesFor(dayISO, highTime) {
-    const d0 = getForecastRowsFor(dayISO, "D0").filter(r => r.predicted_high != null && r.predicted_high !== "");
-    const sorted = d0
-      .filter(r => {
-        if (!highTime) return true;
-        const fcHH = (r.forecast_time || "").substr(11,5);
-        return !(fcHH && compareTimes(fcHH, highTime) > 0);
-      })
-      .sort((a,b)=>((a.timestamp||a.forecast_time||"")).localeCompare(b.timestamp||b.forecast_time||""));
-  
-    // chronological series with 0.5°F step de-noise
-    const series = collapseConsecutiveDuplicates(sorted);
-  
-    const first   = series.length ? Number(series[0].predicted_high) : null;
-    const latest  = series.length ? Number(series[series.length-1].predicted_high) : null;
-    const trimmed = (() => {
-      const vals = series.map(r=>Number(r.predicted_high)).filter(Number.isFinite).sort((a,b)=>a-b);
-      if (!vals.length) return null;
-      const k = Math.max(1, Math.floor(vals.length*0.1));
-      const core = vals.slice(k, vals.length-k);
-      const arr = core.length ? core : vals;
-      return mean(arr);
-    })();
-  
-    // carry-over D1 (yesterday's issuance for this target)
-    const d1Carry = latestPreHighValue(getForecastRowsFor(dayISO, "D1"), "");
-  
-    return { first, latest, trimmed, carry: d1Carry, series, _hasD0: series.length>0 };
-  }
-
-   function d1CandidatesFor(tomorrowISO) {
-      const d1 = getForecastRowsFor(tomorrowISO, "D1").filter(r => r.predicted_high != null && r.predicted_high !== "");
-      const series = collapseConsecutiveDuplicates(
-        d1.sort((a,b)=>((a.timestamp||a.forecast_time||"")).localeCompare(b.timestamp||b.forecast_time||""))
-      );
-    
-      const first   = series.length ? Number(series[0].predicted_high) : null;
-      const latest  = series.length ? Number(series[series.length-1].predicted_high) : null;
-      const trimmed = (() => {
-        const vals = series.map(r=>Number(r.predicted_high)).filter(Number.isFinite).sort((a,b)=>a-b);
-        if (!vals.length) return null;
-        const k = Math.max(1, Math.floor(vals.length*0.1));
-        const core = vals.slice(k, vals.length-k);
-        const arr = core.length ? core : vals;
-        return mean(arr);
-      })();
-    
-      return { first, latest, trimmed, series };
+      const statEls = document.querySelectorAll('#stats .stat-card .stat-value');
+      if (statEls[0]) statEls[0].textContent = String(daysTracked);
+      if (statEls[1]) statEls[1].textContent = String(daysWithActual);
+      if (statEls[2]) statEls[2].textContent = absErrCount? `${(absErrSum/absErrCount).toFixed(1)}°F` : '--°F';
+      if (statEls[3]) statEls[3].textContent = bestErrCount? `${(bestErrSum/bestErrCount).toFixed(1)}°F` : '--°F';
     }
 
-    // ===== Learn per-bucket blend + bias =====
-    function buildBiasAndBlend() {
-      // Assemble per-day examples
-      const dayMap = new Map();
-      for (const r of allRows) {
-        const d = (r.forecast_or_actual==="actual" ? r.cli_date : r.target_date);
-        if (!d) continue;
-        if (!dayMap.has(d)) dayMap.set(d, {D0:[], D1:[], actual:null});
-        const bucket = dayMap.get(d);
-        if (r.forecast_or_actual==="forecast") {
-          const k = leadKind(r);
-          if (k==="D0") bucket.D0.push(r);
-          else if (k==="D1") bucket.D1.push(r);
-        } else if (r.actual_high) bucket.actual = r;
-      }
+    // -------- Chart (last 60 days)
+    function showChart(){
+      const ctx = document.getElementById('dailyChart'); if(!ctx) return;
 
-      const examples = [];
-      for (const [iso, {D0,D1,actual}] of dayMap.entries()) {
-        if (!actual || !actual.actual_high) continue;
-        const act = Number(actual.actual_high);
-        const highTime = actual.high_time || "";
-        const warm = isWarmSeason(iso) ? "warm" : "cool";
-
-        const c0 = d0CandidatesFor(iso, highTime);
-        if (c0._hasD0) examples.push({ iso, season:warm, lead:"D0", actual:act, cand:{ first:c0.first, latest:c0.latest, trimmed:c0.trimmed, carry:c0.carry } });
-
-        const c1 = d1CandidatesFor(iso);
-        if (c1.latest!=null || c1.first!=null || c1.trimmed!=null) {
-          examples.push({ iso, season:warm, lead:"D1", actual:act, cand:{ first:c1.first, latest:c1.latest, trimmed:c1.trimmed } });
+      const byDay = new Map();
+      allRows.forEach(r=>{
+        const day = r.target_date || r.cli_date; if(!day) return;
+        const o = byDay.get(day) || { last:null, actual:null };
+        if(r.forecast_or_actual==="forecast" && r.predicted_high){
+          const ts = r.timestamp || r.forecast_time || '';
+          const val = asNum(r.predicted_high);
+          if(o.last==null || (ts||'').localeCompare(o.last.ts||'')>0) o.last = { val, ts };
         }
-      }
+        if(r.forecast_or_actual==="actual" && r.actual_high){
+          o.actual = asNum(r.actual_high);
+        }
+        byDay.set(day,o);
+      });
+      const days = Array.from(byDay.keys()).sort();
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-60);
+      const labels=[], lastArr=[], actualArr=[];
+      days.forEach(d=>{
+        const dd = new Date(d+'T00:00:00');
+        if(dd >= cutoff){
+          labels.push(d);
+          lastArr.push(byDay.get(d).last?.val ?? null);
+          actualArr.push(byDay.get(d).actual ?? null);
+        }
+      });
 
-      function learnWeights(rows, allowCarry) {
-        if (!rows.length) return { w:{first:0, latest:1, trimmed:0, carry:0}, mae:Infinity };
-        let best = { w:null, mae:Infinity };
-        const step = 0.1;
-        for (let f=0; f<=1; f+=step) {
-          for (let l=0; l<=1-f; l+=step) {
-            for (let t=0; t<=1-f-l; t+=step) {
-              const c = allowCarry ? (1 - f - l - t) : 0;
-              if (!allowCarry && Math.abs(1 - f - l - t) > 1e-9) continue;
-              const w = { first:f, latest:l, trimmed:t, carry:c };
-              let absSum = 0, n = 0;
-              for (const r of rows) {
-                const parts = [];
-                if (r.cand.first   != null) parts.push({v:r.cand.first,   w:w.first});
-                if (r.cand.latest  != null) parts.push({v:r.cand.latest,  w:w.latest});
-                if (r.cand.trimmed != null) parts.push({v:r.cand.trimmed, w:w.trimmed});
-                if (allowCarry && r.cand.carry != null) parts.push({v:r.cand.carry, w:w.carry});
-                if (!parts.length) continue;
-                const sumW = parts.reduce((a,b)=>a+b.w,0) || 1;
-                const rep = parts.reduce((a,b)=>a + b.v * (b.w/sumW), 0);
-                absSum += Math.abs(r.actual - rep);
-                n++;
-              }
-              if (!n) continue;
-              const mae = absSum / n;
-              if (mae < best.mae) best = { w, mae };
+      if (chartInstance) { chartInstance.destroy(); chartInstance=null; }
+      chartInstance = new Chart(ctx.getContext('2d'), {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { label: 'Last Forecast', data: lastArr, spanGaps: true, borderWidth: 2, pointRadius: 2, tension: .2 },
+            { label: 'Actual High', data: actualArr, spanGaps: true, borderWidth: 2, pointRadius: 2, tension: .2 }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          scales: {
+            x: { ticks: { maxRotation: 0, autoSkip: true } },
+            y: { title: { display: true, text: '°F' } }
+          },
+          plugins: { legend: { display: true } }
+        }
+      });
+    }
+
+    // -------- Filters
+    function applyDateFilter(){
+      const from=document.getElementById('fromDate').value;
+      const to=document.getElementById('toDate').value;
+      filteredRows = allRows.filter(row=>{
+        const date=row.forecast_or_actual==="actual"? row.cli_date : row.target_date;
+        if(!date) return false;
+        if(from && date<from) return false;
+        if(to && date>to) return false;
+        return true;
+      });
+      displayTable(); showStats(); showChart();
+    }
+    function resetFilter(){
+      filteredRows = allRows.slice();
+      const f=document.getElementById('fromDate'); if(f) f.value="";
+      const t=document.getElementById('toDate'); if(t) t.value="";
+      displayTable(); showStats(); showChart();
+    }
+
+    // expose for inline handlers
+    Object.assign(window,{ applyDateFilter, resetFilter, reloadCSV });
+  </script>
+
+  <!-- ===================== AUTH + WATCHDOG ===================== -->
+  <script>
+  (() => {
+    const supabase = window.supabase.createClient(
+      "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
+    );
+
+    function withTimeout(promise, ms, label="op"){
+      return new Promise((resolve, reject)=>{
+        const t=setTimeout(()=>reject(new Error(`${label} timeout after ${ms}ms`)), ms);
+        promise.then(v=>{clearTimeout(t); resolve(v);}, e=>{clearTimeout(t); reject(e);});
+      });
+    }
+
+    let bootStarted = false;
+
+    // Buttons
+    document.getElementById('gate-retry').addEventListener('click', ()=>location.reload());
+    document.getElementById('gate-skip').addEventListener('click', ()=>{ try{showApp();}catch{} boot(); });
+
+    // Never get stuck: any global error → show UI
+    window.addEventListener('error', ()=>{ try{showApp();}catch{} });
+    window.addEventListener('unhandledrejection', ()=>{ try{showApp();}catch{} });
+
+    // Watchdog: if nothing happens in 3s, fail-open
+    const watchdog = setTimeout(()=>{ if(!bootStarted){ console.warn('watchdog fail-open'); showApp(); boot(); } }, 3000);
+
+    async function boot(){
+      bootStarted = true;
+      try{
+        showTodayDate(); scheduleMidnightUpdate();
+        await reloadCSV();
+        setInterval(()=>reloadCSV(), 60*1000);
+        try{
+          localStorage.setItem('dashboard_heartbeat', String(Date.now()));
+          setInterval(()=>localStorage.setItem('dashboard_heartbeat', String(Date.now())), 60*1000);
+        }catch{}
+      }catch(e){ console.warn('boot error (continuing):', e); }
+    }
+
+    async function checkAccess(){
+      try{
+        showGate('Checking access…');
+
+        const { data:{ session }, error:sErr } = await withTimeout(supabase.auth.getSession(), 2500, 'getSession');
+        if(sErr) throw new Error(`Auth error: ${sErr.message||'getSession failed'}`);
+
+        if(!session){
+          showGate('No session. Redirecting to login…');
+          setTimeout(()=>{ window.location.href='login.html'; }, 1200);
+          return;
+        }
+
+        showGate('Checking subscription…');
+        const { data:profile, error } = await withTimeout(
+          supabase.from('profiles').select('subscription_status, current_period_end, trial_used').eq('id', session.user.id).single(),
+          3000,
+          'profiles'
+        );
+
+        if(error){
+          console.warn('profiles error, fail-open UI:', error);
+          showApp(); boot(); setupListeners();
+          return;
+        }
+
+        const ok = new Set(['active','trialing']).has(profile?.subscription_status ?? 'inactive');
+        if(!ok){
+          const dest = profile?.trial_used ? 'subscribe.html?reason=trial_expired' : 'subscribe.html';
+          showGate('Subscription inactive. Redirecting…');
+          setTimeout(()=>{ window.location.href = dest; }, 1200);
+          return;
+        }
+
+        // ✅ access granted
+        showGate('Access granted — loading dashboard…');
+        showApp(); boot(); setupListeners();
+
+        // background recheck (non-blocking)
+        setTimeout(async ()=>{
+          try{
+            const { data:{ session } } = await supabase.auth.getSession();
+            if(!session) return (window.location.href='login.html');
+            const { data: p } = await supabase.from('profiles').select('subscription_status, trial_used').eq('id', session.user.id).single();
+            const ok2 = new Set(['active','trialing']).has(p?.subscription_status ?? 'inactive');
+            if(!ok2){
+              window.location.href = p?.trial_used ? 'subscribe.html?reason=trial_expired' : 'subscribe.html';
             }
-          }
-        }
-        if (!best.w) best = { w:{first:0,latest:1,trimmed:0,carry:0}, mae:Infinity };
-        return best;
+          }catch{/* keep UI up */}
+        }, 15000);
+
+      }catch(e){
+        console.error('checkAccess failed:', e);
+        showGateError(e.message||'Unexpected error during access check.');
+        // still fail-open
+        showApp(); boot(); setupListeners();
       }
-
-      const buckets = {
-        D0_warm: learnWeights(examples.filter(e=>e.lead==="D0" && e.season==="warm"), true),
-        D0_cool: learnWeights(examples.filter(e=>e.lead==="D0" && e.season==="cool"), true),
-        D1_warm: learnWeights(examples.filter(e=>e.lead==="D1" && e.season==="warm"), false),
-        D1_cool: learnWeights(examples.filter(e=>e.lead==="D1" && e.season==="cool"), false),
-      };
-
-      const res = { D0:[], D1:[] };
-      for (const e of examples) {
-        const key = `${e.lead}_${e.season}`;
-        const allowCarry = e.lead==="D0";
-        const w = buckets[key]?.w || {first:0,latest:1,trimmed:0,carry:0};
-        const parts = [];
-        if (e.cand.first   != null) parts.push({v:e.cand.first,   w:w.first});
-        if (e.cand.latest  != null) parts.push({v:e.cand.latest,  w:w.latest});
-        if (e.cand.trimmed != null) parts.push({v:e.cand.trimmed, w:w.trimmed});
-        if (allowCarry && e.cand.carry != null) parts.push({v:e.cand.carry, w:w.carry});
-        if (!parts.length) continue;
-        const sumW = parts.reduce((a,b)=>a+b.w,0) || 1;
-        const rep = parts.reduce((a,b)=>a + b.v * (b.w/sumW), 0);
-        res[e.lead].push(e.actual - rep);
-      }
-
-      const tables = {
-        weights: {
-          D0_warm: buckets.D0_warm.w, D0_cool: buckets.D0_cool.w,
-          D1_warm: buckets.D1_warm.w, D1_cool: buckets.D1_cool.w
-        },
-        bias: {
-          D0: robustMean(res.D0),
-          D1: robustMean(res.D1),
-          global: robustMean([...res.D0, ...res.D1])
-        },
-        rmse: {
-          D0: (()=>{ const m=mean(res.D0.map(x=>x*x)); return m==null?null:Math.sqrt(m); })(),
-          D1: (()=>{ const m=mean(res.D1.map(x=>x*x)); return m==null?null:Math.sqrt(m); })()
-        }
-      };
-      return tables;
     }
 
-    // Pick bias (lead-level with safe fallback)
-    function pickBiasFrom(tables, lead){
-      const b = lead==="D0" ? tables.bias.D0 : lead==="D1" ? tables.bias.D1 : null;
-      return (b==null || !Number.isFinite(b)) ? (tables.bias.global ?? 0) : b;
+    function setupListeners(){
+      supabase.auth.onAuthStateChange((_event, session)=>{ if(!session) window.location.href='login.html'; });
+
+      document.getElementById('btn-logout')?.addEventListener('click', async ()=>{
+        try{
+          await supabase.auth.signOut();
+          try{ localStorage.removeItem('dashboard_heartbeat'); }catch{}
+          window.location.href='login.html';
+        }catch{ window.location.href='login.html'; }
+      });
+
+      document.getElementById('btn-billing')?.addEventListener('click', async ()=>{
+        const { data:{ session } } = await supabase.auth.getSession();
+        if(!session) return (window.location.href='login.html');
+        try{
+          const r = await fetch('/api/create-portal-session', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ supabaseAccessToken: session.access_token }) });
+          const j = await r.json();
+          if(!r.ok || !j?.url) return alert(j?.error || 'Could not open billing portal');
+          window.location.href = j.url;
+        }catch{ alert('Could not open billing portal'); }
+      });
     }
 
-    // Blend helper
-    function blendedRep(cands, weights, allowCarry) {
-      const parts = [];
-      if (cands.first   != null) parts.push({v:cands.first,   w:weights.first ?? 0});
-      if (cands.latest  != null) parts.push({v:cands.latest,  w:weights.latest ?? 0});
-      if (cands.trimmed != null) parts.push({v:cands.trimmed, w:weights.trimmed ?? 0});
-      if (allowCarry && cands.carry != null) parts.push({v:cands.carry, w:weights.carry ?? 0});
-      if (!parts.length) return null;
-      const sumW = parts.reduce((a,b)=>a+b.w,0);
-      if (sumW <= 1e-9) return cands.latest ?? cands.first ?? cands.trimmed ?? cands.carry ?? null;
-      return parts.reduce((a,b)=>a + b.v * (b.w/sumW), 0);
-    }
-
-          // === Exact formula explainer (normalized to the parts that exist) ===
-      function blendExplainer(cands, weights, allowCarry) {
-        const present = [];
-        if (cands.first   != null)  present.push({label:"first",   v:Number(cands.first),   w:weights.first ?? 0});
+    if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', checkAccess); }
+    else { checkAccess(); }
+  })();
+  </script>
+</body>
+</html>
