@@ -54,6 +54,7 @@
       border: 3px solid var(--border-subtle); border-top-color: var(--accent-blue);
       margin: 12px auto 8px; animation: spin 1s linear infinite;
     }
+     body.app-ready #gate { display: none !important; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
     /* App */
@@ -521,7 +522,13 @@
     const $gate = () => document.getElementById('gate');
     const $app  = () => document.getElementById('app');
 
-    function showApp(){ const g=$gate(), a=$app(); if(g) g.style.display='none'; if(a) a.style.display=''; }
+    function showApp(){
+      const g = $gate(), a = $app();
+      try { document.body.classList.add('app-ready'); } catch {}
+      if (a && getComputedStyle(a).display === 'none') a.style.display = '';
+      if (g && getComputedStyle(g).display !== 'none') g.style.display = 'none';
+    }
+
     function showGate(msg){ const g=$gate(); if(!g) return; g.style.display=''; const sub=g.querySelector('.gate-sub'); if(sub&&msg) sub.textContent=msg; }
     window.showApp = showApp;
     window.showGate = showGate;
@@ -2171,10 +2178,13 @@ function actualSignatureFor(rows) {
         return;
       }
   
-     // ✅ Access granted → show app
-    gateMsg("Access granted — loading dashboard…");
-    showApp();
-    await bootApp();
+      // ✅ Access granted → show app (non-blocking)
+      gateMsg("Access granted — loading dashboard…");
+      showApp();                            // hide gate immediately
+      setTimeout(showApp, 0);               // kick again next tick
+      requestAnimationFrame(() => showApp());// and once more on frame
+      bootApp().catch(() => { try { showApp(); } catch {} });
+
   
     } catch (e) {
       console.error("checkAccess failed", e);
@@ -2184,18 +2194,17 @@ function actualSignatureFor(rows) {
     }
   }
 
-   // Safety net: if anything above silently fails, show the app anyway
+    // Safety net: if anything silently fails, show the app anyway
     setTimeout(() => {
       try {
         const app = document.getElementById('app');
         if (app && getComputedStyle(app).display === 'none') {
           showApp();
-          bootApp();
+          bootApp().catch(()=>{});
         }
-      } catch {
-        try { showApp(); } catch {}
-      }
+      } catch { try { showApp(); } catch {} }
     }, 2000);
+
     
   supabase.auth.onAuthStateChange((_event, session) => {
     if (!session) window.location.href = "login.html";
