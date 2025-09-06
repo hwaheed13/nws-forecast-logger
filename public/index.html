@@ -936,6 +936,23 @@
       
         return { partsTxt };
       }
+// === Subtitle explainer: prefer series rep if used, else show normalized blend ===
+function explainPred({ usedSeries, series, bias, partsTxt, nudge = null }) {
+  const b = (bias == null) ? "0.0" : Number(bias).toFixed(1);
+
+  if (usedSeries) {
+    const n = Array.isArray(series) ? series.length : 0;
+    const core = `pred = series_rep (n=${n}, newest-weighted) + ${b}`;
+    if (nudge != null && Number.isFinite(nudge) && Math.abs(nudge) > 0) {
+      return `${core} + nudge ${Number(nudge).toFixed(1)}`;
+    }
+    return core;
+  }
+
+  // fallback: normalized blend parts (only if any non-zero weight components exist)
+  return partsTxt ? `pred = (${partsTxt}) + ${b}` : `pred = — + ${b}`;
+}
+
     // === Series helpers (0.5°F de-noise + recency rep) =========================
 function quantize05(x){
   const n = Number(x);
@@ -1534,9 +1551,15 @@ function actualSignatureFor(rows) {
       const bias    = pickBiasFrom(tables, "D0");
       const pred    = (rep == null) ? null : rep + bias;
 
-      const pDisp = round1(pred);
+         const pDisp = round1(pred);
       const ex    = blendExplainer(c0, w0, /*allowCarry*/ true);
-      const parts = ex.partsTxt ? `pred = (${ex.partsTxt}) + ${(round1(bias ?? 0))?.toFixed(1) ?? "0.0"}` : "";
+      const usedSeries = repFromSeries(c0.series) != null;
+      const parts = explainPred({
+        usedSeries,
+        series: c0.series,
+        bias,
+        partsTxt: ex.partsTxt
+      });
 
       todayBox.innerHTML = `
         <div class="prediction-value">${pDisp == null ? "–" : `${pDisp.toFixed(1)}°F`}</div>
@@ -1604,9 +1627,15 @@ function actualSignatureFor(rows) {
     const bias1    = pickBiasFrom(tables, "D1");
     const pred1    = (rep1 == null) ? null : rep1 + bias1;
 
-    const p1Disp = round1(pred1);
+     const p1Disp = round1(pred1);
     const ex1    = blendExplainer(c1, w1, /*allowCarry*/ false);
-    const parts1 = ex1.partsTxt ? `pred = (${ex1.partsTxt}) + ${(round1(bias1 ?? 0))?.toFixed(1) ?? "0.0"}` : "";
+    const usedSeries1 = repFromSeries(c1.series) != null;
+    const parts1 = explainPred({
+      usedSeries: usedSeries1,
+      series: c1.series,
+      bias: bias1,
+      partsTxt: ex1.partsTxt
+    });
 
     tmrwBox.innerHTML = `
       <div class="prediction-value">${p1Disp == null ? "–" : `${p1Disp.toFixed(1)}°F`}</div>
@@ -1615,6 +1644,7 @@ function actualSignatureFor(rows) {
         ${parts1 ? `<br><small style="opacity:.75">${parts1}</small>` : ""}
       </div>
     `;
+
 
     // ✅ Logging (Tomorrow) — only when tomorrow's forecast set changed
     if (rep1 != null && forecastChanged.tomorrow === true) {
