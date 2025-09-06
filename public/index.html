@@ -325,6 +325,41 @@
       border:6px solid transparent; border-top-color:#111827; opacity:0; transition:opacity .12s ease;
     }
     .tip:hover[data-tip]::after,.tip:focus[data-tip]::after,.tip:hover[data-tip]::before,.tip:focus[data-tip]::before{opacity:1;}
+        /* Mobile tooltip fixes */
+    @media (max-width: 600px) {
+      .tip[data-tip]::after {
+        white-space: normal;  /* Allow text to wrap */
+        width: 200px;         /* Fixed width for consistency */
+        left: 50%;
+        transform: translateX(-50%);
+        text-align: center;
+      }
+      
+      /* If tooltip would go off left edge, shift it right */
+      .stat-card:nth-child(odd) .tip[data-tip]::after {
+        left: 0;
+        transform: translateX(0);
+      }
+      
+      /* If tooltip would go off right edge, shift it left */
+      .stat-card:nth-child(even) .tip[data-tip]::after {
+        left: auto;
+        right: 0;
+        transform: translateX(0);
+      }
+      
+      /* Adjust arrow position for shifted tooltips */
+      .stat-card:nth-child(odd) .tip[data-tip]::before {
+        left: 16px;
+        transform: translateX(0);
+      }
+      
+      .stat-card:nth-child(even) .tip[data-tip]::before {
+        left: auto;
+        right: 16px;
+        transform: translateX(0);
+      }
+    }
   </style>
 </head>
 
