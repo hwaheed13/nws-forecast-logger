@@ -699,15 +699,21 @@
     }
 
     // Keep trend; collapse only consecutive duplicates by value
-    function collapseConsecutiveDuplicates(sortedRows){
-      const out=[]; let lastVal=null;
-      for (const r of sortedRows){
-        const v = Number(r.predicted_high);
-        if (!Number.isFinite(v)) continue;
-        if (lastVal===null || v!==lastVal){ out.push(r); lastVal=v; }
+   function collapseConsecutiveDuplicates(sortedRows){
+        const out = [];
+        let lastBin = null;
+        for (const r of sortedRows){
+          const v = Number(r.predicted_high);
+          if (!Number.isFinite(v)) continue;
+          const bin = quantize05(v);  // bucket by 0.5°F
+          if (lastBin === null || bin !== lastBin){
+            out.push(r);
+            lastBin = bin;
+          }
+        }
+        return out;
       }
-      return out;
-    }
+
 
     // Representative issuance rows/values
     function latestPreHighRow(rows, highTime/* "" allowed */){
@@ -735,52 +741,54 @@
     function robustMean(arr){ if(arr.length>=15) return mean(winsorize(arr,0.10)); if(arr.length>=7){ const m=median(arr); return m==null? mean(arr):m; } return mean(arr); }
 
     // ===== Candidate builders =====
-    function d0CandidatesFor(dayISO, highTime) {
-      const d0 = getForecastRowsFor(dayISO, "D0").filter(r => r.predicted_high != null && r.predicted_high !== "");
-      const sorted = d0
-        .filter(r => {
-          if (!highTime) return true;
-          const fcHH = (r.forecast_time || "").substr(11,5);
-          return !(fcHH && compareTimes(fcHH, highTime) > 0);
-        })
-        .sort((a,b)=>((a.timestamp||a.forecast_time||"")).localeCompare(b.timestamp||b.forecast_time||""));
-      const dedup = collapseConsecutiveDuplicates(sorted);
+  function d0CandidatesFor(dayISO, highTime) {
+    const d0 = getForecastRowsFor(dayISO, "D0").filter(r => r.predicted_high != null && r.predicted_high !== "");
+    const sorted = d0
+      .filter(r => {
+        if (!highTime) return true;
+        const fcHH = (r.forecast_time || "").substr(11,5);
+        return !(fcHH && compareTimes(fcHH, highTime) > 0);
+      })
+      .sort((a,b)=>((a.timestamp||a.forecast_time||"")).localeCompare(b.timestamp||b.forecast_time||""));
+  
+    // chronological series with 0.5°F step de-noise
+    const series = collapseConsecutiveDuplicates(sorted);
+  
+    const first   = series.length ? Number(series[0].predicted_high) : null;
+    const latest  = series.length ? Number(series[series.length-1].predicted_high) : null;
+    const trimmed = (() => {
+      const vals = series.map(r=>Number(r.predicted_high)).filter(Number.isFinite).sort((a,b)=>a-b);
+      if (!vals.length) return null;
+      const k = Math.max(1, Math.floor(vals.length*0.1));
+      const core = vals.slice(k, vals.length-k);
+      const arr = core.length ? core : vals;
+      return mean(arr);
+    })();
+  
+    // carry-over D1 (yesterday’s issuance for this target)
+    const d1Carry = latestPreHighValue(getForecastRowsFor(dayISO, "D1"), "");
+  
+    return { first, latest, trimmed, carry: d1Carry, series, _hasD0: series.length>0 };
+  }
 
-      const first  = dedup.length ? Number(dedup[0].predicted_high) : null;
-      const latest = dedup.length ? Number(dedup[dedup.length-1].predicted_high) : null;
-      const trimmed = (() => {
-        const vals = dedup.map(r=>Number(r.predicted_high)).filter(Number.isFinite);
-        if (!vals.length) return null;
-        vals.sort((a,b)=>a-b);
-        const k = Math.max(1, Math.floor(vals.length*0.1));
-        const core = vals.slice(k, vals.length-k);
-        const arr = core.length ? core : vals;
-        return mean(arr);
-      })();
-
-      // carry-over D1 (yesterday’s issuance for this target)
-      const d1Carry = latestPreHighValue(getForecastRowsFor(dayISO, "D1"), "");
-
-      return { first, latest, trimmed, carry: d1Carry, _hasD0: dedup.length>0 };
-    }
-
-    function d1CandidatesFor(tomorrowISO) {
+   function d1CandidatesFor(tomorrowISO) {
       const d1 = getForecastRowsFor(tomorrowISO, "D1").filter(r => r.predicted_high != null && r.predicted_high !== "");
-      const sorted = collapseConsecutiveDuplicates(
+      const series = collapseConsecutiveDuplicates(
         d1.sort((a,b)=>((a.timestamp||a.forecast_time||"")).localeCompare(b.timestamp||b.forecast_time||""))
       );
-      const first  = sorted.length ? Number(sorted[0].predicted_high) : null;
-      const latest = sorted.length ? Number(sorted[sorted.length-1].predicted_high) : null;
+    
+      const first   = series.length ? Number(series[0].predicted_high) : null;
+      const latest  = series.length ? Number(series[series.length-1].predicted_high) : null;
       const trimmed = (() => {
-        const vals = sorted.map(r=>Number(r.predicted_high)).filter(Number.isFinite);
+        const vals = series.map(r=>Number(r.predicted_high)).filter(Number.isFinite).sort((a,b)=>a-b);
         if (!vals.length) return null;
-        vals.sort((a,b)=>a-b);
         const k = Math.max(1, Math.floor(vals.length*0.1));
         const core = vals.slice(k, vals.length-k);
         const arr = core.length ? core : vals;
         return mean(arr);
       })();
-      return { first, latest, trimmed };
+    
+      return { first, latest, trimmed, series };
     }
 
     // ===== Learn per-bucket blend + bias =====
@@ -928,6 +936,27 @@
       
         return { partsTxt };
       }
+    // === Series helpers (0.5°F de-noise + recency rep) =========================
+function quantize05(x){
+  const n = Number(x);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n * 2) / 2; // nearest 0.5°F
+}
+
+// rowsChrono: chronological rows (oldest → newest), each has predicted_high
+// alpha=0.85 weights newest more (w, w*alpha, w*alpha^2, ... from newest back)
+function repFromSeries(rowsChrono, alpha = 0.85){
+  if (!rowsChrono || !rowsChrono.length) return null;
+  let vsum = 0, wsum = 0, w = 1;               // start from newest
+  for (let i = rowsChrono.length - 1; i >= 0; i--) {
+    const v = Number(rowsChrono[i].predicted_high);
+    if (!Number.isFinite(v)) continue;
+    vsum += w * v;
+    wsum += w;
+    w *= alpha;
+  }
+  return wsum > 0 ? (vsum / wsum) : null;
+}
 
     // ===== Feature helpers for logging =====
     function issuanceISOUTC(row){
@@ -1479,6 +1508,9 @@ function actualSignatureFor(rows) {
   const tables   = buildBiasAndBlend();
   const today    = nycISODate(0);
   const tomorrow = nycISODate(1);
+  const INSTANT_FEEDBACK_LAMBDA = 0.30; // 0.2–0.5 typical
+  const INSTANT_DEADBAND        = 0.3;  // ignore tiny noise
+  const INSTANT_CAP             = 2.0;  // max absolute nudge (°F)
 
   // Today actual (to enforce pre-high gating)
   const todayActual = allRows.find(
@@ -1498,7 +1530,7 @@ function actualSignatureFor(rows) {
       const c0      = d0CandidatesFor(today, highTime);  // D0 intraday; carries D1 until first D0 appears
       const warmKey = isWarmSeason(today) ? "D0_warm" : "D0_cool";
       const w0      = tables.weights[warmKey] || { first:0, latest:1, trimmed:0, carry:0 };
-      const rep     = blendedRep(c0, w0, /*allowCarry*/ true);
+     const rep     = repFromSeries(c0.series) ?? blendedRep(c0, w0, /*allowCarry*/ true);
       const bias    = pickBiasFrom(tables, "D0");
       const pred    = (rep == null) ? null : rep + bias;
 
@@ -1568,7 +1600,7 @@ function actualSignatureFor(rows) {
     const c1       = d1CandidatesFor(tomorrow); // all of today's issuances for tomorrow
     const warmKey1 = isWarmSeason(tomorrow) ? "D1_warm" : "D1_cool";
     const w1       = tables.weights[warmKey1] || { first:0, latest:1, trimmed:0 };
-    const rep1     = blendedRep(c1, w1, /*allowCarry*/ false);
+    const rep1     = repFromSeries(c1.series) ?? blendedRep(c1, w1, /*allowCarry*/ false);
     const bias1    = pickBiasFrom(tables, "D1");
     const pred1    = (rep1 == null) ? null : rep1 + bias1;
 
