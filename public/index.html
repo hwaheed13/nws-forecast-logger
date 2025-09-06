@@ -515,6 +515,7 @@
 
   <!-- Libraries -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <!-- App scripts -->
   <script>
@@ -2077,10 +2078,6 @@ function actualSignatureFor(rows) {
 }   // <-- closes the entire showStats() function
 </script>
 
-  // checkAccess(), supabase.auth.onAuthStateChange, etc.
-})();
-</script>
-
 <script>
 (() => {
   const supabase = window.supabase.createClient(
@@ -2165,7 +2162,7 @@ function actualSignatureFor(rows) {
         try { showApp(); } catch {}
         bootApp().catch(() => { try { showApp(); } catch {} });
       }
-    }, 4000);
+    }, 2500);
 
     try {
       gateMsg("Checking access…");
