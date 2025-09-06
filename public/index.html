@@ -2178,34 +2178,41 @@ function actualSignatureFor(rows) {
         return;
       }
   
-      // ✅ Access granted → show app (non-blocking)
-      gateMsg("Access granted — loading dashboard…");
-      showApp();                            // hide gate immediately
-      setTimeout(showApp, 0);               // kick again next tick
-      requestAnimationFrame(() => showApp());// and once more on frame
-      bootApp().catch(() => { try { showApp(); } catch {} });
-
-  
-    } catch (e) {
-      console.error("checkAccess failed", e);
-      // ✅ Fail-open no matter what
-      try { showApp(); } catch {}
-      try { await bootApp(); } catch {}
-    }
-  }
-
-    // Safety net: if anything silently fails, show the app anyway
-    setTimeout(() => {
-      try {
-        const app = document.getElementById('app');
-        if (app && getComputedStyle(app).display === 'none') {
-          showApp();
-          bootApp().catch(()=>{});
-        }
-      } catch { try { showApp(); } catch {} }
-    }, 2000);
-
+    // ✅ Access granted → show app (non-blocking)
+    gateMsg("Access granted — loading dashboard…");
+    showApp();                            // hide gate immediately
+    setTimeout(showApp, 0);               // kick again next tick
+    requestAnimationFrame(() => showApp());// and once more on frame
+    bootApp().catch(() => { try { showApp(); } catch {} });
     
+    // 🔒 Background re-check after 15s
+    setTimeout(async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return (window.location.href = "login.html");
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("subscription_status, trial_used")
+          .eq("id", session.user.id)
+          .single();
+        if (!profile || !new Set(["active", "trialing"]).has(profile.subscription_status)) {
+          window.location.href = profile?.trial_used
+            ? "subscribe.html?reason=trial_expired"
+            : "subscribe.html";
+        }
+      } catch (_) {
+        /* keep UI up; backend still protects APIs */
+      }
+    }, 15000);
+    
+   } catch (e) {
+    console.error("checkAccess failed", e);
+    // fail-open so you never get stuck on the gate
+    try { showApp(); } catch {}
+    try { await bootApp(); } catch {}
+  }
+}
+ 
   supabase.auth.onAuthStateChange((_event, session) => {
     if (!session) window.location.href = "login.html";
   });
