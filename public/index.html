@@ -1569,7 +1569,9 @@ function actualSignatureFor(rows) {
 
       const pDisp = round1(pred);
       const ex    = blendExplainer(c0, w0, /*allowCarry*/ true);
-      const parts = ex.partsTxt ? `pred = (${ex.partsTxt}) + ${(round1(bias ?? 0))?.toFixed(1) ?? "0.0"}` : "";
+      const parts = ex.partsTxt
+      ? `pred = (${ex.partsTxt}) + ${(((round1(bias ?? 0)) ?? 0)).toFixed(1)}`
+      : "";
 
       todayBox.innerHTML = `
         <div class="prediction-value">${pDisp == null ? "–" : `${pDisp.toFixed(1)}°F`}</div>
@@ -1665,7 +1667,9 @@ function actualSignatureFor(rows) {
   // UI (with exact formula line)
   const p1Disp = round1(pred1);
   const ex1    = blendExplainer(c1, w1, /*allowCarry*/ false);
-  const parts1 = ex1.partsTxt ? `base = (${ex1.partsTxt}) + ${(round1(bias1 ?? 0))?.toFixed(1) ?? "0.0"}` : "";
+  const parts1 = ex1.partsTxt
+  ? `base = (${ex1.partsTxt}) + ${(((round1(bias1 ?? 0)) ?? 0)).toFixed(1)}`
+  : "";
   const adjTxt = (adj && Math.abs(adj) >= 0.05) ? `; instant=${(round1(adj)).toFixed(1)}°` : "";
 
   tmrwBox.innerHTML = `
@@ -2249,7 +2253,10 @@ function actualSignatureFor(rows) {
     if (!session) window.location.href = "login.html";
   });
 
-  // Kick it off
-  checkAccess();
+ // Kick it off
+checkAccess();
 })();
+
+// sanity check log
+console.log("App scripts loaded OK");
 </script>
