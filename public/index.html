@@ -1627,86 +1627,78 @@ function actualSignatureFor(rows) {
     }
   }
 
-  // ---------- TOMORROW ----------
-    const tmrwBox = document.getElementById("correctionBoxTomorrow");
-    if (tmrwBox) {
-      const c1       = d1CandidatesFor(tomorrow); // all of today's issuances for tomorrow
-      const warmKey1 = isWarmSeason(tomorrow) ? "D1_warm" : "D1_cool";
-      const w1       = tables.weights[warmKey1] || { first:0, latest:1, trimmed:0 };
-    
-      // Prefer newest-weighted series_rep; fall back to weighted blend
-      const repSeries1 = repFromSeries(c1.series);
-      const repBlend1  = blendedRep(c1, w1, /*allowCarry*/ false);
-      const rep1       = (repSeries1 != null) ? repSeries1 : repBlend1;
-    
-      const bias1   = pickBiasFrom(tables, "D1");
-      const pred1   = (rep1 == null) ? null : rep1 + bias1;
-      const p1Disp  = round1(pred1);
-    
-      // Subtitle formula
-      let parts1 = "";
-      if (repSeries1 != null && Array.isArray(c1.series)) {
-        parts1 = `pred = series_rep (n=${c1.series.length}, newest-weighted) + ${(round1(bias1 ?? 0))?.toFixed(1) ?? "0.0"}`;
-      } else {
-        const ex1 = blendExplainer(c1, w1, /*allowCarry*/ false);
-        parts1 = ex1.partsTxt ? `pred = (${ex1.partsTxt}) + ${(round1(bias1 ?? 0))?.toFixed(1) ?? "0.0"}` : "";
-      }
-    
-      tmrwBox.innerHTML = `
-        <div class="prediction-value">${p1Disp == null ? "–" : `${p1Disp.toFixed(1)}°F`}</div>
-        <div class="prediction-subtitle">
-          For ${tomorrow}
-          ${parts1 ? `<br><small style="opacity:.75">${parts1}</small>` : ""}
-        </div>
-      `;
+// ---------- TOMORROW ----------
+const tmrwBox = document.getElementById("correctionBoxTomorrow");
+if (tmrwBox) {
+  const c1       = d1CandidatesFor(tomorrow); // all of today's issuances for tomorrow
+  const warmKey1 = isWarmSeason(tomorrow) ? "D1_warm" : "D1_cool";
+  const w1       = tables.weights[warmKey1] || { first:0, latest:1, trimmed:0 };
 
-  // (If you have a logging block for “tomorrow” below this, keep it as-is;
-  // it will now use the computed rep1/pred1 values.)
-}
+  // Prefer newest-weighted series_rep; fall back to weighted blend
+  const repSeries1 = repFromSeries(c1.series);
+  const repBlend1  = blendedRep(c1, w1, /*allowCarry*/ false);
+  const rep1       = (repSeries1 != null) ? repSeries1 : repBlend1;
 
+  const bias1   = pickBiasFrom(tables, "D1");
+  const pred1   = (rep1 == null) ? null : rep1 + bias1;
+  const p1Disp  = round1(pred1);
 
+  // Subtitle formula
+  let parts1 = "";
+  if (repSeries1 != null && Array.isArray(c1.series)) {
+    parts1 = `pred = series_rep (n=${c1.series.length}, newest-weighted) + ${(round1(bias1 ?? 0))?.toFixed(1) ?? "0.0"}`;
+  } else {
+    const ex1 = blendExplainer(c1, w1, /*allowCarry*/ false);
+    parts1 = ex1.partsTxt ? `pred = (${ex1.partsTxt}) + ${(round1(bias1 ?? 0))?.toFixed(1) ?? "0.0"}` : "";
+  }
 
-    // ✅ Logging (Tomorrow) — only when tomorrow's forecast set changed
-    if (rep1 != null && forecastChanged.tomorrow === true) {
-      const repRow1 = latestPreHighRow(getForecastRowsFor(tomorrow,"D1"), "");
-      const dlt1    = deltaLast3(getForecastRowsFor(tomorrow,"D1"), repRow1, "");
+  tmrwBox.innerHTML = `
+    <div class="prediction-value">${p1Disp == null ? "–" : `${p1Disp.toFixed(1)}°F`}</div>
+    <div class="prediction-subtitle">
+      For ${tomorrow}
+      ${parts1 ? `<br><small style="opacity:.75">${parts1}</small>` : ""}
+    </div>
+  `;
 
-      const payload = {
-        timestamp_et: new Date().toISOString(),
-        target_date: tomorrow,
-        lead_used: "D1",
-        is_carryover: 0,
-        rep_forecast: Number(rep1),
-        delta_last3: Number(dlt1),
-        issuance_iso: issuanceISOUTC(repRow1),
-        issuance_hour_local: issuanceHourET(repRow1),
-        season: isWarmSeason(tomorrow) ? "warm" : "cool",
-        bias_applied: Number(bias1 ?? 0),
-        prediction_value: Number(pred1),
-        uncertainty_rmse: stableRound(tables.rmse.D1 ?? 0, 1),
-        model_name: "seasonal_lead_bias_blended_rep",
-        version: "v1.1"
-      };
+  // ---- LOGGING: keep in-scope with the values above ----
+  if (rep1 != null && forecastChanged.tomorrow === true) {
+    const repRow1 = latestPreHighRow(getForecastRowsFor(tomorrow, "D1"), "");
+    const dlt1    = deltaLast3(getForecastRowsFor(tomorrow, "D1"), repRow1, "");
 
-      const sigTomorrow = buildPredSignature({
-        target_date: payload.target_date,
-        lead_used: payload.lead_used,
-        issuance_iso: payload.issuance_iso,
-        rep_forecast: payload.rep_forecast,
-        bias_applied: payload.bias_applied,
-        prediction_value: payload.prediction_value,
-        model_name: payload.model_name,
-        version: payload.version
-      });
+    const payload = {
+      timestamp_et: new Date().toISOString(),
+      target_date: tomorrow,
+      lead_used: "D1",
+      is_carryover: 0,
+      rep_forecast: Number(rep1),
+      delta_last3: Number(dlt1),
+      issuance_iso: issuanceISOUTC(repRow1),
+      issuance_hour_local: issuanceHourET(repRow1),
+      season: isWarmSeason(tomorrow) ? "warm" : "cool",
+      bias_applied: Number(bias1 ?? 0),
+      prediction_value: Number(pred1),
+      uncertainty_rmse: stableRound(tables.rmse.D1 ?? 0, 1),
+      model_name: "seasonal_lead_bias_blended_rep",
+      version: "v1.1"
+    };
 
-      if (sigTomorrow && sigTomorrow !== loggedSig.tomorrow) {
-        logPrediction(payload);
-        setLoggedSig("tomorrow", sigTomorrow);
-      }
+    const sigTomorrow = buildPredSignature({
+      target_date: payload.target_date,
+      lead_used: payload.lead_used,
+      issuance_iso: payload.issuance_iso,
+      rep_forecast: payload.rep_forecast,
+      bias_applied: payload.bias_applied,
+      prediction_value: payload.prediction_value,
+      model_name: payload.model_name,
+      version: payload.version
+    });
+
+    if (sigTomorrow && sigTomorrow !== loggedSig.tomorrow) {
+      logPrediction(payload);
+      setLoggedSig("tomorrow", sigTomorrow);
     }
   }
 }
-
 
  function showChart() {
   const byDate = {};
