@@ -517,12 +517,23 @@
 
   <!-- App scripts -->
   <script>
-    /* ========= SIMPLE GATE ========= */
-    const $gate = () => document.getElementById('gate');
-    const $app  = () => document.getElementById('app');
+/* ========= SIMPLE GATE ========= */
+const $gate = () => document.getElementById('gate');
+const $app  = () => document.getElementById('app');
 
-    function showApp(){ const g=$gate(), a=$app(); if(g) g.style.display='none'; if(a) a.style.display=''; }
-    function showGate(msg){ const g=$gate(); if(!g) return; g.style.display=''; const sub=g.querySelector('.gate-sub'); if(sub&&msg) sub.textContent=msg; }
+function showApp() {
+  const g = $gate(), a = $app();
+  if (g) g.style.display = 'none';
+  if (a) a.style.display = '';
+}
+function showGate(msg) {
+  const g = $gate();
+  if (!g) return;
+  g.style.display = '';
+  const sub = g.querySelector('.gate-sub');
+  if (sub && msg) sub.textContent = msg;
+}
+
     window.showApp = showApp;
     window.showGate = showGate;
 
