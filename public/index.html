@@ -1631,11 +1631,14 @@ function actualSignatureFor(rows) {
     
     // Build the subtitle formula (series vs blend)
     let parts = "";
+    const biasTxt = (round1(bias ?? 0))?.toFixed(1) ?? "0.0";
     if (repSeries0 != null && Array.isArray(series0)) {
-      parts = `pred = series_rep (n=${series0.length}, newest-weighted${preD0 ? ", from yesterday's D1" : ""}) + ${(round1(bias ?? 0))?.toFixed(1) ?? "0.0"}`;
+      // plain-English, no D0/D1 jargon
+      const origin = preD0 ? "yesterday’s forecasts for today" : "today’s forecasts";
+      parts = `pred = series_rep (n=${series0.length}, newest-weighted • ${origin}) + ${biasTxt}`;
     } else {
       const ex = blendExplainer(c0, w0, /*allowCarry*/ true);
-      parts = ex.partsTxt ? `pred = (${ex.partsTxt}) + ${(round1(bias ?? 0))?.toFixed(1) ?? "0.0"}` : `pred = — + ${(round1(bias ?? 0))?.toFixed(1) ?? "0.0"}`;
+      parts = ex.partsTxt ? `pred = (${ex.partsTxt}) + ${biasTxt}` : `pred = — + ${biasTxt}`;
     }
     
     todayBox.innerHTML = `
@@ -1713,11 +1716,12 @@ if (tmrwBox) {
 
   // Subtitle formula
   let parts1 = "";
+  const bias1Txt = (round1(bias1 ?? 0))?.toFixed(1) ?? "0.0";
   if (repSeries1 != null && Array.isArray(c1.series)) {
-    parts1 = `pred = series_rep (n=${c1.series.length}, newest-weighted) + ${(round1(bias1 ?? 0))?.toFixed(1) ?? "0.0"}`;
+    parts1 = `pred = series_rep (n=${c1.series.length}, newest-weighted • today’s forecasts for tomorrow) + ${bias1Txt}`;
   } else {
     const ex1 = blendExplainer(c1, w1, /*allowCarry*/ false);
-    parts1 = ex1.partsTxt ? `pred = (${ex1.partsTxt}) + ${(round1(bias1 ?? 0))?.toFixed(1) ?? "0.0"}` : "";
+    parts1 = ex1.partsTxt ? `pred = (${ex1.partsTxt}) + ${bias1Txt}` : "";
   }
 
   tmrwBox.innerHTML = `
