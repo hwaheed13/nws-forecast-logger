@@ -2008,6 +2008,19 @@ if (tmrwBox) {
         const tr = e.target.closest("tr.month-row");
         if (!tr) return;
         const mk = tr.dataset.month;
+        
+        // First, collapse ALL other months
+        tb.querySelectorAll("tr.month-row").forEach(row => {
+          if (row !== tr) {
+            row.classList.add("collapsed");
+            const monthKey = row.dataset.month;
+            tb.querySelectorAll(`tr[data-month="${monthKey}"]:not(.month-row)`).forEach(r =>
+              r.classList.add("is-hidden")
+            );
+          }
+        });
+        
+        // Then toggle the clicked month
         const collapsed = tr.classList.toggle("collapsed");
         tb.querySelectorAll(`tr[data-month="${mk}"]:not(.month-row)`).forEach(r =>
           r.classList.toggle("is-hidden", collapsed)
