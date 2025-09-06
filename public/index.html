@@ -398,15 +398,15 @@
       <div class="prediction-grid" style="display:grid; grid-template-columns:repeat(2,1fr); gap:18px; margin-bottom:22px;">
         <div class="prediction-card">
           <div class="prediction-title">
-            Today's Bias-Corrected Prediction
-            <span class="tip" tabindex="0" data-tip="Shows today's forecast, using yesterday's last update until today's forecasts begin">i</span>
+            Today’s Bias-Corrected Prediction
+            <span class="tip" tabindex="0" data-tip="Shows today’s forecast, using yesterday’s last update until today’s forecasts begin">i</span>
           </div>
           <div id="correctionBoxToday" class="prediction-content">Loading...</div>
         </div>
         <div class="prediction-card">
           <div class="prediction-title">
-            Tomorrow's Bias-Corrected Prediction
-            <span class="tip" tabindex="0" data-tip="Shows tomorrow's forecast using today's updates. Once tomorrow begins, new forecasts are tracked as that day's forecasts">i</span>
+            Tomorrow’s Bias-Corrected Prediction
+            <span class="tip" tabindex="0" data-tip="Shows tomorrow’s forecast using today’s updates. Once tomorrow begins, new forecasts are tracked as that day’s forecasts">i</span>
           </div>
           <div id="correctionBoxTomorrow" class="prediction-content">Loading...</div>
         </div>
@@ -666,38 +666,12 @@
     function compareTimes(t1, t2) { const d1=toDateObj(t1), d2=toDateObj(t2); return (d1&&d2)? d1-d2 : 0; }
 
     // ===== ET date helpers =====
-      function etDateISOFromTS(ts){
-      const raw = String(ts || "").trim();
-      if (!raw) return "";
-      // normalize single space -> 'T' (keeps existing 'T' as-is)
-      const isoish = raw.includes("T") ? raw : raw.replace(" ", "T");
-      let d = new Date(isoish);
-    
-      // If still invalid, and there is no timezone info, try as UTC to avoid local skew
-      const hasTZ = /[zZ]$|[+\-]\d{2}:?\d{2}$/.test(isoish);
-      if (!Number.isFinite(d.getTime()) && !hasTZ && /\dT\d/.test(isoish)) {
-        d = new Date(isoish + "Z");
-      }
-    
+    function etDateISOFromTS(ts) {
+      const s = (ts || "").replace(" ", "T"); const d = new Date(s);
       if (!Number.isFinite(d.getTime())) return "";
-      return new Intl.DateTimeFormat("en-CA", {
-        timeZone: "America/New_York",
-        year: "numeric", month: "2-digit", day: "2-digit"
-      }).format(d);
+      return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year:"numeric", month:"2-digit", day:"2-digit" }).format(d);
     }
-
-    function prevISO(iso){
-      const parts = String(iso || "").split("-");
-      const y = Number(parts[0]), m = Number(parts[1]), d = Number(parts[2]);
-      if (!y || !m || !d) return "";
-      const dt = new Date(Date.UTC(y, m - 1, d));
-      dt.setUTCDate(dt.getUTCDate() - 1);
-      const y2 = dt.getUTCFullYear();
-      const m2 = String(dt.getUTCMonth() + 1).padStart(2, "0");
-      const d2 = String(dt.getUTCDate()).padStart(2, "0");
-      return `${y2}-${m2}-${d2}`;
-    }
-
+    function prevISO(iso) { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
     function monthNum(iso){ return Number((iso||"").split("-")[1]||"0"); }
     function isWarmSeason(iso){ const m=monthNum(iso); return m>=5 && m<=9; }
 
@@ -791,7 +765,7 @@
       return mean(arr);
     })();
   
-    // carry-over D1 (yesterday's issuance for this target)
+    // carry-over D1 (yesterday’s issuance for this target)
     const d1Carry = latestPreHighValue(getForecastRowsFor(dayISO, "D1"), "");
   
     return { first, latest, trimmed, carry: d1Carry, series, _hasD0: series.length>0 };
@@ -1620,96 +1594,69 @@ function actualSignatureFor(rows) {
     }
   }
 
- // ---------- TOMORROW ----------
+  // ---------- TOMORROW ----------
   const tmrwBox = document.getElementById("correctionBoxTomorrow");
   if (tmrwBox) {
-    // Base (D1) using all of today's issuances for tomorrow
-  const c1       = d1CandidatesFor(tomorrow);
-  const warmKey1 = isWarmSeason(tomorrow) ? "D1_warm" : "D1_cool";
-  const w1       = tables.weights[warmKey1] || { first:0, latest:1, trimmed:0 };
-  const rep1     = repFromSeries(c1.series) ?? blendedRep(c1, w1, /*allowCarry*/ false);
-  const bias1    = pickBiasFrom(tables, "D1");
-  const pred1Base = (rep1 == null) ? null : (rep1 + bias1);
+    const c1       = d1CandidatesFor(tomorrow); // all of today's issuances for tomorrow
+    const warmKey1 = isWarmSeason(tomorrow) ? "D1_warm" : "D1_cool";
+    const w1       = tables.weights[warmKey1] || { first:0, latest:1, trimmed:0 };
+    const rep1     = repFromSeries(c1.series) ?? blendedRep(c1, w1, /*allowCarry*/ false);
+    const bias1    = pickBiasFrom(tables, "D1");
+    const pred1    = (rep1 == null) ? null : rep1 + bias1;
 
-  let adj = 0;
+    const p1Disp = round1(pred1);
+    const ex1    = blendExplainer(c1, w1, /*allowCarry*/ false);
+    const parts1 = ex1.partsTxt ? `pred = (${ex1.partsTxt}) + ${(round1(bias1 ?? 0))?.toFixed(1) ?? "0.0"}` : "";
 
-  const todayActualRow = allRows.find(
-    r => r.forecast_or_actual === "actual" && r.cli_date === today && r.actual_high
-  );
-  if (todayActualRow) {
-    const highTime = todayActualRow.high_time || "";
-    const c0Today  = d0CandidatesFor(today, highTime); // includes carry until first D0 shows
-    const w0Today  = tables.weights[isWarmSeason(today) ? "D0_warm" : "D0_cool"] || { first:0, latest:1, trimmed:0, carry:0 };
-    const repTodayD0 = repFromSeries(c0Today.series) ?? blendedRep(c0Today, w0Today, /*allowCarry*/ true);
+    tmrwBox.innerHTML = `
+      <div class="prediction-value">${p1Disp == null ? "–" : `${p1Disp.toFixed(1)}°F`}</div>
+      <div class="prediction-subtitle">
+        For ${tomorrow}
+        ${parts1 ? `<br><small style="opacity:.75">${parts1}</small>` : ""}
+      </div>
+    `;
 
-    if (repTodayD0 != null) {
-      const actualToday = Number(todayActualRow.actual_high);
-      let instantError = actualToday - Number(repTodayD0); // pure miss vs D0 rep
-      if (Math.abs(instantError) < INSTANT_DEADBAND) instantError = 0;
-      adj = INSTANT_FEEDBACK_LAMBDA * instantError;
-      if (adj >  INSTANT_CAP) adj =  INSTANT_CAP;
-      if (adj < -INSTANT_CAP) adj = -INSTANT_CAP;
-    }
-  }
+    // ✅ Logging (Tomorrow) — only when tomorrow's forecast set changed
+    if (rep1 != null && forecastChanged.tomorrow === true) {
+      const repRow1 = latestPreHighRow(getForecastRowsFor(tomorrow,"D1"), "");
+      const dlt1    = deltaLast3(getForecastRowsFor(tomorrow,"D1"), repRow1, "");
 
-  // Final (base + instant)
-  const pred1 = (pred1Base == null) ? null : (pred1Base + adj);
+      const payload = {
+        timestamp_et: new Date().toISOString(),
+        target_date: tomorrow,
+        lead_used: "D1",
+        is_carryover: 0,
+        rep_forecast: Number(rep1),
+        delta_last3: Number(dlt1),
+        issuance_iso: issuanceISOUTC(repRow1),
+        issuance_hour_local: issuanceHourET(repRow1),
+        season: isWarmSeason(tomorrow) ? "warm" : "cool",
+        bias_applied: Number(bias1 ?? 0),
+        prediction_value: Number(pred1),
+        uncertainty_rmse: stableRound(tables.rmse.D1 ?? 0, 1),
+        model_name: "seasonal_lead_bias_blended_rep",
+        version: "v1.1"
+      };
 
-  // UI (with exact formula line)
-  const p1Disp = round1(pred1);
-  const ex1    = blendExplainer(c1, w1, /*allowCarry*/ false);
-  const parts1 = ex1.partsTxt ? `base = (${ex1.partsTxt}) + ${(round1(bias1 ?? 0))?.toFixed(1) ?? "0.0"}` : "";
-  const adjTxt = (adj && Math.abs(adj) >= 0.05) ? `; instant=${(round1(adj)).toFixed(1)}°` : "";
+      const sigTomorrow = buildPredSignature({
+        target_date: payload.target_date,
+        lead_used: payload.lead_used,
+        issuance_iso: payload.issuance_iso,
+        rep_forecast: payload.rep_forecast,
+        bias_applied: payload.bias_applied,
+        prediction_value: payload.prediction_value,
+        model_name: payload.model_name,
+        version: payload.version
+      });
 
-  tmrwBox.innerHTML = `
-    <div class="prediction-value">${p1Disp == null ? "–" : `${p1Disp.toFixed(1)}°F`}</div>
-    <div class="prediction-subtitle">
-      For ${tomorrow}
-      ${parts1 ? `<br><small style="opacity:.75">${parts1}${adjTxt}</small>` : ""}
-    </div>
-  `;
-
-  // Debug: base, adjustment, final
-  console.log({ pred1Base, adj, pred1 });
-
-  // ✅ Logging (Tomorrow) — only when tomorrow's forecast set changed
-  if (rep1 != null && forecastChanged.tomorrow === true) {
-    const repRow1 = latestPreHighRow(getForecastRowsFor(tomorrow,"D1"), "");
-    const dlt1    = deltaLast3(getForecastRowsFor(tomorrow,"D1"), repRow1, "");
-    const payload = {
-      timestamp_et: new Date().toISOString(),
-      target_date: tomorrow,
-      lead_used: "D1",
-      is_carryover: 0,
-      rep_forecast: Number(rep1),
-      delta_last3: Number(dlt1),
-      issuance_iso: issuanceISOUTC(repRow1),
-      issuance_hour_local: issuanceHourET(repRow1),
-      season: isWarmSeason(tomorrow) ? "warm" : "cool",
-      bias_applied: Number(bias1 ?? 0),
-      prediction_value: Number(pred1),
-      uncertainty_rmse: stableRound(tables.rmse.D1 ?? 0, 1),
-      model_name: "seasonal_lead_bias_blended_rep+instant",
-      version: "v1.1"
-    };
-
-    const sigTomorrow = buildPredSignature({
-      target_date: payload.target_date,
-      lead_used: payload.lead_used,
-      issuance_iso: payload.issuance_iso,
-      rep_forecast: payload.rep_forecast,
-      bias_applied: payload.bias_applied,
-      prediction_value: payload.prediction_value,
-      model_name: payload.model_name,
-      version: payload.version
-    });
-
-    if (sigTomorrow && sigTomorrow !== loggedSig.tomorrow) {
-      logPrediction(payload);
-      setLoggedSig("tomorrow", sigTomorrow);
+      if (sigTomorrow && sigTomorrow !== loggedSig.tomorrow) {
+        logPrediction(payload);
+        setLoggedSig("tomorrow", sigTomorrow);
+      }
     }
   }
 }
+
 
  function showChart() {
   const byDate = {};
@@ -2064,158 +2011,121 @@ function actualSignatureFor(rows) {
         </div>
       `;
     }
-
-    // Global function assignments for inline onclick handlers
-    window.applyDateFilter = applyDateFilter;
-    window.resetFilter = resetFilter;
-    window.reloadCSV = reloadCSV;
-    window.probeLoggingEndpoint = probeLoggingEndpoint;
-    window.updateDSM = updateDSM;
-    window.updateSixHourMax = updateSixHourMax;
-    window.updateObservations = updateObservations;
-    window.updateSummaryBoxes = updateSummaryBoxes;
-    window.updateCorrectionBoxes = updateCorrectionBoxes;
-    window.pollCsvAndUpdate = pollCsvAndUpdate;
   </script>
 
-  <!-- Auth + boot (UMD) -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-  <script>
-  (async () => {
-    const supabase = window.supabase.createClient(
-      "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
-      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
-    );
+  <!-- Auth + boot (module) -->
+<!-- Auth + boot (UMD – replaces the module block) -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+(() => {
+  const supabase = window.supabase.createClient(
+    "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
+  );
 
-    // Fail-open on any script error or unhandled promise
-    window.addEventListener('error', () => { 
-      try { showApp(); } catch {} 
-    });
-    window.addEventListener('unhandledrejection', () => { 
-      try { showApp(); } catch {} 
-    });
+  const gate = document.getElementById("gate");
+  function gateMsg(msg){ const sub = gate?.querySelector(".gate-sub"); if (sub && msg) sub.textContent = msg; }
 
-    const gate = document.getElementById("gate");
-    function gateMsg(msg) { 
-      const sub = gate?.querySelector(".gate-sub"); 
-      if (sub && msg) sub.textContent = msg; 
-    }
+  // Buttons
+  document.getElementById("btn-logout")?.addEventListener("click", async () => {
+    await supabase.auth.signOut();
+    try { localStorage.removeItem("dashboard_heartbeat"); } catch {}
+    window.location.href = "login.html";
+  });
 
-    // Buttons
-    document.getElementById("btn-logout")?.addEventListener("click", async () => {
-      await supabase.auth.signOut();
-      try { localStorage.removeItem("dashboard_heartbeat"); } catch {}
-      window.location.href = "login.html";
-    });
+  document.getElementById("btn-billing")?.addEventListener("click", async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return (window.location.href = "login.html");
+    try {
+      const r = await fetch("/api/create-portal-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ supabaseAccessToken: session.access_token })
+      });
+      const j = await r.json();
+      if (!r.ok || !j?.url) return alert(j?.error || "Could not open billing portal");
+      window.location.href = j.url;
+    } catch { alert("Could not open billing portal"); }
+  });
 
-    document.getElementById("btn-billing")?.addEventListener("click", async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return (window.location.href = "login.html");
-      try {
-        const r = await fetch("/api/create-portal-session", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ supabaseAccessToken: session.access_token })
-        });
-        const j = await r.json();
-        if (!r.ok || !j?.url) return alert(j?.error || "Could not open billing portal");
-        window.location.href = j.url;
-      } catch { 
-        alert("Could not open billing portal"); 
+  async function bootApp() {
+    // Uses functions from your non-module “App scripts” block above
+    window.showTodayDate?.();
+    window.scheduleMidnightUpdate?.();
+
+    await window.probeLoggingEndpoint?.();
+
+    await window.reloadCSV?.();
+    window.updateDSM?.();
+    window.updateSixHourMax?.();
+    window.updateObservations?.();
+    window.updateSummaryBoxes?.();
+
+    window.pollCsvAndUpdate?.();
+    setInterval(() => window.updateObservations?.(), 5 * 60 * 1000);
+    setInterval(() => window.updateDSM?.(),        10 * 60 * 1000);
+    setInterval(() => window.updateSixHourMax?.(), 10 * 60 * 1000);
+    setInterval(() => window.updateSummaryBoxes?.(),   60 * 1000);
+    setInterval(() => window.updateCorrectionBoxes?.(), 60 * 1000);
+    setInterval(() => window.pollCsvAndUpdate?.(),     60 * 1000);
+
+    try {
+      localStorage.setItem("dashboard_heartbeat", String(Date.now()));
+      setInterval(() => localStorage.setItem("dashboard_heartbeat", String(Date.now())), 60 * 1000);
+    } catch {}
+  }
+
+  async function checkAccess() {
+    try {
+      gateMsg("Checking access…");
+
+      const { data: { session }, error: sErr } = await supabase.auth.getSession();
+      if (sErr) {
+        console.error("getSession error", sErr);
+        gateMsg("Auth error. Redirecting to login…");
+        return (window.location.href = "login.html");
       }
-    });
-
-    async function bootApp() {
-      // Uses functions from your non-module "App scripts" block above
-      window.showTodayDate?.();
-      window.scheduleMidnightUpdate?.();
-
-      await window.probeLoggingEndpoint?.();
-
-      await window.reloadCSV?.();
-      window.updateDSM?.();
-      window.updateSixHourMax?.();
-      window.updateObservations?.();
-      window.updateSummaryBoxes?.();
-
-      window.pollCsvAndUpdate?.();
-      setInterval(() => window.updateObservations?.(), 5 * 60 * 1000);
-      setInterval(() => window.updateDSM?.(),        10 * 60 * 1000);
-      setInterval(() => window.updateSixHourMax?.(), 10 * 60 * 1000);
-      setInterval(() => window.updateSummaryBoxes?.(),   60 * 1000);
-      setInterval(() => window.updateCorrectionBoxes?.(), 60 * 1000);
-      setInterval(() => window.pollCsvAndUpdate?.(),     60 * 1000);
-
-      try {
-        localStorage.setItem("dashboard_heartbeat", String(Date.now()));
-        setInterval(() => localStorage.setItem("dashboard_heartbeat", String(Date.now())), 60 * 1000);
-      } catch {}
-    }
-
-    async function checkAccess() {
-      try {
-        gateMsg("Checking access…");
-
-        const { data: { session }, error: sErr } = await supabase.auth.getSession();
-        if (sErr) {
-          console.error("getSession error", sErr);
-          gateMsg("Auth error. Redirecting to login…");
-          window.location.href = "login.html";
-          return; // stop here; navigating
-        }
-        if (!session) {
-          gateMsg("No session. Redirecting to login…");
-          window.location.href = "login.html";
-          return;
-        }
-
-        const { data: profile, error } = await supabase
-          .from("profiles")
-          .select("subscription_status, current_period_end, trial_used")
-          .eq("id", session.user.id)
-          .single();
-
-        if (error) console.warn("profiles fetch error:", error);
-
-        const status = profile?.subscription_status ?? "inactive";
-        if (!new Set(["active", "trialing"]).has(status)) {
-          const dest = profile?.trial_used ? "subscribe.html?reason=trial_expired" : "subscribe.html";
-          gateMsg("Subscription inactive. Redirecting…");
-          window.location.href = dest;
-          return;
-        }
-
-        // ✅ Access granted → show app
-        showApp();
-        await bootApp();
-
-      } catch (e) {
-        console.error("checkAccess failed", e);
-        // ✅ Fail-open no matter what
-        try { showApp(); } catch {}
-        try { await bootApp(); } catch {}
+      if (!session) {
+        gateMsg("No session. Redirecting to login…");
+        return (window.location.href = "login.html");
       }
-    }
 
-    // Safety net: fail-open quickly
-    setTimeout(() => {
-      try {
-        const app = document.getElementById('app');
-        if (app && getComputedStyle(app).display === 'none') { 
-          showApp(); 
-          bootApp(); 
-        }
-      } catch { 
-        try { showApp(); } catch {} 
+      const { data: profile, error } = await supabase
+        .from("profiles")
+        .select("subscription_status, current_period_end, trial_used")
+        .eq("id", session.user.id)
+        .single();
+
+      if (error) console.warn("profiles fetch error:", error);
+
+      const status = profile?.subscription_status ?? "inactive";
+      if (!new Set(["active", "trialing"]).has(status)) {
+        const dest = profile?.trial_used ? "subscribe.html?reason=trial_expired" : "subscribe.html";
+        gateMsg("Subscription inactive. Redirecting…");
+        return (window.location.href = dest);
       }
-    }, 1500);
 
-    supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) window.location.href = "login.html";
-    });
+      showApp();
+      await bootApp();
 
-    checkAccess();
-  })();
-  </script>
-</body>
-</html>
+    } catch (e) {
+      console.error("checkAccess failed", e);
+      // Fail-open so you’re never stuck on the gate
+      showApp();
+      await bootApp();
+    }
+  }
+
+  // Safety net: if anything blocks, show the app after 5s
+  setTimeout(() => {
+    const app = document.getElementById('app');
+    if (app && getComputedStyle(app).display === 'none') { showApp(); bootApp(); }
+  }, 5000);
+
+  supabase.auth.onAuthStateChange((_event, session) => {
+    if (!session) window.location.href = "login.html";
+  });
+
+  checkAccess();
+})();
+</script>
