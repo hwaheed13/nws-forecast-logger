@@ -2069,13 +2069,21 @@ function actualSignatureFor(rows) {
           <div class="stat-label">Average Absolute Error</div>
           <div class="stat-value">${avgAbsErr}°F</div>
         </div>
-        <div class="stat-card">
+    <div class="stat-card">
           <div class="stat-label">Average Best Error</div>
           <div class="stat-value">${avgBestErr}°F</div>
         </div>
       `;
-    }
-  </script>
+}   // <-- closes the entire showStats() function
+</script>
+
+<!-- Auth + boot (UMD – replaces the module block) -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+(() => {
+  // checkAccess(), supabase.auth.onAuthStateChange, etc.
+})();
+</script>
 
   <!-- Auth + boot (module) -->
 <!-- Auth + boot (UMD – replaces the module block) -->
