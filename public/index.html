@@ -2055,36 +2055,54 @@ if (tmrwBox) {
     ? (bestBias >= 0 ? "+" : "") + bestBias.toFixed(1) + "°F" 
     : "--";
 
-  stats.innerHTML = `
-    <div class="stat-card">
-      <div class="stat-label">Days Tracked</div>
-      <div class="stat-value">${dates.length}</div>
+stats.innerHTML = `
+  <div class="stat-card">
+    <div class="stat-label">
+      Days Tracked
+      <span class="tip" tabindex="0" data-tip="Total days with any forecast data">i</span>
     </div>
-    <div class="stat-card">
-      <div class="stat-label">Days With Actual</div>
-      <div class="stat-value">${daysWithActual.length}</div>
+    <div class="stat-value">${dates.length}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">
+      Days With Actual
+      <span class="tip" tabindex="0" data-tip="Days where the actual high was recorded">i</span>
     </div>
-    <div class="stat-card">
-      <div class="stat-label">Avg Absolute Error</div>
-      <div class="stat-value">${avgAbsErr}°F</div>
+    <div class="stat-value">${daysWithActual.length}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">
+      Avg Absolute Error
+      <span class="tip" tabindex="0" data-tip="Average forecast error magnitude (ignores direction)">i</span>
     </div>
-    <div class="stat-card">
-      <div class="stat-label">Avg Forecast Bias</div>
-      <div class="stat-value" style="color: ${meanBias > 0 ? '#d97706' : meanBias < 0 ? '#2563eb' : 'inherit'}">
-        ${meanBiasStr}
-      </div>
+    <div class="stat-value">${avgAbsErr}°F</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">
+      Avg Forecast Bias
+      <span class="tip" tabindex="0" data-tip="Average signed error: + means forecasts run high, - means low">i</span>
     </div>
-    <div class="stat-card">
-      <div class="stat-label">Best Absolute Error</div>
-      <div class="stat-value">${avgBestErr}°F</div>
+    <div class="stat-value" style="color: ${meanBias > 0 ? '#d97706' : meanBias < 0 ? '#2563eb' : 'inherit'}">
+      ${meanBiasStr}
     </div>
-    <div class="stat-card">
-      <div class="stat-label">Best Forecast Bias</div>
-      <div class="stat-value" style="color: ${bestBias > 0 ? '#d97706' : bestBias < 0 ? '#2563eb' : 'inherit'}">
-        ${bestBiasStr}
-      </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">
+      Best Absolute Error
+      <span class="tip" tabindex="0" data-tip="Average error of each day's most accurate forecast">i</span>
     </div>
-  `;
+    <div class="stat-value">${avgBestErr}°F</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">
+      Best Forecast Bias
+      <span class="tip" tabindex="0" data-tip="Average bias of each day's best forecast">i</span>
+    </div>
+    <div class="stat-value" style="color: ${bestBias > 0 ? '#d97706' : bestBias < 0 ? '#2563eb' : 'inherit'}">
+      ${bestBiasStr}
+    </div>
+  </div>
+`;
 }
     // Expose necessary functions globally for auth script
     window.probeLoggingEndpoint = probeLoggingEndpoint;
