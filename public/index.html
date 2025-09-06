@@ -666,38 +666,12 @@
     function compareTimes(t1, t2) { const d1=toDateObj(t1), d2=toDateObj(t2); return (d1&&d2)? d1-d2 : 0; }
 
     // ===== ET date helpers =====
-      function etDateISOFromTS(ts){
-      const raw = String(ts || "").trim();
-      if (!raw) return "";
-      // normalize single space -> 'T' (keeps existing 'T' as-is)
-      const isoish = raw.includes("T") ? raw : raw.replace(" ", "T");
-      let d = new Date(isoish);
-    
-      // If still invalid, and there is no timezone info, try as UTC to avoid local skew
-      const hasTZ = /[zZ]$|[+\-]\d{2}:?\d{2}$/.test(isoish);
-      if (!Number.isFinite(d.getTime()) && !hasTZ && /\dT\d/.test(isoish)) {
-        d = new Date(isoish + "Z");
-      }
-    
+    function etDateISOFromTS(ts) {
+      const s = (ts || "").replace(" ", "T"); const d = new Date(s);
       if (!Number.isFinite(d.getTime())) return "";
-      return new Intl.DateTimeFormat("en-CA", {
-        timeZone: "America/New_York",
-        year: "numeric", month: "2-digit", day: "2-digit"
-      }).format(d);
+      return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year:"numeric", month:"2-digit", day:"2-digit" }).format(d);
     }
-
-    function prevISO(iso){
-      const parts = String(iso || "").split("-");
-      const y = Number(parts[0]), m = Number(parts[1]), d = Number(parts[2]);
-      if (!y || !m || !d) return "";
-      const dt = new Date(Date.UTC(y, m - 1, d));
-      dt.setUTCDate(dt.getUTCDate() - 1);
-      const y2 = dt.getUTCFullYear();
-      const m2 = String(dt.getUTCMonth() + 1).padStart(2, "0");
-      const d2 = String(dt.getUTCDate()).padStart(2, "0");
-      return `${y2}-${m2}-${d2}`;
-    }
-
+    function prevISO(iso) { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
     function monthNum(iso){ return Number((iso||"").split("-")[1]||"0"); }
     function isWarmSeason(iso){ const m=monthNum(iso); return m>=5 && m<=9; }
 
@@ -1631,6 +1605,10 @@ function actualSignatureFor(rows) {
   const bias1    = pickBiasFrom(tables, "D1");
   const pred1Base = (rep1 == null) ? null : (rep1 + bias1);
 
+  // Instant feedback: today’s actual vs *today’s* D0 representative (pre-high)
+  const INSTANT_FEEDBACK_LAMBDA = 0.30;
+  const INSTANT_DEADBAND        = 0.30;
+  const INSTANT_CAP             = 2.0;
   let adj = 0;
 
   const todayActualRow = allRows.find(
