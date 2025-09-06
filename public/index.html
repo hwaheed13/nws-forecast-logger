@@ -2176,13 +2176,6 @@ function actualSignatureFor(rows) {
     }
   }
 
-      console.error("checkAccess failed", e);
-      // Fail-open so you’re never stuck on the gate
-      showApp();
-      await bootApp();
-    }
-  }
-
     // Safety net: fail-open quickly
     setTimeout(() => {
       try {
