@@ -141,7 +141,34 @@
     .btn { background: var(--accent-blue); color: #fff; border: none; border-radius: 10px; padding: 9px 16px; font-size: 14px; font-weight: 800; cursor: pointer; box-shadow: var(--shadow-sm); }
     .btn.secondary { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-default); }
 
-    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px; margin-bottom: 22px; }
+    .stats-grid { 
+  display: grid; 
+  grid-template-columns: repeat(3, 1fr);  /* Force 3 columns on desktop */
+  gap: 16px; 
+  margin-bottom: 22px; 
+}
+
+/* Tablet: 3 columns but tighter */
+@media (max-width: 900px) {
+  .stats-grid { 
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+  .stat-card { padding: 14px; }
+  .stat-label { font-size: 12px; }
+  .stat-value { font-size: 24px; }
+}
+
+/* Mobile: keep existing 2 column layout */
+@media (max-width: 600px) {
+  .stats-grid { 
+    grid-template-columns: repeat(2, 1fr); 
+    gap: 8px; 
+  }
+  .stat-card { padding: 10px; }
+  .stat-label { font-size: 11px; }
+  .stat-value { font-size: 22px; }
+}
     .stat-card { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 14px; padding: 18px; text-align: center; }
     .stat-label { font-size: 13px; color: var(--text-muted); font-weight: 700; }
     .stat-value { font-size: 28px; font-weight: 800; color: var(--accent-blue); }
