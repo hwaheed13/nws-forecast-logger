@@ -556,11 +556,24 @@
         setInterval(showTodayDate, 60 * 1000); // refresh once a minute
       }
       
-      // expose to the UMD boot block
-      window.showTodayDate = showTodayDate;
-      window.scheduleMidnightUpdate = scheduleMidnightUpdate;
-
-
+             // expose to the UMD boot block
+        window.showTodayDate = showTodayDate;
+        window.scheduleMidnightUpdate = scheduleMidnightUpdate;
+        
+        // expose everything the boot script may call
+        Object.assign(window, {
+          probeLoggingEndpoint,
+          reloadCSV,
+          pollCsvAndUpdate,
+          updateDSM,
+          updateSixHourMax,
+          updateObservations,
+          updateSummaryBoxes,
+          updateCorrectionBoxes,
+          applyDateFilter,
+          resetFilter
+        });
+        
     function nycISODate(offsetDays = 0) {
       const fmt = new Intl.DateTimeFormat('en-CA', {
         timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit'
@@ -2080,6 +2093,26 @@ function actualSignatureFor(rows) {
 
 <script>
 (() => {
+
+  // --- SAFETY NET: if the first script failed, define these so boot won't crash ---
+  if (typeof window.showApp !== 'function') {
+    window.showApp = function(){
+      const g = document.getElementById('gate');
+      const a = document.getElementById('app');
+      try { document.body.classList.add('app-ready'); } catch {}
+      if (a && getComputedStyle(a).display === 'none') a.style.display = '';
+      if (g && getComputedStyle(g).display !== 'none') g.style.display = 'none';
+    };
+  }
+  if (typeof window.showGate !== 'function') {
+    window.showGate = function(msg){
+      const g = document.getElementById('gate'); if (!g) return;
+      g.style.display = '';
+      const sub = g.querySelector('.gate-sub'); if (sub && msg) sub.textContent = msg;
+    };
+  }
+  // -------------------------------------------------------------------------------
+
   const supabase = window.supabase.createClient(
     "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
