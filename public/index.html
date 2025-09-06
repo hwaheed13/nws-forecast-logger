@@ -2082,14 +2082,19 @@ function actualSignatureFor(rows) {
     "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
   );
+
   // ---- timeout helper + boot flag
-function withTimeout(promise, ms, label="op") {
-  return new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms);
-    promise.then(v => { clearTimeout(t); resolve(v); }, e => { clearTimeout(t); reject(e); });
-  });
-}
-let __bootStarted = false;
+  function withTimeout(promise, ms, label="op") {
+    return new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms);
+      promise.then(
+        v => { clearTimeout(t); resolve(v); },
+        e => { clearTimeout(t); reject(e); }
+      );
+    });
+  }
+  let __bootStarted = false;
+
   // Fail-open on any script error or unhandled promise
   window.addEventListener('error', () => { try { showApp(); } catch {} });
   window.addEventListener('unhandledrejection', () => { try { showApp(); } catch {} });
@@ -2147,104 +2152,104 @@ let __bootStarted = false;
     } catch {}
   }
 
-async function checkAccess() {
-  // ---- Watchdog: if nothing has shown the app after 4s, fail-open
-  const wd = setTimeout(() => {
-    if (!__bootStarted) {
-      console.warn("watchdog: fail-open boot");
-      try { showApp(); } catch {}
-      bootApp().catch(() => { try { showApp(); } catch {} });
-    }
-  }, 4000);
-
-  try {
-    gateMsg("Checking access…");
-
-    // getSession with timeout (2.5s)
-    const { data: { session }, error: sErr } =
-      await withTimeout(supabase.auth.getSession(), 2500, "getSession");
-    if (sErr) {
-      console.error("getSession error", sErr);
-      gateMsg("Auth error. Redirecting to login…");
-      window.location.href = "login.html";
-      return;
-    }
-    if (!session) {
-      gateMsg("No session. Redirecting to login…");
-      window.location.href = "login.html";
-      return;
-    }
-
-    // profiles fetch with timeout (3s)
-    const { data: profile, error } = await withTimeout(
-      supabase
-        .from("profiles")
-        .select("subscription_status, current_period_end, trial_used")
-        .eq("id", session.user.id)
-        .single(),
-      3000,
-      "profiles"
-    );
-
-    if (error) {
-      console.warn("profiles fetch error:", error);
-      // FAIL-OPEN so you never get stuck on the gate
-      showApp();
-      await bootApp();
-      return;
-    }
-
-    const status = profile?.subscription_status ?? "inactive";
-    if (!new Set(["active", "trialing"]).has(status)) {
-      const dest = profile?.trial_used ? "subscribe.html?reason=trial_expired" : "subscribe.html";
-      gateMsg("Subscription inactive. Redirecting…");
-      window.location.href = dest;
-      return;
-    }
-
-    // ✅ Access granted → show app (non-blocking)
-    gateMsg("Access granted — loading dashboard…");
-    showApp();                             // hide gate immediately
-    setTimeout(showApp, 0);                // kick again next tick
-    requestAnimationFrame(() => showApp()); // and once more on frame
-    await bootApp();
-
-    // 🔒 Background re-check after 15s
-    setTimeout(async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) return (window.location.href = "login.html");
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("subscription_status, trial_used")
-          .eq("id", session.user.id)
-          .single();
-        if (!profile || !new Set(["active", "trialing"]).has(profile.subscription_status)) {
-          window.location.href = profile?.trial_used
-            ? "subscribe.html?reason=trial_expired"
-            : "subscribe.html";
-        }
-      } catch {
-        /* keep UI up; backend still protects APIs */
+  async function checkAccess() {
+    // ---- Watchdog: if nothing has shown the app after 4s, fail-open
+    const wd = setTimeout(() => {
+      if (!__bootStarted) {
+        console.warn("watchdog: fail-open boot");
+        try { showApp(); } catch {}
+        bootApp().catch(() => { try { showApp(); } catch {} });
       }
-    }, 15000);
+    }, 4000);
 
-  } catch (e) {
-    console.error("checkAccess failed", e);
-    // fail-open so you never get stuck on the gate
-    try { showApp(); } catch {}
-    try { await bootApp(); } catch {}
-  } finally {
-    clearTimeout(wd); // cancel watchdog if we got here
+    try {
+      gateMsg("Checking access…");
+
+      // getSession with timeout (2.5s)
+      const { data: { session }, error: sErr } =
+        await withTimeout(supabase.auth.getSession(), 2500, "getSession");
+      if (sErr) {
+        console.error("getSession error", sErr);
+        gateMsg("Auth error. Redirecting to login…");
+        window.location.href = "login.html";
+        return;
+      }
+      if (!session) {
+        gateMsg("No session. Redirecting to login…");
+        window.location.href = "login.html";
+        return;
+      }
+
+      // profiles fetch with timeout (3s)
+      const { data: profile, error } = await withTimeout(
+        supabase
+          .from("profiles")
+          .select("subscription_status, current_period_end, trial_used")
+          .eq("id", session.user.id)
+          .single(),
+        3000,
+        "profiles"
+      );
+
+      if (error) {
+        console.warn("profiles fetch error:", error);
+        // FAIL-OPEN so you never get stuck on the gate
+        showApp();
+        await bootApp();
+        return;
+      }
+
+      const status = profile?.subscription_status ?? "inactive";
+      if (!new Set(["active", "trialing"]).has(status)) {
+        const dest = profile?.trial_used ? "subscribe.html?reason=trial_expired" : "subscribe.html";
+        gateMsg("Subscription inactive. Redirecting…");
+        window.location.href = dest;
+        return;
+      }
+
+      // ✅ Access granted → show app (non-blocking)
+      gateMsg("Access granted — loading dashboard…");
+      showApp();                              // hide gate immediately
+      setTimeout(showApp, 0);                 // kick again next tick
+      requestAnimationFrame(() => showApp()); // and once more on frame
+      await bootApp();
+
+      // 🔒 Background re-check after 15s
+      setTimeout(async () => {
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) return (window.location.href = "login.html");
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("subscription_status, trial_used")
+            .eq("id", session.user.id)
+            .single();
+          if (!profile || !new Set(["active", "trialing"]).has(profile.subscription_status)) {
+            window.location.href = profile?.trial_used
+              ? "subscribe.html?reason=trial_expired"
+              : "subscribe.html";
+          }
+        } catch {
+          /* keep UI up; backend still protects APIs */
+        }
+      }, 15000);
+
+    } catch (e) {
+      console.error("checkAccess failed", e);
+      // fail-open so you never get stuck on the gate
+      try { showApp(); } catch {}
+      try { await bootApp(); } catch {}
+    } finally {
+      clearTimeout(wd); // cancel watchdog if we got here
+    }
   }
-}
-      
 
-
+  // Keep the UI aligned with auth changes
   supabase.auth.onAuthStateChange((_event, session) => {
     if (!session) window.location.href = "login.html";
   });
 
+  // Kick it off
   checkAccess();
 })();
 </script>
