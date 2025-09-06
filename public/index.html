@@ -1811,8 +1811,9 @@ function actualSignatureFor(rows) {
             const fcTime = (r.forecast_time || "").substr(11, 5);
             const pred = r.predicted_high ? `${r.predicted_high}°F` : "";
             const actTxt = (actual && actual.actual_high) ? `${actual.actual_high}°F` : "";
-            const errTxt = (r.predicted_high && actualHigh != null) ?
-              (Math.abs(Number(r.predicted_high) - actualHigh)).toFixed(1) : "";
+           const errTxt = (r.predicted_high && actualHigh != null)
+          ? (Number(r.predicted_high) - actualHigh).toFixed(1)   // signed error: pred - actual
+          : "";
 
             const tr = document.createElement("tr");
             tr.className = cls + " is-hidden";
