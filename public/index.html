@@ -1644,19 +1644,37 @@ function actualSignatureFor(rows) {
     
     const bias    = pickBiasFrom(tables, preD0 ? "D1" : "D0");
     const pred    = (rep == null) ? null : rep + bias;
+      let predAdj = pred;
+      if (rep != null) {
+        const repRow = latestPreHighRow(getForecastRowsFor(today, c0._hasD0 ? "D0" : "D1"), c0._hasD0 ? highTime : "");
+        const dlt = deltaLast3(c0._hasD0 ? getForecastRowsFor(today,"D0") : getForecastRowsFor(today,"D1"), repRow, c0._hasD0 ? highTime : "");
+        const nudge = Math.abs(dlt) <= INSTANT_DEADBAND ? 0 : Math.max(-INSTANT_CAP, Math.min(INSTANT_CAP, INSTANT_FEEDBACK_LAMBDA * dlt));
+        predAdj = pred + nudge;
+      }
+      const pDisp   = round1(predAdj);
+
     const pDisp   = round1(pred);
     
     // Build the subtitle formula (series vs blend)
     let parts = "";
     const biasTxt = (round1(bias ?? 0))?.toFixed(1) ?? "0.0";
-    if (repSeries0 != null && Array.isArray(series0)) {
+      if (repSeries0 != null && Array.isArray(series0)) {
       // plain-English, no D0/D1 jargon
       const origin = preD0 ? "yesterday’s forecasts for today" : "today’s forecasts";
-      parts = `pred = series_rep (n=${series0.length}, newest-weighted • ${origin}) + ${biasTxt}`;
+      const nudgeTxt = (rep != null && Math.abs(predAdj - pred) > 0)
+        ? ` + nudge ${round1(predAdj - pred).toFixed(1)}`
+        : "";
+      parts = `pred = series_rep (n=${series0.length}, newest-weighted • ${origin}) + ${biasTxt}${nudgeTxt}`;
     } else {
       const ex = blendExplainer(c0, w0, /*allowCarry*/ true);
-      parts = ex.partsTxt ? `pred = (${ex.partsTxt}) + ${biasTxt}` : `pred = — + ${biasTxt}`;
+      const nudgeTxt = (rep != null && Math.abs(predAdj - pred) > 0)
+        ? ` + nudge ${round1(predAdj - pred).toFixed(1)}`
+        : "";
+      parts = ex.partsTxt
+        ? `pred = (${ex.partsTxt}) + ${biasTxt}${nudgeTxt}`
+        : `pred = — + ${biasTxt}${nudgeTxt}`;
     }
+
     
     todayBox.innerHTML = `
       <div class="prediction-value">${pDisp == null ? "–" : `${pDisp.toFixed(1)}°F`}</div>
