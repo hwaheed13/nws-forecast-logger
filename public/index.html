@@ -875,168 +875,116 @@
       return { first, latest, trimmed, series };
     }
 
-// ===== Learn per-season bias (pooled across D0 + D1) and keep blend weights for fallback =====
-function buildBiasAndBlend() {
-  // Assemble per-day examples
-  const dayMap = new Map();
-  for (const r of allRows) {
-    const d = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
-    if (!d) continue;
-    if (!dayMap.has(d)) dayMap.set(d, { D0: [], D1: [], actual: null });
-    const bucket = dayMap.get(d);
-    if (r.forecast_or_actual === "forecast") {
-      const k = leadKind(r);
-      if (k === "D0") bucket.D0.push(r);
-      else if (k === "D1") bucket.D1.push(r);
-    } else if (r.actual_high) {
-      bucket.actual = r;
-    }
-  }
+    // ===== Learn per-bucket blend + bias =====
+    function buildBiasAndBlend() {
+      // Assemble per-day examples
+      const dayMap = new Map();
+      for (const r of allRows) {
+        const d = (r.forecast_or_actual==="actual" ? r.cli_date : r.target_date);
+        if (!d) continue;
+        if (!dayMap.has(d)) dayMap.set(d, {D0:[], D1:[], actual:null});
+        const bucket = dayMap.get(d);
+        if (r.forecast_or_actual==="forecast") {
+          const k = leadKind(r);
+          if (k==="D0") bucket.D0.push(r);
+          else if (k==="D1") bucket.D1.push(r);
+        } else if (r.actual_high) bucket.actual = r;
+      }
 
-  const examples = [];
-  for (const [iso, { D0, D1, actual }] of dayMap.entries()) {
-    if (!actual || !actual.actual_high) continue;
-    const act = Number(actual.actual_high);
-    const highTime = actual.high_time || "";
-    const season = isWarmSeason(iso) ? "warm" : "cool";
+      const examples = [];
+      for (const [iso, {D0,D1,actual}] of dayMap.entries()) {
+        if (!actual || !actual.actual_high) continue;
+        const act = Number(actual.actual_high);
+        const highTime = actual.high_time || "";
+        const warm = isWarmSeason(iso) ? "warm" : "cool";
 
-    const c0 = d0CandidatesFor(iso, highTime); // has .series and .cand
-    if (c0._hasD0) {
-      examples.push({
-        iso, season, lead: "D0", actual: act,
-        series: c0.series,
-        cand: { first: c0.first, latest: c0.latest, trimmed: c0.trimmed, carry: c0.carry }
-      });
-    }
+        const c0 = d0CandidatesFor(iso, highTime);
+        if (c0._hasD0) examples.push({ iso, season:warm, lead:"D0", actual:act, cand:{ first:c0.first, latest:c0.latest, trimmed:c0.trimmed, carry:c0.carry } });
 
-    const c1 = d1CandidatesFor(iso);
-    if (c1.latest != null || c1.first != null || c1.trimmed != null) {
-      examples.push({
-        iso, season, lead: "D1", actual: act,
-        series: c1.series,
-        cand: { first: c1.first, latest: c1.latest, trimmed: c1.trimmed }
-      });
-    }
-  }
-
-  // --- grid search for fallback blend weights (unchanged intent) ---
-  function learnWeights(rows, allowCarry) {
-    if (!rows.length) return { w: { first: 0, latest: 1, trimmed: 0, carry: 0 }, mae: Infinity };
-    let best = { w: null, mae: Infinity };
-    const step = 0.1;
-    for (let f = 0; f <= 1; f += step) {
-      for (let l = 0; l <= 1 - f; l += step) {
-        for (let t = 0; t <= 1 - f - l; t += step) {
-          const c = allowCarry ? (1 - f - l - t) : 0;
-          if (!allowCarry && Math.abs(1 - f - l - t) > 1e-9) continue;
-          const w = { first: f, latest: l, trimmed: t, carry: c };
-          let absSum = 0, n = 0;
-          for (const r of rows) {
-            const parts = [];
-            if (r.cand.first   != null) parts.push({ v: r.cand.first,   w: w.first });
-            if (r.cand.latest  != null) parts.push({ v: r.cand.latest,  w: w.latest });
-            if (r.cand.trimmed != null) parts.push({ v: r.cand.trimmed, w: w.trimmed });
-            if (allowCarry && r.cand.carry != null) parts.push({ v: r.cand.carry, w: w.carry });
-            if (!parts.length) continue;
-            const sumW = parts.reduce((a, b) => a + b.w, 0) || 1;
-            const rep = parts.reduce((a, b) => a + b.v * (b.w / sumW), 0);
-            absSum += Math.abs(r.actual - rep);
-            n++;
-          }
-          if (!n) continue;
-          const mae = absSum / n;
-          if (mae < best.mae) best = { w, mae };
+        const c1 = d1CandidatesFor(iso);
+        if (c1.latest!=null || c1.first!=null || c1.trimmed!=null) {
+          examples.push({ iso, season:warm, lead:"D1", actual:act, cand:{ first:c1.first, latest:c1.latest, trimmed:c1.trimmed } });
         }
       }
+
+      function learnWeights(rows, allowCarry) {
+        if (!rows.length) return { w:{first:0, latest:1, trimmed:0, carry:0}, mae:Infinity };
+        let best = { w:null, mae:Infinity };
+        const step = 0.1;
+        for (let f=0; f<=1; f+=step) {
+          for (let l=0; l<=1-f; l+=step) {
+            for (let t=0; t<=1-f-l; t+=step) {
+              const c = allowCarry ? (1 - f - l - t) : 0;
+              if (!allowCarry && Math.abs(1 - f - l - t) > 1e-9) continue;
+              const w = { first:f, latest:l, trimmed:t, carry:c };
+              let absSum = 0, n = 0;
+              for (const r of rows) {
+                const parts = [];
+                if (r.cand.first   != null) parts.push({v:r.cand.first,   w:w.first});
+                if (r.cand.latest  != null) parts.push({v:r.cand.latest,  w:w.latest});
+                if (r.cand.trimmed != null) parts.push({v:r.cand.trimmed, w:w.trimmed});
+                if (allowCarry && r.cand.carry != null) parts.push({v:r.cand.carry, w:w.carry});
+                if (!parts.length) continue;
+                const sumW = parts.reduce((a,b)=>a+b.w,0) || 1;
+                const rep = parts.reduce((a,b)=>a + b.v * (b.w/sumW), 0);
+                absSum += Math.abs(r.actual - rep);
+                n++;
+              }
+              if (!n) continue;
+              const mae = absSum / n;
+              if (mae < best.mae) best = { w, mae };
+            }
+          }
+        }
+        if (!best.w) best = { w:{first:0,latest:1,trimmed:0,carry:0}, mae:Infinity };
+        return best;
+      }
+
+      const buckets = {
+        D0_warm: learnWeights(examples.filter(e=>e.lead==="D0" && e.season==="warm"), true),
+        D0_cool: learnWeights(examples.filter(e=>e.lead==="D0" && e.season==="cool"), true),
+        D1_warm: learnWeights(examples.filter(e=>e.lead==="D1" && e.season==="warm"), false),
+        D1_cool: learnWeights(examples.filter(e=>e.lead==="D1" && e.season==="cool"), false),
+      };
+
+      const res = { D0:[], D1:[] };
+      for (const e of examples) {
+        const key = `${e.lead}_${e.season}`;
+        const allowCarry = e.lead==="D0";
+        const w = buckets[key]?.w || {first:0,latest:1,trimmed:0,carry:0};
+        const parts = [];
+        if (e.cand.first   != null) parts.push({v:e.cand.first,   w:w.first});
+        if (e.cand.latest  != null) parts.push({v:e.cand.latest,  w:w.latest});
+        if (e.cand.trimmed != null) parts.push({v:e.cand.trimmed, w:w.trimmed});
+        if (allowCarry && e.cand.carry != null) parts.push({v:e.cand.carry, w:w.carry});
+        if (!parts.length) continue;
+        const sumW = parts.reduce((a,b)=>a+b.w,0) || 1;
+        const rep = parts.reduce((a,b)=>a + b.v * (b.w/sumW), 0);
+        res[e.lead].push(e.actual - rep);
+      }
+
+      const tables = {
+        weights: {
+          D0_warm: buckets.D0_warm.w, D0_cool: buckets.D0_cool.w,
+          D1_warm: buckets.D1_warm.w, D1_cool: buckets.D1_cool.w
+        },
+        bias: {
+          D0: robustMean(res.D0),
+          D1: robustMean(res.D1),
+          global: robustMean([...res.D0, ...res.D1])
+        },
+        rmse: {
+          D0: (()=>{ const m=mean(res.D0.map(x=>x*x)); return m==null?null:Math.sqrt(m); })(),
+          D1: (()=>{ const m=mean(res.D1.map(x=>x*x)); return m==null?null:Math.sqrt(m); })()
+        }
+      };
+      return tables;
     }
-    if (!best.w) best = { w: { first: 0, latest: 1, trimmed: 0, carry: 0 }, mae: Infinity };
-    return best;
-  }
 
-  // Split by season + lead only for weight learning
-  const by = (lead, season) => examples.filter(e => e.lead === lead && e.season === season);
-  const buckets = {
-    D0_warm: learnWeights(by("D0", "warm"), true),
-    D0_cool: learnWeights(by("D0", "cool"), true),
-    D1_warm: learnWeights(by("D1", "warm"), false),
-    D1_cool: learnWeights(by("D1", "cool"), false),
-  };
-
-  // --- Season-only bias with time-decay across *all* history ---
-  const todayISO = nycISODate(0);
-  const HALF_LIFE_DAYS = 90;
-  const LAMBDA = Math.log(2) / HALF_LIFE_DAYS;
-
-  function ageDays(iso) {
-    const a = new Date(`${iso}T00:00:00`);
-    const b = new Date(`${todayISO}T00:00:00`);
-    return Math.max(0, (b - a) / 86400000);
-  }
-
-  function summarizeWeighted(items) {
-    if (!items.length) return { mean: null, rmse: null };
-    // winsorize (10%) on unweighted values, then compute weighted stats
-    const vals = items.map(x => x.res).slice().sort((a, b) => a - b);
-    const lo = vals[Math.floor(0.10 * (vals.length - 1))];
-    const hi = vals[Math.ceil(0.90 * (vals.length - 1))];
-
-    let sw = 0, swv = 0, swv2 = 0;
-    for (const { res, w } of items) {
-      const v = Math.max(lo, Math.min(hi, res));
-      sw += w;
-      swv += w * v;
-      swv2 += w * v * v;
-    }
-    const mean = sw > 0 ? swv / sw : null;
-    const rmse = sw > 0 ? Math.sqrt(swv2 / sw) : null;
-    return { mean, rmse };
-  }
-
-  const residuals = { warm: [], cool: [] };
-
-  for (const e of examples) {
-    const key = `${e.lead}_${e.season}`;
-    const wts = buckets[key]?.w || { first: 0, latest: 1, trimmed: 0, carry: 0 };
-    const repSeries = repFromSeries(e.series);
-    const repBlend  = blendedRep(e.cand, wts, e.lead === "D0");
-    const rep = (repSeries != null) ? repSeries : repBlend;
-    if (rep == null) continue;
-
-    const res = e.actual - rep;
-    const w   = Math.exp(-LAMBDA * ageDays(e.iso));
-    residuals[e.season].push({ res, w });
-  }
-
-  const warmStat = summarizeWeighted(residuals.warm);
-  const coolStat = summarizeWeighted(residuals.cool);
-  const globalStat = summarizeWeighted([...residuals.warm, ...residuals.cool]);
-
-  return {
-    weights: {
-      D0_warm: buckets.D0_warm.w, D0_cool: buckets.D0_cool.w,
-      D1_warm: buckets.D1_warm.w, D1_cool: buckets.D1_cool.w
-    },
-    bias: {
-      season: { warm: warmStat.mean, cool: coolStat.mean },
-      global: globalStat.mean
-    },
-    rmse: {
-      season: { warm: warmStat.rmse, cool: coolStat.rmse },
-      global: globalStat.rmse
-    }
-  };
-}
-
-    // Season-only bias with global fallback
-    function pickSeasonBias(tables, iso){
-      const warm = isWarmSeason(iso);
-      const b = warm ? tables.bias.season.warm : tables.bias.season.cool;
-      return (b == null || !Number.isFinite(b)) ? (tables.bias.global ?? 0) : b;
-    }
-    
-    // Backward-compatible shim: ignore lead, choose by date
-    function pickBiasFrom(tables, _lead, iso){
-      return pickSeasonBias(tables, iso);
+    // Pick bias (lead-level with safe fallback)
+    function pickBiasFrom(tables, lead){
+      const b = lead==="D0" ? tables.bias.D0 : lead==="D1" ? tables.bias.D1 : null;
+      return (b==null || !Number.isFinite(b)) ? (tables.bias.global ?? 0) : b;
     }
 
     // Blend helper
@@ -1694,21 +1642,22 @@ function actualSignatureFor(rows) {
     const repBlend0  = blendedRep(c0, w0, /*allowCarry*/ true);   // fallback if series is empty
     const rep        = (repSeries0 != null) ? repSeries0 : repBlend0;
     
-    const bias    = pickSeasonBias(tables, today);
+    const bias    = pickBiasFrom(tables, preD0 ? "D1" : "D0");
     const pred    = (rep == null) ? null : rep + bias;
     const pDisp   = round1(pred);
     
-   // Build the subtitle formula (series vs blend) — season-only wording
-    const biasTxt = (round1(bias ?? 0))?.toFixed(1) ?? "0.0";
+    // Build the subtitle formula (series vs blend)
     let parts = "";
+    const biasTxt = (round1(bias ?? 0))?.toFixed(1) ?? "0.0";
     if (repSeries0 != null && Array.isArray(series0)) {
-      const origin = preD0 ? "yesterday’s issuances" : "today’s issuances";
+      // plain-English, no D0/D1 jargon
+      const origin = preD0 ? "yesterday’s forecasts for today" : "today’s forecasts";
       parts = `pred = series_rep (n=${series0.length}, newest-weighted • ${origin}) + ${biasTxt}`;
     } else {
       const ex = blendExplainer(c0, w0, /*allowCarry*/ true);
       parts = ex.partsTxt ? `pred = (${ex.partsTxt}) + ${biasTxt}` : `pred = — + ${biasTxt}`;
     }
-
+    
     todayBox.innerHTML = `
       <div class="prediction-value">${pDisp == null ? "–" : `${pDisp.toFixed(1)}°F`}</div>
       <div class="prediction-subtitle">
@@ -1742,11 +1691,7 @@ function actualSignatureFor(rows) {
           season: isWarmSeason(today) ? "warm" : "cool",
           bias_applied: Number(bias ?? 0),
           prediction_value: Number(pred),
-          uncertainty_rmse: (() => {
-            const sk = isWarmSeason(today) ? "warm" : "cool";
-            const v  = tables?.rmse?.season?.[sk] ?? tables?.rmse?.global ?? 0;
-            return stableRound(v, 1);
-          })(),
+          uncertainty_rmse: stableRound(tables.rmse.D0 ?? 0, 1),
           model_name: "seasonal_lead_bias_blended_rep",
           version: "v1.1"
         };
@@ -1782,18 +1727,18 @@ if (tmrwBox) {
   const repBlend1  = blendedRep(c1, w1, /*allowCarry*/ false);
   const rep1       = (repSeries1 != null) ? repSeries1 : repBlend1;
 
-  const bias1   = pickSeasonBias(tables, tomorrow);
+  const bias1   = pickBiasFrom(tables, "D1");
   const pred1   = (rep1 == null) ? null : rep1 + bias1;
   const p1Disp  = round1(pred1);
 
-  // Subtitle formula — season-only wording
-  const bias1Txt = (round1(bias1 ?? 0))?.toFixed(1) ?? "0.0";
+  // Subtitle formula
   let parts1 = "";
+  const bias1Txt = (round1(bias1 ?? 0))?.toFixed(1) ?? "0.0";
   if (repSeries1 != null && Array.isArray(c1.series)) {
-    parts1 = `pred = series_rep (n=${c1.series.length}, newest-weighted • today’s issuances) + ${bias1Txt}`;
+    parts1 = `pred = series_rep (n=${c1.series.length}, newest-weighted • today’s forecasts for tomorrow) + ${bias1Txt}`;
   } else {
     const ex1 = blendExplainer(c1, w1, /*allowCarry*/ false);
-    parts1 = ex1.partsTxt ? `pred = (${ex1.partsTxt}) + ${bias1Txt}` : `pred = — + ${bias1Txt}`;
+    parts1 = ex1.partsTxt ? `pred = (${ex1.partsTxt}) + ${bias1Txt}` : "";
   }
 
   tmrwBox.innerHTML = `
@@ -1821,11 +1766,7 @@ if (tmrwBox) {
       season: isWarmSeason(tomorrow) ? "warm" : "cool",
       bias_applied: Number(bias1 ?? 0),
       prediction_value: Number(pred1),
-     uncertainty_rmse: (() => {
-        const sk = isWarmSeason(tomorrow) ? "warm" : "cool";
-        const v  = tables?.rmse?.season?.[sk] ?? tables?.rmse?.global ?? 0;
-        return stableRound(v, 1);
-      })(),
+      uncertainty_rmse: stableRound(tables.rmse.D1 ?? 0, 1),
       model_name: "seasonal_lead_bias_blended_rep",
       version: "v1.1"
     };
