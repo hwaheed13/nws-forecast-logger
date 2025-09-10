@@ -483,14 +483,14 @@
         <div class="prediction-card">
           <div class="prediction-title">
             Today's Bias-Corrected Prediction
-           <span class="tip" tabindex="0" data-tip="Adaptive: mixes yesterday-for-today (D1) and same-day (D0) forecasts by rolling skill; if only one exists, uses that. Locks once the official high posts.">i</span>
+            <span class="tip" tabindex="0" data-tip="Starts with yesterday’s forecast for today, updates if additional forecasts come in, and locks once the actual high is reported">i</span>
           </div>
           <div id="correctionBoxToday" class="prediction-content">Loading...</div>
         </div>
         <div class="prediction-card">
           <div class="prediction-title">
             Tomorrow's Bias-Corrected Prediction
-           <span class="tip" tabindex="0" data-tip="Adaptive: uses today-for-tomorrow (D1); if same-day issuances (D0) appear tomorrow, mixes by skill. If only one exists, uses that.">i</span>
+            <span class="tip" tabindex="0" data-tip="Uses today’s forecasts for tomorrow. Once tomorrow begins, updates with that day’s forecasts if any are issued">i</span>
           </div>
           <div id="correctionBoxTomorrow" class="prediction-content">Loading...</div>
         </div>
@@ -1144,51 +1144,6 @@ function combineSeries(seriesD1, seriesD0){
   );
   return collapseConsecutiveDuplicates(merged);
 }
-// === Adaptive D1/D0 mixer (data decides) ==================================
-const ADAPT = {
-  PRIOR_D0: 1.0,     // 1.0 = no built-in preference (that old “1.6” is NOT used)
-  PRIOR_D1: 1.0,
-  COUNT_POWER: 0.5,  // sqrt(n): mild count influence; set 0 to remove count effect
-  EPS_RMSE: 1e-6
-};
-
-// Mix per-lead series reps using inverse-variance: (1/RMSE^2) × count^COUNT_POWER × PRIOR
-function repFromSeriesAdaptive(seriesD1, seriesD0, season, tables, alpha = 0.85) {
-  const nD1 = Array.isArray(seriesD1) ? seriesD1.length : 0;
-  const nD0 = Array.isArray(seriesD0) ? seriesD0.length : 0;
-
-  const repD1 = repFromSeries(seriesD1, alpha);
-  const repD0 = repFromSeries(seriesD0, alpha);
-
-  // Single-lead fallbacks
-  if (repD1 == null && repD0 == null) return { rep:null, wD1:0, wD0:0, nD1, nD0 };
-  if (repD1 != null && repD0 == null) return { rep:repD1, wD1:1, wD0:0, nD1, nD0 };
-  if (repD0 != null && repD1 == null) return { rep:repD0, wD1:0, wD0:1, nD1, nD0 };
-
-  // Rolling skill (RMSE) → precision weights
-  const rm1 = tables?.rmse?.D1?.[season]?.series;
-  const rm0 = tables?.rmse?.D0?.[season]?.series;
-  const s1 = Number.isFinite(rm1) ? 1 / Math.max(rm1*rm1, ADAPT.EPS_RMSE) : 1;
-  const s0 = Number.isFinite(rm0) ? 1 / Math.max(rm0*rm0, ADAPT.EPS_RMSE) : 1;
-
-  // Count factor (very soft)
-  const c1 = Math.pow(Math.max(nD1, 0), ADAPT.COUNT_POWER);
-  const c0 = Math.pow(Math.max(nD0, 0), ADAPT.COUNT_POWER);
-
-  // Priors (neutral)
-  const p1 = ADAPT.PRIOR_D1, p0 = ADAPT.PRIOR_D0;
-
-  // Final weights and mixed rep
-  let w1 = s1 * c1 * p1;
-  let w0 = s0 * c0 * p0;
-  if (!Number.isFinite(w1) || w1 <= 0) w1 = 0;
-  if (!Number.isFinite(w0) || w0 <= 0) w0 = 0;
-
-  const denom = w1 + w0;
-  const rep = denom > 0 ? (w1*repD1 + w0*repD0) / denom : (repD1 + repD0) / 2;
-
-  return { rep, wD1:w1, wD0:w0, nD1, nD0 };
-}
 
 // === Calibration config (rolling/recency-weighted biases) ===
 const BIAS_WINDOW_DAYS   = 75;   // only last ~2.5 months
@@ -1772,36 +1727,23 @@ function updateCorrectionBoxes() {
   function computeYesterdayNudge() {
     const a = allRows.find(r => r.forecast_or_actual==="actual" && r.cli_date===yesterday && r.actual_high);
     if (!a) return 0;
-
-    const seasonY   = isWarmSeason(yesterday) ? "warm" : "cool";
+    const seasonY = isWarmSeason(yesterday) ? "warm" : "cool";
     const highTimeY = a.high_time || "";
-
     const c0y = d0CandidatesFor(yesterday, highTimeY);
-    const c1y = d1CandidatesFor(yesterday);
-    const preD0y = !(c0y && c0y._hasD0); // for fallback blend choice if series is empty
-
-    // Adaptive rep over D1 + D0 (if both exist)
-    const { rep: repSeriesY, wD1: w1y, wD0: w0y } =
-      repFromSeriesAdaptive(c1y.series, c0y.series, seasonY, tables);
-
-    // Fallback to learned blend if no usable series rep
+    const preD0y = !c0y._hasD0;
+    const seriesY = preD0y ? d1CandidatesFor(yesterday).series : c0y.series;
+    const repSeriesY = repFromSeries(seriesY);
     const wKeyY = preD0y
       ? (seasonY==="warm" ? tables.weights.D1_warm : tables.weights.D1_cool)
       : (seasonY==="warm" ? tables.weights.D0_warm : tables.weights.D0_cool);
-    const repBlendY = blendedRep(preD0y ? c1y : c0y, wKeyY, /*allowCarry*/ !preD0y);
-
+    const repBlendY = blendedRep(preD0y ? d1CandidatesFor(yesterday) : c0y, wKeyY, /*allowCarry*/ !preD0y);
     const usedSeriesY = (repSeriesY != null);
-    const repY        = usedSeriesY ? repSeriesY : repBlendY;
+    const repY = usedSeriesY ? repSeriesY : repBlendY;
     if (repY == null) return 0;
-
-    // Bias from the lead that dominates the adaptive mix (or preD0 rule on fallback)
-    const leadForBiasY = usedSeriesY ? (w0y >= w1y ? "D0" : "D1") : (preD0y ? "D1" : "D0");
-    const biasY  = pickBiasFrom(tables, leadForBiasY, seasonY, usedSeriesY);
-
-    // Compute signed residual → small capped nudge
-    const errY = Number(a.actual_high) - (repY + (biasY ?? 0)); // + => we ran low yesterday
-    const mag  = Math.max(0, Math.abs(errY) - INSTANT_DEADBAND);
-    const nud  = clamp(INSTANT_FEEDBACK_LAMBDA * Math.sign(errY) * mag, -INSTANT_CAP, INSTANT_CAP);
+    const biasY = pickBiasFrom(tables, preD0y ? "D1" : "D0", seasonY, usedSeriesY);
+    const errY  = Number(a.actual_high) - (repY + (biasY ?? 0)); // + => we ran low yesterday
+    const mag   = Math.max(0, Math.abs(errY) - INSTANT_DEADBAND);
+    const nud   = clamp(INSTANT_FEEDBACK_LAMBDA * Math.sign(errY) * mag, -INSTANT_CAP, INSTANT_CAP);
     return nud;
   }
 
@@ -1821,23 +1763,18 @@ function updateCorrectionBoxes() {
     const c0 = d0CandidatesFor(today, highTime);
     const c1 = d1CandidatesFor(today);
     const preD0 = !(c0 && c0._hasD0);
-  // Adaptive series rep: mix D1 and D0 by rolling skill + issuance counts
-  const series0 = combineSeries(c1.series, c0.series);
-  const { rep: repSeries0, wD1, wD0, nD1, nD0 } =
-    repFromSeriesAdaptive(c1.series, c0.series, season, tables);
-  
-  // Fallback to learned blend (same as before)
-  const w0 = preD0
-    ? (season==="warm" ? tables.weights.D1_warm : tables.weights.D1_cool)
-    : (season==="warm" ? tables.weights.D0_warm : tables.weights.D0_cool);
-  const repBlend0  = blendedRep(preD0 ? d1CandidatesFor(today) : c0, w0, /*allowCarry*/ !preD0);
-  
-  const usedSeries = (repSeries0 != null);
-  const rep        = usedSeries ? repSeries0 : repBlend0;
-  
-  // Bias: pick lead that dominates adaptive mix; fallback to preD0 rule if we fell back
-  const leadForBias = usedSeries ? (wD0 >= wD1 ? "D0" : "D1") : (preD0 ? "D1" : "D0");
-  const bias  = pickBiasFrom(tables, leadForBias, season, usedSeries);
+    // prefer series rep using ALL forecasts (D1 + D0); fallback to learned blend for this lead+season
+    const series0 = combineSeries(c1.series, c0.series);
+    const repSeries0 = repFromSeries(series0);
+      const w0 = preD0
+        ? (season==="warm" ? tables.weights.D1_warm : tables.weights.D1_cool)
+        : (season==="warm" ? tables.weights.D0_warm : tables.weights.D0_cool);
+      const repBlend0  = blendedRep(preD0 ? d1CandidatesFor(today) : c0, w0, /*allowCarry*/ !preD0);
+      const usedSeries = (repSeries0 != null);
+      const rep        = usedSeries ? repSeries0 : repBlend0;
+
+      // season+method-matched bias
+      const bias  = pickBiasFrom(tables, preD0 ? "D1" : "D0", season, usedSeries);
       const nudge = computeYesterdayNudge();
 
       let pred = (rep == null) ? null : (rep + (bias ?? 0) + nudge);
@@ -1855,12 +1792,11 @@ function updateCorrectionBoxes() {
       const biasTxt = (round1(bias ?? 0))?.toFixed(1) ?? "0.0";
       const nudgeTxt = (nudge && Math.abs(nudge) > 0) ? ` + nudge ${nudge.toFixed(1)}` : "";
 
-    let parts = "";
-    if (usedSeries && Array.isArray(series0)) {
-      const origin = `adaptive D1/D0 mix: D1 n=${nD1}, D0 n=${nD0}; wD1=${wD1.toFixed(2)}, wD0=${wD0.toFixed(2)}`;
-      parts = `pred = series_rep (n=${series0.length}, newest-weighted • ${origin}) + ${biasTxt}${nudgeTxt}`;
-    } else {
-
+      let parts = "";
+      if (usedSeries && Array.isArray(series0)) {
+        const origin = "all forecasts for today (D1+D0)";
+        parts = `pred = series_rep (n=${series0.length}, newest-weighted • ${origin}) + ${biasTxt}${nudgeTxt}`;
+      } else {
         const ex = blendExplainer(preD0 ? d1CandidatesFor(today) : c0, w0, /*allowCarry*/ !preD0);
         parts = ex.partsTxt ? `pred = (${ex.partsTxt}) + ${biasTxt}${nudgeTxt}` : `pred = — + ${biasTxt}${nudgeTxt}`;
       }
@@ -1875,26 +1811,25 @@ function updateCorrectionBoxes() {
 
       // ---- LOGGING (keep your existing idempotency) ----
       if (rep != null && forecastChanged.today === true) {
-        const leadForLog = usedSeries ? (wD0 >= wD1 ? "D0" : "D1") : (preD0 ? "D1" : "D0");
         const repRow = latestPreHighRow(
-          getForecastRowsFor(today, leadForLog),
-          leadForLog === "D0" ? highTime : ""
+          getForecastRowsFor(today, preD0 ? "D1" : "D0"),
+          preD0 ? "" : highTime
         );
         const dlt = deltaLast3(
-          getForecastRowsFor(today, leadForLog),
+          preD0 ? getForecastRowsFor(today,"D1") : getForecastRowsFor(today,"D0"),
           repRow,
-          leadForLog === "D0" ? highTime : ""
+          preD0 ? "" : highTime
         );
-      
+
         const rmseUse = usedSeries
-          ? (tables.rmse?.[leadForLog]?.[season]?.series ?? null)
-          : (tables.rmse?.[leadForLog]?.[season]?.blend  ?? null);
-      
+          ? (tables.rmse.D0[season]?.series ?? null)
+          : (tables.rmse.D0[season]?.blend  ?? null);
+
         const payload = {
           timestamp_et: new Date().toISOString(),
           target_date: today,
-          lead_used: leadForLog,
-          is_carryover: (leadForLog === "D1") ? 1 : 0,
+          lead_used: preD0 ? "D1" : "D0",
+          is_carryover: preD0 ? 1 : 0,
           rep_forecast: Number(rep),
           delta_last3:  Number(dlt),
           issuance_iso: issuanceISOUTC(repRow),
@@ -1931,40 +1866,28 @@ function updateCorrectionBoxes() {
   if (tmrwBox) {
     const season1 = isWarmSeason(tomorrow) ? "warm" : "cool";
     const c1 = d1CandidatesFor(tomorrow);
-    const c0 = d0CandidatesFor(tomorrow, ""); // usually empty until tomorrow has same-day issuances
-
-    // Adaptive series rep across D1 + any D0 we might have
-    const { rep: repSeries1, wD1: wD1n, wD0: wD0n, nD1: nD1n, nD0: nD0n } =
-      repFromSeriesAdaptive(c1.series, c0.series, season1, tables);
-
-    // Fallback to learned D1 blend if no usable series
+    const repSeries1 = repFromSeries(c1.series);
     const w1 = season1==="warm" ? tables.weights.D1_warm : tables.weights.D1_cool;
     const repBlend1  = blendedRep(c1, w1, /*allowCarry*/ false);
-
     const usedSeries1 = (repSeries1 != null);
-    const rep1        = usedSeries1 ? repSeries1 : repBlend1;
+    const rep1 = usedSeries1 ? repSeries1 : repBlend1;
 
-    // Bias: lead that dominates the adaptive mix (or D1 if fallback)
-    const leadForBias1 = usedSeries1 ? (wD0n >= wD1n ? "D0" : "D1") : "D1";
-    const bias1   = pickBiasFrom(tables, leadForBias1, season1, usedSeries1);
-    let   pred1   = (rep1 == null) ? null : rep1 + (bias1 ?? 0);
+    const bias1 = pickBiasFrom(tables, "D1", season1, usedSeries1);
+    let pred1   = (rep1 == null) ? null : rep1 + (bias1 ?? 0);
 
-    // Clamp within combined series envelope (if any)
-    const series1All = combineSeries(c1.series, c0.series);
-    if (Array.isArray(series1All) && series1All.length && pred1 != null) {
-      const vals = series1All.map(r => Number(r.predicted_high)).filter(Number.isFinite);
+    if (Array.isArray(c1.series) && c1.series.length && pred1 != null) {
+      const vals = c1.series.map(r => Number(r.predicted_high)).filter(Number.isFinite);
       if (vals.length) {
         const lo = Math.min(...vals), hi = Math.max(...vals);
         pred1 = clamp(pred1, lo - 1, hi + 1);
       }
     }
 
-    const p1Disp   = round1(pred1);
-    const bias1Txt = (round1(bias1 ?? 0))?.toFixed(1) ?? "0.0";
+    const p1Disp  = round1(pred1);
+    const bias1Txt= (round1(bias1 ?? 0))?.toFixed(1) ?? "0.0";
     let parts1 = "";
-    if (usedSeries1) {
-      const nTot = (nD1n + nD0n);
-      parts1 = `pred = series_rep (n=${nTot}, newest-weighted • adaptive D1/D0 mix: D1 n=${nD1n}, D0 n=${nD0n}; wD1=${wD1n.toFixed(2)}, wD0=${wD0n.toFixed(2)}) + ${bias1Txt}`;
+    if (usedSeries1 && Array.isArray(c1.series)) {
+      parts1 = `pred = series_rep (n=${c1.series.length}, newest-weighted • today’s forecasts for tomorrow) + ${bias1Txt}`;
     } else {
       const ex1 = blendExplainer(c1, w1, /*allowCarry*/ false);
       parts1 = ex1.partsTxt ? `pred = (${ex1.partsTxt}) + ${bias1Txt}` : "";
@@ -1978,21 +1901,20 @@ function updateCorrectionBoxes() {
       </div>
     `;
 
-    // ---- LOGGING ----
+    // ---- LOGGING (tomorrow) ----
     if (rep1 != null && forecastChanged.tomorrow === true) {
-      const leadForLog1 = usedSeries1 ? (wD0n >= wD1n ? "D0" : "D1") : "D1";
-      const repRow1 = latestPreHighRow(getForecastRowsFor(tomorrow, leadForLog1), "");
-      const dlt1    = deltaLast3(getForecastRowsFor(tomorrow, leadForLog1), repRow1, "");
+      const repRow1 = latestPreHighRow(getForecastRowsFor(tomorrow, "D1"), "");
+      const dlt1    = deltaLast3(getForecastRowsFor(tomorrow, "D1"), repRow1, "");
 
       const rmseUse1 = usedSeries1
-        ? (tables.rmse?.[leadForLog1]?.[season1]?.series ?? null)
-        : (tables.rmse?.D1?.[season1]?.blend  ?? null);
+        ? (tables.rmse.D1[season1]?.series ?? null)
+        : (tables.rmse.D1[season1]?.blend  ?? null);
 
       const payload = {
         timestamp_et: new Date().toISOString(),
         target_date: tomorrow,
-        lead_used: leadForLog1,
-        is_carryover: (leadForLog1 === "D1") ? 1 : 0,
+        lead_used: "D1",
+        is_carryover: 0,
         rep_forecast: Number(rep1),
         delta_last3: Number(dlt1),
         issuance_iso: issuanceISOUTC(repRow1),
@@ -2022,7 +1944,7 @@ function updateCorrectionBoxes() {
       }
     }
   }
-
+}
 
   function showChart() {
     // Group rows by target/cli date (the "day" label)
@@ -2532,40 +2454,21 @@ stats.innerHTML = `
   </div>
 `;
 }
-// Expose necessary functions globally for auth script - delay to ensure all are defined
-    setTimeout(() => {
-      window.probeLoggingEndpoint = probeLoggingEndpoint;
-      window.reloadCSV = reloadCSV;
-      window.updateDSM = updateDSM;
-      window.updateSixHourMax = updateSixHourMax;
-      window.updateObservations = updateObservations;
-      window.updateSummaryBoxes = updateSummaryBoxes;
-      window.updateCorrectionBoxes = updateCorrectionBoxes;
-      window.pollCsvAndUpdate = pollCsvAndUpdate;
-      window.resetFilter = resetFilter;
-      window.displayTable = displayTable;
-      window.showStats = showStats;
-      window.showChart = showChart;
-      window.parseCSV = parseCSV;
-      window.seedForecastSignatures = seedForecastSignatures;
-      window.actualSignatureFor = actualSignatureFor;
-      window.showMostRecent = showMostRecent;
-    }, 0);
-    } 
-  </script>  
-  
-  <!-- Auth + boot (UMD) -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-  <script>
-  setTimeout(() => {
-    const supabase = window.supabase.createClient(
-      "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
-      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
-    );
+    // Expose necessary functions globally for auth script
+    window.probeLoggingEndpoint = probeLoggingEndpoint;
+    window.reloadCSV = reloadCSV;
+    window.updateDSM = updateDSM;
+    window.updateSixHourMax = updateSixHourMax;
+    window.updateObservations = updateObservations;
+    window.updateSummaryBoxes = updateSummaryBoxes;
+    window.updateCorrectionBoxes = updateCorrectionBoxes;
+    window.pollCsvAndUpdate = pollCsvAndUpdate;
+  </script>
+
   <!-- Auth + boot (UMD) -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
-setTimeout(() => {
+(() => {
   const supabase = window.supabase.createClient(
     "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
@@ -2677,8 +2580,9 @@ setTimeout(() => {
     if (!session) window.location.href = "login.html";
   });
 
-checkAccess();
-}, 500);
+  checkAccess();
+})();
 </script>
+
 </body>
 </html>
