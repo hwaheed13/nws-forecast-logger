@@ -1136,6 +1136,14 @@ function repFromSeries(rowsChrono, alpha = 0.85){
   }
   return wsum > 0 ? (vsum / wsum) : null;
 }
+function combineSeries(seriesD1, seriesD0){
+  const A = Array.isArray(seriesD1) ? seriesD1 : [];
+  const B = Array.isArray(seriesD0) ? seriesD0 : [];
+  const merged = [...A, ...B].sort((x,y)=>
+    ((x.timestamp||x.forecast_time||"").localeCompare(y.timestamp||y.forecast_time||""))
+  );
+  return collapseConsecutiveDuplicates(merged);
+}
 
 // === Calibration config (rolling/recency-weighted biases) ===
 const BIAS_WINDOW_DAYS   = 75;   // only last ~2.5 months
@@ -1752,12 +1760,12 @@ function updateCorrectionBoxes() {
       `;
     } else {
       const season = isWarmSeason(today) ? "warm" : "cool";
-      const c0 = d0CandidatesFor(today, highTime);
-      const preD0 = !c0._hasD0;
-
-      // prefer series rep; fallback to learned blend for this lead+season
-      const series0 = preD0 ? d1CandidatesFor(today).series : c0.series;
-      const repSeries0 = repFromSeries(series0);
+    const c0 = d0CandidatesFor(today, highTime);
+    const c1 = d1CandidatesFor(today);
+    const preD0 = !(c0 && c0._hasD0);
+    // prefer series rep using ALL forecasts (D1 + D0); fallback to learned blend for this lead+season
+    const series0 = combineSeries(c1.series, c0.series);
+    const repSeries0 = repFromSeries(series0);
       const w0 = preD0
         ? (season==="warm" ? tables.weights.D1_warm : tables.weights.D1_cool)
         : (season==="warm" ? tables.weights.D0_warm : tables.weights.D0_cool);
@@ -1786,7 +1794,7 @@ function updateCorrectionBoxes() {
 
       let parts = "";
       if (usedSeries && Array.isArray(series0)) {
-        const origin = preD0 ? "yesterday’s forecasts for today" : "today’s forecasts";
+        const origin = "all forecasts for today (D1+D0)";
         parts = `pred = series_rep (n=${series0.length}, newest-weighted • ${origin}) + ${biasTxt}${nudgeTxt}`;
       } else {
         const ex = blendExplainer(preD0 ? d1CandidatesFor(today) : c0, w0, /*allowCarry*/ !preD0);
