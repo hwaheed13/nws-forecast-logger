@@ -876,116 +876,194 @@
     }
 
     // ===== Learn per-bucket blend + bias =====
-    function buildBiasAndBlend() {
-      // Assemble per-day examples
-      const dayMap = new Map();
-      for (const r of allRows) {
-        const d = (r.forecast_or_actual==="actual" ? r.cli_date : r.target_date);
-        if (!d) continue;
-        if (!dayMap.has(d)) dayMap.set(d, {D0:[], D1:[], actual:null});
-        const bucket = dayMap.get(d);
-        if (r.forecast_or_actual==="forecast") {
-          const k = leadKind(r);
-          if (k==="D0") bucket.D0.push(r);
-          else if (k==="D1") bucket.D1.push(r);
-        } else if (r.actual_high) bucket.actual = r;
-      }
-
-      const examples = [];
-      for (const [iso, {D0,D1,actual}] of dayMap.entries()) {
-        if (!actual || !actual.actual_high) continue;
-        const act = Number(actual.actual_high);
-        const highTime = actual.high_time || "";
-        const warm = isWarmSeason(iso) ? "warm" : "cool";
-
-        const c0 = d0CandidatesFor(iso, highTime);
-        if (c0._hasD0) examples.push({ iso, season:warm, lead:"D0", actual:act, cand:{ first:c0.first, latest:c0.latest, trimmed:c0.trimmed, carry:c0.carry } });
-
-        const c1 = d1CandidatesFor(iso);
-        if (c1.latest!=null || c1.first!=null || c1.trimmed!=null) {
-          examples.push({ iso, season:warm, lead:"D1", actual:act, cand:{ first:c1.first, latest:c1.latest, trimmed:c1.trimmed } });
-        }
-      }
-
-      function learnWeights(rows, allowCarry) {
-        if (!rows.length) return { w:{first:0, latest:1, trimmed:0, carry:0}, mae:Infinity };
-        let best = { w:null, mae:Infinity };
-        const step = 0.1;
-        for (let f=0; f<=1; f+=step) {
-          for (let l=0; l<=1-f; l+=step) {
-            for (let t=0; t<=1-f-l; t+=step) {
-              const c = allowCarry ? (1 - f - l - t) : 0;
-              if (!allowCarry && Math.abs(1 - f - l - t) > 1e-9) continue;
-              const w = { first:f, latest:l, trimmed:t, carry:c };
-              let absSum = 0, n = 0;
-              for (const r of rows) {
-                const parts = [];
-                if (r.cand.first   != null) parts.push({v:r.cand.first,   w:w.first});
-                if (r.cand.latest  != null) parts.push({v:r.cand.latest,  w:w.latest});
-                if (r.cand.trimmed != null) parts.push({v:r.cand.trimmed, w:w.trimmed});
-                if (allowCarry && r.cand.carry != null) parts.push({v:r.cand.carry, w:w.carry});
-                if (!parts.length) continue;
-                const sumW = parts.reduce((a,b)=>a+b.w,0) || 1;
-                const rep = parts.reduce((a,b)=>a + b.v * (b.w/sumW), 0);
-                absSum += Math.abs(r.actual - rep);
-                n++;
-              }
-              if (!n) continue;
-              const mae = absSum / n;
-              if (mae < best.mae) best = { w, mae };
-            }
-          }
-        }
-        if (!best.w) best = { w:{first:0,latest:1,trimmed:0,carry:0}, mae:Infinity };
-        return best;
-      }
-
-      const buckets = {
-        D0_warm: learnWeights(examples.filter(e=>e.lead==="D0" && e.season==="warm"), true),
-        D0_cool: learnWeights(examples.filter(e=>e.lead==="D0" && e.season==="cool"), true),
-        D1_warm: learnWeights(examples.filter(e=>e.lead==="D1" && e.season==="warm"), false),
-        D1_cool: learnWeights(examples.filter(e=>e.lead==="D1" && e.season==="cool"), false),
-      };
-
-      const res = { D0:[], D1:[] };
-      for (const e of examples) {
-        const key = `${e.lead}_${e.season}`;
-        const allowCarry = e.lead==="D0";
-        const w = buckets[key]?.w || {first:0,latest:1,trimmed:0,carry:0};
-        const parts = [];
-        if (e.cand.first   != null) parts.push({v:e.cand.first,   w:w.first});
-        if (e.cand.latest  != null) parts.push({v:e.cand.latest,  w:w.latest});
-        if (e.cand.trimmed != null) parts.push({v:e.cand.trimmed, w:w.trimmed});
-        if (allowCarry && e.cand.carry != null) parts.push({v:e.cand.carry, w:w.carry});
-        if (!parts.length) continue;
-        const sumW = parts.reduce((a,b)=>a+b.w,0) || 1;
-        const rep = parts.reduce((a,b)=>a + b.v * (b.w/sumW), 0);
-        res[e.lead].push(e.actual - rep);
-      }
-
-      const tables = {
-        weights: {
-          D0_warm: buckets.D0_warm.w, D0_cool: buckets.D0_cool.w,
-          D1_warm: buckets.D1_warm.w, D1_cool: buckets.D1_cool.w
-        },
-        bias: {
-          D0: robustMean(res.D0),
-          D1: robustMean(res.D1),
-          global: robustMean([...res.D0, ...res.D1])
-        },
-        rmse: {
-          D0: (()=>{ const m=mean(res.D0.map(x=>x*x)); return m==null?null:Math.sqrt(m); })(),
-          D1: (()=>{ const m=mean(res.D1.map(x=>x*x)); return m==null?null:Math.sqrt(m); })()
-        }
-      };
-      return tables;
+function buildBiasAndBlend() {
+  // ---- Gather per-day data ----
+  const dayMap = new Map();
+  for (const r of allRows) {
+    const d = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
+    if (!d) continue;
+    if (!dayMap.has(d)) dayMap.set(d, { D0:[], D1:[], actual:null });
+    const bucket = dayMap.get(d);
+    if (r.forecast_or_actual === "forecast") {
+      const k = leadKind(r);
+      if (k === "D0") bucket.D0.push(r);
+      else if (k === "D1") bucket.D1.push(r);
+    } else if (r.actual_high) {
+      bucket.actual = r;
     }
+  }
+
+  const todayISO = nycISODate(0);
+
+  // ---- Build examples (candidates + series) ----
+  const examples = [];
+  for (const [iso, {D0, D1, actual}] of dayMap.entries()) {
+    if (!actual || !actual.actual_high) continue;
+    const act = Number(actual.actual_high);
+    const highTime = actual.high_time || "";
+    const season = isWarmSeason(iso) ? "warm" : "cool";
+
+    // D0 entry (same-day issuances)
+    const c0 = d0CandidatesFor(iso, highTime);
+    if (c0._hasD0) {
+      examples.push({
+        iso, season, lead: "D0", actual: act,
+        cand: { first:c0.first, latest:c0.latest, trimmed:c0.trimmed, carry:c0.carry },
+        series: c0.series
+      });
+    }
+
+    // D1 entry (yesterday's issuances for this target)
+    const c1 = d1CandidatesFor(iso);
+    if (c1.first!=null || c1.latest!=null || c1.trimmed!=null) {
+      examples.push({
+        iso, season, lead: "D1", actual: act,
+        cand: { first:c1.first, latest:c1.latest, trimmed:c1.trimmed },
+        series: c1.series
+      });
+    }
+  }
+
+  // ---- Learn blend weights (per lead+season) ----
+  function learnWeights(rows, allowCarry) {
+    if (!rows.length) return { w:{first:0, latest:1, trimmed:0, carry:0}, mae:Infinity };
+    let best = { w:null, mae:Infinity };
+    const step = 0.1;
+    for (let f=0; f<=1; f+=step) {
+      for (let l=0; l<=1-f; l+=step) {
+        for (let t=0; t<=1-f-l; t+=step) {
+          const c = allowCarry ? (1 - f - l - t) : 0;
+          if (!allowCarry && Math.abs(1 - f - l - t) > 1e-9) continue;
+          const w = { first:f, latest:l, trimmed:t, carry:c };
+
+          // MAE vs actual using this blend
+          let absSum=0, n=0;
+          for (const r of rows) {
+            const parts=[];
+            if (r.cand.first   != null) parts.push({v:r.cand.first,   w:w.first});
+            if (r.cand.latest  != null) parts.push({v:r.cand.latest,  w:w.latest});
+            if (r.cand.trimmed != null) parts.push({v:r.cand.trimmed, w:w.trimmed});
+            if (allowCarry && r.cand.carry != null) parts.push({v:r.cand.carry, w:w.carry});
+            if (!parts.length) continue;
+            const sumW = parts.reduce((a,b)=>a+b.w,0) || 1;
+            const rep  = parts.reduce((a,b)=>a + b.v * (b.w/sumW), 0);
+            absSum += Math.abs(r.actual - rep);
+            n++;
+          }
+          if (!n) continue;
+          const mae = absSum / n;
+          if (mae < best.mae) best = { w, mae };
+        }
+      }
+    }
+    if (!best.w) best = { w:{first:0,latest:1,trimmed:0,carry:0}, mae:Infinity };
+    return best;
+  }
+
+  const D0_warm = learnWeights(examples.filter(e=>e.lead==="D0" && e.season==="warm"), true);
+  const D0_cool = learnWeights(examples.filter(e=>e.lead==="D0" && e.season==="cool"), true);
+  const D1_warm = learnWeights(examples.filter(e=>e.lead==="D1" && e.season==="warm"), false);
+  const D1_cool = learnWeights(examples.filter(e=>e.lead==="D1" && e.season==="cool"), false);
+
+  const weights = {
+    D0_warm: D0_warm.w, D0_cool: D0_cool.w,
+    D1_warm: D1_warm.w, D1_cool: D1_cool.w
+  };
+
+  // ---- Compute residuals for series & blend (rolling window, recency-weighted) ----
+  const res = {
+    series: { D0:{warm:[], cool:[]}, D1:{warm:[], cool:[]} },
+    blend:  { D0:{warm:[], cool:[]}, D1:{warm:[], cool:[]} }
+  };
+
+  for (const e of examples) {
+    const age = Math.max(0, daysBetween(e.iso, todayISO));
+    if (age > BIAS_WINDOW_DAYS) continue; // rolling window
+    const decay = Math.pow(2, -age/DECAY_HALF_LIFE);
+
+    // series representative (EMA of deduped series)
+    const repSeries = repFromSeries(e.series);
+    if (repSeries != null) {
+      const r = clamp(e.actual - repSeries, -RESIDUAL_CLAMP, RESIDUAL_CLAMP);
+      res.series[e.lead][e.season].push({ r, w:decay });
+    }
+
+    // blend representative (using learned weights)
+    const key = `${e.lead}_${e.season}`;
+    const w   = weights[key] || { first:0, latest:1, trimmed:0, carry:0 };
+    const parts=[];
+    if (e.cand.first   != null) parts.push({v:e.cand.first,   w:w.first});
+    if (e.cand.latest  != null) parts.push({v:e.cand.latest,  w:w.latest});
+    if (e.cand.trimmed != null) parts.push({v:e.cand.trimmed, w:w.trimmed});
+    if (e.lead==="D0" && e.cand.carry != null) parts.push({v:e.cand.carry, w:w.carry});
+    if (parts.length){
+      const sumW = parts.reduce((a,b)=>a+b.w,0) || 1;
+      const rep  = parts.reduce((a,b)=>a + b.v * (b.w/sumW), 0);
+      const r    = clamp(e.actual - rep, -RESIDUAL_CLAMP, RESIDUAL_CLAMP);
+      res.blend[e.lead][e.season].push({ r, w:decay });
+    }
+  }
+
+  function weightedMeanResidual(arr){
+    if (!arr.length) return null;
+    return wmean(arr.map(x=>x.r), arr.map(x=>x.w));
+  }
+  function weightedRMSE(arr){
+    if (!arr.length) return null;
+    const xs = arr.map(x=>x.r*x.r), ws = arr.map(x=>x.w);
+    const m = wmean(xs, ws);
+    return m==null ? null : Math.sqrt(m);
+  }
+
+  const bias = {
+    D0: {
+      warm: { series: weightedMeanResidual(res.series.D0.warm), blend: weightedMeanResidual(res.blend.D0.warm) },
+      cool: { series: weightedMeanResidual(res.series.D0.cool), blend: weightedMeanResidual(res.blend.D0.cool) }
+    },
+    D1: {
+      warm: { series: weightedMeanResidual(res.series.D1.warm), blend: weightedMeanResidual(res.blend.D1.warm) },
+      cool: { series: weightedMeanResidual(res.series.D1.cool), blend: weightedMeanResidual(res.blend.D1.cool) }
+    },
+    global: {
+      warm: {
+        series: weightedMeanResidual([...res.series.D0.warm, ...res.series.D1.warm]),
+        blend:  weightedMeanResidual([...res.blend.D0.warm,  ...res.blend.D1.warm])
+      },
+      cool: {
+        series: weightedMeanResidual([...res.series.D0.cool, ...res.series.D1.cool]),
+        blend:  weightedMeanResidual([...res.blend.D0.cool,  ...res.blend.D1.cool])
+      },
+      all: weightedMeanResidual([
+        ...res.series.D0.warm, ...res.series.D1.warm,
+        ...res.series.D0.cool, ...res.series.D1.cool
+      ]) ?? 0
+    }
+  };
+
+  const rmse = {
+    D0: {
+      warm: { series: weightedRMSE(res.series.D0.warm), blend: weightedRMSE(res.blend.D0.warm) },
+      cool: { series: weightedRMSE(res.series.D0.cool), blend: weightedRMSE(res.blend.D0.cool) }
+    },
+    D1: {
+      warm: { series: weightedRMSE(res.series.D1.warm), blend: weightedRMSE(res.blend.D1.warm) },
+      cool: { series: weightedRMSE(res.series.D1.cool), blend: weightedRMSE(res.blend.D1.cool) }
+    }
+  };
+
+  return { weights, bias, rmse };
+}
 
     // Pick bias (lead-level with safe fallback)
-    function pickBiasFrom(tables, lead){
-      const b = lead==="D0" ? tables.bias.D0 : lead==="D1" ? tables.bias.D1 : null;
-      return (b==null || !Number.isFinite(b)) ? (tables.bias.global ?? 0) : b;
-    }
+  function pickBiasFrom(tables, lead, season, usedSeries){
+  const method = usedSeries ? "series" : "blend";
+  const s = (season === "warm" || season === "cool") ? season : "warm";
+  const byLead = tables?.bias?.[lead]?.[s]?.[method];
+  if (Number.isFinite(byLead)) return byLead;
+  const bySeason = tables?.bias?.global?.[s]?.[method];
+  if (Number.isFinite(bySeason)) return bySeason;
+  return tables?.bias?.global?.all ?? 0;
+}
 
     // Blend helper
     function blendedRep(cands, weights, allowCarry) {
@@ -1057,6 +1135,27 @@ function repFromSeries(rowsChrono, alpha = 0.85){
     w *= alpha;
   }
   return wsum > 0 ? (vsum / wsum) : null;
+}
+
+// === Calibration config (rolling/recency-weighted biases) ===
+const BIAS_WINDOW_DAYS   = 75;   // only last ~2.5 months
+const DECAY_HALF_LIFE    = 30;   // days; recency weighting for biases
+const RESIDUAL_CLAMP     = 6;    // °F; soft outlier guard
+
+function daysBetween(iso1, iso2){
+  if(!iso1 || !iso2) return 0;
+  const d1=new Date(iso1+"T00:00:00"), d2=new Date(iso2+"T00:00:00");
+  return Math.round((d2-d1)/86400000);
+}
+function clamp(x, lo, hi){ return Math.max(lo, Math.min(hi, x)); }
+function wmean(xs, ws){
+  let num=0, den=0;
+  for (let i=0;i<xs.length;i++){
+    const x=xs[i], w=ws[i] ?? 1;
+    if (!Number.isFinite(x) || w<=0) continue;
+    num += x*w; den += w;
+  }
+  return den>0 ? num/den : null;
 }
 
     // ===== Feature helpers for logging =====
@@ -1605,95 +1704,134 @@ function actualSignatureFor(rows) {
       );
     }
 
-   function updateCorrectionBoxes() {
+function updateCorrectionBoxes() {
   const tables   = buildBiasAndBlend();
   const today    = nycISODate(0);
   const tomorrow = nycISODate(1);
-  const INSTANT_FEEDBACK_LAMBDA = 0.30; // 0.2–0.5 typical
-  const INSTANT_DEADBAND        = 0.3;  // ignore tiny noise
-  const INSTANT_CAP             = 2.0;  // max absolute nudge (°F)
+  const yesterday= nycISODate(-1);
 
- // Today actual (to enforce pre-high gating)
-  const todayActual = allRows.find(
-    r => r.forecast_or_actual === "actual" && r.cli_date === today && r.actual_high
-  );
+  // instant-feedback nudge config (small, capped)
+  const INSTANT_FEEDBACK_LAMBDA = 0.30;
+  const INSTANT_DEADBAND        = 0.30;
+  const INSTANT_CAP             = 2.0;
 
-  const highTime = todayActual ? todayActual.high_time : "";
+  // helper to compute a small “yesterday error” nudge
+  function computeYesterdayNudge() {
+    const a = allRows.find(r => r.forecast_or_actual==="actual" && r.cli_date===yesterday && r.actual_high);
+    if (!a) return 0;
+    const seasonY = isWarmSeason(yesterday) ? "warm" : "cool";
+    const highTimeY = a.high_time || "";
+    const c0y = d0CandidatesFor(yesterday, highTimeY);
+    const preD0y = !c0y._hasD0;
+    const seriesY = preD0y ? d1CandidatesFor(yesterday).series : c0y.series;
+    const repSeriesY = repFromSeries(seriesY);
+    const wKeyY = preD0y
+      ? (seasonY==="warm" ? tables.weights.D1_warm : tables.weights.D1_cool)
+      : (seasonY==="warm" ? tables.weights.D0_warm : tables.weights.D0_cool);
+    const repBlendY = blendedRep(preD0y ? d1CandidatesFor(yesterday) : c0y, wKeyY, /*allowCarry*/ !preD0y);
+    const usedSeriesY = (repSeriesY != null);
+    const repY = usedSeriesY ? repSeriesY : repBlendY;
+    if (repY == null) return 0;
+    const biasY = pickBiasFrom(tables, preD0y ? "D1" : "D0", seasonY, usedSeriesY);
+    const errY  = Number(a.actual_high) - (repY + (biasY ?? 0)); // + => we ran low yesterday
+    const mag   = Math.max(0, Math.abs(errY) - INSTANT_DEADBAND);
+    const nud   = clamp(INSTANT_FEEDBACK_LAMBDA * Math.sign(errY) * mag, -INSTANT_CAP, INSTANT_CAP);
+    return nud;
+  }
 
   // ---------- TODAY ----------
   const todayBox = document.getElementById("correctionBoxToday");
   if (todayBox) {
+    const todayActual = allRows.find(r => r.forecast_or_actual === "actual" && r.cli_date === today && r.actual_high);
+    const highTime = todayActual ? todayActual.high_time : "";
+
     if (todayActual) {
       todayBox.innerHTML = `
         <div class="prediction-value">—</div>
         <div class="prediction-subtitle">Actual published for ${today}</div>
       `;
     } else {
- // ——— TODAY (replace your whole block with this) ———
-    const c0       = d0CandidatesFor(today, highTime);  // D0 intraday; series may be empty at 00:00
-    const warmKey  = isWarmSeason(today) ? "D0_warm" : "D0_cool";
-    const w0       = tables.weights[warmKey] || { first:0, latest:1, trimmed:0, carry:0 };
-    
-    // If no D0 yet, use yesterday's D1 series for today as the series_rep input
-    const preD0    = !c0._hasD0;
-    const series0  = preD0 ? d1CandidatesFor(today).series : c0.series;
-    
-    const repSeries0 = repFromSeries(series0);
-    const repBlend0  = blendedRep(c0, w0, /*allowCarry*/ true);   // fallback if series is empty
-    const rep        = (repSeries0 != null) ? repSeries0 : repBlend0;
-    
-    const bias    = pickBiasFrom(tables, preD0 ? "D1" : "D0");
-    const pred    = (rep == null) ? null : rep + bias;
-    const pDisp   = round1(pred);
-    
-    // Build the subtitle formula (series vs blend)
-    let parts = "";
-    const biasTxt = (round1(bias ?? 0))?.toFixed(1) ?? "0.0";
-    if (repSeries0 != null && Array.isArray(series0)) {
-      // plain-English, no D0/D1 jargon
-      const origin = preD0 ? "yesterday’s forecasts for today" : "today’s forecasts";
-      parts = `pred = series_rep (n=${series0.length}, newest-weighted • ${origin}) + ${biasTxt}`;
-    } else {
-      const ex = blendExplainer(c0, w0, /*allowCarry*/ true);
-      parts = ex.partsTxt ? `pred = (${ex.partsTxt}) + ${biasTxt}` : `pred = — + ${biasTxt}`;
-    }
-    
-    todayBox.innerHTML = `
-      <div class="prediction-value">${pDisp == null ? "–" : `${pDisp.toFixed(1)}°F`}</div>
-      <div class="prediction-subtitle">
-        For ${today}
-        ${parts ? `<br><small style="opacity:.75">${parts}</small>` : ""}
-      </div>
-    `;
+      const season = isWarmSeason(today) ? "warm" : "cool";
+      const c0 = d0CandidatesFor(today, highTime);
+      const preD0 = !c0._hasD0;
 
+      // prefer series rep; fallback to learned blend for this lead+season
+      const series0 = preD0 ? d1CandidatesFor(today).series : c0.series;
+      const repSeries0 = repFromSeries(series0);
+      const w0 = preD0
+        ? (season==="warm" ? tables.weights.D1_warm : tables.weights.D1_cool)
+        : (season==="warm" ? tables.weights.D0_warm : tables.weights.D0_cool);
+      const repBlend0  = blendedRep(preD0 ? d1CandidatesFor(today) : c0, w0, /*allowCarry*/ !preD0);
+      const usedSeries = (repSeries0 != null);
+      const rep        = usedSeries ? repSeries0 : repBlend0;
 
-      // ✅ Logging (Today) — only if forecast set changed AND still pre-high
+      // season+method-matched bias
+      const bias  = pickBiasFrom(tables, preD0 ? "D1" : "D0", season, usedSeries);
+      const nudge = computeYesterdayNudge();
+
+      let pred = (rep == null) ? null : (rep + (bias ?? 0) + nudge);
+
+      // clamp near envelope of current series if available
+      if (Array.isArray(series0) && series0.length && pred != null) {
+        const vals = series0.map(r => Number(r.predicted_high)).filter(Number.isFinite);
+        if (vals.length) {
+          const lo = Math.min(...vals), hi = Math.max(...vals);
+          pred = clamp(pred, lo - 1, hi + 1);
+        }
+      }
+
+      const pDisp = round1(pred);
+      const biasTxt = (round1(bias ?? 0))?.toFixed(1) ?? "0.0";
+      const nudgeTxt = (nudge && Math.abs(nudge) > 0) ? ` + nudge ${nudge.toFixed(1)}` : "";
+
+      let parts = "";
+      if (usedSeries && Array.isArray(series0)) {
+        const origin = preD0 ? "yesterday’s forecasts for today" : "today’s forecasts";
+        parts = `pred = series_rep (n=${series0.length}, newest-weighted • ${origin}) + ${biasTxt}${nudgeTxt}`;
+      } else {
+        const ex = blendExplainer(preD0 ? d1CandidatesFor(today) : c0, w0, /*allowCarry*/ !preD0);
+        parts = ex.partsTxt ? `pred = (${ex.partsTxt}) + ${biasTxt}${nudgeTxt}` : `pred = — + ${biasTxt}${nudgeTxt}`;
+      }
+
+      todayBox.innerHTML = `
+        <div class="prediction-value">${pDisp == null ? "–" : `${pDisp.toFixed(1)}°F`}</div>
+        <div class="prediction-subtitle">
+          For ${today}
+          <br><small style="opacity:.75">${parts}</small>
+        </div>
+      `;
+
+      // ---- LOGGING (keep your existing idempotency) ----
       if (rep != null && forecastChanged.today === true) {
         const repRow = latestPreHighRow(
-          getForecastRowsFor(today, c0._hasD0 ? "D0" : "D1"),
-          c0._hasD0 ? highTime : ""
+          getForecastRowsFor(today, preD0 ? "D1" : "D0"),
+          preD0 ? "" : highTime
         );
         const dlt = deltaLast3(
-          c0._hasD0 ? getForecastRowsFor(today,"D0") : getForecastRowsFor(today,"D1"),
+          preD0 ? getForecastRowsFor(today,"D1") : getForecastRowsFor(today,"D0"),
           repRow,
-          c0._hasD0 ? highTime : ""
+          preD0 ? "" : highTime
         );
+
+        const rmseUse = usedSeries
+          ? (tables.rmse.D0[season]?.series ?? null)
+          : (tables.rmse.D0[season]?.blend  ?? null);
 
         const payload = {
           timestamp_et: new Date().toISOString(),
           target_date: today,
-          lead_used: c0._hasD0 ? "D0" : "D1",
-          is_carryover: c0._hasD0 ? 0 : 1,
+          lead_used: preD0 ? "D1" : "D0",
+          is_carryover: preD0 ? 1 : 0,
           rep_forecast: Number(rep),
           delta_last3:  Number(dlt),
           issuance_iso: issuanceISOUTC(repRow),
           issuance_hour_local: issuanceHourET(repRow),
-          season: isWarmSeason(today) ? "warm" : "cool",
+          season,
           bias_applied: Number(bias ?? 0),
           prediction_value: Number(pred),
-          uncertainty_rmse: stableRound(tables.rmse.D0 ?? 0, 1),
-          model_name: "seasonal_lead_bias_blended_rep",
-          version: "v1.1"
+          uncertainty_rmse: stableRound(rmseUse ?? 0, 1),
+          model_name: "seasonal_lead_bias_series_or_blend",
+          version: "v2.0"
         };
 
         const sigToday = buildPredSignature({
@@ -1715,79 +1853,89 @@ function actualSignatureFor(rows) {
     }
   }
 
-// ---------- TOMORROW ----------
-const tmrwBox = document.getElementById("correctionBoxTomorrow");
-if (tmrwBox) {
-  const c1       = d1CandidatesFor(tomorrow); // all of today's issuances for tomorrow
-  const warmKey1 = isWarmSeason(tomorrow) ? "D1_warm" : "D1_cool";
-  const w1       = tables.weights[warmKey1] || { first:0, latest:1, trimmed:0 };
+  // ---------- TOMORROW ----------
+  const tmrwBox = document.getElementById("correctionBoxTomorrow");
+  if (tmrwBox) {
+    const season1 = isWarmSeason(tomorrow) ? "warm" : "cool";
+    const c1 = d1CandidatesFor(tomorrow);
+    const repSeries1 = repFromSeries(c1.series);
+    const w1 = season1==="warm" ? tables.weights.D1_warm : tables.weights.D1_cool;
+    const repBlend1  = blendedRep(c1, w1, /*allowCarry*/ false);
+    const usedSeries1 = (repSeries1 != null);
+    const rep1 = usedSeries1 ? repSeries1 : repBlend1;
 
-  // Prefer newest-weighted series_rep; fall back to weighted blend
-  const repSeries1 = repFromSeries(c1.series);
-  const repBlend1  = blendedRep(c1, w1, /*allowCarry*/ false);
-  const rep1       = (repSeries1 != null) ? repSeries1 : repBlend1;
+    const bias1 = pickBiasFrom(tables, "D1", season1, usedSeries1);
+    let pred1   = (rep1 == null) ? null : rep1 + (bias1 ?? 0);
 
-  const bias1   = pickBiasFrom(tables, "D1");
-  const pred1   = (rep1 == null) ? null : rep1 + bias1;
-  const p1Disp  = round1(pred1);
+    if (Array.isArray(c1.series) && c1.series.length && pred1 != null) {
+      const vals = c1.series.map(r => Number(r.predicted_high)).filter(Number.isFinite);
+      if (vals.length) {
+        const lo = Math.min(...vals), hi = Math.max(...vals);
+        pred1 = clamp(pred1, lo - 1, hi + 1);
+      }
+    }
 
-  // Subtitle formula
-  let parts1 = "";
-  const bias1Txt = (round1(bias1 ?? 0))?.toFixed(1) ?? "0.0";
-  if (repSeries1 != null && Array.isArray(c1.series)) {
-    parts1 = `pred = series_rep (n=${c1.series.length}, newest-weighted • today’s forecasts for tomorrow) + ${bias1Txt}`;
-  } else {
-    const ex1 = blendExplainer(c1, w1, /*allowCarry*/ false);
-    parts1 = ex1.partsTxt ? `pred = (${ex1.partsTxt}) + ${bias1Txt}` : "";
-  }
+    const p1Disp  = round1(pred1);
+    const bias1Txt= (round1(bias1 ?? 0))?.toFixed(1) ?? "0.0";
+    let parts1 = "";
+    if (usedSeries1 && Array.isArray(c1.series)) {
+      parts1 = `pred = series_rep (n=${c1.series.length}, newest-weighted • today’s forecasts for tomorrow) + ${bias1Txt}`;
+    } else {
+      const ex1 = blendExplainer(c1, w1, /*allowCarry*/ false);
+      parts1 = ex1.partsTxt ? `pred = (${ex1.partsTxt}) + ${bias1Txt}` : "";
+    }
 
-  tmrwBox.innerHTML = `
-    <div class="prediction-value">${p1Disp == null ? "–" : `${p1Disp.toFixed(1)}°F`}</div>
-    <div class="prediction-subtitle">
-      For ${tomorrow}
-      ${parts1 ? `<br><small style="opacity:.75">${parts1}</small>` : ""}
-    </div>
-  `;
+    tmrwBox.innerHTML = `
+      <div class="prediction-value">${p1Disp == null ? "–" : `${p1Disp.toFixed(1)}°F`}</div>
+      <div class="prediction-subtitle">
+        For ${tomorrow}
+        ${parts1 ? `<br><small style="opacity:.75">${parts1}</small>` : ""}
+      </div>
+    `;
 
-  // ---- LOGGING: keep in-scope with the values above ----
-  if (rep1 != null && forecastChanged.tomorrow === true) {
-    const repRow1 = latestPreHighRow(getForecastRowsFor(tomorrow, "D1"), "");
-    const dlt1    = deltaLast3(getForecastRowsFor(tomorrow, "D1"), repRow1, "");
+    // ---- LOGGING (tomorrow) ----
+    if (rep1 != null && forecastChanged.tomorrow === true) {
+      const repRow1 = latestPreHighRow(getForecastRowsFor(tomorrow, "D1"), "");
+      const dlt1    = deltaLast3(getForecastRowsFor(tomorrow, "D1"), repRow1, "");
 
-    const payload = {
-      timestamp_et: new Date().toISOString(),
-      target_date: tomorrow,
-      lead_used: "D1",
-      is_carryover: 0,
-      rep_forecast: Number(rep1),
-      delta_last3: Number(dlt1),
-      issuance_iso: issuanceISOUTC(repRow1),
-      issuance_hour_local: issuanceHourET(repRow1),
-      season: isWarmSeason(tomorrow) ? "warm" : "cool",
-      bias_applied: Number(bias1 ?? 0),
-      prediction_value: Number(pred1),
-      uncertainty_rmse: stableRound(tables.rmse.D1 ?? 0, 1),
-      model_name: "seasonal_lead_bias_blended_rep",
-      version: "v1.1"
-    };
+      const rmseUse1 = usedSeries1
+        ? (tables.rmse.D1[season1]?.series ?? null)
+        : (tables.rmse.D1[season1]?.blend  ?? null);
 
-    const sigTomorrow = buildPredSignature({
-      target_date: payload.target_date,
-      lead_used: payload.lead_used,
-      issuance_iso: payload.issuance_iso,
-      rep_forecast: payload.rep_forecast,
-      bias_applied: payload.bias_applied,
-      prediction_value: payload.prediction_value,
-      model_name: payload.model_name,
-      version: payload.version
-    });
+      const payload = {
+        timestamp_et: new Date().toISOString(),
+        target_date: tomorrow,
+        lead_used: "D1",
+        is_carryover: 0,
+        rep_forecast: Number(rep1),
+        delta_last3: Number(dlt1),
+        issuance_iso: issuanceISOUTC(repRow1),
+        issuance_hour_local: issuanceHourET(repRow1),
+        season: season1,
+        bias_applied: Number(bias1 ?? 0),
+        prediction_value: Number(pred1),
+        uncertainty_rmse: stableRound(rmseUse1 ?? 0, 1),
+        model_name: "seasonal_lead_bias_series_or_blend",
+        version: "v2.0"
+      };
 
-    if (sigTomorrow && sigTomorrow !== loggedSig.tomorrow) {
-      logPrediction(payload);
-      setLoggedSig("tomorrow", sigTomorrow);
+      const sigTomorrow = buildPredSignature({
+        target_date: payload.target_date,
+        lead_used: payload.lead_used,
+        issuance_iso: payload.issuance_iso,
+        rep_forecast: payload.rep_forecast,
+        bias_applied: payload.bias_applied,
+        prediction_value: payload.prediction_value,
+        model_name: payload.model_name,
+        version: payload.version
+      });
+
+      if (sigTomorrow && sigTomorrow !== loggedSig.tomorrow) {
+        logPrediction(payload);
+        setLoggedSig("tomorrow", sigTomorrow);
+      }
     }
   }
-}
 }
 
   function showChart() {
