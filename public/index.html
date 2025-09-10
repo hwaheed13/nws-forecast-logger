@@ -2532,7 +2532,7 @@ stats.innerHTML = `
   </div>
 `;
 }
-    // Expose necessary functions globally for auth script
+ // Expose necessary functions globally for auth script
     window.probeLoggingEndpoint = probeLoggingEndpoint;
     window.reloadCSV = reloadCSV;
     window.updateDSM = updateDSM;
@@ -2541,9 +2541,12 @@ stats.innerHTML = `
     window.updateSummaryBoxes = updateSummaryBoxes;
     window.updateCorrectionBoxes = updateCorrectionBoxes;
     window.pollCsvAndUpdate = pollCsvAndUpdate;
-}
+    window.resetFilter = resetFilter;
+    window.displayTable = displayTable;
+    window.showStats = showStats;
+    window.showChart = showChart;
+  }  
   </script>
-
   <!-- Auth + boot (UMD) -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
