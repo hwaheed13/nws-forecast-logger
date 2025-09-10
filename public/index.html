@@ -2532,21 +2532,25 @@ stats.innerHTML = `
   </div>
 `;
 }
-    // Expose necessary functions globally for auth script
-    window.probeLoggingEndpoint = probeLoggingEndpoint;
-    window.reloadCSV = reloadCSV;
-    window.updateDSM = updateDSM;
-    window.updateSixHourMax = updateSixHourMax;
-    window.updateObservations = updateObservations;
-    window.updateSummaryBoxes = updateSummaryBoxes;
-    window.updateCorrectionBoxes = updateCorrectionBoxes;
-    window.pollCsvAndUpdate = pollCsvAndUpdate;
-    window.resetFilter = resetFilter;
-    window.displayTable = displayTable;
-    window.showStats = showStats;
-    window.showChart = showChart;
-  }  // closing brace
-  </script>
+// Expose necessary functions globally for auth script - delay to ensure all are defined
+    setTimeout(() => {
+      window.probeLoggingEndpoint = probeLoggingEndpoint;
+      window.reloadCSV = reloadCSV;
+      window.updateDSM = updateDSM;
+      window.updateSixHourMax = updateSixHourMax;
+      window.updateObservations = updateObservations;
+      window.updateSummaryBoxes = updateSummaryBoxes;
+      window.updateCorrectionBoxes = updateCorrectionBoxes;
+      window.pollCsvAndUpdate = pollCsvAndUpdate;
+      window.resetFilter = resetFilter;
+      window.displayTable = displayTable;
+      window.showStats = showStats;
+      window.showChart = showChart;
+      window.parseCSV = parseCSV;
+      window.seedForecastSignatures = seedForecastSignatures;
+      window.actualSignatureFor = actualSignatureFor;
+      window.showMostRecent = showMostRecent;
+    }, 0);
   <!-- Auth + boot (UMD) -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
