@@ -780,7 +780,32 @@ function updateHedgeOnActual(lead, season, candidates, actual, dayISO){
   }
 }
 window.pretrainFromHistory = pretrainFromHistory;
-// ADD BLOCK ↑↑↑
+function resetHedgeState(){
+  const keys = [];
+  for (let i=0; i<localStorage.length; i++){
+    const k = localStorage.key(i);
+    if (k && k.startsWith(`${ENS_KEY}:`)) keys.push(k);
+  }
+  keys.forEach(k => localStorage.removeItem(k));
+}
+
+function historySignature(){
+  const last = allRows[allRows.length-1] || {};
+  return `${allRows.length}|${last.timestamp||last.date_pulled||''}|${last.cli_date||last.target_date||''}`;
+}
+
+async function warmOnceForCurrentCSV(){
+  const sigKey = `${ENS_KEY}:trained_sig`;
+  const sig = historySignature();
+  if (localStorage.getItem(sigKey) === sig) return;  // already warmed for this data
+  resetHedgeState();           // start from clean state
+  pretrainFromHistory();       // train on CSV once
+  try { localStorage.setItem(sigKey, sig); } catch {}
+}
+
+// optional: expose for debugging
+window.resetHedgeState = resetHedgeState;
+window.warmOnceForCurrentCSV = warmOnceForCurrentCSV;
 
     // === Header date (ET) ===
       function showTodayDate() {
@@ -836,7 +861,8 @@ window.pretrainFromHistory = pretrainFromHistory;
       }
     }
 
-    function reloadCSV() {
+    function reloadCSV(opts = {}) {
+    const skipUI = !!opts.skipUI;
       showSkeleton();
       return fetch(CSV_URL + "?" + Date.now())
         .then(r => r.text())
@@ -846,12 +872,13 @@ window.pretrainFromHistory = pretrainFromHistory;
           lastActualSig = actualSignatureFor(allRows);
           forecastChanged.today = false; // initial load never logs
           forecastChanged.tomorrow = false;
+          if (!skipUI) {
           resetFilter();
           showMostRecent();
           updateSummaryBoxes();
           updateCorrectionBoxes();
           updateObservations();
-        })
+        }})
         .catch(err => {
           alert("Could not load CSV. " + err);
           throw err;
@@ -2531,8 +2558,14 @@ stats.innerHTML = `
 
     try { window.probeLoggingEndpoint && await window.probeLoggingEndpoint(); } catch {}
 
-    try { window.reloadCSV && await window.reloadCSV(); } catch {}
-    try { window.pretrainFromHistory && await window.pretrainFromHistory(); } catch {}
+     try { window.reloadCSV && await window.reloadCSV({ skipUI: true }); } catch {}
+  try { window.warmOnceForCurrentCSV && await window.warmOnceForCurrentCSV(); } catch {}
+    // now paint the UI once, with warmed state
+    try { window.resetFilter && window.resetFilter(); } catch {}
+    try { window.showMostRecent && window.showMostRecent(); } catch {}
+    try { window.updateSummaryBoxes && window.updateSummaryBoxes(); } catch {}
+    try { window.updateCorrectionBoxes && window.updateCorrectionBoxes(); } catch {}
+    try { window.updateObservations && window.updateObservations(); } catch {}
     try { window.updateDSM && window.updateDSM(); } catch {}
     try { window.updateSixHourMax && window.updateSixHourMax(); } catch {}
     try { window.updateObservations && window.updateObservations(); } catch {}
@@ -2586,9 +2619,9 @@ stats.innerHTML = `
         return;
       }
 
-      // Allowed → show app and boot
-      try { window.showApp && window.showApp(); } catch {}
-      await bootApp();
+    // Allowed → boot first, then show
+    await bootApp();
+    try { window.showApp && window.showApp(); } catch {}
 
     } catch (e) {
       console.error("checkAccess failed", e);
