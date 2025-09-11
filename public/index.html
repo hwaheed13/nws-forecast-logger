@@ -613,7 +613,7 @@
     /* ========= DATA + UI ========= */
     let allRows = [], filteredRows = [], chartInstance = null;
     // === Online ensemble (Hedge) + Bias EWMA (self-learning) =====================
-const ENS_KEY = "hedge_v1";               // bump to reset everything
+const ENS_KEY = "hedge_v2";               // bump to reset everything
 const ETA = 0.25;                         // learning rate per °F (Hedge)
 const MIX_GAMMA = 0.02;                   // uniform mix-in to avoid collapse
 const DECAY_PER_DAY = 0.997;              // gently decay old info
@@ -1591,6 +1591,14 @@ if (actualChanged) {
       const season = isWarmSeason(todayISO) ? "warm" : "cool";
       const built  = buildCandidatesForDay(todayISO, a.high_time || "");
       updateHedgeOnActual("today", season, built.candidates, Number(a.actual_high), todayISO);
+        // also teach the "tomorrow" model using D1-only candidates for the resolved day
+      const c1today = d1CandidatesFor(todayISO);
+      const tmCands = {};
+      if (c1today.latest  != null) tmCands.D1_latest  = Number(c1today.latest);
+      if (c1today.trimmed != null) tmCands.D1_trimmed = Number(c1today.trimmed);
+      const rep1 = repFromSeries(c1today.series);
+      if (rep1 != null) tmCands.series_rep = Number(rep1);
+      updateHedgeOnActual("tomorrow", season, tmCands, Number(a.actual_high), todayISO);
     }
   } catch(_) {}
 }
