@@ -1935,7 +1935,7 @@ function updateCorrectionBoxes() {
         <div class="prediction-subtitle">
           For ${today}
          <br><small style="opacity:.75">
-           pred = blend(yesterday-for-today, today-for-today, trend) + bias • clamp ±pad • auto-updates until CLI posts
+           pred = blend(y→t, t→t, trend) + bias • clamp ±pad • auto updates
         </small>
         </div>
       `;
@@ -1960,7 +1960,8 @@ function updateCorrectionBoxes() {
       <div class="prediction-subtitle">
         For ${tomorrow}
         <br><small style="opacity:.75">
-          pred = blend(today-for-tomorrow, trend) + bias • clamp ±pad • auto-updates
+          pred = blend(t→tm, trend) + bias • clamp ±pad • auto-updates
+
         </small>
       </div>
     `;
