@@ -2496,18 +2496,21 @@ stats.innerHTML = `
   );
 
   const gate = document.getElementById("gate");
-  function gateMsg(msg){ const sub = gate?.querySelector(".gate-sub"); if (sub && msg) sub.textContent = msg; }
+  function gateMsg(msg){
+    const sub = gate && gate.querySelector(".gate-sub");
+    if (sub && msg) sub.textContent = msg;
+  }
 
   // Buttons
   document.getElementById("btn-logout")?.addEventListener("click", async () => {
-    await supabase.auth.signOut();
-    try { localStorage.removeItem("dashboard_heartbeat"); } catch {}
+    try { await supabase.auth.signOut(); } catch(e) {}
+    try { localStorage.removeItem("dashboard_heartbeat"); } catch(e) {}
     window.location.href = "login.html";
   });
 
   document.getElementById("btn-billing")?.addEventListener("click", async () => {
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return (window.location.href = "login.html");
+    if (!session) { window.location.href = "login.html"; return; }
     try {
       const r = await fetch("/api/create-portal-session", {
         method: "POST",
@@ -2515,36 +2518,37 @@ stats.innerHTML = `
         body: JSON.stringify({ supabaseAccessToken: session.access_token })
       });
       const j = await r.json();
-      if (!r.ok || !j?.url) return alert(j?.error || "Could not open billing portal");
+      if (!r.ok || !j?.url) { alert(j?.error || "Could not open billing portal"); return; }
       window.location.href = j.url;
-    } catch { alert("Could not open billing portal"); }
+    } catch (e) { alert("Could not open billing portal"); }
   });
 
   async function bootApp() {
-    // Uses functions from your non-module "App scripts" block above
-    window.showTodayDate?.();
-    window.scheduleMidnightUpdate?.();
+    // light, defensive calls
+    try { window.showTodayDate && window.showTodayDate(); } catch {}
+    try { window.scheduleMidnightUpdate && window.scheduleMidnightUpdate(); } catch {}
 
-    await window.probeLoggingEndpoint?.();
+    try { window.probeLoggingEndpoint && await window.probeLoggingEndpoint(); } catch {}
 
-    await window.reloadCSV?.();
-    await window.pretrainFromHistory?.();
-    window.updateDSM?.();
-    window.updateSixHourMax?.();
-    window.updateObservations?.();
-    window.updateSummaryBoxes?.();
+    try { window.reloadCSV && await window.reloadCSV(); } catch {}
+    try { window.pretrainFromHistory && await window.pretrainFromHistory(); } catch {}
+    try { window.updateDSM && window.updateDSM(); } catch {}
+    try { window.updateSixHourMax && window.updateSixHourMax(); } catch {}
+    try { window.updateObservations && window.updateObservations(); } catch {}
+    try { window.updateSummaryBoxes && window.updateSummaryBoxes(); } catch {}
+    try { window.updateCorrectionBoxes && window.updateCorrectionBoxes(); } catch {}
 
-    window.pollCsvAndUpdate?.();
-    setInterval(() => window.updateObservations?.(), 5 * 60 * 1000);
-    setInterval(() => window.updateDSM?.(),        10 * 60 * 1000);
-    setInterval(() => window.updateSixHourMax?.(), 10 * 60 * 1000);
-    setInterval(() => window.updateSummaryBoxes?.(),   60 * 1000);
-    setInterval(() => window.updateCorrectionBoxes?.(), 60 * 1000);
-    setInterval(() => window.pollCsvAndUpdate?.(),     60 * 1000);
+    try { window.pollCsvAndUpdate && window.pollCsvAndUpdate(); } catch {}
+    setInterval(() => { try { window.updateObservations && window.updateObservations(); } catch {} }, 5 * 60 * 1000);
+    setInterval(() => { try { window.updateDSM && window.updateDSM(); } catch {} }, 10 * 60 * 1000);
+    setInterval(() => { try { window.updateSixHourMax && window.updateSixHourMax(); } catch {} }, 10 * 60 * 1000);
+    setInterval(() => { try { window.updateSummaryBoxes && window.updateSummaryBoxes(); } catch {} }, 60 * 1000);
+    setInterval(() => { try { window.updateCorrectionBoxes && window.updateCorrectionBoxes(); } catch {} }, 60 * 1000);
+    setInterval(() => { try { window.pollCsvAndUpdate && window.pollCsvAndUpdate(); } catch {} }, 60 * 1000);
 
     try {
       localStorage.setItem("dashboard_heartbeat", String(Date.now()));
-      setInterval(() => localStorage.setItem("dashboard_heartbeat", String(Date.now())), 60 * 1000);
+      setInterval(() => { try { localStorage.setItem("dashboard_heartbeat", String(Date.now())); } catch {} }, 60 * 1000);
     } catch {}
   }
 
@@ -2556,11 +2560,13 @@ stats.innerHTML = `
       if (sErr) {
         console.error("getSession error", sErr);
         gateMsg("Auth error. Redirecting to login…");
-        return (window.location.href = "login.html");
+        window.location.href = "login.html";
+        return;
       }
       if (!session) {
         gateMsg("No session. Redirecting to login…");
-        return (window.location.href = "login.html");
+        window.location.href = "login.html";
+        return;
       }
 
       const { data: profile, error } = await supabase
@@ -2572,20 +2578,23 @@ stats.innerHTML = `
       if (error) console.warn("profiles fetch error:", error);
 
       const status = profile?.subscription_status ?? "inactive";
-      if (!new Set(["active", "trialing"]).has(status)) {
+      if (!(status === "active" || status === "trialing")) {
         const dest = profile?.trial_used ? "subscribe.html?reason=trial_expired" : "subscribe.html";
         gateMsg("Subscription inactive. Redirecting…");
-        return (window.location.href = dest);
+        window.location.href = dest;
+        return;
       }
 
-      window.showApp();
+      // Allowed → show app and boot
+      try { window.showApp && window.showApp(); } catch {}
       await bootApp();
 
-     } catch (e) {
-    console.error("checkAccess failed", e);
-    gateMsg("Network/auth error. Redirecting to login…");
-    try { await supabase.auth.signOut(); } catch {}
-    window.location.href = "login.html";
+    } catch (e) {
+      console.error("checkAccess failed", e);
+      // Fail-closed: do NOT show the app on error
+      try { await supabase.auth.signOut(); } catch {}
+      window.location.href = "login.html";
+    }
   }
 
   supabase.auth.onAuthStateChange((_event, session) => {
@@ -2595,6 +2604,5 @@ stats.innerHTML = `
   checkAccess();
 })();
 </script>
-
 </body>
 </html>
