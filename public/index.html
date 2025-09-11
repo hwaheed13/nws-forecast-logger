@@ -1935,7 +1935,7 @@ function updateCorrectionBoxes() {
         <div class="prediction-subtitle">
           For ${today}
          <br><small style="opacity:.75">
-          Blends yesterday’s & today’s forecasts for today + learned correction • auto-updates until the official high is posted
+          pred = (w₁×D1 latest + w₂×D0 latest + w₃×D0 trimmed + w₄×series rep) + bias • clamped to forecast envelope ±pad • auto-updates until CLI posts
         </small>
         </div>
       `;
@@ -1960,7 +1960,7 @@ function updateCorrectionBoxes() {
       <div class="prediction-subtitle">
         For ${tomorrow}
         <br><small style="opacity:.75">
-         Blends today’s forecasts for tomorrow + learned correction • auto-updates
+         pred = (w₁×D1 latest + w₂×D1 trimmed + w₃×series rep) + bias • clamped to forecast envelope ±pad • auto-updates
         </small>
       </div>
     `;
