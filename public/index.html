@@ -747,6 +747,40 @@ function updateHedgeOnActual(lead, season, candidates, actual, dayISO){
 
   saveState(key, st);
 }
+    function pretrainFromHistory() {
+  // Collect which days have an actual
+  const byDay = new Map();
+  for (const r of allRows) {
+    const day = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day || "")) continue;
+    if (!byDay.has(day)) byDay.set(day, { actual: null });
+    if (r.forecast_or_actual === "actual" && r.actual_high) byDay.get(day).actual = r;
+  }
+
+  for (const [iso, { actual }] of byDay.entries()) {
+    if (!actual || actual.actual_high == null) continue;
+
+    const season  = isWarmSeason(iso) ? "warm" : "cool";
+    const hiTime  = actual.high_time || "";
+    const actualF = Number(actual.actual_high);
+
+    // Train the "today" policy using everything you'd have for that day
+    const builtToday = buildCandidatesForDay(iso, hiTime);
+    updateHedgeOnActual("today", season, builtToday.candidates, actualF, iso);
+
+    // Train the "tomorrow" policy using only D1 info (what you knew the day before)
+    const d1 = d1CandidatesFor(iso);
+    const candTomorrow = {};
+    if (d1.latest  != null) candTomorrow.D1_latest  = Number(d1.latest);
+    if (d1.trimmed != null) candTomorrow.D1_trimmed = Number(d1.trimmed);
+    const rep1 = repFromSeries(d1.series);
+    if (rep1 != null) candTomorrow.series_rep = Number(rep1);
+
+    updateHedgeOnActual("tomorrow", season, candTomorrow, actualF, iso);
+  }
+}
+window.pretrainFromHistory = pretrainFromHistory;
+// ADD BLOCK ↑↑↑
 
     // === Header date (ET) ===
       function showTodayDate() {
@@ -2494,6 +2528,7 @@ stats.innerHTML = `
     await window.probeLoggingEndpoint?.();
 
     await window.reloadCSV?.();
+    await window.pretrainFromHistory?.();
     window.updateDSM?.();
     window.updateSixHourMax?.();
     window.updateObservations?.();
