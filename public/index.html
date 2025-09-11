@@ -1678,6 +1678,10 @@ updateCorrectionBoxes();  // now uses the freshly-trained state
     const CSV_URL = "https://raw.githubusercontent.com/hwaheed13/nws-forecast-logger/main/nws_forecast_log.csv";
     const KALSHI_BASE_URL = "https://kalshi.com/markets/kxhighny/highest-temperature-in-nyc";
     const API_BASE = "/api"; // relative works from / or /dashboard/
+    // AccuWeather configuration
+    const ACCUWEATHER_API_KEY = 'zpka_171d856fa2e445ed9b2d071bf2446f91_a9e8af6e'; // TODO: Replace with your key from developer.accuweather.com
+    const ACCUWEATHER_LOCATION = '2627448'; // Central Park
+    const accuWeatherData = { today: null, tomorrow: null }; // Store latest AccuWeather forecasts
 
     const KALSHI_BY_DATE_URLS = [ `${API_BASE}/kalshi` ];
     const KALSHI_LIVE_URLS    = [ `${API_BASE}/kalshi-live` ];
@@ -1719,6 +1723,27 @@ updateCorrectionBoxes();  // now uses the freshly-trained state
     async function fetchKalshiLiveLeader(dateISO)   { return fetchJSON(KALSHI_LIVE_URLS, { date: dateISO, cb: Date.now() }); }
     async function fetchNwsHighSoFar(station = "KNYC") { return fetchJSON(NWS_HIGH_SO_FAR_URLS, { station }); }
     async function fetchNwsCurrentTemp(station = "KNYC") { return fetchJSON(NWS_CURRENT_TEMP_URLS, { station, cb: Date.now() }); }
+    async function fetchAccuWeatherForecasts() {
+  if (!ACCUWEATHER_API_KEY || ACCUWEATHER_API_KEY === 'zpka_171d856fa2e445ed9b2d071bf2446f91_a9e8af6e') return null;
+  try {
+    const url = `https://dataservice.accuweather.com/forecasts/v1/daily/5day/${ACCUWEATHER_LOCATION}?apikey=${ACCUWEATHER_API_KEY}`;
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    
+    const data = await response.json();
+    const todayISO = nycISODate(0);
+    const tomorrowISO = nycISODate(1);
+    
+    accuWeatherData.today = Math.round(data.DailyForecasts[0].Temperature.Maximum.Value);
+    accuWeatherData.tomorrow = Math.round(data.DailyForecasts[1].Temperature.Maximum.Value);
+    
+    console.log(`AccuWeather: Today ${accuWeatherData.today}°F, Tomorrow ${accuWeatherData.tomorrow}°F`);
+    return accuWeatherData;
+  } catch (error) {
+    console.error('AccuWeather error:', error);
+    return null;
+  }
+}
 
     // Kalshi cache
     const kalshiCache = new Map();
@@ -1932,8 +1957,87 @@ updateCorrectionBoxes();  // now uses the freshly-trained state
     }
 
 function updateCorrectionBoxes() {
-  const today    = nycISODate(0);
+  const today = nycISODate(0);
   const tomorrow = nycISODate(1);
+
+  // Helper to convert prediction to range
+  function predToRange(pred) {
+    if (pred == null || !Number.isFinite(pred)) return "–";
+    const rounded = Math.round(pred);
+    const isEven = rounded % 2 === 0;
+    const lower = isEven ? rounded : rounded - 1;
+    const upper = lower + 1;
+    return `${lower}-${upper}°F`;
+  }
+
+  // TODAY
+  const todayBox = document.getElementById("correctionBoxToday");
+  if (todayBox) {
+    const a = allRows.find(r => r.forecast_or_actual === "actual" && r.cli_date === today && r.actual_high);
+    
+    if (a) {
+      todayBox.innerHTML = `
+        <div class="prediction-value">Actual: ${a.actual_high}°F</div>
+        <div class="prediction-subtitle">Published for ${today}</div>
+      `;
+    } else {
+      const highTime = "";
+      const season = isWarmSeason(today) ? "warm" : "cool";
+      const built = buildCandidatesForDay(today, highTime);
+      
+      // Add AccuWeather if available
+      if (accuWeatherData.today != null) {
+        built.candidates.AccuWeather = accuWeatherData.today;
+      }
+      
+      const pred = predictWithHedge("today", season, built.candidates, null);
+      let y = pred.y;
+      if (y != null && built.envelope.lo != null && built.envelope.hi != null) {
+        y = clamp(y, built.envelope.lo - pred.pad, built.envelope.hi + pred.pad);
+      }
+      
+      const range = predToRange(y);
+      const confidence = pred.pad < 2 ? "High" : pred.pad < 3 ? "Medium" : "Low";
+      
+      todayBox.innerHTML = `
+        <div class="prediction-value">${range}</div>
+        <div class="prediction-subtitle">
+          Likely range for ${today}<br>
+          <small style="opacity:.75">Confidence: ${confidence}</small>
+        </div>
+      `;
+    }
+  }
+
+  // TOMORROW
+  const tmrwBox = document.getElementById("correctionBoxTomorrow");
+  if (tmrwBox) {
+    const season1 = isWarmSeason(tomorrow) ? "warm" : "cool";
+    const built1 = buildCandidatesForDay(tomorrow, "");
+    
+    // Add AccuWeather if available
+    if (accuWeatherData.tomorrow != null) {
+      built1.candidates.AccuWeather = accuWeatherData.tomorrow;
+    }
+    
+    const pred1 = predictWithHedge("tomorrow", season1, built1.candidates, null);
+    let y1 = pred1.y;
+    if (y1 != null && built1.envelope.lo != null && built1.envelope.hi != null) {
+      y1 = clamp(y1, built1.envelope.lo - pred1.pad, built1.envelope.hi + pred1.pad);
+    }
+    
+    const range1 = predToRange(y1);
+    const confidence1 = pred1.pad < 2 ? "High" : pred1.pad < 3 ? "Medium" : "Low";
+    
+    tmrwBox.innerHTML = `
+      <div class="prediction-value">${range1}</div>
+      <div class="prediction-subtitle">
+        Likely range for ${tomorrow}<br>
+        <small style="opacity:.75">Confidence: ${confidence1}</small>
+      </div>
+    `;
+  }
+}
 
   // ---------- TODAY ----------
   const todayBox = document.getElementById("correctionBoxToday");
@@ -2579,6 +2683,9 @@ stats.innerHTML = `
     setInterval(() => { try { window.updateSummaryBoxes && window.updateSummaryBoxes(); } catch {} }, 60 * 1000);
     setInterval(() => { try { window.updateCorrectionBoxes && window.updateCorrectionBoxes(); } catch {} }, 60 * 1000);
     setInterval(() => { try { window.pollCsvAndUpdate && window.pollCsvAndUpdate(); } catch {} }, 60 * 1000);
+    // Poll AccuWeather every 2 hours (to stay under 50 calls/day limit)
+    fetchAccuWeatherForecasts(); // Initial fetch
+    setInterval(() => { fetchAccuWeatherForecasts(); }, 2 * 60 * 60 * 1000);
 
     try {
       localStorage.setItem("dashboard_heartbeat", String(Date.now()));
