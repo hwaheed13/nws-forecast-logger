@@ -612,6 +612,141 @@
 
     /* ========= DATA + UI ========= */
     let allRows = [], filteredRows = [], chartInstance = null;
+    // === Online ensemble (Hedge) + Bias EWMA (self-learning) =====================
+const ENS_KEY = "hedge_v1";               // bump to reset everything
+const ETA = 0.25;                         // learning rate per °F (Hedge)
+const MIX_GAMMA = 0.02;                   // uniform mix-in to avoid collapse
+const DECAY_PER_DAY = 0.997;              // gently decay old info
+const BIAS_HALFLIFE_DAYS = 21;            // bias recency (~1 month)
+const RMSE_HALFLIFE_DAYS = 21;            // uncertainty recency for clamp
+
+function loadState(key){
+  const raw = localStorage.getItem(`${ENS_KEY}:${key}`);
+  return raw ? JSON.parse(raw) : null;
+}
+function saveState(key, obj){
+  try { localStorage.setItem(`${ENS_KEY}:${key}`, JSON.stringify(obj)); } catch {}
+}
+function decayWeights(ws){ for (const k in ws) ws[k] *= DECAY_PER_DAY; }
+function contextKey(lead, season){ return `${lead}:${season}`; } // lead: 'today'|'tomorrow'
+
+function softmaxNormalize(obj){
+  let sum = 0; for (const k in obj) sum += obj[k];
+  if (sum <= 0) { const ks = Object.keys(obj); const n = ks.length || 1; ks.forEach(k => obj[k]=1/n); return; }
+  for (const k in obj) obj[k] /= sum;
+}
+function mixWithUniform(weights, gamma= MIX_GAMMA){
+  const ks = Object.keys(weights); if (!ks.length) return;
+  const n = ks.length;
+  ks.forEach(k => { weights[k] = (1 - gamma) * weights[k] + gamma * (1 / n); });
+}
+function ewmaUpdate(old, value, halfLifeDays){
+  if (value == null) return old ?? null;
+  const alpha = (halfLifeDays && halfLifeDays > 0)
+    ? 1 - Math.exp(-Math.log(2) / halfLifeDays)
+    : 1;
+  return (old == null) ? value : (1 - alpha) * old + alpha * value;
+}
+
+// Build candidates + envelope for a target date.
+// Uses your existing d0CandidatesFor, d1CandidatesFor, combineSeries, repFromSeries.
+function buildCandidatesForDay(targetISO, highTime){
+  const c0 = d0CandidatesFor(targetISO, highTime);   // today-for-today (pre-high)
+  const c1 = d1CandidatesFor(targetISO);             // yesterday-for-today, or today-for-tomorrow
+
+  const seriesAll = combineSeries(c1.series, c0.series);
+  const seriesRep = repFromSeries(seriesAll); // (keep your current rep; easy to swap to time-aware later)
+
+  const candidates = {};
+  if (c1.latest  != null) candidates.D1_latest  = Number(c1.latest);
+  if (c1.trimmed != null) candidates.D1_trimmed = Number(c1.trimmed);
+  if (c0.latest  != null) candidates.D0_latest  = Number(c0.latest);
+  if (c0.trimmed != null) candidates.D0_trimmed = Number(c0.trimmed);
+  if (seriesRep  != null) candidates.series_rep = Number(seriesRep);
+
+  const vals = [];
+  (c1.series||[]).forEach(r=>{ const v=Number(r.predicted_high); if(Number.isFinite(v)) vals.push(v); });
+  (c0.series||[]).forEach(r=>{ const v=Number(r.predicted_high); if(Number.isFinite(v)) vals.push(v); });
+  const envelope = vals.length ? { lo: Math.min(...vals), hi: Math.max(...vals) } : { lo:null, hi:null };
+
+  // choose a "most recent" issuance row for logging context
+  const latestIssuanceRow = (seriesAll && seriesAll.length) ? seriesAll[seriesAll.length-1] : null;
+
+  return { candidates, envelope, latestIssuanceRow, c0, c1, seriesAll };
+}
+
+// Make a prediction with Hedge (+ stored bias)
+function predictWithHedge(lead, season, candidates, rmseContext){
+  const key = contextKey(lead, season);
+  let st = loadState(key) || { w:{}, bias:null, rmse:null, lastDay:null };
+
+  const names = Object.keys(candidates);
+  if (!names.length) return { y:null, y0:null, bias:0, pad:2, weights:{}, key };
+
+  // init on first use
+  if (!Object.keys(st.w).length) {
+    const init = 1 / names.length;
+    names.forEach(n => st.w[n] = init);
+  } else {
+    // add missing newcomers with small mass
+    names.forEach(n => { if (!(n in st.w)) st.w[n] = 1e-6; });
+  }
+
+  // small uniform mix to prevent collapse
+  mixWithUniform(st.w, MIX_GAMMA);
+
+  const denom = names.reduce((s,n)=>s + (st.w[n]||0), 0) || 1;
+  const y0 = names.reduce((s,n)=>s + (st.w[n]||0) * candidates[n], 0) / denom;
+
+  const bias = st.bias ?? 0;
+  const y = (y0 == null) ? null : (y0 + bias);
+
+  // clamp pad from stored RMSE or provided context
+  const pad = Math.max(2, Number(st.rmse ?? rmseContext ?? 0) || 0);
+
+  return { y, y0, bias, pad, weights:{...st.w}, key };
+}
+
+// Update Hedge weights + Bias/RMSE when an actual arrives
+function updateHedgeOnActual(lead, season, candidates, actual, dayISO){
+  const key = contextKey(lead, season);
+  let st = loadState(key) || { w:{}, bias:null, rmse:null, lastDay:null };
+
+  const names = Object.keys(candidates);
+  if (!names.length || actual == null) return;
+
+  if (st.lastDay && st.lastDay !== dayISO) decayWeights(st.w);
+  st.lastDay = dayISO;
+
+  // compute pre-bias ensemble pred for residual
+  mixWithUniform(st.w, MIX_GAMMA);
+  const denom = names.reduce((s,n)=>s + (st.w[n]||0), 0) || 1;
+  const y0 = names.reduce((s,n)=>s + (st.w[n]||0) * candidates[n], 0) / denom;
+  const yhat = (st.bias ?? 0) + (y0 ?? 0);
+
+  const err = Number(actual) - Number(yhat);
+  const absErr = Math.abs(err);
+
+  // Hedge update: w_i <- w_i * exp(-ETA * |c_i - actual|)
+  for (const n of names){
+    const li = Math.abs(Number(candidates[n]) - Number(actual));
+    st.w[n] = (st.w[n] || 0) * Math.exp(-ETA * li);
+  }
+  softmaxNormalize(st.w);
+  mixWithUniform(st.w, MIX_GAMMA);
+
+  // Bias EWMA (clip to ±6°F to damp outliers)
+  const clipped = Math.max(-6, Math.min(6, err));
+  st.bias = ewmaUpdate(st.bias, clipped, BIAS_HALFLIFE_DAYS);
+
+  // RMSE EWMA (for clamp pad)
+  const sq = Math.min(36, err*err);
+  const oldVar = st.rmse == null ? null : (st.rmse*st.rmse);
+  const varNew = ewmaUpdate(oldVar, sq, RMSE_HALFLIFE_DAYS);
+  st.rmse = varNew == null ? st.rmse : Math.sqrt(Math.max(0, varNew));
+
+  saveState(key, st);
+}
 
     // === Header date (ET) ===
       function showTodayDate() {
@@ -1428,27 +1563,42 @@ function actualSignatureFor(rows) {
         const sigTodayNew = forecastSignatureFor(todayISO, rows);
         const sigTmrwNew  = forecastSignatureFor(tomorrowISO, rows);
         const actSigNew = actualSignatureFor(rows);
-        const actualChanged = actSigNew !== lastActualSig;
-        if (actualChanged) lastActualSig = actSigNew;
+      const actualChanged = actSigNew !== lastActualSig;
+if (actualChanged) lastActualSig = actSigNew;
 
-      const changedToday    = sigTodayNew !== lastSig.today;
-      const changedTomorrow = sigTmrwNew  !== lastSig.tomorrow;
-      
-      // If nothing changed at all, bail
-      if (!changedToday && !changedTomorrow && !actualChanged) return;
-      
-      // Adopt new signatures (we still only *log* on forecast changes)
-      lastSig.today    = sigTodayNew;
-      lastSig.tomorrow = sigTmrwNew;
-      forecastChanged.today    = changedToday;
-      forecastChanged.tomorrow = changedTomorrow;
-      
-      // Swap data + refresh UI
-      allRows = rows;
-      filteredRows = allRows.slice();
-      showMostRecent();
-      updateSummaryBoxes();
-      updateCorrectionBoxes();  // <-- runs on actual-only changes as well (UI updates immediately)
+const changedToday    = sigTodayNew !== lastSig.today;
+const changedTomorrow = sigTmrwNew  !== lastSig.tomorrow;
+
+// If nothing changed at all, bail
+if (!changedToday && !changedTomorrow && !actualChanged) return;
+
+// Adopt new signatures (we still only *log* on forecast changes)
+lastSig.today    = sigTodayNew;
+lastSig.tomorrow = sigTmrwNew;
+forecastChanged.today    = changedToday;
+forecastChanged.tomorrow = changedTomorrow;
+
+// Swap data
+allRows = rows;
+filteredRows = allRows.slice();
+
+// === NEW: if an actual just appeared/changed, train Hedge immediately ===
+if (actualChanged) {
+  try {
+    const todayISO = nycISODate(0);
+    const a = allRows.find(r => r.forecast_or_actual === "actual" && r.cli_date === todayISO && r.actual_high);
+    if (a && a.actual_high != null) {
+      const season = isWarmSeason(todayISO) ? "warm" : "cool";
+      const built  = buildCandidatesForDay(todayISO, a.high_time || "");
+      updateHedgeOnActual("today", season, built.candidates, Number(a.actual_high), todayISO);
+    }
+  } catch(_) {}
+}
+
+// Refresh UI
+showMostRecent();
+updateSummaryBoxes();
+updateCorrectionBoxes();  // now uses the freshly-trained state
 
       } catch (e) {
         console.debug("pollCsvAndUpdate error:", e);
@@ -1713,10 +1863,67 @@ function actualSignatureFor(rows) {
     }
 
 function updateCorrectionBoxes() {
-  const tables   = buildBiasAndBlend();
   const today    = nycISODate(0);
   const tomorrow = nycISODate(1);
-  const yesterday= nycISODate(-1);
+
+  // ---------- TODAY ----------
+  const todayBox = document.getElementById("correctionBoxToday");
+  if (todayBox) {
+    const a = allRows.find(r => r.forecast_or_actual === "actual" && r.cli_date === today && r.actual_high);
+    const highTime = a ? (a.high_time || "") : "";
+    const season = isWarmSeason(today) ? "warm" : "cool";
+
+    if (a) {
+      todayBox.innerHTML = `
+        <div class="prediction-value">—</div>
+        <div class="prediction-subtitle">Actual published for ${today}</div>
+      `;
+    } else {
+      const built = buildCandidatesForDay(today, highTime);
+      const pred  = predictWithHedge("today", season, built.candidates, /*rmseContext*/ null);
+
+      let y = pred.y;
+      if (y != null && built.envelope.lo != null && built.envelope.hi != null) {
+        y = clamp(y, built.envelope.lo - pred.pad, built.envelope.hi + pred.pad);
+      }
+      const pDisp = round1(y);
+
+      todayBox.innerHTML = `
+        <div class="prediction-value">${pDisp == null ? "–" : `${pDisp.toFixed(1)}°F`}</div>
+        <div class="prediction-subtitle">
+          For ${today}
+          <br><small style="opacity:.75">
+            Online ensemble over ${Object.keys(built.candidates).length} candidates + bias • learns daily from actuals
+          </small>
+        </div>
+      `;
+    }
+  }
+
+  // ---------- TOMORROW ----------
+  const tmrwBox = document.getElementById("correctionBoxTomorrow");
+  if (tmrwBox) {
+    const season1 = isWarmSeason(tomorrow) ? "warm" : "cool";
+    const built1  = buildCandidatesForDay(tomorrow, /*highTime*/ "");
+    const pred1   = predictWithHedge("tomorrow", season1, built1.candidates, /*rmseContext*/ null);
+
+    let y1 = pred1.y;
+    if (y1 != null && built1.envelope.lo != null && built1.envelope.hi != null) {
+      y1 = clamp(y1, built1.envelope.lo - pred1.pad, built1.envelope.hi + pred1.pad);
+    }
+    const p1Disp = round1(y1);
+
+    tmrwBox.innerHTML = `
+      <div class="prediction-value">${p1Disp == null ? "–" : `${p1Disp.toFixed(1)}°F`}</div>
+      <div class="prediction-subtitle">
+        For ${tomorrow}
+        <br><small style="opacity:.75">
+          Online ensemble (D1-only) + bias • self-updating
+        </small>
+      </div>
+    `;
+  }
+}
 
   // instant-feedback nudge config (small, capped)
   const INSTANT_FEEDBACK_LAMBDA = 0.30;
