@@ -2581,22 +2581,12 @@ stats.innerHTML = `
       window.showApp();
       await bootApp();
 
-    } catch (e) {
-      console.error("checkAccess failed", e);
-      // Fail-open so you're never stuck on the gate
-      window.showApp();
-      await bootApp();
-    }
+     } catch (e) {
+    console.error("checkAccess failed", e);
+    gateMsg("Network/auth error. Redirecting to login…");
+    try { await supabase.auth.signOut(); } catch {}
+    window.location.href = "login.html";
   }
-
-  // Safety net: if anything blocks, show the app after 5s
-  setTimeout(() => {
-    const app = document.getElementById('app');
-    if (app && getComputedStyle(app).display === 'none') { 
-      window.showApp(); 
-      bootApp(); 
-    }
-  }, 5000);
 
   supabase.auth.onAuthStateChange((_event, session) => {
     if (!session) window.location.href = "login.html";
