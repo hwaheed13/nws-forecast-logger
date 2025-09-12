@@ -2071,10 +2071,10 @@ function updateCorrectionBoxes() {
 
 
     const builtToday = buildCandidatesForDay(todayISO, "");
-    const builtTmw   = buildCandidatesForDay(tmwISO, "");
+    const builtTmw   = buildCandidatesForDay(tomorrowISO, "");
 
     const s0 = isWarmSeason(todayISO) ? "warm" : "cool";
-    const s1 = isWarmSeason(tmwISO) ? "warm" : "cool";
+    const s1 = isWarmSeason(tomorrowISO) ? "warm" : "cool";
 
     const out0 = predictWithHedge("today", s0, builtToday.candidates);
     const out1 = predictWithHedge("tomorrow", s1, builtTmw.candidates);
