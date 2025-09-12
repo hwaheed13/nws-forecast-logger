@@ -156,11 +156,10 @@ def rows_for_today_and_tomorrow(j):
         rows.append(row_for(daily[0], 0))
 
 
-  # D1 (tomorrow): log only if not already logged for AccuWeather
-tomorrow_str = iso_date(now + datetime.timedelta(days=1))
-if not forecast_already_logged(CSV_PATH, tomorrow_str, "AccuWeather"):
-    rows.append(row_for(daily[1], 1))
-
+    # D1 (tomorrow): log only if not already logged for AccuWeather
+    tomorrow_str = iso_date(now + datetime.timedelta(days=1))
+    if not forecast_already_logged(CSV_PATH, tomorrow_str, "AccuWeather"):
+        rows.append(row_for(daily[1], 1))
 
     return rows
 
