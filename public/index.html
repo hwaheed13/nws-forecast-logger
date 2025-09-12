@@ -2020,7 +2020,6 @@ function updateCorrectionBoxes() {
     const built1  = buildCandidatesForDay(tomorrow, /*highTime*/ "");
   const accTmrw = ACCU_BY_DATE[tomorrow] ?? accuWeatherData.tomorrow;
   if (accTmrw != null) built1.candidates.AccuWeather = accTmrw;
-  }
     const pred1   = predictWithHedge("tomorrow", season1, built1.candidates, /*rmseContext*/ null);
 
     let y1 = pred1.y;
