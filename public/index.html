@@ -2626,9 +2626,17 @@ stats.innerHTML = `
     setInterval(() => { try { window.updateSummaryBoxes && window.updateSummaryBoxes(); } catch {} }, 60 * 1000);
     setInterval(() => { try { window.updateCorrectionBoxes && window.updateCorrectionBoxes(); } catch {} }, 60 * 1000);
     setInterval(() => { try { window.pollCsvAndUpdate && window.pollCsvAndUpdate(); } catch {} }, 60 * 1000);
-    // Poll AccuWeather every 2 hours
-    fetchAccuWeatherForecasts();
-    setInterval(fetchAccuWeatherForecasts, 2 * 60 * 60 * 1000);
+// Poll AccuWeather every 2 hours (defensive)
+    try { 
+      if (window.fetchAccuWeatherForecasts) {
+        window.fetchAccuWeatherForecasts(); 
+        setInterval(() => {
+          try { window.fetchAccuWeatherForecasts(); } catch(e) { console.error("AccuWeather poll error:", e); }
+        }, 2 * 60 * 60 * 1000);
+      }
+    } catch(e) {
+      console.error("AccuWeather init error:", e);
+    }
 
     try {
       localStorage.setItem("dashboard_heartbeat", String(Date.now()));
