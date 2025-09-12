@@ -613,7 +613,7 @@
     /* ========= DATA + UI ========= */
     let allRows = [], filteredRows = [], chartInstance = null;
     // === Online ensemble (Hedge) + Bias EWMA (self-learning) =====================
-const ENS_KEY = "hedge_v3";               // bump to reset everything
+const ENS_KEY = "hedge_v2";               // bump to reset everything
 const ETA = 0.25;                         // learning rate per °F (Hedge)
 const MIX_GAMMA = 0.02;                   // uniform mix-in to avoid collapse
 const DECAY_PER_DAY = 0.997;              // gently decay old info
@@ -1647,29 +1647,18 @@ filteredRows = allRows.slice();
 if (actualChanged) {
   try {
     const todayISO = nycISODate(0);
-    const a = allRows.find(r =>
-      r.forecast_or_actual === "actual" &&
-      r.cli_date === todayISO &&
-      r.actual_high
-    );
+    const a = allRows.find(r => r.forecast_or_actual === "actual" && r.cli_date === todayISO && r.actual_high);
     if (a && a.actual_high != null) {
       const season = isWarmSeason(todayISO) ? "warm" : "cool";
-
-      // TODAY policy: include AccuWeather if we cached it for this target day
-      const built = buildCandidatesForDay(todayISO, a.high_time || "");
-      const accForToday = ACCU_BY_DATE[todayISO];
-      if (accForToday != null) built.candidates.AccuWeather = accForToday;
+      const built  = buildCandidatesForDay(todayISO, a.high_time || "");
       updateHedgeOnActual("today", season, built.candidates, Number(a.actual_high), todayISO);
-
-      // TOMORROW policy: teach using D1-only info for the resolved day (+ AccuWeather if cached)
+        // also teach the "tomorrow" model using D1-only candidates for the resolved day
       const c1today = d1CandidatesFor(todayISO);
       const tmCands = {};
       if (c1today.latest  != null) tmCands.D1_latest  = Number(c1today.latest);
       if (c1today.trimmed != null) tmCands.D1_trimmed = Number(c1today.trimmed);
       const rep1 = repFromSeries(c1today.series);
       if (rep1 != null) tmCands.series_rep = Number(rep1);
-      if (accForToday != null) tmCands.AccuWeather = accForToday;
-
       updateHedgeOnActual("tomorrow", season, tmCands, Number(a.actual_high), todayISO);
     }
   } catch(_) {}
@@ -1730,26 +1719,18 @@ updateCorrectionBoxes();  // now uses the freshly-trained state
     async function fetchKalshiLiveLeader(dateISO)   { return fetchJSON(KALSHI_LIVE_URLS, { date: dateISO, cb: Date.now() }); }
     async function fetchNwsHighSoFar(station = "KNYC") { return fetchJSON(NWS_HIGH_SO_FAR_URLS, { station }); }
     async function fetchNwsCurrentTemp(station = "KNYC") { return fetchJSON(NWS_CURRENT_TEMP_URLS, { station, cb: Date.now() }); }
- // AccuWeather data storage
-  const accuWeatherData = { today: null, tomorrow: null };
-  // Persist by target date so we can train Hedge when the actual arrives
-  const ACCU_BY_DATE = Object.create(null); // { 'YYYY-MM-DD': number }
+    // AccuWeather data storage
+const accuWeatherData = { today: null, tomorrow: null };
+
 async function fetchAccuWeatherForecasts() {
   try {
     const response = await fetch('/api/accuweather-forecast');
     if (!response.ok) return null;
-
+    
     const data = await response.json();
-
-    accuWeatherData.today    = Math.round(data.DailyForecasts[0].Temperature.Maximum.Value);
+    accuWeatherData.today = Math.round(data.DailyForecasts[0].Temperature.Maximum.Value);
     accuWeatherData.tomorrow = Math.round(data.DailyForecasts[1].Temperature.Maximum.Value);
-
-    // Keep a date-keyed copy so we can learn when the actual posts
-    const isoToday = nycISODate(0);
-    const isoTmrw  = nycISODate(1);
-    if (Number.isFinite(accuWeatherData.today))    ACCU_BY_DATE[isoToday] = accuWeatherData.today;
-    if (Number.isFinite(accuWeatherData.tomorrow)) ACCU_BY_DATE[isoTmrw]  = accuWeatherData.tomorrow;
-
+    
     console.log(`AccuWeather: Today ${accuWeatherData.today}°F, Tomorrow ${accuWeatherData.tomorrow}°F`);
     return accuWeatherData;
   } catch (error) {
@@ -1757,7 +1738,6 @@ async function fetchAccuWeatherForecasts() {
     return null;
   }
 }
-
 window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
 
     // Kalshi cache
@@ -1987,37 +1967,40 @@ function updateCorrectionBoxes() {
         <div class="prediction-value">—</div>
         <div class="prediction-subtitle">Actual published for ${today}</div>
       `;
-} else {
-  const built = buildCandidatesForDay(today, highTime);
-  // Add AccuWeather if available (prefer cached by date)
-  const accToday = ACCU_BY_DATE[today] ?? accuWeatherData.today;
-  if (accToday != null) built.candidates.AccuWeather = accToday;
-  // NO CLOSING BRACE HERE - continue with the prediction code
-  const pred = predictWithHedge("today", season, built.candidates, /*rmseContext*/ null);
-  
-  let y = pred.y;
-  if (y != null && built.envelope.lo != null && built.envelope.hi != null) {
-    y = clamp(y, built.envelope.lo - pred.pad, built.envelope.hi + pred.pad);
-  }
-  const pDisp = round1(y);
+    } else {
+     const built = buildCandidatesForDay(today, highTime);
+      // Add AccuWeather if available
+      if (accuWeatherData.today != null) {
+        built.candidates.AccuWeather = accuWeatherData.today;
+      }
+      const pred  = predictWithHedge("today", season, built.candidates, /*rmseContext*/ null);
 
-  todayBox.innerHTML = `
-    <div class="prediction-value">${pDisp == null ? "–" : `${pDisp.toFixed(1)}°F`}</div>
-    <div class="prediction-subtitle">
-      For ${today}
-     <br><small style="opacity:.75">
-       pred = blend(y→t, t→t, trend) + bias • clamp ±pad • auto updates
-    </small>
-    </div>
-  `;
-}
+      let y = pred.y;
+      if (y != null && built.envelope.lo != null && built.envelope.hi != null) {
+        y = clamp(y, built.envelope.lo - pred.pad, built.envelope.hi + pred.pad);
+      }
+      const pDisp = round1(y);
+
+      todayBox.innerHTML = `
+        <div class="prediction-value">${pDisp == null ? "–" : `${pDisp.toFixed(1)}°F`}</div>
+        <div class="prediction-subtitle">
+          For ${today}
+         <br><small style="opacity:.75">
+           pred = blend(y→t, t→t, trend) + bias • clamp ±pad • auto updates
+        </small>
+        </div>
+      `;
+    }
+  }
+
   // ---------- TOMORROW ----------
   const tmrwBox = document.getElementById("correctionBoxTomorrow");
   if (tmrwBox) {
     const season1 = isWarmSeason(tomorrow) ? "warm" : "cool";
     const built1  = buildCandidatesForDay(tomorrow, /*highTime*/ "");
-  const accTmrw = ACCU_BY_DATE[tomorrow] ?? accuWeatherData.tomorrow;
-  if (accTmrw != null) built1.candidates.AccuWeather = accTmrw;
+      if (accuWeatherData.tomorrow != null) {
+    built1.candidates.AccuWeather = accuWeatherData.tomorrow;
+  }
     const pred1   = predictWithHedge("tomorrow", season1, built1.candidates, /*rmseContext*/ null);
 
     let y1 = pred1.y;
@@ -2453,11 +2436,6 @@ function updateCorrectionBoxes() {
     const actualHigh = Number(actual.actual_high);
     const highTime = actual.high_time || "";
 
-  dates.forEach(date => {
-    const rows = rowsByDate[date] || [];
-    const actualHigh = actualByDate[date];
-    if (!Number.isFinite(actualHigh)) return; // skip days without an actual
-
     const forecasts = rows
       .filter(r => r.forecast_or_actual === "forecast" && r.predicted_high)
       .filter(r => {
@@ -2471,25 +2449,24 @@ function updateCorrectionBoxes() {
       .filter(Number.isFinite);
 
     if (forecasts.length) {
-      const signedErrors = forecasts.map(f => f - actualHigh);
+      const signedErrors = forecasts.map(f => f - actualHigh);  // NEW: keep sign
       const allErrors = forecasts.map(f => Math.abs(f - actualHigh));
-
+      
       const avgErr = allErrors.reduce((a, b) => a + b, 0) / allErrors.length;
-      const avgSignedErr = signedErrors.reduce((a, b) => a + b, 0) / signedErrors.length;
-
+      const avgSignedErr = signedErrors.reduce((a, b) => a + b, 0) / signedErrors.length;  // NEW
+      
       const bestIdx = allErrors.indexOf(Math.min(...allErrors));
       const bestErr = allErrors[bestIdx];
-      const bestSignedErr = signedErrors[bestIdx];
-
+      const bestSignedErr = signedErrors[bestIdx];  // NEW: signed error of best forecast
+      
       totalAbsErr += avgErr;
-      totalSignedErr += avgSignedErr;
+      totalSignedErr += avgSignedErr;  // NEW
       totalBestErr += bestErr;
-      totalBestSignedErr += bestSignedErr;
+      totalBestSignedErr += bestSignedErr;  // NEW
       errCount++;
       bestCount++;
     }
   });
-
 
   const avgAbsErr = errCount > 0 ? (totalAbsErr / errCount).toFixed(1) : "--";
   const avgBestErr = bestCount > 0 ? (totalBestErr / bestCount).toFixed(1) : "--";
@@ -2564,7 +2541,7 @@ stats.innerHTML = `
     window.pollCsvAndUpdate = pollCsvAndUpdate;
   </script>
 
-<!-- Auth + boot (UMD) -->
+  <!-- Auth + boot (UMD) -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
 (() => {
@@ -2574,13 +2551,10 @@ stats.innerHTML = `
   );
 
   const gate = document.getElementById("gate");
-  function gateMsg(msg) {
+  function gateMsg(msg){
     const sub = gate && gate.querySelector(".gate-sub");
     if (sub && msg) sub.textContent = msg;
   }
-
-  // Buttons
-  // TODO: add your event listeners here
 
   // Buttons
   document.getElementById("btn-logout")?.addEventListener("click", async () => {
@@ -2632,17 +2606,9 @@ stats.innerHTML = `
     setInterval(() => { try { window.updateSummaryBoxes && window.updateSummaryBoxes(); } catch {} }, 60 * 1000);
     setInterval(() => { try { window.updateCorrectionBoxes && window.updateCorrectionBoxes(); } catch {} }, 60 * 1000);
     setInterval(() => { try { window.pollCsvAndUpdate && window.pollCsvAndUpdate(); } catch {} }, 60 * 1000);
-// Poll AccuWeather every 2 hours (defensive)
-    try { 
-      if (window.fetchAccuWeatherForecasts) {
-        window.fetchAccuWeatherForecasts(); 
-        setInterval(() => {
-          try { window.fetchAccuWeatherForecasts(); } catch(e) { console.error("AccuWeather poll error:", e); }
-        }, 2 * 60 * 60 * 1000);
-      }
-    } catch(e) {
-      console.error("AccuWeather init error:", e);
-    }
+    // Poll AccuWeather every 2 hours
+    fetchAccuWeatherForecasts();
+    setInterval(fetchAccuWeatherForecasts, 2 * 60 * 60 * 1000);
 
     try {
       localStorage.setItem("dashboard_heartbeat", String(Date.now()));
@@ -2667,24 +2633,21 @@ stats.innerHTML = `
         return;
       }
 
-    const { data: profile, error } = await supabase
-      .from("profiles")
-      .select("subscription_status, current_period_end, trial_used")
-      .eq("id", session.user.id)
-      .single();
-    
-    if (error) console.warn("profiles fetch error:", error);
-    
-    // Dev-friendly: if there is NO profile row, let the user in
-    const status = profile?.subscription_status;  // <- no default to "inactive"
-    if (!status) {
-      console.warn("No profile row; letting user in for now.");
-    } else if (!(status === "active" || status === "trialing")) {
-      const dest = profile?.trial_used ? "subscribe.html?reason=trial_expired" : "subscribe.html";
-      gateMsg("Subscription inactive. Redirecting…");
-      window.location.href = dest;
-      return;
-    }
+      const { data: profile, error } = await supabase
+        .from("profiles")
+        .select("subscription_status, current_period_end, trial_used")
+        .eq("id", session.user.id)
+        .single();
+
+      if (error) console.warn("profiles fetch error:", error);
+
+      const status = profile?.subscription_status ?? "inactive";
+      if (!(status === "active" || status === "trialing")) {
+        const dest = profile?.trial_used ? "subscribe.html?reason=trial_expired" : "subscribe.html";
+        gateMsg("Subscription inactive. Redirecting…");
+        window.location.href = dest;
+        return;
+      }
 
     // Allowed → boot first, then show
     await bootApp();
@@ -2698,13 +2661,9 @@ stats.innerHTML = `
     }
   }
 
-// Only send the user to login when they actually sign out.
-// INITIAL_SESSION and TOKEN_REFRESHED can briefly have session === null.
-supabase.auth.onAuthStateChange((event, session) => {
-  if (event === "SIGNED_OUT") {
-    window.location.href = "login.html";
-  }
-});
+  supabase.auth.onAuthStateChange((_event, session) => {
+    if (!session) window.location.href = "login.html";
+  });
 
   checkAccess();
 })();
