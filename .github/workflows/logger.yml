@@ -49,6 +49,13 @@ jobs:
         env:
           TASK: ${{ github.event.inputs.task || 'smart_all' }}
         run: python run_smart.py
+      
+      - name: Run AccuWeather logger (today & tomorrow)
+        env:
+          ACCU_API_KEY: ${{ secrets.ACCU_API_KEY }}
+          ACCU_LOCATION_KEY: ${{ secrets.ACCU_LOCATION_KEY }}
+          TZ: America/New_York
+        run: python accuweather_logger.py
 
       - name: Remove empty/blank lines
         run: |
