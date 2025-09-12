@@ -657,23 +657,26 @@ function buildCandidatesForDay(targetISO, highTime){
   const seriesAll = combineSeries(c1.series, c0.series);
   const seriesRep = repFromSeries(seriesAll); // (keep your current rep; easy to swap to time-aware later)
 
-   const candidates = {};
+  const candidates = {};
   if (c1.latest  != null) candidates.D1_latest  = Number(c1.latest);
   if (c1.trimmed != null) candidates.D1_trimmed = Number(c1.trimmed);
   if (c0.latest  != null) candidates.D0_latest  = Number(c0.latest);
   if (c0.trimmed != null) candidates.D0_trimmed = Number(c0.trimmed);
   if (seriesRep  != null) candidates.series_rep = Number(seriesRep);
 
-  // Debug: expose candidates to console
-  window.lastCandidates = candidates;
-  console.log("HEDGE CANDIDATES", Object.keys(candidates), candidates);
+  // --- AccuWeather injection (ENUMERABLE OWN KEY) ---
+  const accD0 = latestPreHighValue(getForecastRowsFor(targetISO, "D0", "AccuWeather"), "");
+  const accD1 = latestPreHighValue(getForecastRowsFor(targetISO, "D1", "AccuWeather"), "");
+  const accVal = Number.isFinite(accD1) ? accD1 : (Number.isFinite(accD0) ? accD0 : null);
+  if (accVal != null) {
+    candidates.AccuWeather = Number(accVal); // plain assignment => enumerable, own
+  }
 
+  // envelope + latest issuance (unchanged)
   const vals = [];
   (c1.series||[]).forEach(r=>{ const v=Number(r.predicted_high); if(Number.isFinite(v)) vals.push(v); });
   (c0.series||[]).forEach(r=>{ const v=Number(r.predicted_high); if(Number.isFinite(v)) vals.push(v); });
   const envelope = vals.length ? { lo: Math.min(...vals), hi: Math.max(...vals) } : { lo:null, hi:null };
-
-  // choose a "most recent" issuance row for logging context
   const latestIssuanceRow = (seriesAll && seriesAll.length) ? seriesAll[seriesAll.length-1] : null;
 
   return { candidates, envelope, latestIssuanceRow, c0, c1, seriesAll };
@@ -684,7 +687,7 @@ function predictWithHedge(lead, season, candidates, rmseContext){
   const key = contextKey(lead, season);
   let st = loadState(key) || { w:{}, bias:null, rmse:null, lastDay:null };
 
-  const names = Object.keys(candidates);
+  const names = Reflect.ownKeys(candidates).filter(k => typeof k === 'string');
   if (!names.length) return { y:null, y0:null, bias:0, pad:2, weights:{}, key };
 
   // init on first use
@@ -807,7 +810,11 @@ function updateHedgeOnActual(lead, season, candidates, actual, dayISO){
     if (d1.trimmed != null) candTomorrow.D1_trimmed = Number(d1.trimmed);
     const rep1 = repFromSeries(d1.series);
     if (rep1 != null) candTomorrow.series_rep = Number(rep1);
-
+    // --- AccuWeather (D1 for this iso) ---
+    const accD1 = latestPreHighValue(getForecastRowsFor(iso, "D1", "AccuWeather"), "");
+    if (Number.isFinite(accD1)) {
+      candTomorrow.AccuWeather = Number(accD1);
+    }
     updateHedgeOnActual("tomorrow", season, candTomorrow, actualF, iso);
   }
 }
