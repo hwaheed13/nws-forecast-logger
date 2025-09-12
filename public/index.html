@@ -2077,7 +2077,7 @@ function updateCorrectionBoxes() {
     
     if (el0) {
       if (Number.isFinite(out0?.y)) {
-        const val = Math.round(out0.y);
+        const val = out0.y.toFixed(1);
         const bias = out0.bias != null ? out0.bias.toFixed(1) : "0.0";
         const sign = Number(bias) >= 0 ? "+" : "";
         el0.innerHTML = `
@@ -2091,7 +2091,7 @@ function updateCorrectionBoxes() {
     
     if (el1) {
       if (Number.isFinite(out1?.y)) {
-        const val = Math.round(out1.y);
+        const val = out1.y.toFixed(1);
         const bias = out1.bias != null ? out1.bias.toFixed(1) : "0.0";
         const sign = Number(bias) >= 0 ? "+" : "";
         el1.innerHTML = `
