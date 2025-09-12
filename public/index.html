@@ -657,12 +657,16 @@ function buildCandidatesForDay(targetISO, highTime){
   const seriesAll = combineSeries(c1.series, c0.series);
   const seriesRep = repFromSeries(seriesAll); // (keep your current rep; easy to swap to time-aware later)
 
-  const candidates = {};
+   const candidates = {};
   if (c1.latest  != null) candidates.D1_latest  = Number(c1.latest);
   if (c1.trimmed != null) candidates.D1_trimmed = Number(c1.trimmed);
   if (c0.latest  != null) candidates.D0_latest  = Number(c0.latest);
   if (c0.trimmed != null) candidates.D0_trimmed = Number(c0.trimmed);
   if (seriesRep  != null) candidates.series_rep = Number(seriesRep);
+
+  // Debug: expose candidates to console
+  window.lastCandidates = candidates;
+  console.log("HEDGE CANDIDATES", Object.keys(candidates), candidates);
 
   const vals = [];
   (c1.series||[]).forEach(r=>{ const v=Number(r.predicted_high); if(Number.isFinite(v)) vals.push(v); });
