@@ -2039,8 +2039,40 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
     }
 
 function updateCorrectionBoxes() {
-  const today    = nycISODate(0);
-  const tomorrow = nycISODate(1);
+  try {
+    const todayISO = nycISODate(0);
+    const tmwISO   = nycISODate(1);
+
+    const builtToday = buildCandidatesForDay(todayISO, "");
+    const builtTmw   = buildCandidatesForDay(tmwISO, "");
+
+    const s0 = isWarmSeason(todayISO) ? "warm" : "cool";
+    const s1 = isWarmSeason(tmwISO) ? "warm" : "cool";
+
+    const out0 = predictWithHedge("today", s0, builtToday.candidates);
+    const out1 = predictWithHedge("tomorrow", s1, builtTmw.candidates);
+
+    const val0 = Number.isFinite(out0?.y0) ? Math.round(out0.y0) : "—";
+    const val1 = Number.isFinite(out1?.y0) ? Math.round(out1.y0) : "—";
+
+    const el0 = document.querySelector('[data-today-bias-value]') || document.getElementById('today-bias');
+    const el1 = document.querySelector('[data-tomorrow-bias-value]') || document.getElementById('tomorrow-bias');
+    if (el0) el0.textContent = val0;
+    if (el1) el1.textContent = val1;
+
+    // also update tooltips if present
+    const tip0 = document.querySelector('[data-today-bias-tip]');
+    const tip1 = document.querySelector('[data-tomorrow-bias-tip]');
+    if (tip0) tip0.textContent = `${out0?.key || ""} • pad=${(out0?.pad??"").toString().slice(0,5)}`;
+    if (tip1) tip1.textContent = `${out1?.key || ""} • pad=${(out1?.pad??"").toString().slice(0,5)}`;
+  } catch (e) {
+    console.warn("updateCorrectionBoxes() failed; showing dashes", e);
+    const el0 = document.querySelector('[data-today-bias-value]') || document.getElementById('today-bias');
+    const el1 = document.querySelector('[data-tomorrow-bias-value]') || document.getElementById('tomorrow-bias');
+    if (el0) el0.textContent = "—";
+    if (el1) el1.textContent = "—";
+  }
+}
 
   // ---------- TODAY ----------
   const todayBox = document.getElementById("correctionBoxToday");
