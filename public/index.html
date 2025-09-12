@@ -1012,9 +1012,12 @@ window.warmOnceForCurrentCSV = warmOnceForCurrentCSV;
       if (r.target_date !== targetISO) return false;
   
       // default blank/missing to "NWS"
-      const src = String((r.source == null || r.source === "") ? "NWS" : r.source);
-      if (source && src !== String(source)) return false;
-  
+      const src = String((r.source ?? "NWS")).trim();
+      if (source) {
+        const want = String(source).trim().toLowerCase();
+        if (src.toLowerCase() !== want) return false;
+      }
+
       const issueISO = etDateISOFromTS(r.timestamp || r.forecast_time || "");
       if (kind==="D0") return issueISO === targetISO;
       if (kind==="D1") return issueISO === dayPrev;
