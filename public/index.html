@@ -2082,7 +2082,7 @@ function updateCorrectionBoxes() {
         const sign = Number(bias) >= 0 ? "+" : "";
         el0.innerHTML = `
           <div class="prediction-value">${val}°F</div>
-          <div class="prediction-subtitle">Smart ensemble (${Object.keys(out0.candidates || {}).length} sources, weights learn daily) ${sign}${bias}°F</div>
+         <div class="prediction-subtitle"><small>Smart ensemble (${Object.keys(out0.weights || {}).length} sources, weights learn daily) ${sign}${bias}°F</small></div>
         `;
       } else {
         el0.innerHTML = `<div class="prediction-value">—</div><div class="prediction-subtitle">Awaiting forecast data</div>`;
@@ -2096,7 +2096,7 @@ function updateCorrectionBoxes() {
         const sign = Number(bias) >= 0 ? "+" : "";
         el1.innerHTML = `
           <div class="prediction-value">${val}°F</div>
-          <div class="prediction-subtitle">Smart ensemble (${Object.keys(out1.candidates || {}).length} sources, weights learn daily) ${sign}${bias}°F</div>
+          <div class="prediction-subtitle"><small>Smart ensemble (${Object.keys(out1.weights || {}).length} sources, weights learn daily) ${sign}${bias}°F</small></div>
         `;
       } else {
         el1.innerHTML = `<div class="prediction-value">—</div><div class="prediction-subtitle">Awaiting forecast data</div>`;
