@@ -2684,9 +2684,13 @@ stats.innerHTML = `
     }
   }
 
-  supabase.auth.onAuthStateChange((_event, session) => {
-    if (!session) window.location.href = "login.html";
-  });
+// Only send the user to login when they actually sign out.
+// INITIAL_SESSION and TOKEN_REFRESHED can briefly have session === null.
+supabase.auth.onAuthStateChange((event, session) => {
+  if (event === "SIGNED_OUT") {
+    window.location.href = "login.html";
+  }
+});
 
   checkAccess();
 })();
