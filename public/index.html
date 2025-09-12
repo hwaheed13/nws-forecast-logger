@@ -611,8 +611,7 @@
     window.showGate = showGate;
 
     /* ========= DATA + UI ========= */
-   let allRows = [], filteredRows = [], chartInstance = null;
-  let accuRows = []; // AccuWeather rows (behind the scenes)
+let allRows = [], filteredRows = [], chartInstance = null, accuRows = [];
     // === Online ensemble (Hedge) + Bias EWMA (self-learning) =====================
 const ENS_KEY = "hedge_v3";               // bump to reset everything
 const ETA = 0.25;                         // learning rate per °F (Hedge)
@@ -902,7 +901,7 @@ window.warmOnceForCurrentCSV = warmOnceForCurrentCSV;
     }
 
    // Global holder for AccuWeather rows
-let accuRows = [];
+accuRows = [];
 
 function reloadCSV(opts = {}) {
   const skipUI = !!opts.skipUI;
