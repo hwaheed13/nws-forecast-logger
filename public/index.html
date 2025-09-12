@@ -2115,14 +2115,15 @@ function updateCorrectionBoxes() {
         forecastChanged.today = false;
       }
       
-      if (out1?.y != null) {
+      if (forecastChanged.tomorrow && out1?.y != null) {
         logPrediction({
           target_date: tomorrowISO,
-          lead_used: "D1",
+          lead_used: "D1", 
           prediction_value: out1.y,
           model_name: "hedge_v3",
           version: "3.0"
         }).catch(() => {});
+        forecastChanged.tomorrow = false;
       }
     }
     
