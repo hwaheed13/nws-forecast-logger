@@ -1968,7 +1968,11 @@ function updateCorrectionBoxes() {
         <div class="prediction-subtitle">Actual published for ${today}</div>
       `;
     } else {
-      const built = buildCandidatesForDay(today, highTime);
+     const built = buildCandidatesForDay(today, highTime);
+      // Add AccuWeather if available
+      if (accuWeatherData.today != null) {
+        built.candidates.AccuWeather = accuWeatherData.today;
+      }
       const pred  = predictWithHedge("today", season, built.candidates, /*rmseContext*/ null);
 
       let y = pred.y;
@@ -1994,6 +1998,9 @@ function updateCorrectionBoxes() {
   if (tmrwBox) {
     const season1 = isWarmSeason(tomorrow) ? "warm" : "cool";
     const built1  = buildCandidatesForDay(tomorrow, /*highTime*/ "");
+      if (accuWeatherData.tomorrow != null) {
+    built1.candidates.AccuWeather = accuWeatherData.tomorrow;
+  }
     const pred1   = predictWithHedge("tomorrow", season1, built1.candidates, /*rmseContext*/ null);
 
     let y1 = pred1.y;
