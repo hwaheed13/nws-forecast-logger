@@ -1033,24 +1033,24 @@ function reloadCSV(opts = {}) {
       return "other";
     }
 
-    // ===== Row selectors =====
-  function getForecastRowsFor(targetISO, kind, source) {
-    // ...keep your existing implementation...
-  } // ← make sure this closing brace is here
-  
-  // NWS-only (UI + NWS series)
-  function getNwsForecastRowsFor(targetISO, kind){
+  // ===== Row selectors =====
+  function getForecastRowsFor(targetISO, kind, source){
+    const rows = (String(source||"") === "AccuWeather") ? accuRows : allRows;
     const dayPrev = prevISO(targetISO);
-    return allRows.filter(r=>{
+    return rows.filter(r => {
       if ((r.forecast_or_actual||"") !== "forecast") return false;
       if ((r.target_date||"") !== targetISO) return false;
+  
+      // optional strict source filter (for NWS vs Accu explicit calls)
+      if (source && String(r.source||"").trim() !== String(source).trim()) return false;
+  
       const issueISO = etDateISOFromTS(r.timestamp || r.forecast_time || "");
       if (kind === "D0") return issueISO === targetISO;
       if (kind === "D1") return issueISO === dayPrev;
       return false;
     });
   }
-  
+
   // Accu-only (hidden from UI)
   function getAccuRowsFor(targetISO, kind){
     const dayPrev = prevISO(targetISO);
@@ -1130,9 +1130,9 @@ function reloadCSV(opts = {}) {
       const arr = core.length ? core : vals;
       return mean(arr);
     })();
-  
-    // carry-over D1 (yesterday's issuance for this target)
-    const d1Carry = latestPreHighValue(getForecastRowsFor(dayISO, "D1"), "");
+ 
+    // carry-over D1 (yesterday's issuance for this target) — NWS only
+  const d1Carry = latestPreHighValue(getNwsForecastRowsFor(dayISO, "D1"), "");
   
     return { first, latest, trimmed, carry: d1Carry, series, _hasD0: series.length>0 };
   }
