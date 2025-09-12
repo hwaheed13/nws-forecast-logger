@@ -823,6 +823,7 @@ function updateHedgeOnActual(lead, season, candidates, actual, dayISO){
     const season  = isWarmSeason(iso) ? "warm" : "cool";
     const hiTime  = actual.high_time || "";
     const actualF = Number(actual.actual_high);
+    console.log("Training row:", iso, "→", actualF);
 
     // Train the "today" policy using everything you'd have for that day
     const builtToday = buildCandidatesForDay(iso, hiTime);
