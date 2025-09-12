@@ -1987,30 +1987,30 @@ function updateCorrectionBoxes() {
         <div class="prediction-value">—</div>
         <div class="prediction-subtitle">Actual published for ${today}</div>
       `;
-    } else {
-     const built = buildCandidatesForDay(today, highTime);
-    // Add AccuWeather if available (prefer cached by date)
-    const accToday = ACCU_BY_DATE[today] ?? accuWeatherData.today;
-    if (accToday != null) built.candidates.AccuWeather = accToday;
-      }
-      const pred  = predictWithHedge("today", season, built.candidates, /*rmseContext*/ null);
+} else {
+  const built = buildCandidatesForDay(today, highTime);
+  // Add AccuWeather if available (prefer cached by date)
+  const accToday = ACCU_BY_DATE[today] ?? accuWeatherData.today;
+  if (accToday != null) built.candidates.AccuWeather = accToday;
+  // NO CLOSING BRACE HERE - continue with the prediction code
+  const pred = predictWithHedge("today", season, built.candidates, /*rmseContext*/ null);
+  
+  let y = pred.y;
+  if (y != null && built.envelope.lo != null && built.envelope.hi != null) {
+    y = clamp(y, built.envelope.lo - pred.pad, built.envelope.hi + pred.pad);
+  }
+  const pDisp = round1(y);
 
-      let y = pred.y;
-      if (y != null && built.envelope.lo != null && built.envelope.hi != null) {
-        y = clamp(y, built.envelope.lo - pred.pad, built.envelope.hi + pred.pad);
-      }
-      const pDisp = round1(y);
-
-      todayBox.innerHTML = `
-        <div class="prediction-value">${pDisp == null ? "–" : `${pDisp.toFixed(1)}°F`}</div>
-        <div class="prediction-subtitle">
-          For ${today}
-         <br><small style="opacity:.75">
-           pred = blend(y→t, t→t, trend) + bias • clamp ±pad • auto updates
-        </small>
-        </div>
-      `;
-    }
+  todayBox.innerHTML = `
+    <div class="prediction-value">${pDisp == null ? "–" : `${pDisp.toFixed(1)}°F`}</div>
+    <div class="prediction-subtitle">
+      For ${today}
+     <br><small style="opacity:.75">
+       pred = blend(y→t, t→t, trend) + bias • clamp ±pad • auto updates
+    </small>
+    </div>
+  `;
+}  // <-- KEEP THIS CLOSING BRACE HERE
 
   // ---------- TOMORROW ----------
   const tmrwBox = document.getElementById("correctionBoxTomorrow");
