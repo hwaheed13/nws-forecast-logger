@@ -613,7 +613,7 @@
     /* ========= DATA + UI ========= */
     let allRows = [], filteredRows = [], chartInstance = null;
     // === Online ensemble (Hedge) + Bias EWMA (self-learning) =====================
-const ENS_KEY = "hedge_v2";               // bump to reset everything
+const ENS_KEY = "hedge_v3";               // bump to reset everything
 const ETA = 0.25;                         // learning rate per °F (Hedge)
 const MIX_GAMMA = 0.02;                   // uniform mix-in to avoid collapse
 const DECAY_PER_DAY = 0.997;              // gently decay old info
@@ -1647,18 +1647,29 @@ filteredRows = allRows.slice();
 if (actualChanged) {
   try {
     const todayISO = nycISODate(0);
-    const a = allRows.find(r => r.forecast_or_actual === "actual" && r.cli_date === todayISO && r.actual_high);
+    const a = allRows.find(r =>
+      r.forecast_or_actual === "actual" &&
+      r.cli_date === todayISO &&
+      r.actual_high
+    );
     if (a && a.actual_high != null) {
       const season = isWarmSeason(todayISO) ? "warm" : "cool";
-      const built  = buildCandidatesForDay(todayISO, a.high_time || "");
+
+      // TODAY policy: include AccuWeather if we cached it for this target day
+      const built = buildCandidatesForDay(todayISO, a.high_time || "");
+      const accForToday = ACCU_BY_DATE[todayISO];
+      if (accForToday != null) built.candidates.AccuWeather = accForToday;
       updateHedgeOnActual("today", season, built.candidates, Number(a.actual_high), todayISO);
-        // also teach the "tomorrow" model using D1-only candidates for the resolved day
+
+      // TOMORROW policy: teach using D1-only info for the resolved day (+ AccuWeather if cached)
       const c1today = d1CandidatesFor(todayISO);
       const tmCands = {};
       if (c1today.latest  != null) tmCands.D1_latest  = Number(c1today.latest);
       if (c1today.trimmed != null) tmCands.D1_trimmed = Number(c1today.trimmed);
       const rep1 = repFromSeries(c1today.series);
       if (rep1 != null) tmCands.series_rep = Number(rep1);
+      if (accForToday != null) tmCands.AccuWeather = accForToday;
+
       updateHedgeOnActual("tomorrow", season, tmCands, Number(a.actual_high), todayISO);
     }
   } catch(_) {}
@@ -1719,18 +1730,26 @@ updateCorrectionBoxes();  // now uses the freshly-trained state
     async function fetchKalshiLiveLeader(dateISO)   { return fetchJSON(KALSHI_LIVE_URLS, { date: dateISO, cb: Date.now() }); }
     async function fetchNwsHighSoFar(station = "KNYC") { return fetchJSON(NWS_HIGH_SO_FAR_URLS, { station }); }
     async function fetchNwsCurrentTemp(station = "KNYC") { return fetchJSON(NWS_CURRENT_TEMP_URLS, { station, cb: Date.now() }); }
-    // AccuWeather data storage
-const accuWeatherData = { today: null, tomorrow: null };
-
+ // AccuWeather data storage
+  const accuWeatherData = { today: null, tomorrow: null };
+  // Persist by target date so we can train Hedge when the actual arrives
+  const ACCU_BY_DATE = Object.create(null); // { 'YYYY-MM-DD': number }
 async function fetchAccuWeatherForecasts() {
   try {
     const response = await fetch('/api/accuweather-forecast');
     if (!response.ok) return null;
-    
+
     const data = await response.json();
-    accuWeatherData.today = Math.round(data.DailyForecasts[0].Temperature.Maximum.Value);
+
+    accuWeatherData.today    = Math.round(data.DailyForecasts[0].Temperature.Maximum.Value);
     accuWeatherData.tomorrow = Math.round(data.DailyForecasts[1].Temperature.Maximum.Value);
-    
+
+    // Keep a date-keyed copy so we can learn when the actual posts
+    const isoToday = nycISODate(0);
+    const isoTmrw  = nycISODate(1);
+    if (Number.isFinite(accuWeatherData.today))    ACCU_BY_DATE[isoToday] = accuWeatherData.today;
+    if (Number.isFinite(accuWeatherData.tomorrow)) ACCU_BY_DATE[isoTmrw]  = accuWeatherData.tomorrow;
+
     console.log(`AccuWeather: Today ${accuWeatherData.today}°F, Tomorrow ${accuWeatherData.tomorrow}°F`);
     return accuWeatherData;
   } catch (error) {
@@ -1738,6 +1757,7 @@ async function fetchAccuWeatherForecasts() {
     return null;
   }
 }
+
 window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
 
     // Kalshi cache
@@ -1969,9 +1989,9 @@ function updateCorrectionBoxes() {
       `;
     } else {
      const built = buildCandidatesForDay(today, highTime);
-      // Add AccuWeather if available
-      if (accuWeatherData.today != null) {
-        built.candidates.AccuWeather = accuWeatherData.today;
+    // Add AccuWeather if available (prefer cached by date)
+    const accToday = ACCU_BY_DATE[today] ?? accuWeatherData.today;
+    if (accToday != null) built.candidates.AccuWeather = accToday;
       }
       const pred  = predictWithHedge("today", season, built.candidates, /*rmseContext*/ null);
 
@@ -1998,8 +2018,8 @@ function updateCorrectionBoxes() {
   if (tmrwBox) {
     const season1 = isWarmSeason(tomorrow) ? "warm" : "cool";
     const built1  = buildCandidatesForDay(tomorrow, /*highTime*/ "");
-      if (accuWeatherData.tomorrow != null) {
-    built1.candidates.AccuWeather = accuWeatherData.tomorrow;
+  const accTmrw = ACCU_BY_DATE[tomorrow] ?? accuWeatherData.tomorrow;
+  if (accTmrw != null) built1.candidates.AccuWeather = accTmrw;
   }
     const pred1   = predictWithHedge("tomorrow", season1, built1.candidates, /*rmseContext*/ null);
 
