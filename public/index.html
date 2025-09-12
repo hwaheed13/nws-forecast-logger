@@ -613,7 +613,7 @@
     /* ========= DATA + UI ========= */
     let allRows = [], filteredRows = [], chartInstance = null;
     // === Online ensemble (Hedge) + Bias EWMA (self-learning) =====================
-const ENS_KEY = "hedge_v2";               // bump to reset everything
+const ENS_KEY = "hedge_v3";               // bump to reset everything
 const ETA = 0.25;                         // learning rate per °F (Hedge)
 const MIX_GAMMA = 0.02;                   // uniform mix-in to avoid collapse
 const DECAY_PER_DAY = 0.997;              // gently decay old info
