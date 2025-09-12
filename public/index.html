@@ -688,8 +688,21 @@ function predictWithHedge(lead, season, candidates, rmseContext){
     const init = 1 / names.length;
     names.forEach(n => st.w[n] = init);
   } else {
-    // add missing newcomers with small mass
-    names.forEach(n => { if (!(n in st.w)) st.w[n] = 1e-6; });
+    // Give new candidates (like AccuWeather) a fair starting weight
+    const existingNames = Object.keys(st.w);
+    const newNames = names.filter(n => !(n in st.w));
+    
+    if (newNames.length > 0) {
+      // Give new sources 10% of total weight
+      const newWeight = 0.1 / newNames.length;
+      const scaling = 0.9; // scale existing weights to 90%
+      
+      // Scale down existing weights
+      existingNames.forEach(n => st.w[n] *= scaling);
+      
+      // Add new candidates with fair weight
+      newNames.forEach(n => st.w[n] = newWeight);
+    }
   }
 
   // small uniform mix to prevent collapse
@@ -710,7 +723,10 @@ function predictWithHedge(lead, season, candidates, rmseContext){
 // Update Hedge weights + Bias/RMSE when an actual arrives
 function updateHedgeOnActual(lead, season, candidates, actual, dayISO){
   const key = contextKey(lead, season);
-  let st = loadState(key) || { w:{}, bias:null, rmse:null, lastDay:null };
+  let st = loadState(key) || { w:{}, bias:null, rmse:null, lastDay:null, learnCounts:{} };
+
+  // Track how many times each candidate has been trained
+  if (!st.learnCounts) st.learnCounts = {};
 
   const names = Object.keys(candidates);
   if (!names.length || actual == null) return;
@@ -727,10 +743,16 @@ function updateHedgeOnActual(lead, season, candidates, actual, dayISO){
   const err = Number(actual) - Number(yhat);
   const absErr = Math.abs(err);
 
-  // Hedge update: w_i <- w_i * exp(-ETA * |c_i - actual|)
+  // Hedge update with boost for new sources
   for (const n of names){
     const li = Math.abs(Number(candidates[n]) - Number(actual));
-    st.w[n] = (st.w[n] || 0) * Math.exp(-ETA * li);
+    
+    // Boost learning rate for sources with < 10 observations
+    const count = st.learnCounts[n] || 0;
+    const etaBoost = count < 10 ? 2.0 : 1.0; // 2x learning rate for new sources
+    
+    st.w[n] = (st.w[n] || 0) * Math.exp(-ETA * etaBoost * li);
+    st.learnCounts[n] = count + 1;
   }
   softmaxNormalize(st.w);
   mixWithUniform(st.w, MIX_GAMMA);
