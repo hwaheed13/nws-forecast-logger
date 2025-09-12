@@ -152,9 +152,8 @@ def rows_for_today_and_tomorrow(j):
     # D0 (today): only if it's before 6pm ET, no actual logged, and no AccuWeather forecast already logged
     today_str = iso_date(now)
     if (not is_after_6pm_local(now)) \
-       and (not actual_already_logged(CSV_PATH, today_str)) \
-       and (not forecast_already_logged(CSV_PATH, today_str, "AccuWeather")):
-        rows.append(row_for(daily[0], 0))
+   and (not actual_already_logged(NWS_CSV_PATH, today_str)):
+    rows.append(row_for(daily[0], 0))
 
 
     # D1 (tomorrow): log only if not already logged for AccuWeather
