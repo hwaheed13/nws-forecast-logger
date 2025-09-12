@@ -2066,8 +2066,9 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
 
 function updateCorrectionBoxes() {
   try {
-    const todayISO = nycISODate(0);
-    const tmwISO   = nycISODate(1);
+    const todayISO    = nycISODate(0);
+    const tomorrowISO = nycISODate(1);
+
 
     const builtToday = buildCandidatesForDay(todayISO, "");
     const builtTmw   = buildCandidatesForDay(tmwISO, "");
