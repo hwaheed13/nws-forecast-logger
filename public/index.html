@@ -992,17 +992,22 @@ window.warmOnceForCurrentCSV = warmOnceForCurrentCSV;
     }
 
     // ===== Row selectors =====
-    function getForecastRowsFor(targetISO, kind){
-      const dayPrev = prevISO(targetISO);
-      return allRows.filter(r=>{
-        if (r.forecast_or_actual !== "forecast") return false;
-        if (r.target_date !== targetISO) return false;
-        const issueISO = etDateISOFromTS(r.timestamp || r.forecast_time || "");
-        if (kind==="D0") return issueISO === targetISO;
-        if (kind==="D1") return issueISO === dayPrev;
-        return false;
-      });
-    }
+     function getForecastRowsFor(targetISO, kind, source){
+    const dayPrev = prevISO(targetISO);
+    return allRows.filter(r=>{
+      if (r.forecast_or_actual !== "forecast") return false;
+      if (r.target_date !== targetISO) return false;
+  
+      // default blank/missing to "NWS"
+      const src = String((r.source == null || r.source === "") ? "NWS" : r.source);
+      if (source && src !== String(source)) return false;
+  
+      const issueISO = etDateISOFromTS(r.timestamp || r.forecast_time || "");
+      if (kind==="D0") return issueISO === targetISO;
+      if (kind==="D1") return issueISO === dayPrev;
+      return false;
+    });
+  }
 
     // Keep trend; collapse only consecutive duplicates by value
    function collapseConsecutiveDuplicates(sortedRows){
