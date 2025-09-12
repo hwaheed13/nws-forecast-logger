@@ -7,7 +7,7 @@ import os, sys, csv, datetime
 import requests
 import pytz
 
-CSV_PATH = "nws_forecast_log.csv"  # adjust if your CSV is elsewhere
+CSV_PATH = "accuweather_log.csv"  # adjust if your CSV is elsewhere
 
 ACCU_API_KEY = os.environ.get("ACCU_API_KEY")
 ACCU_LOCATION_KEY = os.environ.get("ACCU_LOCATION_KEY")  # e.g. 349727
