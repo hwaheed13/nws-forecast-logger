@@ -613,7 +613,7 @@
     /* ========= DATA + UI ========= */
     let allRows = [], filteredRows = [], chartInstance = null;
     // === Online ensemble (Hedge) + Bias EWMA (self-learning) =====================
-const ENS_KEY = "hedge_v2";               // bump to reset everything
+const ENS_KEY = "hedge_v3";               // bump to reset everything
 const ETA = 0.25;                         // learning rate per °F (Hedge)
 const MIX_GAMMA = 0.02;                   // uniform mix-in to avoid collapse
 const DECAY_PER_DAY = 0.997;              // gently decay old info
@@ -657,12 +657,16 @@ function buildCandidatesForDay(targetISO, highTime){
   const seriesAll = combineSeries(c1.series, c0.series);
   const seriesRep = repFromSeries(seriesAll); // (keep your current rep; easy to swap to time-aware later)
 
-  const candidates = {};
+   const candidates = {};
   if (c1.latest  != null) candidates.D1_latest  = Number(c1.latest);
   if (c1.trimmed != null) candidates.D1_trimmed = Number(c1.trimmed);
   if (c0.latest  != null) candidates.D0_latest  = Number(c0.latest);
   if (c0.trimmed != null) candidates.D0_trimmed = Number(c0.trimmed);
   if (seriesRep  != null) candidates.series_rep = Number(seriesRep);
+
+  // Debug: expose candidates to console
+  window.lastCandidates = candidates;
+  console.log("HEDGE CANDIDATES", Object.keys(candidates), candidates);
 
   const vals = [];
   (c1.series||[]).forEach(r=>{ const v=Number(r.predicted_high); if(Number.isFinite(v)) vals.push(v); });
@@ -694,14 +698,20 @@ function predictWithHedge(lead, season, candidates, rmseContext){
     
     if (newNames.length > 0) {
       // If AccuWeather is joining, reset everyone to equal weight for fair competition
-      if (newNames.includes('AccuWeather')) {
-        const equalWeight = 1 / names.length;
-        names.forEach(n => st.w[n] = equalWeight);
-        console.log(`AccuWeather joined: all ${names.length} sources reset to ${(equalWeight*100).toFixed(1)}% weight each`);
-      } else {
-        // For other new sources, use minimal weight as before
-        newNames.forEach(n => st.w[n] = 1e-6);
-      }
+        if (newNames.includes('AccuWeather')) {
+          const equalWeight = 1 / names.length;
+          names.forEach(n => st.w[n] = equalWeight);
+          console.log(`AccuWeather joined: all ${names.length} sources reset to ${(equalWeight*100).toFixed(1)}% weight each`);
+          // persist immediately and refresh UI once, so the 25% shows up right away
+          saveState(key, st);
+          if (typeof window.updateCorrectionBoxes === 'function') {
+            setTimeout(window.updateCorrectionBoxes, 0);
+          }
+        } else {
+          // For other new sources, use minimal weight as before
+          newNames.forEach(n => st.w[n] = 1e-6);
+        }
+
     }
   }
 
@@ -988,17 +998,22 @@ window.warmOnceForCurrentCSV = warmOnceForCurrentCSV;
     }
 
     // ===== Row selectors =====
-    function getForecastRowsFor(targetISO, kind){
-      const dayPrev = prevISO(targetISO);
-      return allRows.filter(r=>{
-        if (r.forecast_or_actual !== "forecast") return false;
-        if (r.target_date !== targetISO) return false;
-        const issueISO = etDateISOFromTS(r.timestamp || r.forecast_time || "");
-        if (kind==="D0") return issueISO === targetISO;
-        if (kind==="D1") return issueISO === dayPrev;
-        return false;
-      });
-    }
+     function getForecastRowsFor(targetISO, kind, source){
+    const dayPrev = prevISO(targetISO);
+    return allRows.filter(r=>{
+      if (r.forecast_or_actual !== "forecast") return false;
+      if (r.target_date !== targetISO) return false;
+  
+      // default blank/missing to "NWS"
+      const src = String((r.source == null || r.source === "") ? "NWS" : r.source);
+      if (source && src !== String(source)) return false;
+  
+      const issueISO = etDateISOFromTS(r.timestamp || r.forecast_time || "");
+      if (kind==="D0") return issueISO === targetISO;
+      if (kind==="D1") return issueISO === dayPrev;
+      return false;
+    });
+  }
 
     // Keep trend; collapse only consecutive duplicates by value
    function collapseConsecutiveDuplicates(sortedRows){
