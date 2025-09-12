@@ -9,8 +9,9 @@ import pytz
 CSV_PATH = "nws_forecast_log.csv"  # adjust if your CSV is elsewhere
 
 ACCU_API_KEY = os.environ.get("ACCU_API_KEY")
-ACCU_LOCATION_KEY = os.environ.get("ACCU_LOCATION_KEY")  # e.g. 349727
+ACCU_LOCATION_KEY = os.environ.get("ACCU_LOCATION_KEY") 
 TZ_NAME = os.environ.get("TZ", "America/New_York")
+DRY_RUN = os.environ.get("ACCU_DRY_RUN") == "1"
 # Temporary kill switch: set ACCU_DISABLE=1 to skip running
 if os.environ.get("ACCU_DISABLE") == "1":
     print("accuweather_logger: disabled via ACCU_DISABLE=1", file=sys.stderr)
@@ -170,18 +171,21 @@ def rows_for_today_and_tomorrow(j):
 def append_rows(rows):
     if not rows:
         return
-    # Ensure header already has ,source at end (you added this earlier)
+    if DRY_RUN:
+        print(f"accuweather_logger: DRY_RUN=1 (skip writing {len(rows)} rows)", file=sys.stderr)
+        return
     with open(CSV_PATH, "a", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         for r in rows:
             w.writerow(r)
+
 
 def main():
     try:
         j = fetch_accuweather_5day(ACCU_LOCATION_KEY, ACCU_API_KEY)
         rows = rows_for_today_and_tomorrow(j)
         append_rows(rows)
-        print(f"accuweather_logger: wrote {len(rows)} row(s)")
+        print(f"accuweather_logger: {'DRY_RUN no-write' if DRY_RUN else 'wrote'} {len(rows)} row(s)")
     except Exception as e:
         # Don't crash the workflow; just log
         print(f"accuweather_logger ERROR: {e}", file=sys.stderr)
