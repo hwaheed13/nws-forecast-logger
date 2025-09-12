@@ -7,7 +7,7 @@ import requests
 import pytz
 
 CSV_PATH = "accuweather_log.csv" # adjust if your CSV is elsewhere
-
+NWS_CSV_PATH = "nws_forecast_log.csv"  
 ACCU_API_KEY = os.environ.get("ACCU_API_KEY")
 ACCU_LOCATION_KEY = os.environ.get("ACCU_LOCATION_KEY") 
 TZ_NAME = os.environ.get("TZ", "America/New_York")
