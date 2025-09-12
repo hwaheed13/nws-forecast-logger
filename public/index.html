@@ -2564,7 +2564,7 @@ stats.innerHTML = `
     window.pollCsvAndUpdate = pollCsvAndUpdate;
   </script>
 
-  <!-- Auth + boot (UMD) -->
+<!-- Auth + boot (UMD) -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
 (() => {
@@ -2574,10 +2574,13 @@ stats.innerHTML = `
   );
 
   const gate = document.getElementById("gate");
-  function gateMsg(msg){
+  function gateMsg(msg) {
     const sub = gate && gate.querySelector(".gate-sub");
     if (sub && msg) sub.textContent = msg;
   }
+
+  // Buttons
+  // TODO: add your event listeners here
 
   // Buttons
   document.getElementById("btn-logout")?.addEventListener("click", async () => {
