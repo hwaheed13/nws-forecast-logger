@@ -657,32 +657,16 @@ function buildCandidatesForDay(targetISO, highTime){
   const seriesAll = combineSeries(c1.series, c0.series);
   const seriesRep = repFromSeries(seriesAll); // (keep your current rep; easy to swap to time-aware later)
 
-  const candidates = {};
+   const candidates = {};
   if (c1.latest  != null) candidates.D1_latest  = Number(c1.latest);
   if (c1.trimmed != null) candidates.D1_trimmed = Number(c1.trimmed);
   if (c0.latest  != null) candidates.D0_latest  = Number(c0.latest);
   if (c0.trimmed != null) candidates.D0_trimmed = Number(c0.trimmed);
   if (seriesRep  != null) candidates.series_rep = Number(seriesRep);
 
-  // === AccuWeather candidate (most recent pre-high across D1→D0) ===
-  try {
-    const accD1 = getForecastRowsFor(targetISO, "D1", "AccuWeather") || [];
-    const accD0 = getForecastRowsFor(targetISO, "D0", "AccuWeather") || [];
-    const accSeries = collapseConsecutiveDuplicates(
-      [...accD1, ...accD0].sort((a,b)=>((a.timestamp||a.forecast_time||"")).localeCompare(b.timestamp||b.forecast_time||""))
-    );
-    const accLatest = accSeries.length ? Number(accSeries[accSeries.length - 1].predicted_high) : null;
-    if (Number.isFinite(accLatest)) {
-      candidates.AccuWeather = accLatest;   // <- this makes “AccuWeather” show up in names[]
-    }
-  } catch (e) {
-    console.warn("AccuWeather candidate build failed:", e);
-  }
-
   // Debug: expose candidates to console
   window.lastCandidates = candidates;
   console.log("HEDGE CANDIDATES", Object.keys(candidates), candidates);
-
 
   const vals = [];
   (c1.series||[]).forEach(r=>{ const v=Number(r.predicted_high); if(Number.isFinite(v)) vals.push(v); });
