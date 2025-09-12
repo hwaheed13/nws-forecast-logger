@@ -2001,10 +2001,7 @@ function updateCorrectionBoxes() {
       if (accuWeatherData.tomorrow != null) {
     built1.candidates.AccuWeather = accuWeatherData.tomorrow;
   }
-   const pred1   = predictWithHedge("tomorrow", season1, built1.candidates, /*rmseContext*/ null);
-    console.log('Tomorrow candidates:', built1.candidates);  // ADD THIS
-    console.log('Tomorrow weights:', pred1.weights);         // ADD THIS
-    let y1 = pred1.y;
+    const pred1   = predictWithHedge("tomorrow", season1, built1.candidates, /*rmseContext*/ null);
 
     let y1 = pred1.y;
     if (y1 != null && built1.envelope.lo != null && built1.envelope.hi != null) {
