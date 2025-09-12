@@ -811,8 +811,14 @@ function updateHedgeOnActual(lead, season, candidates, actual, dayISO){
     if (r.forecast_or_actual === "actual" && r.actual_high) byDay.get(day).actual = r;
   }
 
+  const todayISO = nycISODate(0);
+
   for (const [iso, { actual }] of byDay.entries()) {
-    if (!actual || actual.actual_high == null) continue;
+  if (!actual || actual.actual_high == null) continue;
+
+  // Don’t use today’s actual unless it’s truly published
+  if (iso === todayISO && !hasActualFor(todayISO)) continue;
+
 
     const season  = isWarmSeason(iso) ? "warm" : "cool";
     const hiTime  = actual.high_time || "";
