@@ -2653,21 +2653,24 @@ stats.innerHTML = `
         return;
       }
 
-      const { data: profile, error } = await supabase
-        .from("profiles")
-        .select("subscription_status, current_period_end, trial_used")
-        .eq("id", session.user.id)
-        .single();
-
-      if (error) console.warn("profiles fetch error:", error);
-
-      const status = profile?.subscription_status ?? "inactive";
-      if (!(status === "active" || status === "trialing")) {
-        const dest = profile?.trial_used ? "subscribe.html?reason=trial_expired" : "subscribe.html";
-        gateMsg("Subscription inactive. Redirecting…");
-        window.location.href = dest;
-        return;
-      }
+    const { data: profile, error } = await supabase
+      .from("profiles")
+      .select("subscription_status, current_period_end, trial_used")
+      .eq("id", session.user.id)
+      .single();
+    
+    if (error) console.warn("profiles fetch error:", error);
+    
+    // Dev-friendly: if there is NO profile row, let the user in
+    const status = profile?.subscription_status;  // <- no default to "inactive"
+    if (!status) {
+      console.warn("No profile row; letting user in for now.");
+    } else if (!(status === "active" || status === "trialing")) {
+      const dest = profile?.trial_used ? "subscribe.html?reason=trial_expired" : "subscribe.html";
+      gateMsg("Subscription inactive. Redirecting…");
+      window.location.href = dest;
+      return;
+    }
 
     // Allowed → boot first, then show
     await bootApp();
