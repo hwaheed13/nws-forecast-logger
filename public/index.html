@@ -611,7 +611,8 @@
     window.showGate = showGate;
 
     /* ========= DATA + UI ========= */
-    let allRows = [], filteredRows = [], chartInstance = null;
+   let allRows = [], filteredRows = [], chartInstance = null;
+  let accuRows = []; // AccuWeather rows (behind the scenes)
     // === Online ensemble (Hedge) + Bias EWMA (self-learning) =====================
 const ENS_KEY = "hedge_v3";               // bump to reset everything
 const ETA = 0.25;                         // learning rate per °F (Hedge)
@@ -665,8 +666,8 @@ function buildCandidatesForDay(targetISO, highTime){
   if (seriesRep  != null) candidates.series_rep = Number(seriesRep);
 
   // --- AccuWeather injection (ENUMERABLE OWN KEY) ---
-  const accD0 = latestPreHighValue(getForecastRowsFor(targetISO, "D0", "AccuWeather"), "");
-  const accD1 = latestPreHighValue(getForecastRowsFor(targetISO, "D1", "AccuWeather"), "");
+ const accD0 = latestPreHighValue(getAccuRowsFor(targetISO, "D0"), "");
+const accD1 = latestPreHighValue(getAccuRowsFor(targetISO, "D1"), "");
   const accVal = Number.isFinite(accD1) ? accD1 : (Number.isFinite(accD0) ? accD0 : null);
   if (accVal != null) {
     candidates.AccuWeather = Number(accVal); // plain assignment => enumerable, own
@@ -811,7 +812,7 @@ function updateHedgeOnActual(lead, season, candidates, actual, dayISO){
     const rep1 = repFromSeries(d1.series);
     if (rep1 != null) candTomorrow.series_rep = Number(rep1);
     // --- AccuWeather (D1 for this iso) ---
-    const accD1 = latestPreHighValue(getForecastRowsFor(iso, "D1", "AccuWeather"), "");
+    const accD1 = latestPreHighValue(getAccuRowsFor(iso, "D1"), "");
     if (Number.isFinite(accD1)) {
       candTomorrow.AccuWeather = Number(accD1);
     }
@@ -900,29 +901,58 @@ window.warmOnceForCurrentCSV = warmOnceForCurrentCSV;
       }
     }
 
-    function reloadCSV(opts = {}) {
-    const skipUI = !!opts.skipUI;
-      showSkeleton();
-      return fetch(CSV_URL + "?" + Date.now())
-        .then(r => r.text())
-        .then(parseCSV)
-        .then(() => {
-          seedForecastSignatures();      // after parse, prevents boot-logs
-          lastActualSig = actualSignatureFor(allRows);
-          forecastChanged.today = false; // initial load never logs
-          forecastChanged.tomorrow = false;
-          if (!skipUI) {
-          resetFilter();
-          showMostRecent();
-          updateSummaryBoxes();
-          updateCorrectionBoxes();
-          updateObservations();
-        }})
-        .catch(err => {
-          alert("Could not load CSV. " + err);
-          throw err;
-        });
+   // Global holder for AccuWeather rows
+let accuRows = [];
+
+function reloadCSV(opts = {}) {
+  const skipUI = !!opts.skipUI;
+  showSkeleton();
+
+  // Fetch NWS + AccuWeather concurrently
+  return Promise.all([
+    fetch(CSV_URL + "?" + Date.now()).then(r => r.text()),
+    fetch(ACCU_URL + "?" + Date.now()).then(r => r.text()).catch(() => "")
+  ])
+  .then(([nwsText, accuText]) => {
+    // Parse NWS (UI + ensemble base)
+    parseCSV(nwsText);
+
+    // Parse AccuWeather separately
+    accuRows = [];
+    if (accuText && accuText.trim()) {
+      const rows = csvToRows(accuText);
+      const header = rows[0].map(h => h.trim());
+      for (let i = 1; i < rows.length; i++) {
+        const vals = rows[i];
+        const rec = {};
+        for (let j = 0; j < header.length; j++) {
+          let v = (vals[j] ?? "").trim();
+          if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1).replace(/""/g, '"');
+          rec[header[j]] = v;
+        }
+        accuRows.push(rec);
+      }
     }
+
+    // Continue normal boot
+    seedForecastSignatures();
+    lastActualSig = actualSignatureFor(allRows);
+    forecastChanged.today = false;
+    forecastChanged.tomorrow = false;
+
+    if (!skipUI) {
+      resetFilter();
+      showMostRecent();
+      updateSummaryBoxes();
+      updateCorrectionBoxes();
+      updateObservations();
+    }
+  })
+  .catch(err => {
+    alert("Could not load CSVs. " + err);
+    throw err;
+  });
+}
 
     function csvToRows(text) {
       const rows = [];
@@ -1005,22 +1035,32 @@ window.warmOnceForCurrentCSV = warmOnceForCurrentCSV;
     }
 
     // ===== Row selectors =====
-     function getForecastRowsFor(targetISO, kind, source){
+  function getForecastRowsFor(targetISO, kind, source) {
+    // ...keep your existing implementation...
+  } // ← make sure this closing brace is here
+  
+  // NWS-only (UI + NWS series)
+  function getNwsForecastRowsFor(targetISO, kind){
     const dayPrev = prevISO(targetISO);
     return allRows.filter(r=>{
-      if (r.forecast_or_actual !== "forecast") return false;
-      if (r.target_date !== targetISO) return false;
-  
-      // default blank/missing to "NWS"
-      const src = String((r.source ?? "NWS")).trim();
-      if (source) {
-        const want = String(source).trim().toLowerCase();
-        if (src.toLowerCase() !== want) return false;
-      }
-
+      if ((r.forecast_or_actual||"") !== "forecast") return false;
+      if ((r.target_date||"") !== targetISO) return false;
       const issueISO = etDateISOFromTS(r.timestamp || r.forecast_time || "");
-      if (kind==="D0") return issueISO === targetISO;
-      if (kind==="D1") return issueISO === dayPrev;
+      if (kind === "D0") return issueISO === targetISO;
+      if (kind === "D1") return issueISO === dayPrev;
+      return false;
+    });
+  }
+  
+  // Accu-only (hidden from UI)
+  function getAccuRowsFor(targetISO, kind){
+    const dayPrev = prevISO(targetISO);
+    return accuRows.filter(r=>{
+      if ((r.forecast_or_actual||"") !== "forecast") return false;
+      if ((r.target_date||"") !== targetISO) return false;
+      const issueISO = etDateISOFromTS(r.timestamp || r.forecast_time || "");
+      if (kind === "D0") return issueISO === targetISO;
+      if (kind === "D1") return issueISO === dayPrev;
       return false;
     });
   }
@@ -1069,7 +1109,7 @@ window.warmOnceForCurrentCSV = warmOnceForCurrentCSV;
 
     // ===== Candidate builders =====
   function d0CandidatesFor(dayISO, highTime) {
-    const d0 = getForecastRowsFor(dayISO, "D0").filter(r => r.predicted_high != null && r.predicted_high !== "");
+    const d0 = getNwsForecastRowsFor(dayISO, "D0").filter(r => r.predicted_high != null && r.predicted_high !== "");
     const sorted = d0
       .filter(r => {
         if (!highTime) return true;
@@ -1099,7 +1139,7 @@ window.warmOnceForCurrentCSV = warmOnceForCurrentCSV;
   }
 
    function d1CandidatesFor(tomorrowISO) {
-      const d1 = getForecastRowsFor(tomorrowISO, "D1").filter(r => r.predicted_high != null && r.predicted_high !== "");
+     const d1 = getNwsForecastRowsFor(tomorrowISO, "D1").filter(r => r.predicted_high != null && r.predicted_high !== "");
       const series = collapseConsecutiveDuplicates(
         d1.sort((a,b)=>((a.timestamp||a.forecast_time||"")).localeCompare(b.timestamp||b.forecast_time||""))
       );
@@ -1723,6 +1763,7 @@ updateCorrectionBoxes();  // now uses the freshly-trained state
 
     /* ========= NETWORK: SAME-ORIGIN → PROXY → UPSTREAM ========= */
     const CSV_URL = "https://raw.githubusercontent.com/hwaheed13/nws-forecast-logger/main/nws_forecast_log.csv";
+    const ACCU_URL = "https://raw.githubusercontent.com/hwaheed13/nws-forecast-logger/main/accuweather_log.csv";
     const KALSHI_BASE_URL = "https://kalshi.com/markets/kxhighny/highest-temperature-in-nyc";
     const API_BASE = "/api"; // relative works from / or /dashboard/
 
