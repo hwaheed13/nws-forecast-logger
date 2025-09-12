@@ -2131,19 +2131,28 @@ function updateCorrectionBoxes() {
     const el0 = document.getElementById('correctionBoxToday');
     const el1 = document.getElementById('correctionBoxTomorrow');
     
-    if (el0) {
-      if (Number.isFinite(out0?.y)) {
-        const val = out0.y.toFixed(1);
-        const bias = out0.bias != null ? out0.bias.toFixed(1) : "0.0";
-        const sign = Number(bias) >= 0 ? "+" : "";
-        el0.innerHTML = `
-          <div class="prediction-value">${val}°F</div>
-         <div class="prediction-subtitle"><small>Smart ensemble (${Object.keys(out0.weights || {}).length} sources, weights learn daily) ${sign}${bias}°F</small></div>
-        `;
-      } else {
-        el0.innerHTML = `<div class="prediction-value">—</div><div class="prediction-subtitle">Awaiting forecast data</div>`;
-      }
+  if (el0) {
+    // If today's actual has been published, suppress the bias-corrected display
+    if (hasActualFor(todayISO)) {
+      el0.innerHTML = `
+        <div class="prediction-value">—</div>
+        <div class="prediction-subtitle">Actual high published for ${todayISO}</div>
+      `;
+    } else if (Number.isFinite(out0?.y)) {
+      const val  = out0.y.toFixed(1);
+      const bias = out0.bias != null ? out0.bias.toFixed(1) : "0.0";
+      const sign = Number(bias) >= 0 ? "+" : "";
+      el0.innerHTML = `
+        <div class="prediction-value">${val}°F</div>
+        <div class="prediction-subtitle">
+          <small>Smart ensemble (${Object.keys(out0.weights || {}).length} sources, weights learn daily) ${sign}${bias}°F</small>
+        </div>
+      `;
+    } else {
+      el0.innerHTML = `<div class="prediction-value">—</div><div class="prediction-subtitle">Awaiting forecast data</div>`;
     }
+  }
+
     
     if (el1) {
       if (Number.isFinite(out1?.y)) {
