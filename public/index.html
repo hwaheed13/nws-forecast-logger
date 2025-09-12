@@ -698,14 +698,20 @@ function predictWithHedge(lead, season, candidates, rmseContext){
     
     if (newNames.length > 0) {
       // If AccuWeather is joining, reset everyone to equal weight for fair competition
-      if (newNames.includes('AccuWeather')) {
-        const equalWeight = 1 / names.length;
-        names.forEach(n => st.w[n] = equalWeight);
-        console.log(`AccuWeather joined: all ${names.length} sources reset to ${(equalWeight*100).toFixed(1)}% weight each`);
-      } else {
-        // For other new sources, use minimal weight as before
-        newNames.forEach(n => st.w[n] = 1e-6);
-      }
+        if (newNames.includes('AccuWeather')) {
+          const equalWeight = 1 / names.length;
+          names.forEach(n => st.w[n] = equalWeight);
+          console.log(`AccuWeather joined: all ${names.length} sources reset to ${(equalWeight*100).toFixed(1)}% weight each`);
+          // persist immediately and refresh UI once, so the 25% shows up right away
+          saveState(key, st);
+          if (typeof window.updateCorrectionBoxes === 'function') {
+            setTimeout(window.updateCorrectionBoxes, 0);
+          }
+        } else {
+          // For other new sources, use minimal weight as before
+          newNames.forEach(n => st.w[n] = 1e-6);
+        }
+
     }
   }
 
