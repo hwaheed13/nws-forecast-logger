@@ -615,19 +615,20 @@ let allRows = [], filteredRows = [], chartInstance = null, accuRows = [];
 
 // --- Helpers: separate NWS vs AccuWeather rows ---
 function getNwsForecastRowsFor(targetISO, kind) {
-  return allRows.filter(r =>
-    r.forecast_or_actual === "forecast" &&
-    r.target_date === targetISO &&
-    (!kind || r.forecast_detail.includes(kind))
-  );
-}
-
-function getAccuRowsFor(targetISO, kind) {
-  return accuRows.filter(r =>
-    r.forecast_or_actual === "forecast" &&
-    r.target_date === targetISO &&
-    (!kind || r.forecast_detail.includes(kind))
-  );
+  const dayPrev = prevISO(targetISO);
+  return allRows.filter(r => {
+    if ((r.forecast_or_actual || "") !== "forecast") return false;
+    if ((r.target_date || "") !== targetISO) return false;
+    
+    const issueISO = etDateISOFromTS(r.timestamp || r.forecast_time || "");
+    if (!issueISO) return false;
+    
+    if (kind === "D0") return issueISO === targetISO;
+    if (kind === "D1") return issueISO === dayPrev;
+    if (!kind) return true; // If no kind specified, return all forecasts for this target
+    
+    return false;
+  });
 }
 
     // === Online ensemble (Hedge) + Bias EWMA (self-learning) =====================
@@ -1127,7 +1128,7 @@ function reloadCSV(opts = {}) {
 
     // ===== Candidate builders =====
   function d0CandidatesFor(dayISO, highTime) {
-    const d0 = getNwsForecastRowsFor(dayISO, "D0").filter(r => r.predicted_high != null && r.predicted_high !== "");
+    const d0 = getForecastRowsFor(dayISO, "D0").filter(r => r.predicted_high != null && r.predicted_high !== "");
     const sorted = d0
       .filter(r => {
         if (!highTime) return true;
@@ -1151,13 +1152,12 @@ function reloadCSV(opts = {}) {
     })();
  
     // carry-over D1 (yesterday's issuance for this target) — NWS only
-  const d1Carry = latestPreHighValue(getNwsForecastRowsFor(dayISO, "D1"), "");
-  
+   const d1Carry = latestPreHighValue(getForecastRowsFor(dayISO, "D1"), ""); 
     return { first, latest, trimmed, carry: d1Carry, series, _hasD0: series.length>0 };
   }
 
    function d1CandidatesFor(tomorrowISO) {
-     const d1 = getNwsForecastRowsFor(tomorrowISO, "D1").filter(r => r.predicted_high != null && r.predicted_high !== "");
+     const d1 = getForecastRowsFor(tomorrowISO, "D1").filter(r => r.predicted_high != null && r.predicted_high !== "");
       const series = collapseConsecutiveDuplicates(
         d1.sort((a,b)=>((a.timestamp||a.forecast_time||"")).localeCompare(b.timestamp||b.forecast_time||""))
       );
