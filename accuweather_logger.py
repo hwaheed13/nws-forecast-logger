@@ -22,11 +22,39 @@ def now_et():
     return datetime.datetime.now(tz)
 
 def stamp(dt):
-    # "YYYY-MM-DD HH:MM:SS" to match your CSV
-    return dt.strftime("%Y-%m-%d %H:%M:%S")
+    return dt.strftime("%Y-%m-%d %H:%M:%S")  # "YYYY-MM-DD HH:MM:SS"
 
 def iso_date(dt):
-    return dt.strftime("%Y-%m-%d")
+    return dt.strftime("%Y-%m-%d")           # date portion only
+
+def is_after_6pm_local(dt=None):
+    dt = dt or now_et()
+    return (dt.hour, dt.minute, dt.second) > (18, 0, 0)
+
+def actual_already_logged(csv_path, target_iso):
+    """True if an 'actual' row exists for the given target_date."""
+    try:
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            r = csv.reader(f)
+            header = next(r, None)
+            if header and "target_date" in header and "forecast_or_actual" in header:
+                i_target = header.index("target_date")
+                i_kind   = header.index("forecast_or_actual")
+            else:
+                # Fallback to fixed positions in your schema:
+                # timestamp(0), target_date(1), forecast_or_actual(2), ...
+                i_target, i_kind = 1, 2
+            for row in r:
+                if len(row) <= max(i_target, i_kind):
+                    continue
+                if row[i_target] == target_iso and row[i_kind].strip().lower() == "actual":
+                    return True
+    except FileNotFoundError:
+        return False
+    except Exception:
+        return False
+    return False
+
 
 def clean_detail(text):
     if text is None:
@@ -51,32 +79,35 @@ def rows_for_today_and_tomorrow(j):
 
     def row_for(day_obj, offset_days):
         tgt = now + datetime.timedelta(days=offset_days)
-        target_iso = iso_date(tgt)
+        target_iso_str = iso_date(tgt)
         max_f = day_obj.get("Temperature", {}).get("Maximum", {}).get("Value")
         try:
             max_f = int(round(float(max_f)))
         except Exception:
             max_f = ""
-        # pick something brief for detail
         detail = day_obj.get("Day", {}).get("IconPhrase") or day_obj.get("Night", {}).get("IconPhrase") or (j.get("Headline", {}) or {}).get("Text")
         detail = clean_detail(detail)
-
-        # Maintain your exact column order; leave blanks for actuals/bias fields
         return [
-            ts,                # timestamp (pulled)
-            target_iso,        # target_date
-            "forecast",        # forecast_or_actual
-            ts,                # forecast_time (AW daily endpoint has no issuance; use pulled time)
-            max_f,             # predicted_high (F)
-            detail,            # forecast_detail (short)
-            "",                # cli_date
-            "",                # actual_high
-            "",                # high_time
-            "",                # bias_corrected_prediction
-            "AccuWeather"      # source
+            ts,                   # timestamp (pulled)
+            target_iso_str,       # target_date
+            "forecast",           # forecast_or_actual
+            ts,                   # forecast_time
+            max_f,                # predicted_high (F)
+            detail,               # forecast_detail (short)
+            "", "", "", "",       # cli_date, actual_high, high_time, bias_corrected_prediction
+            "AccuWeather"         # source
         ]
 
-    return [row_for(daily[0], 0), row_for(daily[1], 1)]
+    rows = []
+    # D0 (today): only if it's before 6pm ET AND there is no actual logged yet
+    today_str = iso_date(now)
+    if (not is_after_6pm_local(now)) and (not actual_already_logged(CSV_PATH, today_str)):
+        rows.append(row_for(daily[0], 0))
+
+    # D1 (tomorrow): always log
+    rows.append(row_for(daily[1], 1))
+
+    return rows
 
 def append_rows(rows):
     if not rows:
