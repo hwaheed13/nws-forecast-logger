@@ -2453,6 +2453,11 @@ function updateCorrectionBoxes() {
     const actualHigh = Number(actual.actual_high);
     const highTime = actual.high_time || "";
 
+  dates.forEach(date => {
+    const rows = rowsByDate[date] || [];
+    const actualHigh = actualByDate[date];
+    if (!Number.isFinite(actualHigh)) return; // skip days without an actual
+
     const forecasts = rows
       .filter(r => r.forecast_or_actual === "forecast" && r.predicted_high)
       .filter(r => {
@@ -2466,24 +2471,25 @@ function updateCorrectionBoxes() {
       .filter(Number.isFinite);
 
     if (forecasts.length) {
-      const signedErrors = forecasts.map(f => f - actualHigh);  // NEW: keep sign
+      const signedErrors = forecasts.map(f => f - actualHigh);
       const allErrors = forecasts.map(f => Math.abs(f - actualHigh));
-      
+
       const avgErr = allErrors.reduce((a, b) => a + b, 0) / allErrors.length;
-      const avgSignedErr = signedErrors.reduce((a, b) => a + b, 0) / signedErrors.length;  // NEW
-      
+      const avgSignedErr = signedErrors.reduce((a, b) => a + b, 0) / signedErrors.length;
+
       const bestIdx = allErrors.indexOf(Math.min(...allErrors));
       const bestErr = allErrors[bestIdx];
-      const bestSignedErr = signedErrors[bestIdx];  // NEW: signed error of best forecast
-      
+      const bestSignedErr = signedErrors[bestIdx];
+
       totalAbsErr += avgErr;
-      totalSignedErr += avgSignedErr;  // NEW
+      totalSignedErr += avgSignedErr;
       totalBestErr += bestErr;
-      totalBestSignedErr += bestSignedErr;  // NEW
+      totalBestSignedErr += bestSignedErr;
       errCount++;
       bestCount++;
     }
   });
+
 
   const avgAbsErr = errCount > 0 ? (totalAbsErr / errCount).toFixed(1) : "--";
   const avgBestErr = bestCount > 0 ? (totalBestErr / bestCount).toFixed(1) : "--";
