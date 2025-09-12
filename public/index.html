@@ -687,21 +687,21 @@ function predictWithHedge(lead, season, candidates, rmseContext){
   if (!Object.keys(st.w).length) {
     const init = 1 / names.length;
     names.forEach(n => st.w[n] = init);
-  } else {
-    // Give new candidates (like AccuWeather) a fair starting weight
+} else {
+    // Check for new candidates
     const existingNames = Object.keys(st.w);
     const newNames = names.filter(n => !(n in st.w));
     
     if (newNames.length > 0) {
-      // Give new sources 10% of total weight
-      const newWeight = 0.1 / newNames.length;
-      const scaling = 0.9; // scale existing weights to 90%
-      
-      // Scale down existing weights
-      existingNames.forEach(n => st.w[n] *= scaling);
-      
-      // Add new candidates with fair weight
-      newNames.forEach(n => st.w[n] = newWeight);
+      // If AccuWeather is joining, reset everyone to equal weight for fair competition
+      if (newNames.includes('AccuWeather')) {
+        const equalWeight = 1 / names.length;
+        names.forEach(n => st.w[n] = equalWeight);
+        console.log(`AccuWeather joined: all ${names.length} sources reset to ${(equalWeight*100).toFixed(1)}% weight each`);
+      } else {
+        // For other new sources, use minimal weight as before
+        newNames.forEach(n => st.w[n] = 1e-6);
+      }
     }
   }
 
