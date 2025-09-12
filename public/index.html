@@ -2071,6 +2071,62 @@ function updateCorrectionBoxes() {
     const out0 = predictWithHedge("today", s0, builtToday.candidates);
     const out1 = predictWithHedge("tomorrow", s1, builtTmw.candidates);
 
+   // Log predictions if forecasts changed
+    if (typeof logPrediction === 'function') {
+      if (forecastChanged.today && out0?.y != null) {
+        const sig0 = [todayISO, 'today', out0.y.toFixed(1), out0.bias.toFixed(2)].join('|');
+        if (sig0 !== loggedSig.today) {
+          logPrediction({
+            target_date: todayISO,
+            lead_used: "today",
+            prediction_value: out0.y,
+            model_name: "hedge_v3"
+          }).catch(() => {});
+          setLoggedSig("today", sig0);
+        }
+        forecastChanged.today = false;
+      }
+      
+      if (forecastChanged.tomorrow && out1?.y != null) {
+        const sig1 = [tomorrowISO, 'tomorrow', out1.y.toFixed(1), out1.bias.toFixed(2)].join('|');
+        if (sig1 !== loggedSig.tomorrow) {
+          logPrediction({
+            target_date: tomorrowISO,
+            lead_used: "tomorrow",
+            prediction_value: out1.y,
+            model_name: "hedge_v3"
+          }).catch(() => {});
+          setLoggedSig("tomorrow", sig1);
+        }
+        forecastChanged.tomorrow = false;
+      }
+    }
+    
+   // Log predictions if forecasts changed
+    if (typeof logPrediction === 'function') {
+      if (forecastChanged.today && out0?.y != null) {
+        logPrediction({
+          target_date: todayISO,
+          lead_used: "D0",
+          prediction_value: out0.y,
+          model_name: "hedge_v3",
+          version: "3.0"
+        }).catch(() => {});
+        forecastChanged.today = false;
+      }
+      
+      if (forecastChanged.tomorrow && out1?.y != null) {
+        logPrediction({
+          target_date: tomorrowISO,
+          lead_used: "D1", 
+          prediction_value: out1.y,
+          model_name: "hedge_v3",
+          version: "3.0"
+        }).catch(() => {});
+        forecastChanged.tomorrow = false;
+      }
+    }
+    
     // Format predictions with proper display
     const el0 = document.getElementById('correctionBoxToday');
     const el1 = document.getElementById('correctionBoxTomorrow');
