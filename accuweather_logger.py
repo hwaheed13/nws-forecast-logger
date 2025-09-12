@@ -11,6 +11,10 @@ CSV_PATH = "nws_forecast_log.csv"  # adjust if your CSV is elsewhere
 ACCU_API_KEY = os.environ.get("ACCU_API_KEY")
 ACCU_LOCATION_KEY = os.environ.get("ACCU_LOCATION_KEY")  # e.g. 349727
 TZ_NAME = os.environ.get("TZ", "America/New_York")
+# Temporary kill switch: set ACCU_DISABLE=1 to skip running
+if os.environ.get("ACCU_DISABLE") == "1":
+    print("accuweather_logger: disabled via ACCU_DISABLE=1", file=sys.stderr)
+    sys.exit(0)
 
 if not ACCU_API_KEY or not ACCU_LOCATION_KEY:
     print("accuweather_logger: Missing ACCU_API_KEY or ACCU_LOCATION_KEY env vars", file=sys.stderr)
