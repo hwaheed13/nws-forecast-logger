@@ -118,6 +118,36 @@ def fetch_accuweather_5day(location_key, api_key):
     r = requests.get(url, params=params, timeout=30)
     r.raise_for_status()
     return r.json()
+def existing_highs(csv_path, target_iso, source="AccuWeather"):
+    """Return set of predicted_high values already logged for this target_date/source."""
+    highs = set()
+    try:
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            r = csv.reader(f)
+            header = next(r, None)
+            i_target, i_kind, i_pred, i_source = 1, 2, 4, 10
+            if header:
+                try: i_target = header.index("target_date")
+                except ValueError: pass
+                try: i_kind = header.index("forecast_or_actual")
+                except ValueError: pass
+                try: i_pred = header.index("predicted_high")
+                except ValueError: pass
+                try: i_source = header.index("source")
+                except ValueError: pass
+            for row in r:
+                if not row or len(row) <= max(i_target, i_kind, i_pred, i_source):
+                    continue
+                if (row[i_target] or "").strip() != target_iso: continue
+                if (row[i_kind] or "").strip().lower() != "forecast": continue
+                if (row[i_source] or "").strip() != source: continue
+                ph = (row[i_pred] or "").strip()
+                if ph != "":
+                    try: highs.add(int(ph))
+                    except Exception: pass
+    except FileNotFoundError:
+        return highs
+    return highs
 
 def rows_for_today_and_tomorrow(j):
     daily = (j or {}).get("DailyForecasts", []) or []
@@ -149,11 +179,22 @@ def rows_for_today_and_tomorrow(j):
         ]
 
     rows = []
-    # D0 (today): only if it's before 6pm ET, no actual logged, and no AccuWeather forecast already logged
-    today_str = iso_date(now)
-    if (not is_after_6pm_local(now)) \
-        and (not actual_already_logged(NWS_CSV_PATH, today_str)):
-            rows.append(row_for(daily[0], 0))
+   # D0 (today): only if it's before 6pm ET, no actual logged, 
+        # and either no AccuWeather forecast exists OR the new high is different
+        today_str = iso_date(now)
+        
+        max_f_today = daily[0].get("Temperature", {}).get("Maximum", {}).get("Value")
+        try:
+            max_f_today = int(round(float(max_f_today)))
+        except Exception:
+            max_f_today = ""
+        
+        already_highs = existing_highs(CSV_PATH, today_str, "AccuWeather")
+        
+        if (not is_after_6pm_local(now)) \
+            and (not actual_already_logged(NWS_CSV_PATH, today_str)) \
+            and (max_f_today != "" and max_f_today not in already_highs):
+                rows.append(row_for(daily[0], 0))
 
 
     # D1 (tomorrow): log only if not already logged for AccuWeather
