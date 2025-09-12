@@ -2065,11 +2065,19 @@ function updateCorrectionBoxes() {
     const builtToday = buildCandidatesForDay(todayISO, "");
     const builtTmw   = buildCandidatesForDay(tmwISO, "");
 
+    // Debug: log what candidates we have
+    console.log("Today candidates:", builtToday.candidates);
+    console.log("Tomorrow candidates:", builtTmw.candidates);
+
     const s0 = isWarmSeason(todayISO) ? "warm" : "cool";
     const s1 = isWarmSeason(tmwISO) ? "warm" : "cool";
 
     const out0 = predictWithHedge("today", s0, builtToday.candidates);
     const out1 = predictWithHedge("tomorrow", s1, builtTmw.candidates);
+
+    // Debug: log predictions
+    console.log("Today prediction:", out0);
+    console.log("Tomorrow prediction:", out1);
 
     // Format predictions with proper display
     const el0 = document.getElementById('correctionBoxToday');
