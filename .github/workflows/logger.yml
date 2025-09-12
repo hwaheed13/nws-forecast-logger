@@ -55,6 +55,7 @@ jobs:
           ACCU_API_KEY: ${{ secrets.ACCU_API_KEY }}
           ACCU_LOCATION_KEY: ${{ secrets.ACCU_LOCATION_KEY }}
           TZ: America/New_York
+          ACCU_DRY_RUN: "1"   # <-- leaves fetch/logic on, disables CSV appends
         run: python accuweather_logger.py
 
       - name: Remove empty/blank lines
