@@ -1,18 +1,18 @@
 # accuweather_logger.py
 # Appends AccuWeather forecast rows (D0 today & D1 tomorrow) to nws_forecast_log.csv
-# Columns: timestamp,target_date,forecast_or_actual,forecast_time,predicted_high,forecast_detail,cli_date,actual_high,high_time,bias_corrected_prediction,source
+# Columns: timestamp,target_date,forecast_or_actual,forecast_time,
+#          predicted_high,forecast_detail,cli_date,actual_high,high_time,
+#          bias_corrected_prediction,source
 
 import os, sys, csv, datetime
 import requests
 import pytz
 
-CSV_PATH = "accuweather_log.csv"  # adjust if your CSV is elsewhere
-NWS_CSV_PATH = "nws_forecast_log.csv"
+CSV_PATH = "nws_forecast_log.csv"  # adjust if your CSV is elsewhere
 
 ACCU_API_KEY = os.environ.get("ACCU_API_KEY")
-ACCU_LOCATION_KEY = os.environ.get("ACCU_LOCATION_KEY")
+ACCU_LOCATION_KEY = os.environ.get("ACCU_LOCATION_KEY")  # e.g. 349727
 TZ_NAME = os.environ.get("TZ", "America/New_York")
-DRY_RUN = os.environ.get("ACCU_DRY_RUN") == "1"
 
 if not ACCU_API_KEY or not ACCU_LOCATION_KEY:
     print("accuweather_logger: Missing ACCU_API_KEY or ACCU_LOCATION_KEY env vars", file=sys.stderr)
@@ -20,125 +20,17 @@ if not ACCU_API_KEY or not ACCU_LOCATION_KEY:
 
 tz = pytz.timezone(TZ_NAME)
 
-
 def now_et():
     return datetime.datetime.now(tz)
 
+def iso_date(dt):
+    return dt.strftime("%Y-%m-%d")
 
 def stamp(dt):
-    return dt.strftime("%Y-%m-%d %H:%M:%S")  # "YYYY-MM-DD HH:MM:SS"
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
 
-
-def iso_date(dt):
-    return dt.strftime("%Y-%m-%d")  # date portion only
-
-
-def is_after_6pm_local(dt=None):
-    dt = dt or now_et()
-    # Treat 18:00:00 as cutoff-inclusive
-    return (dt.hour, dt.minute, dt.second) >= (18, 0, 0)
-
-
-def actual_already_logged(csv_path, target_iso):
-    """
-    True if today's actual is effectively published:
-    - an 'actual' row for target_date, OR
-    - any row for target_date with non-blank actual_high.
-    """
-    try:
-        with open(csv_path, newline="", encoding="utf-8") as f:
-            r = csv.reader(f)
-            header = next(r, None)
-
-            # Default indices
-            i_target, i_kind, i_actual_high = 1, 2, 7
-
-            if header:
-                try:
-                    i_target = header.index("target_date")
-                except ValueError:
-                    pass
-                try:
-                    i_kind = header.index("forecast_or_actual")
-                except ValueError:
-                    pass
-                try:
-                    i_actual_high = header.index("actual_high")
-                except ValueError:
-                    pass
-
-            for row in r:
-                if not row or len(row) <= max(i_target, i_kind, i_actual_high):
-                    continue
-
-                same_day = (row[i_target] or "").strip() == target_iso
-                if not same_day:
-                    continue
-
-                kind = (row[i_kind] or "").strip().lower()
-                if kind == "actual":
-                    return True
-
-                # consider actual if actual_high populated
-                actual_high = (row[i_actual_high] or "").strip()
-                if actual_high != "":
-                    return True
-
-        return False
-    except FileNotFoundError:
-        return False
-    except Exception:
-        return False
-
-
-def forecast_already_logged(csv_path, target_iso, source="AccuWeather"):
-    """True if a forecast from this source is already logged for target_date."""
-    try:
-        with open(csv_path, newline="", encoding="utf-8") as f:
-            r = csv.reader(f)
-            header = next(r, None)
-
-            i_target, i_kind, i_source = 1, 2, 10
-            if header:
-                try:
-                    i_target = header.index("target_date")
-                except ValueError:
-                    pass
-                try:
-                    i_kind = header.index("forecast_or_actual")
-                except ValueError:
-                    pass
-                try:
-                    i_source = header.index("source")
-                except ValueError:
-                    pass
-
-            for row in r:
-                if not row or len(row) <= max(i_target, i_kind, i_source):
-                    continue
-                if (row[i_target] or "").strip() == target_iso \
-                   and (row[i_kind] or "").strip().lower() == "forecast" \
-                   and (row[i_source] or "").strip() == source:
-                    return True
-        return False
-    except FileNotFoundError:
-        return False
-
-
-def clean_detail(text):
-    if text is None:
-        return ""
-    # CSV-safe: leave quoting to csv.writer, just collapse internal newlines
-    return " ".join(str(text).split())
-
-
-def fetch_accuweather_5day(location_key, api_key):
-    url = f"https://dataservice.accuweather.com/forecasts/v1/daily/5day/{location_key}"
-    params = {"apikey": api_key, "details": "true", "metric": "false"}
-    r = requests.get(url, params=params, timeout=30)
-    r.raise_for_status()
-    return r.json()
-
+def is_after_6pm_local(dt):
+    return dt.hour >= 18
 
 def existing_highs(csv_path, target_iso, source="AccuWeather"):
     """Return set of predicted_high values already logged for this target_date/source."""
@@ -149,120 +41,118 @@ def existing_highs(csv_path, target_iso, source="AccuWeather"):
             header = next(r, None)
             i_target, i_kind, i_pred, i_source = 1, 2, 4, 10
             if header:
-                try:
-                    i_target = header.index("target_date")
-                except ValueError:
-                    pass
-                try:
-                    i_kind = header.index("forecast_or_actual")
-                except ValueError:
-                    pass
-                try:
-                    i_pred = header.index("predicted_high")
-                except ValueError:
-                    pass
-                try:
-                    i_source = header.index("source")
-                except ValueError:
-                    pass
+                try: i_target = header.index("target_date")
+                except ValueError: pass
+                try: i_kind = header.index("forecast_or_actual")
+                except ValueError: pass
+                try: i_pred = header.index("predicted_high")
+                except ValueError: pass
+                try: i_source = header.index("source")
+                except ValueError: pass
             for row in r:
                 if not row or len(row) <= max(i_target, i_kind, i_pred, i_source):
                     continue
-                if (row[i_target] or "").strip() != target_iso:
-                    continue
-                if (row[i_kind] or "").strip().lower() != "forecast":
-                    continue
-                if (row[i_source] or "").strip() != source:
-                    continue
+                if (row[i_target] or "").strip() != target_iso: continue
+                if (row[i_kind] or "").strip().lower() != "forecast": continue
+                if (row[i_source] or "").strip() != source: continue
                 ph = (row[i_pred] or "").strip()
                 if ph != "":
-                    try:
-                        highs.add(int(ph))
-                    except Exception:
-                        pass
+                    try: highs.add(int(ph))
+                    except Exception: pass
     except FileNotFoundError:
         return highs
     return highs
 
+def actual_already_logged(csv_path, target_iso):
+    """Check if an actual high is already logged for target_iso."""
+    try:
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            r = csv.DictReader(f)
+            for row in r:
+                if (row.get("target_date") or "").strip() != target_iso:
+                    continue
+                if (row.get("forecast_or_actual") or "").strip().lower() == "actual":
+                    if row.get("actual_high"):
+                        return True
+    except FileNotFoundError:
+        return False
+    return False
 
-def rows_for_today_and_tomorrow(j):
-    daily = (j or {}).get("DailyForecasts", []) or []
-    if len(daily) < 2:
-        return []
+def fetch_daily_forecasts():
+    url = f"http://dataservice.accuweather.com/forecasts/v1/daily/5day/{ACCU_LOCATION_KEY}?apikey={ACCU_API_KEY}&details=true&metric=false"
+    resp = requests.get(url, timeout=10)
+    resp.raise_for_status()
+    data = resp.json()
+    return data.get("DailyForecasts", [])
 
-    now = now_et()
-    ts = stamp(now)
+def row_for(forecast, offset_days):
+    target_dt = now_et().date() + datetime.timedelta(days=offset_days)
+    target_iso = target_dt.strftime("%Y-%m-%d")
+    fc_time = forecast.get("Date", "")
+    max_f = forecast.get("Temperature", {}).get("Maximum", {}).get("Value", "")
+    phrase = forecast.get("Day", {}).get("IconPhrase", "")
+    return [
+        stamp(now_et()),          # timestamp
+        target_iso,               # target_date
+        "forecast",               # forecast_or_actual
+        fc_time,                  # forecast_time
+        str(max_f),               # predicted_high
+        phrase,                   # forecast_detail
+        "", "", "", "",           # cli_date, actual_high, high_time, bias_corrected_prediction
+        "AccuWeather"             # source
+    ]
 
-    def row_for(day_obj, offset_days):
-        tgt = now + datetime.timedelta(days=offset_days)
-        target_iso_str = iso_date(tgt)
-        max_f = day_obj.get("Temperature", {}).get("Maximum", {}).get("Value")
-        try:
-            max_f = int(round(float(max_f)))
-        except Exception:
-            max_f = ""
-        detail = day_obj.get("Day", {}).get("IconPhrase") \
-                 or day_obj.get("Night", {}).get("IconPhrase") \
-                 or (j.get("Headline", {}) or {}).get("Text")
-        detail = clean_detail(detail)
-        return [
-            ts,                   # timestamp
-            target_iso_str,       # target_date
-            "forecast",           # forecast_or_actual
-            ts,                   # forecast_time
-            max_f,                # predicted_high (F)
-            detail,               # forecast_detail
-            "", "", "", "",       # cli_date, actual_high, high_time, bias_corrected_prediction
-            "AccuWeather"         # source
-        ]
-
+def rows_for_today_and_tomorrow(daily):
     rows = []
+    now = now_et()
 
-    # --- D0 (today) ---
+    # --- D0 (today): before 6pm, no actual yet, and only if value is new ---
     today_str = iso_date(now)
     max_f_today = daily[0].get("Temperature", {}).get("Maximum", {}).get("Value")
     try:
         max_f_today = int(round(float(max_f_today)))
     except Exception:
         max_f_today = ""
-
-    already_highs = existing_highs(CSV_PATH, today_str, "AccuWeather")
-
+    already_today = existing_highs(CSV_PATH, today_str, "AccuWeather")
     if (not is_after_6pm_local(now)) \
-        and (not actual_already_logged(NWS_CSV_PATH, today_str)) \
-        and (max_f_today != "" and max_f_today not in already_highs):
+        and (not actual_already_logged(CSV_PATH, today_str)) \
+        and (max_f_today != "" and max_f_today not in already_today):
         rows.append(row_for(daily[0], 0))
 
-    # --- D1 (tomorrow) ---
+    # --- D1 (tomorrow): only if value is new ---
     tomorrow_str = iso_date(now + datetime.timedelta(days=1))
-    if not forecast_already_logged(CSV_PATH, tomorrow_str, "AccuWeather"):
+    max_f_tomorrow = daily[1].get("Temperature", {}).get("Maximum", {}).get("Value")
+    try:
+        max_f_tomorrow = int(round(float(max_f_tomorrow)))
+    except Exception:
+        max_f_tomorrow = ""
+    already_tomorrow = existing_highs(CSV_PATH, tomorrow_str, "AccuWeather")
+    if max_f_tomorrow != "" and max_f_tomorrow not in already_tomorrow:
         rows.append(row_for(daily[1], 1))
 
     return rows
 
-
-def append_rows(rows):
-    if not rows:
-        return
-    if DRY_RUN:
-        print(f"accuweather_logger: DRY_RUN=1 (skip writing {len(rows)} rows)", file=sys.stderr)
-        return
-    with open(CSV_PATH, "a", newline="", encoding="utf-8") as f:
+def append_rows(csv_path, rows):
+    if not rows: return
+    file_exists = os.path.isfile(csv_path)
+    with open(csv_path, "a", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        for r in rows:
-            w.writerow(r)
-
+        if not file_exists:
+            w.writerow([
+                "timestamp","target_date","forecast_or_actual","forecast_time",
+                "predicted_high","forecast_detail","cli_date","actual_high","high_time",
+                "bias_corrected_prediction","source"
+            ])
+        w.writerows(rows)
 
 def main():
     try:
-        j = fetch_accuweather_5day(ACCU_LOCATION_KEY, ACCU_API_KEY)
-        rows = rows_for_today_and_tomorrow(j)
-        append_rows(rows)
-        print(f"accuweather_logger: {'DRY_RUN no-write' if DRY_RUN else 'wrote'} {len(rows)} row(s)")
+        daily = fetch_daily_forecasts()
     except Exception as e:
-        # Don't crash the workflow; just log
-        print(f"accuweather_logger ERROR: {e}", file=sys.stderr)
-
+        print("accuweather_logger: fetch failed:", e, file=sys.stderr)
+        return
+    rows = rows_for_today_and_tomorrow(daily)
+    append_rows(CSV_PATH, rows)
 
 if __name__ == "__main__":
     main()
