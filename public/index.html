@@ -2704,54 +2704,80 @@ stats.innerHTML = `
     } catch {}
   }
 
-  async function checkAccess() {
-    try {
-      gateMsg("Checking access…");
+async function checkAccess() {
+  const path = location.pathname || "";
+  const onLogin = /\/login(\.html)?$/.test(path);
+  const onSubscribe = /\/subscribe(\.html)?$/.test(path);
 
-      const { data: { session }, error: sErr } = await supabase.auth.getSession();
-      if (sErr) {
-        console.error("getSession error", sErr);
-        gateMsg("Auth error. Redirecting to login…");
-        window.location.href = "login.html";
-        return;
-      }
-      if (!session) {
-        gateMsg("No session. Redirecting to login…");
-        window.location.href = "login.html";
-        return;
-      }
+  gateMsg("Checking access…");
 
-      const { data: profile, error } = await supabase
-        .from("profiles")
-        .select("subscription_status, current_period_end, trial_used")
-        .eq("id", session.user.id)
-        .single();
+  // 1) Session
+  const { data: sessData, error: sErr } = await supabase.auth.getSession();
+  if (sErr) {
+    console.warn("getSession error", sErr);
+    // If we're on login already, just show the prompt; otherwise go to login
+    if (!onLogin) location.href = "login.html";
+    else gateMsg("Please sign in.");
+    return;
+  }
+  const session = sessData?.session || null;
 
-      if (error) console.warn("profiles fetch error:", error);
-
-      const status = profile?.subscription_status ?? "inactive";
-      if (!(status === "active" || status === "trialing")) {
-        const dest = profile?.trial_used ? "subscribe.html?reason=trial_expired" : "subscribe.html";
-        gateMsg("Subscription inactive. Redirecting…");
-        window.location.href = dest;
-        return;
-      }
-
-    // Allowed → boot first, then show
-    await bootApp();
-    try { window.showApp && window.showApp(); } catch {}
-
-    } catch (e) {
-      console.error("checkAccess failed", e);
-      // Fail-closed: do NOT show the app on error
-      try { await supabase.auth.signOut(); } catch {}
-      window.location.href = "login.html";
+  if (!session) {
+    if (!onLogin) {
+      gateMsg("Not signed in → redirecting to login…");
+      location.href = "login.html";
+    } else {
+      gateMsg("Please sign in.");
     }
+    return;
   }
 
-  supabase.auth.onAuthStateChange((_event, session) => {
-    if (!session) window.location.href = "login.html";
-  });
+  // 2) Entitlement (profiles)
+  try {
+    const { data: profile, error } = await supabase
+      .from("profiles")
+      .select("subscription_status, current_period_end, trial_used")
+      .eq("id", session.user.id)
+      .single();
+
+    if (error) throw error;
+
+    const status = String(profile?.subscription_status || "inactive").toLowerCase();
+    const entitled = (status === "active" || status === "trialing");
+
+    if (!entitled) {
+      if (!onSubscribe) {
+        const dest = profile?.trial_used ? "subscribe.html?reason=trial_expired" : "subscribe.html";
+        gateMsg("Subscription required → redirecting…");
+        location.href = dest;
+      } else {
+        gateMsg("Subscription required.");
+      }
+      return;
+    }
+
+    // 3) Authorized → show the app
+    try { window.showApp && window.showApp(); } catch {}
+    await bootApp().catch(console.error);
+
+  } catch (e) {
+    // On any entitlement error: don't loop from login; show message there
+    console.warn("Entitlement check failed", e);
+    if (!onLogin) {
+      location.href = "login.html";
+    } else {
+      gateMsg("Please sign in.");
+    }
+  }
+}
+
+supabase.auth.onAuthStateChange((_event, session) => {
+  const onLogin = /\/login(\.html)?$/.test(location.pathname || "");
+  if (!session && !onLogin) {
+    location.href = "login.html";
+  }
+  // If on /login, let the login UI handle it.
+});
 
   checkAccess();
 })();
