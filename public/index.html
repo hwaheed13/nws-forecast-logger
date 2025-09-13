@@ -1829,9 +1829,12 @@ const changedTomorrow = sigTmrwNew  !== lastSig.tomorrow;
 if (!changedToday && !changedTomorrow && !actualChanged) return;
 
 // Forecasts or actual changed → reset + pretrain so normal/incognito match
-if (typeof warmOnceForCurrentCSV === "function") {
-  try { warmOnceForCurrentCSV(); } catch (e) { console.warn("warmOnceForCurrentCSV failed:", e); }
-}
+  if (typeof warmOnceForCurrentCSV === "function") {
+    try { warmOnceForCurrentCSV(); } catch (e) { console.warn("warmOnceForCurrentCSV failed:", e); }
+  }
+  if (typeof pretrainFromHistory === "function") {
+    try { pretrainFromHistory(); } catch (e) { console.warn("pretrainFromHistory failed:", e); }
+  }
 
 // (optional) refresh the bias-corrected cards immediately
 try { updateCorrectionBoxes(); } catch {}
@@ -2792,8 +2795,7 @@ stats.innerHTML = `
 
     try { window.probeLoggingEndpoint && await window.probeLoggingEndpoint(); } catch {}
 
-     try { window.reloadCSV && await window.reloadCSV({ skipUI: true }); } catch {}
-  try { window.warmOnceForCurrentCSV && await window.warmOnceForCurrentCSV(); } catch {}
+    try { window.reloadCSV && await window.reloadCSV({ skipUI: true }); } catch {}
     // now paint the UI once, with warmed state
     try { window.resetFilter && window.resetFilter(); } catch {}
     try { window.showMostRecent && window.showMostRecent(); } catch {}
