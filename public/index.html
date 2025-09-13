@@ -756,18 +756,29 @@ function buildCandidatesForDay(targetISO, highTime){
   // assume `rows` is all rows from BOTH CSVs (NWS + Accu) already parsed
   const tomorrowISO = new Date(Date.now() + 24*3600*1000).toISOString().slice(0,10);
   
-  const accTmr = rows
-  .filter(r => r.source === "AccuWeather" && r.target_date === targetISO);
+const accTmr = rows
+    .filter(r => r.source === "AccuWeather" && r.target_date === targetISO)
+    .sort((a, b) => {
+      const ta = (a.timestamp || a.forecast_time || "");
+      const tb = (b.timestamp || b.forecast_time || "");
+      return ta.localeCompare(tb);
+    });
   
-  // sort by ET timestamp strings "YYYY-MM-DD HH:MM:SS" (lex sort works on that format)
-  accTmr.sort((a, b) => {
+  const accLatest = accTmr.length ? accTmr[accTmr.length - 1] : null;
+  candidates.AccuWeather = accLatest ? Number(accLatest.predicted_high) : null;
+
+  // --- AccuWeather (today) ---
+const accToday = rows
+  .filter(r => r.source === "AccuWeather" && r.target_date === todayISO)
+  .sort((a, b) => {
     const ta = (a.timestamp || a.forecast_time || "");
     const tb = (b.timestamp || b.forecast_time || "");
     return ta.localeCompare(tb);
   });
-  
-  const accLatest = accTmr[accTmr.length - 1] || null;
-candidates.AccuWeather = accLatest ? Number(accLatest.predicted_high) : null;
+
+const accLatestToday = accToday.length ? accToday[accToday.length - 1] : null;
+candidates.AccuToday = accLatestToday ? Number(accLatestToday.predicted_high) : null;
+
 
   // envelope + latest issuance (unchanged)
   const vals = [];
@@ -1022,8 +1033,8 @@ function reloadCSV(opts = {}) {
 
   // Fetch NWS + AccuWeather concurrently
   return Promise.all([
-    fetch(CSV_URL + "?" + Date.now()).then(r => r.text()),
-    fetch(ACCU_URL + "?" + Date.now()).then(r => r.text()).catch(() => "")
+    fetch(CSV_URL, { cache: "no-store" }).then(r => r.text()),
+  fetch(ACCU_URL, { cache: "no-store" }).then(r => r.text()).catch(() => "")
   ])
   .then(([nwsText, accuText]) => {
     // Parse NWS (UI + ensemble base)
