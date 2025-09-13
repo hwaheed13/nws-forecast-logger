@@ -1129,7 +1129,18 @@ function reloadCSV(opts = {}) {
       if (!Number.isFinite(d.getTime())) return "";
       return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year:"numeric", month:"2-digit", day:"2-digit" }).format(d);
     }
-    function prevISO(iso) { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
+    function prevISO(iso) {
+      if (!iso || typeof iso !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+        console.warn("prevISO: bad input", iso);
+        return null;
+      }
+      const d = new Date(iso + "T00:00:00");
+      if (isNaN(d)) return null;
+      d.setHours(12,0,0,0);      // normalize to noon to avoid DST shifts
+      d.setDate(d.getDate() - 1);
+      return d.toISOString().slice(0,10);
+    }
+
     function monthNum(iso){ return Number((iso||"").split("-")[1]||"0"); }
     function isWarmSeason(iso){ const m=monthNum(iso); return m>=5 && m<=9; }
 
