@@ -50,22 +50,27 @@ jobs:
           TASK: ${{ github.event.inputs.task || 'smart_all' }}
         run: python run_smart.py
       
-      - name: Run AccuWeather logger (today & tomorrow)
+     - name: Run AccuWeather logger (today & tomorrow)
         env:
           ACCU_API_KEY: ${{ secrets.ACCU_API_KEY }}
           ACCU_LOCATION_KEY: ${{ secrets.ACCU_LOCATION_KEY }}
           TZ: America/New_York
         run: python accuweather_logger.py
-
-      - name: Remove empty/blank lines
+      
+      - name: Remove empty/blank lines (NWS)
         run: |
-          grep -Ev '^[[:space:]]*(,?[[:space:]]*)*$' nws_forecast_log.csv > /tmp/clean.csv || true
-          mv /tmp/clean.csv nws_forecast_log.csv
-
-      - name: Commit and push CSV
+          [ -f nws_forecast_log.csv ] && grep -Ev '^[[:space:]]*(,?[[:space:]]*)*$' nws_forecast_log.csv > /tmp/clean_nws.csv || true
+          [ -f /tmp/clean_nws.csv ] && mv /tmp/clean_nws.csv nws_forecast_log.csv || true
+      
+      - name: Remove empty/blank lines (AccuWeather)
+        run: |
+          [ -f accuweather_log.csv ] && grep -Ev '^[[:space:]]*(,?[[:space:]]*)*$' accuweather_log.csv > /tmp/clean_accu.csv || true
+          [ -f /tmp/clean_accu.csv ] && mv /tmp/clean_accu.csv accuweather_log.csv || true
+      
+      - name: Commit and push CSVs
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add nws_forecast_log.csv accuweather_log.csv
-          git commit -m "Update forecast log [skip ci]" || echo "No changes to commit"
+          git commit -m "Update forecast logs [skip ci]" || echo "No changes to commit"
           git push origin main
