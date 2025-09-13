@@ -148,7 +148,7 @@
       border: 1px solid var(--border-subtle); border-radius: 16px; padding: 24px; }
     .prediction-title { font-size: 15px; font-weight: 800; margin-bottom: 12px; }
     .prediction-content {}
-    .prediction-value { font-size: 28px; font-weight: 800; color: #1f2937; }
+    .prediction-value { font-size: 28px; font-weight: 800; color: var(--text-primary); }
     .prediction-subtitle { font-size: 13px; color: var(--text-secondary); }
 
     .controls-section { background: var(--bg-secondary); border: 1px solid var(--border-subtle);
@@ -286,8 +286,8 @@
     }
 
     @media (min-width: 601px) {
-      .pill.logout-btn { margin-top: 10px; background: #e5e7eb; color: var(--text-primary);
-        border: 1px solid var(--border-default); font-size: 14px; padding: 8px 14px; border-radius: 12px; }
+     .pill.logout-btn { margin-top: 10px; background: var(--bg-tertiary); color: var(--text-secondary);
+  border: 1px solid var(--border-default); font-size: 14px; padding: 8px 14px; border-radius: 12px; }
     }
 
     .brand-right .pill-sep { flex: 0 0 12px; }
@@ -403,6 +403,23 @@
         font-size: 10px !important;
       }
     }
+    /* Theme-aware date inputs */
+input[type="date"] {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+}
+:root[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
+    :root[data-theme="dark"] #btn-billing {
+  background: var(--bg-tertiary);
+  color: var(--accent-blue);
+  border: 1px solid var(--border-default);
+}
+:root[data-theme="dark"] #btn-billing:hover {
+  background: var(--bg-accent);
+}
+
   </style>
 </head>
   
@@ -444,7 +461,7 @@
             <span class="pill">NYC</span>
             <span class="pill">KNYC</span>
           </div>
-             <button id="themeToggle" class="pill">Switch to dark</button>
+             <button id="themeToggle" class="pill">Theme: Auto</button>
             </button>
           <button id="btn-billing" class="pill">Manage billing</button>
           <button id="btn-logout" class="pill logout-btn">Log out</button>
@@ -653,6 +670,8 @@ function getNwsForecastRowsFor(targetISO, kind) {
     return false;
   });
 }
+
+
 
     // === Online ensemble (Hedge) + Bias EWMA (self-learning) =====================
 const ENS_KEY = "hedge_v4";               // bump to reset everything
@@ -2859,30 +2878,64 @@ supabase.auth.onAuthStateChange((_event, session) => {
 
   checkAccess();
   })();
-(function() {
-  const KEY = "ddp.theme";
+<script>
+// ===== Theme: system by default, toggle cycles System → Dark → Light =====
+(function () {
+  const KEY = "theme-pref"; // "system" | "dark" | "light"
   const root = document.documentElement;
+  const mql = window.matchMedia("(prefers-color-scheme: dark)");
   const btn = document.getElementById("themeToggle");
 
-  const saved = localStorage.getItem(KEY);
-  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  const initial = saved || (prefersDark ? "dark" : "light");
-  applyTheme(initial);
-  updateButton(initial);
+  function currentPref() {
+    return localStorage.getItem(KEY) || "system";
+  }
 
-  if (btn) {
-    btn.addEventListener("click", () => {
-      const next = (root.dataset.theme === "dark") ? "light" : "dark";
-      localStorage.setItem(KEY, next);
-      applyTheme(next);
-      updateButton(next);
+  function applyTheme(pref) {
+    if (pref === "system") {
+      root.removeAttribute("data-theme"); // follow OS
+    } else {
+      root.setAttribute("data-theme", pref); // "dark" or "light"
+    }
+    updateButton(pref);
+  }
+
+  function updateButton(pref) {
+    if (!btn) return;
+    const label =
+      pref === "system" ? "Theme: Auto" :
+      pref === "dark"   ? "Theme: Dark" :
+                          "Theme: Light";
+    btn.textContent = label;
+  }
+
+  function cycle(pref) {
+    return pref === "system" ? "dark" : pref === "dark" ? "light" : "system";
+  }
+
+  function init() {
+    const pref = currentPref();
+    applyTheme(pref);
+
+    // If following system, react to OS changes
+    mql.addEventListener("change", () => {
+      if (currentPref() === "system") applyTheme("system");
     });
+
+    if (btn) {
+      btn.addEventListener("click", () => {
+        const next = cycle(currentPref());
+        localStorage.setItem(KEY, next);
+        applyTheme(next);
+      });
+    }
+
+    // Ensure we persist an initial value
+    if (!localStorage.getItem(KEY)) {
+      localStorage.setItem(KEY, "system");
+    }
   }
 
-  function applyTheme(t) { root.dataset.theme = t; }
-  function updateButton(t) {
-    if (btn) btn.textContent = (t === "dark") ? "Switch to light" : "Switch to dark";
-  }
+  init();
 })();
 </script>
 </body>
