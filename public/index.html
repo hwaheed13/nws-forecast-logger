@@ -740,21 +740,6 @@ function ewmaUpdate(old, value, halfLifeDays){
 // Build candidates + envelope for a target date.
 // Uses your existing d0CandidatesFor, d1CandidatesFor, combineSeries, repFromSeries.
 function buildCandidatesForDay(targetISO, highTime){
-  // DEBUG CODE START
-  console.log("=== DEBUG buildCandidates ===");
-  console.log("targetISO:", targetISO);
-  console.log("todayISO:", nycISODate(0));
-  console.log("tomorrowISO:", nycISODate(1));
-  console.log("accuWeatherData exists?", typeof accuWeatherData !== 'undefined');
-  if (typeof accuWeatherData !== 'undefined') {
-    console.log("accuWeatherData.today:", accuWeatherData.today);
-    console.log("accuWeatherData.tomorrow:", accuWeatherData.tomorrow);
-  } else {
-    console.log("accuWeatherData is UNDEFINED!");
-  }
-  console.log("=== END DEBUG ===");
-  // DEBUG CODE END
-  
   const c0 = d0CandidatesFor(targetISO, highTime);   // today-for-today (pre-high)
   const c1 = d1CandidatesFor(targetISO);             // yesterday-for-today, or today-for-tomorrow
   const seriesAll = combineSeries(c1.series, c0.series);
@@ -786,22 +771,9 @@ function buildCandidatesForDay(targetISO, highTime){
         return ta.localeCompare(tb);
       });
     
-    const accLatest = accRows.length ? accRows[accRows.length - 1] : null;
+    const accLatest = accRowsFiltered.length ? accRowsFiltered[accRowsFiltered.length - 1] : null;
     candidates.AccuWeather = accLatest ? Number(accLatest.predicted_high) : null;
   }
-
-  // --- AccuWeather (today) ---
-const accToday = rows
-  .filter(r => r.source === "AccuWeather" && r.target_date === todayISO)
-  .sort((a, b) => {
-    const ta = (a.timestamp || a.forecast_time || "");
-    const tb = (b.timestamp || b.forecast_time || "");
-    return ta.localeCompare(tb);
-  });
-
-const accLatestToday = accToday.length ? accToday[accToday.length - 1] : null;
-candidates.AccuToday = accLatestToday ? Number(accLatestToday.predicted_high) : null;
-
 
   // envelope + latest issuance (unchanged)
   const vals = [];
