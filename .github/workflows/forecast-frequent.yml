@@ -28,7 +28,7 @@ jobs:
         run: pip install requests beautifulsoup4 pytz
 
       # Decide whether to keep polling *today* (ET):
-      # - Stop after 6pm ET OR once an "actual" for today exists in the CSV
+      # - Stop after 6pm ET OR once an "actual" for today exists in the NWS CSV
       - name: Decide polling flags (ET)
         id: decide
         run: |
@@ -40,7 +40,7 @@ jobs:
           after_six = now_et.hour >= 18  # 6pm ET or later
 
           has_actual_today = False
-          csv_path = "nws_forecast_log.csv"
+          csv_path = "nws_forecast_log.csv"  # actuals come from NWS/CLI
           if os.path.exists(csv_path):
               with open(csv_path, newline="", encoding="utf-8") as f:
                   r = csv.DictReader(f)
@@ -80,7 +80,7 @@ jobs:
           TASK: forecast_tomorrow
         run: python run_smart.py
 
-      # ✅ AccuWeather: append only if changed (freeze today when actual exists)
+      # ✅ AccuWeather → accuweather_log.csv only if changed (freeze today when NWS actual exists)
       - name: Log AccuWeather forecasts if changed
         env:
           ACCU_API_KEY: ${{ secrets.ACCU_API_KEY }}
@@ -90,7 +90,7 @@ jobs:
           python - <<'PY'
           import os, csv, datetime, pytz, requests, sys
 
-          CSV_PATH = "nws_forecast_log.csv"
+          ACCU_CSV = "accuweather_log.csv"   # <-- write to the AccuWeather CSV
           API_KEY = os.environ.get("ACCU_API_KEY")
           LOC_KEY = os.environ.get("ACCU_LOCATION_KEY")
           if not API_KEY or not LOC_KEY:
@@ -140,10 +140,10 @@ jobs:
               targets.append(today_iso)
           targets.append(tomorrow_iso)
 
-          # Read existing CSV to find last Accu row per target
+          # Read existing Accu CSV to find last Accu row per target
           last_accu = {iso: None for iso in targets}
-          if os.path.exists(CSV_PATH):
-              with open(CSV_PATH, newline="", encoding="utf-8") as f:
+          if os.path.exists(ACCU_CSV):
+              with open(ACCU_CSV, newline="", encoding="utf-8") as f:
                   r = csv.DictReader(f)
                   for row in r:
                       if (row.get("source") or "").strip() != "AccuWeather": 
@@ -156,7 +156,7 @@ jobs:
                               ph = float(row.get("predicted_high") or "")
                           except Exception:
                               ph = None
-                          last_accu[t] = ph  # CSV is append-only; last seen wins
+                          last_accu[t] = ph  # last seen wins
 
           # Prepare rows to append only if changed
           fieldnames = [
@@ -177,7 +177,7 @@ jobs:
                       "timestamp": ts,
                       "target_date": iso,
                       "forecast_or_actual": "forecast",
-                      "forecast_time": ts,         # using fetch time; Accu "Date" is midnight
+                      "forecast_time": ts,         # using fetch time
                       "predicted_high": f"{new_val:.1f}",
                       "forecast_detail": "accu-daily",
                       "cli_date": "",
@@ -188,12 +188,12 @@ jobs:
                   })
 
           if to_append:
-              file_exists = os.path.exists(CSV_PATH)
+              file_exists = os.path.exists(ACCU_CSV)
               if not file_exists:
-                  with open(CSV_PATH, "w", newline="", encoding="utf-8") as f:
+                  with open(ACCU_CSV, "w", newline="", encoding="utf-8") as f:
                       w = csv.DictWriter(f, fieldnames=fieldnames)
                       w.writeheader()
-              with open(CSV_PATH, "a", newline="", encoding="utf-8") as f:
+              with open(ACCU_CSV, "a", newline="", encoding="utf-8") as f:
                   w = csv.DictWriter(f, fieldnames=fieldnames)
                   for row in to_append:
                       w.writerow(row)
@@ -202,22 +202,24 @@ jobs:
               print("AccuWeather: no changes; nothing appended.")
           PY
 
-      # Tidy CSV (no blank lines)
+      # Tidy CSVs (no blank lines)
       - name: Remove empty/blank lines
         run: |
-          if [ -f nws_forecast_log.csv ]; then
-            grep -Ev '^[[:space:]]*(,?[[:space:]]*)*$' nws_forecast_log.csv > /tmp/clean.csv || true
-            if [ -s /tmp/clean.csv ]; then
-              mv /tmp/clean.csv nws_forecast_log.csv
+          for f in nws_forecast_log.csv accuweather_log.csv; do
+            if [ -f "$f" ]; then
+              grep -Ev '^[[:space:]]*(,?[[:space:]]*)*$' "$f" > /tmp/clean.csv || true
+              if [ -s /tmp/clean.csv ]; then
+                mv /tmp/clean.csv "$f"
+              fi
             fi
-          fi
+          done
 
       # Commit only if changed (rebase to avoid rejected push)
       - name: Commit and push CSV if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add nws_forecast_log.csv
+          git add nws_forecast_log.csv accuweather_log.csv || true
           git commit -m "Frequent forecast update [skip ci]" || echo "No changes to commit"
           git fetch origin main
           git rebase origin/main || { echo "Rebase failed; aborting and skipping push"; git rebase --abort || true; exit 0; }
