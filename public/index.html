@@ -756,14 +756,21 @@ function buildCandidatesForDay(targetISO, highTime){
   const todayISO = nycISODate(0);
   const tomorrowISO = nycISODate(1);
   
-  // Check if accuWeatherData exists and has values
-  if (window.accuWeatherData && targetISO === todayISO && window.accuWeatherData.today != null) {
+// Check if accuWeatherData exists and has values
+  // Use the actual today/tomorrow dates
+  const actualTodayISO = nycISODate(0);
+  const actualTomorrowISO = nycISODate(1);
+  
+if (window.accuWeatherData && targetISO === todayISO && window.accuWeatherData.today != null) {
     candidates.AccuWeather = Number(window.accuWeatherData.today);
+    console.log("SET from API for today:", candidates.AccuWeather);
   } else if (window.accuWeatherData && targetISO === tomorrowISO && window.accuWeatherData.tomorrow != null) {
     candidates.AccuWeather = Number(window.accuWeatherData.tomorrow);
+    console.log("SET from API for tomorrow:", candidates.AccuWeather);
   } else {
+    console.log("FALLING BACK to CSV");
     // Fallback to CSV data - use accuRows which is the global array
-     const accRowsFiltered = accuRows
+    const accRowsFiltered = accuRows
       .filter(r => r.target_date === targetISO)
       .sort((a, b) => {
         const ta = (a.timestamp || a.forecast_time || "");
@@ -773,7 +780,11 @@ function buildCandidatesForDay(targetISO, highTime){
     
     const accLatest = accRowsFiltered.length ? accRowsFiltered[accRowsFiltered.length - 1] : null;
     candidates.AccuWeather = accLatest ? Number(accLatest.predicted_high) : null;
+    console.log("SET from CSV:", candidates.AccuWeather);
   }
+  
+  console.log("FINAL AccuWeather value after if/else:", candidates.AccuWeather);
+  
 
   // envelope + latest issuance (unchanged)
   const vals = [];
