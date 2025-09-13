@@ -2888,14 +2888,15 @@ supabase.auth.onAuthStateChange((_event, session) => {
     return localStorage.getItem(KEY) || "system";
   }
 
-  function applyTheme(pref) {
-    if (pref === "system") {
-      root.removeAttribute("data-theme"); // follow OS
-    } else {
-      root.setAttribute("data-theme", pref); // "dark" or "light"
+    function applyTheme(pref) {
+      if (pref === "system") {
+        // set attribute based on OS right now
+        root.setAttribute("data-theme", mql.matches ? "dark" : "light");
+      } else {
+        root.setAttribute("data-theme", pref);
+      }
+      updateButton(pref);
     }
-    updateButton(pref);
-  }
 
   function updateButton(pref) {
     if (!btn) return;
