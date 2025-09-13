@@ -1984,31 +1984,35 @@ updateCorrectionBoxes();  // now uses the freshly-trained state
     async function fetchKalshiLiveLeader(dateISO)   { return fetchJSON(KALSHI_LIVE_URLS, { date: dateISO, cb: Date.now() }); }
     async function fetchNwsHighSoFar(station = "KNYC") { return fetchJSON(NWS_HIGH_SO_FAR_URLS, { station }); }
     async function fetchNwsCurrentTemp(station = "KNYC") { return fetchJSON(NWS_CURRENT_TEMP_URLS, { station, cb: Date.now() }); }
-    // AccuWeather data storage
-    window.accuWeatherData = { today: null, tomorrow: null };
-
+ 
 async function fetchAccuWeatherForecasts() {
   try {
     const response = await fetch('/api/accuweather-forecast');
     if (!response.ok) return null;
     
     const data = await response.json();
-    const oldToday = accuWeatherData.today;
-    const oldTomorrow = accuWeatherData.tomorrow;
+    
+    // Initialize if it doesn't exist
+    if (!window.accuWeatherData) {
+      window.accuWeatherData = { today: null, tomorrow: null };
+    }
+    
+    const oldToday = window.accuWeatherData.today;
+    const oldTomorrow = window.accuWeatherData.tomorrow;
     
     window.accuWeatherData.today = Math.round(data.DailyForecasts[0].Temperature.Maximum.Value);
     window.accuWeatherData.tomorrow = Math.round(data.DailyForecasts[1].Temperature.Maximum.Value);
     
-    console.log(`AccuWeather: Today ${accuWeatherData.today}°F, Tomorrow ${accuWeatherData.tomorrow}°F`);
+    console.log(`AccuWeather: Today ${window.accuWeatherData.today}°F, Tomorrow ${window.accuWeatherData.tomorrow}°F`);
     
     // If values changed, update the prediction boxes
-    if (oldToday !== accuWeatherData.today || oldTomorrow !== accuWeatherData.tomorrow) {
+    if (oldToday !== window.accuWeatherData.today || oldTomorrow !== window.accuWeatherData.tomorrow) {
       if (typeof updateCorrectionBoxes === 'function') {
         updateCorrectionBoxes();
       }
     }
     
-    return accuWeatherData;
+    return window.accuWeatherData;
   } catch (error) {
     console.error('AccuWeather error:', error);
     return null;
