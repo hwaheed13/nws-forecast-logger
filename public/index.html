@@ -753,19 +753,28 @@ function buildCandidatesForDay(targetISO, highTime){
   if (c0.trimmed != null) candidates.D0_trimmed = Number(c0.trimmed);
   if (seriesRep  != null) candidates.series_rep = Number(seriesRep);
 
-  // assume `rows` is all rows from BOTH CSVs (NWS + Accu) already parsed
-  const tomorrowISO = new Date(Date.now() + 24*3600*1000).toISOString().slice(0,10);
+ // Use live AccuWeather API data if available, fall back to CSV
+  const todayISO = nycISODate(0);
+  const tomorrowISO = nycISODate(1);
   
-const accTmr = rows
-    .filter(r => r.source === "AccuWeather" && r.target_date === targetISO)
-    .sort((a, b) => {
-      const ta = (a.timestamp || a.forecast_time || "");
-      const tb = (b.timestamp || b.forecast_time || "");
-      return ta.localeCompare(tb);
-    });
-  
-  const accLatest = accTmr.length ? accTmr[accTmr.length - 1] : null;
-  candidates.AccuWeather = accLatest ? Number(accLatest.predicted_high) : null;
+  // Prioritize live API data over CSV for AccuWeather
+  if (targetISO === todayISO && accuWeatherData.today != null) {
+    candidates.AccuWeather = Number(accuWeatherData.today);
+  } else if (targetISO === tomorrowISO && accuWeatherData.tomorrow != null) {
+    candidates.AccuWeather = Number(accuWeatherData.tomorrow);
+  } else {
+    // Fallback to CSV data if API data not available
+    const accRows = [...allRows, ...accuRows]
+      .filter(r => r.source === "AccuWeather" && r.target_date === targetISO)
+      .sort((a, b) => {
+        const ta = (a.timestamp || a.forecast_time || "");
+        const tb = (b.timestamp || b.forecast_time || "");
+        return ta.localeCompare(tb);
+      });
+    
+    const accLatest = accRows.length ? accRows[accRows.length - 1] : null;
+    candidates.AccuWeather = accLatest ? Number(accLatest.predicted_high) : null;
+  }
 
   // --- AccuWeather (today) ---
 const accToday = rows
@@ -1970,10 +1979,21 @@ async function fetchAccuWeatherForecasts() {
     if (!response.ok) return null;
     
     const data = await response.json();
+    const oldToday = accuWeatherData.today;
+    const oldTomorrow = accuWeatherData.tomorrow;
+    
     accuWeatherData.today = Math.round(data.DailyForecasts[0].Temperature.Maximum.Value);
     accuWeatherData.tomorrow = Math.round(data.DailyForecasts[1].Temperature.Maximum.Value);
     
     console.log(`AccuWeather: Today ${accuWeatherData.today}°F, Tomorrow ${accuWeatherData.tomorrow}°F`);
+    
+    // If values changed, update the prediction boxes
+    if (oldToday !== accuWeatherData.today || oldTomorrow !== accuWeatherData.tomorrow) {
+      if (typeof updateCorrectionBoxes === 'function') {
+        updateCorrectionBoxes();
+      }
+    }
+    
     return accuWeatherData;
   } catch (error) {
     console.error('AccuWeather error:', error);
@@ -2823,12 +2843,17 @@ stats.innerHTML = `
     } catch (e) { alert("Could not open billing portal"); }
   });
 
-  async function bootApp() {
+async function bootApp() {
     // light, defensive calls
     try { window.showTodayDate && window.showTodayDate(); } catch {}
     try { window.scheduleMidnightUpdate && window.scheduleMidnightUpdate(); } catch {}
 
     try { window.probeLoggingEndpoint && await window.probeLoggingEndpoint(); } catch {}
+
+    // Fetch AccuWeather API data early
+    if (typeof fetchAccuWeatherForecasts === 'function') {
+      try { await fetchAccuWeatherForecasts(); } catch {}
+    }
 
     try { window.reloadCSV && await window.reloadCSV({ skipUI: true }); } catch {}
     // now paint the UI once, with warmed state
