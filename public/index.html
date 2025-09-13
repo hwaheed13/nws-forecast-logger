@@ -2056,84 +2056,37 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
       }
     }
 
-    function hasActualFor(dateISO) {
-      return allRows.some(r =>
-        r.forecast_or_actual === "actual" &&
-        r.cli_date === dateISO &&
-        r.actual_high && String(r.actual_high).trim() !== ""
-      );
-    }
+function hasActualFor(dateISO) {
+  return allRows.some(r =>
+    r.forecast_or_actual === "actual" &&
+    r.cli_date === dateISO &&
+    r.actual_high && String(r.actual_high).trim() !== ""
+  );
+}
 
 function updateCorrectionBoxes() {
-  try {
-    const todayISO    = nycISODate(0);
-    const tomorrowISO = nycISODate(1);
+  const todayISO = nycISODate(0);
+  const tomorrowISO = nycISODate(1);
 
-
+  // ----- Today -----
+  {
+    const season = isWarmSeason(todayISO) ? "warm" : "cool";
     const builtToday = buildCandidatesForDay(todayISO, "");
-    const builtTmw   = buildCandidatesForDay(tomorrowISO, "");
+    const predToday = predictWithHedge("today", season, builtToday.candidates);
+    document.getElementById("correctionBoxToday").textContent =
+      (predToday?.y != null) ? predToday.y.toFixed(1) + "°F" : "–";
+  }
 
-    const s0 = isWarmSeason(todayISO) ? "warm" : "cool";
-    const s1 = isWarmSeason(tomorrowISO) ? "warm" : "cool";
+  // ----- Tomorrow -----
+  {
+    const season = isWarmSeason(tomorrowISO) ? "warm" : "cool";
+    const builtTomorrow = buildCandidatesForDay(tomorrowISO, "");
+    const predTomorrow = predictWithHedge("tomorrow", season, builtTomorrow.candidates);
+    document.getElementById("correctionBoxTomorrow").textContent =
+      (predTomorrow?.y != null) ? predTomorrow.y.toFixed(1) + "°F" : "–";
+  }
+}
 
-    const out0 = predictWithHedge("today", s0, builtToday.candidates);
-    const out1 = predictWithHedge("tomorrow", s1, builtTmw.candidates);
-
-   // Log predictions if forecasts changed
-    if (typeof logPrediction === 'function') {
-      if (forecastChanged.today && out0?.y != null) {
-        const sig0 = [todayISO, 'today', out0.y.toFixed(1), out0.bias.toFixed(2)].join('|');
-        if (sig0 !== loggedSig.today) {
-          logPrediction({
-            target_date: todayISO,
-            lead_used: "today",
-            prediction_value: out0.y,
-            model_name: "hedge_v3"
-          }).catch(() => {});
-          setLoggedSig("today", sig0);
-        }
-        forecastChanged.today = false;
-      }
-      
-      if (forecastChanged.tomorrow && out1?.y != null) {
-        const sig1 = [tomorrowISO, 'tomorrow', out1.y.toFixed(1), out1.bias.toFixed(2)].join('|');
-        if (sig1 !== loggedSig.tomorrow) {
-          logPrediction({
-            target_date: tomorrowISO,
-            lead_used: "tomorrow",
-            prediction_value: out1.y,
-            model_name: "hedge_v3"
-          }).catch(() => {});
-          setLoggedSig("tomorrow", sig1);
-        }
-        forecastChanged.tomorrow = false;
-      }
-    }
-    
-   // Log predictions if forecasts changed
-    if (typeof logPrediction === 'function') {
-      if (forecastChanged.today && out0?.y != null) {
-        logPrediction({
-          target_date: todayISO,
-          lead_used: "D0",
-          prediction_value: out0.y,
-          model_name: "hedge_v3",
-          version: "3.0"
-        }).catch(() => {});
-        forecastChanged.today = false;
-      }
-      
-      if (forecastChanged.tomorrow && out1?.y != null) {
-        logPrediction({
-          target_date: tomorrowISO,
-          lead_used: "D1", 
-          prediction_value: out1.y,
-          model_name: "hedge_v3",
-          version: "3.0"
-        }).catch(() => {});
-        forecastChanged.tomorrow = false;
-      }
-    }
     
     // Format predictions with proper display
     const el0 = document.getElementById('correctionBoxToday');
