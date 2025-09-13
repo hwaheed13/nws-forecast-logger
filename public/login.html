@@ -106,20 +106,36 @@
     @media (max-width: 480px) { .pw-block .toggle { text-align: left; } }
 
     /* Floating theme pill for login */
-    #loginThemeToggle {
+    .theme-switch {
       position: fixed; top: 12px; right: 12px; z-index: 9999;
-      border: 1px solid var(--border-default);
-      background: var(--bg-secondary);
+      display: flex; align-items: center; gap: 6px;
+      cursor: pointer; font: 500 14px/1 Inter, system-ui, sans-serif;
       color: var(--text-secondary);
-      border-radius: 12px; padding: 8px 12px; font: 500 14px/1 Inter, system-ui, sans-serif;
-      cursor: pointer;
-      width: auto; /* don't inherit 100% button width */
-      margin-top: 0;
     }
+    .theme-switch input { display: none; }
+    .theme-switch .slider {
+      position: relative; width: 36px; height: 20px;
+      background: var(--border-default);
+      border-radius: 20px; transition: background .3s;
+    }
+    .theme-switch .slider::before {
+      content: "";
+      position: absolute; height: 14px; width: 14px;
+      left: 3px; top: 3px;
+      background: var(--bg-secondary);
+      border-radius: 50%; transition: transform .3s;
+    }
+    .theme-switch input:checked + .slider { background: #2563eb; }
+    .theme-switch input:checked + .slider::before { transform: translateX(16px); }
+    .theme-label { min-width: 40px; }
   </style>
 </head>
-<body>
-  <button id="loginThemeToggle">Theme: Auto</button>
+  <body>
+    <label class="theme-switch" style="position:fixed;top:12px;right:12px;z-index:9999;">
+    <input type="checkbox" id="loginThemeToggle">
+    <span class="slider"></span>
+    <span class="theme-label">Auto</span>
+  </label>
 
   <div class="card">
     <h1>Daily Dew Point</h1>
@@ -548,7 +564,8 @@
       const KEY = "theme-pref"; // reuse across pages
       const root = document.documentElement;
       const mql = window.matchMedia("(prefers-color-scheme: dark)");
-      const btn = document.getElementById("loginThemeToggle");
+      const togg = document.getElementById("loginThemeToggle");
+      const themeLabel = document.querySelector(".theme-label");
 
       function currentPref() {
         return localStorage.getItem(KEY) || "system";
@@ -564,13 +581,14 @@
         updateButton(pref);
       }
 
-      function updateButton(pref) {
-        if (!btn) return;
-        btn.textContent =
-          pref === "system" ? "Theme: Auto" :
-          pref === "dark"   ? "Theme: Dark" :
-                              "Theme: Light";
-      }
+    function updateButton(pref) {
+      if (!togg || !themeLabel) return;
+      themeLabel.textContent =
+        pref === "system" ? "Auto" :
+        pref === "dark"   ? "Dark" :
+                            "Light";
+      togg.checked = (pref === "dark");
+    }
 
       function cycle(pref) {
         return pref === "system" ? "dark" : pref === "dark" ? "light" : "system";
@@ -585,13 +603,13 @@
           if (currentPref() === "system") applyTheme("system");
         });
 
-        if (btn) {
-          btn.addEventListener("click", () => {
-            const next = cycle(currentPref());
-            localStorage.setItem(KEY, next);
-            applyTheme(next);
-          });
-        }
+          if (togg) {
+      togg.addEventListener("change", () => {
+        const next = cycle(currentPref());
+        localStorage.setItem(KEY, next);
+        applyTheme(next);
+      });
+    }
 
         if (!localStorage.getItem(KEY)) localStorage.setItem(KEY, "system");
       }
