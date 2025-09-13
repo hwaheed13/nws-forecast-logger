@@ -33,7 +33,7 @@ jobs:
         id: decide
         run: |
           python - <<'PY'
-          import os, csv, sys, datetime, pytz
+          import os, csv, datetime, pytz
           et = pytz.timezone("America/New_York")
           now_et = datetime.datetime.now(et)
           today_iso = now_et.strftime("%Y-%m-%d")
@@ -106,11 +106,7 @@ jobs:
 
           # Fetch 5-day daily forecasts (imperial)
           url = f"https://dataservice.accuweather.com/forecasts/v1/daily/5day/{LOC_KEY}"
-          params = {
-              "apikey": API_KEY,
-              "details": "true",
-              "metric": "false"
-          }
+          params = {"apikey": API_KEY, "details": "true", "metric": "false"}
           try:
               resp = requests.get(url, params=params, timeout=20)
               resp.raise_for_status()
@@ -160,8 +156,7 @@ jobs:
                               ph = float(row.get("predicted_high") or "")
                           except Exception:
                               ph = None
-                          # Keep the *latest* by timestamp order as we read (CSV is append-only)
-                          last_accu[t] = ph
+                          last_accu[t] = ph  # CSV is append-only; last seen wins
 
           # Prepare rows to append only if changed
           fieldnames = [
@@ -176,16 +171,13 @@ jobs:
               if new_val is None:
                   continue
               prev_val = last_accu.get(iso)
-              if prev_val is None or (new_val != prev_val):
-                  # Build row
+              if prev_val is None or (new_val != prev_val):  # whole-degree change
                   ts = now_et.strftime("%Y-%m-%d %H:%M:%S %Z")
-                  # Use the API "Date" (local midnight) as forecast_time if present; else now
-                  forecast_time = ts
                   to_append.append({
                       "timestamp": ts,
                       "target_date": iso,
                       "forecast_or_actual": "forecast",
-                      "forecast_time": forecast_time,
+                      "forecast_time": ts,         # using fetch time; Accu "Date" is midnight
                       "predicted_high": f"{new_val:.1f}",
                       "forecast_detail": "accu-daily",
                       "cli_date": "",
@@ -197,7 +189,6 @@ jobs:
 
           if to_append:
               file_exists = os.path.exists(CSV_PATH)
-              # Ensure header exists
               if not file_exists:
                   with open(CSV_PATH, "w", newline="", encoding="utf-8") as f:
                       w = csv.DictWriter(f, fieldnames=fieldnames)
@@ -214,14 +205,20 @@ jobs:
       # Tidy CSV (no blank lines)
       - name: Remove empty/blank lines
         run: |
-          grep -Ev '^[[:space:]]*(,?[[:space:]]*)*$' nws_forecast_log.csv > /tmp/clean.csv || true
-          mv /tmp/clean.csv nws_forecast_log.csv
+          if [ -f nws_forecast_log.csv ]; then
+            grep -Ev '^[[:space:]]*(,?[[:space:]]*)*$' nws_forecast_log.csv > /tmp/clean.csv || true
+            if [ -s /tmp/clean.csv ]; then
+              mv /tmp/clean.csv nws_forecast_log.csv
+            fi
+          fi
 
-      # Commit only if changed
+      # Commit only if changed (rebase to avoid rejected push)
       - name: Commit and push CSV if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add nws_forecast_log.csv
           git commit -m "Frequent forecast update [skip ci]" || echo "No changes to commit"
-          git push origin main || true
+          git fetch origin main
+          git rebase origin/main || { echo "Rebase failed; aborting and skipping push"; git rebase --abort || true; exit 0; }
+          git push origin HEAD:main || true
