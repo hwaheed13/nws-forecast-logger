@@ -37,10 +37,10 @@ jobs:
           et = pytz.timezone("America/New_York")
           now_et = datetime.datetime.now(et)
           today_iso = now_et.strftime("%Y-%m-%d")
-          after_six = now_et.hour >= 18  # 6pm ET or later
+          after_six = now_et.hour >= 18
 
           has_actual_today = False
-          csv_path = "nws_forecast_log.csv"  # actuals come from NWS/CLI
+          csv_path = "nws_forecast_log.csv"
           if os.path.exists(csv_path):
               with open(csv_path, newline="", encoding="utf-8") as f:
                   r = csv.DictReader(f)
@@ -60,11 +60,6 @@ jobs:
               env.write(f"AFTER_SIX_ET={'true' if after_six else 'false'}\n")
               env.write(f"HAS_ACTUAL_TODAY={'true' if has_actual_today else 'false'}\n")
               env.write(f"SHOULD_LOG_TODAY={'true' if should_log_today else 'false'}\n")
-
-          print("today_iso:", today_iso)
-          print("after_six_et:", after_six)
-          print("has_actual_today:", has_actual_today)
-          print("should_log_today:", should_log_today)
           PY
 
       # ✅ Only log today's NWS forecast when we still need it
@@ -80,7 +75,7 @@ jobs:
           TASK: forecast_tomorrow
         run: python run_smart.py
 
-      # ✅ AccuWeather → accuweather_log.csv only if changed (freeze today when NWS actual exists)
+      # ✅ AccuWeather → accuweather_log.csv (only if changed, freeze today if NWS actual exists)
       - name: Log AccuWeather forecasts if changed
         env:
           ACCU_API_KEY: ${{ secrets.ACCU_API_KEY }}
@@ -106,121 +101,84 @@ jobs:
           sess = requests.Session()
           sess.headers.update({"Cache-Control": "no-cache", "Pragma": "no-cache"})
 
-          def fetch_daily_1day_high():
+          def fetch_daily_1day():
               url = f"https://dataservice.accuweather.com/forecasts/v1/daily/1day/{LOC_KEY}"
-              params = {
-                  "apikey": API_KEY, "details": "true", "metric": "false",
-                  "language": "en-us", "_ts": str(int(time.time()))
-              }
+              params = {"apikey": API_KEY, "details": "true", "metric": "false", "_ts": str(int(time.time()))}
               r = sess.get(url, params=params, timeout=20); r.raise_for_status()
-              j = r.json()
-              arr = j.get("DailyForecasts") or []
-              if not arr: return None
-              mx = (((arr[0] or {}).get("Temperature") or {}).get("Maximum") or {}).get("Value")
-              return int(round(float(mx))) if mx is not None else None
+              return r.json().get("DailyForecasts", [])[0]
 
           def fetch_daily_5day():
               url = f"https://dataservice.accuweather.com/forecasts/v1/daily/5day/{LOC_KEY}"
-              params = {
-                  "apikey": API_KEY, "details": "true", "metric": "false",
-                  "language": "en-us", "_ts": str(int(time.time()))
-              }
+              params = {"apikey": API_KEY, "details": "true", "metric": "false", "_ts": str(int(time.time()))}
               r = sess.get(url, params=params, timeout=20); r.raise_for_status()
               return r.json().get("DailyForecasts", [])
 
-          def to_iso(dstr):
-              try:
-                  dt = datetime.datetime.fromisoformat(dstr)
-                  return dt.astimezone(et).strftime("%Y-%m-%d")
-              except Exception:
-                  return None
+          new_highs, details = {}, {}
 
-          new_highs = {}
-
-          # D0 (today): /1day preferred (if not frozen); fallback to /5day date match
+          # Today (D0)
           if not freeze_today:
-              d0_val = None
               try:
-                  d0_val = fetch_daily_1day_high()
+                  d0 = fetch_daily_1day()
+                  mx = (((d0 or {}).get("Temperature") or {}).get("Maximum") or {}).get("Value")
+                  phrase = ((d0 or {}).get("Day") or {}).get("IconPhrase","")
+                  if mx is not None:
+                      new_highs[today_iso] = int(round(float(mx)))
+                      details[today_iso] = phrase
               except Exception as e:
-                  print(f"[Accu] D0 /1day fetch failed: {e}", file=sys.stderr)
-              if d0_val is None:
-                  try:
-                      five = fetch_daily_5day()
-                      for d in five:
-                          if to_iso(d.get("Date","")) == today_iso:
-                              mx = (((d or {}).get("Temperature") or {}).get("Maximum") or {}).get("Value")
-                              if mx is not None: d0_val = int(round(float(mx)))
-                              break
-                  except Exception as e:
-                      print(f"[Accu] D0 /5day fallback failed: {e}", file=sys.stderr)
-              if d0_val is not None:
-                  new_highs[today_iso] = d0_val
+                  print(f"[Accu] D0 fetch failed: {e}", file=sys.stderr)
 
-          # D1 (tomorrow): use /5day INDEX 1 to avoid date drift; fallback by date
-          d1_val = None
+          # Tomorrow (D1)
           try:
               five = fetch_daily_5day()
               if len(five) > 1:
-                  mx = (((five[1] or {}).get("Temperature") or {}).get("Maximum") or {}).get("Value")
+                  d1 = five[1]
+                  mx = (((d1 or {}).get("Temperature") or {}).get("Maximum") or {}).get("Value")
+                  phrase = ((d1 or {}).get("Day") or {}).get("IconPhrase","")
                   if mx is not None:
-                      d1_val = int(round(float(mx)))
-              if d1_val is None:
-                  # fallback: date-match
-                  for d in five:
-                      if to_iso(d.get("Date","")) == tomorrow_iso:
-                          mx = (((d or {}).get("Temperature") or {}).get("Maximum") or {}).get("Value")
-                          if mx is not None: d1_val = int(round(float(mx)))
-                          break
+                      new_highs[tomorrow_iso] = int(round(float(mx)))
+                      details[tomorrow_iso] = phrase
           except Exception as e:
-              print(f"[Accu] D1 /5day fetch failed: {e}", file=sys.stderr)
-          if d1_val is not None:
-              new_highs[tomorrow_iso] = d1_val
+              print(f"[Accu] D1 fetch failed: {e}", file=sys.stderr)
 
           targets = [iso for iso in [today_iso, tomorrow_iso] if (iso != today_iso or not freeze_today)]
-          print(f"[Accu] freeze_today={freeze_today} targets={targets} new_highs={new_highs}")
+          print(f"[Accu] new_highs={new_highs} details={details}")
 
-          # Read last logged Accu highs
+          # Read last logged highs
           last_accu = {iso: None for iso in targets}
           if os.path.exists(ACCU_CSV):
               with open(ACCU_CSV, newline="", encoding="utf-8") as f:
                   r = csv.DictReader(f)
                   for row in r:
-                      if (row.get("source") or "").strip() != "AccuWeather": 
+                      if row.get("source") != "AccuWeather": 
                           continue
-                      if (row.get("forecast_or_actual") or "").strip() != "forecast":
+                      if row.get("forecast_or_actual") != "forecast":
                           continue
-                      t = (row.get("target_date") or "").strip()
+                      t = row.get("target_date")
                       if t in last_accu:
-                          try:
-                              ph = int(round(float(row.get("predicted_high") or "")))
-                          except Exception:
-                              ph = None
-                          last_accu[t] = ph  # last seen wins
+                          try: last_accu[t] = int(float(row.get("predicted_high") or ""))
+                          except: pass
           print(f"[Accu] last_accu={last_accu}")
 
-          # Append only if integer high changed
+          # Append only if changed
           fieldnames = [
               "timestamp","target_date","forecast_or_actual","forecast_time",
               "predicted_high","forecast_detail","cli_date","actual_high",
               "high_time","bias_corrected_prediction","source"
           ]
-          to_append = []
           ts = now_et.strftime("%Y-%m-%d %H:%M:%S %Z")
+          to_append = []
 
           for iso in targets:
               nv = new_highs.get(iso)
-              if nv is None:
-                  continue
               pv = last_accu.get(iso)
-              if pv is None or nv != pv:
+              if nv is not None and (pv is None or nv != pv):
                   to_append.append({
                       "timestamp": ts,
                       "target_date": iso,
                       "forecast_or_actual": "forecast",
                       "forecast_time": ts,
                       "predicted_high": str(int(nv)),
-                      "forecast_detail": "accu-daily",
+                      "forecast_detail": f"Accu: {details.get(iso,'')}",
                       "cli_date": "",
                       "actual_high": "",
                       "high_time": "",
@@ -236,26 +194,23 @@ jobs:
                       w.writeheader()
               with open(ACCU_CSV, "a", newline="", encoding="utf-8") as f:
                   w = csv.DictWriter(f, fieldnames=fieldnames)
-                  for row in to_append:
-                      w.writerow(row)
+                  for row in to_append: w.writerow(row)
               print(f"AccuWeather: appended {len(to_append)} changed row(s). rows={to_append}")
           else:
               print("AccuWeather: no changes; nothing appended.")
           PY
 
-      # Tidy CSVs (no blank lines)
+      # Tidy CSVs
       - name: Remove empty/blank lines
         run: |
           for f in nws_forecast_log.csv accuweather_log.csv; do
             if [ -f "$f" ]; then
               grep -Ev '^[[:space:]]*(,?[[:space:]]*)*$' "$f" > /tmp/clean.csv || true
-              if [ -s /tmp/clean.csv ]; then
-                mv /tmp/clean.csv "$f"
-              fi
+              if [ -s /tmp/clean.csv ]; then mv /tmp/clean.csv "$f"; fi
             fi
           done
 
-      # Commit only if changed (rebase to avoid rejected push)
+      # Commit & push (safe with rebase)
       - name: Commit and push CSV if changed
         run: |
           git config user.name "github-actions[bot]"
@@ -263,5 +218,5 @@ jobs:
           git add nws_forecast_log.csv accuweather_log.csv || true
           git commit -m "Frequent forecast update [skip ci]" || echo "No changes to commit"
           git fetch origin main
-          git rebase origin/main || { echo "Rebase failed; aborting and skipping push"; git rebase --abort || true; exit 0; }
+          git rebase origin/main || { echo "Rebase failed; aborting"; git rebase --abort || true; exit 0; }
           git push origin HEAD:main || true
