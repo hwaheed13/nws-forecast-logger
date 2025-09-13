@@ -2101,6 +2101,7 @@ function updateCorrectionBoxes() {
       (predTomorrow?.y != null) ? predTomorrow.y.toFixed(1) + "°F" : "–";
   }
 }
+    updateCorrectionBoxes();  // <--- add this line
     
     // Format predictions with proper display
     const el0 = document.getElementById('correctionBoxToday');
