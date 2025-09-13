@@ -770,12 +770,17 @@ if (window.accuWeatherData && targetISO === todayISO && window.accuWeatherData.t
   } else {
     console.log("FALLING BACK to CSV");
     // Fallback to CSV data - use accuRows which is the global array
+const parseTs = (t) => {
+      const cleaned = (t || "").replace(" EDT", "").replace(" EST", "").trim();
+      return new Date(cleaned);
+    };
+    
     const accRowsFiltered = accuRows
       .filter(r => r.target_date === targetISO)
       .sort((a, b) => {
-        const ta = (a.timestamp || a.forecast_time || "");
-        const tb = (b.timestamp || b.forecast_time || "");
-        return ta.localeCompare(tb);
+        const dateA = parseTs(a.timestamp || a.forecast_time);
+        const dateB = parseTs(b.timestamp || b.forecast_time);
+        return dateA - dateB;
       });
     
     const accLatest = accRowsFiltered.length ? accRowsFiltered[accRowsFiltered.length - 1] : null;
