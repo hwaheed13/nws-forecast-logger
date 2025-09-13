@@ -88,9 +88,9 @@ jobs:
           HAS_ACTUAL_TODAY: ${{ env.HAS_ACTUAL_TODAY }}
         run: |
           python - <<'PY'
-          import os, csv, datetime, pytz, requests, sys
+          import os, csv, datetime, pytz, requests, sys, time
 
-          ACCU_CSV = "accuweather_log.csv"   # <-- write to the AccuWeather CSV
+          ACCU_CSV = "accuweather_log.csv"
           API_KEY = os.environ.get("ACCU_API_KEY")
           LOC_KEY = os.environ.get("ACCU_LOCATION_KEY")
           if not API_KEY or not LOC_KEY:
@@ -101,46 +101,86 @@ jobs:
           now_et = datetime.datetime.now(et)
           today_iso = now_et.strftime("%Y-%m-%d")
           tomorrow_iso = (now_et + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-
           freeze_today = (os.environ.get("HAS_ACTUAL_TODAY","false").lower() == "true")
 
-          # Fetch 5-day daily forecasts (imperial)
-          url = f"https://dataservice.accuweather.com/forecasts/v1/daily/5day/{LOC_KEY}"
-          params = {"apikey": API_KEY, "details": "true", "metric": "false"}
-          try:
-              resp = requests.get(url, params=params, timeout=20)
-              resp.raise_for_status()
-              data = resp.json()
-              daily = data.get("DailyForecasts", [])
-          except Exception as e:
-              print(f"AccuWeather fetch failed: {e}", file=sys.stderr)
-              sys.exit(0)
+          sess = requests.Session()
+          sess.headers.update({"Cache-Control": "no-cache", "Pragma": "no-cache"})
 
-          # Map ISO date -> predicted high (°F) from Accu daily
+          def fetch_daily_1day_high():
+              url = f"https://dataservice.accuweather.com/forecasts/v1/daily/1day/{LOC_KEY}"
+              params = {
+                  "apikey": API_KEY, "details": "true", "metric": "false",
+                  "language": "en-us", "_ts": str(int(time.time()))
+              }
+              r = sess.get(url, params=params, timeout=20); r.raise_for_status()
+              j = r.json()
+              arr = j.get("DailyForecasts") or []
+              if not arr: return None
+              mx = (((arr[0] or {}).get("Temperature") or {}).get("Maximum") or {}).get("Value")
+              return int(round(float(mx))) if mx is not None else None
+
+          def fetch_daily_5day():
+              url = f"https://dataservice.accuweather.com/forecasts/v1/daily/5day/{LOC_KEY}"
+              params = {
+                  "apikey": API_KEY, "details": "true", "metric": "false",
+                  "language": "en-us", "_ts": str(int(time.time()))
+              }
+              r = sess.get(url, params=params, timeout=20); r.raise_for_status()
+              return r.json().get("DailyForecasts", [])
+
           def to_iso(dstr):
-              # Example: "2025-09-13T07:00:00-04:00"
               try:
                   dt = datetime.datetime.fromisoformat(dstr)
                   return dt.astimezone(et).strftime("%Y-%m-%d")
               except Exception:
                   return None
 
-          accu_highs = {}
-          for d in daily:
-              iso = to_iso(d.get("Date",""))
-              mx = (((d or {}).get("Temperature") or {}).get("Maximum") or {}).get("Value")
-              if iso and mx is not None:
-                  try:
-                      accu_highs[iso] = float(mx)
-                  except Exception:
-                      pass
+          new_highs = {}
 
-          targets = []
+          # D0 (today): /1day preferred (if not frozen); fallback to /5day date match
           if not freeze_today:
-              targets.append(today_iso)
-          targets.append(tomorrow_iso)
+              d0_val = None
+              try:
+                  d0_val = fetch_daily_1day_high()
+              except Exception as e:
+                  print(f"[Accu] D0 /1day fetch failed: {e}", file=sys.stderr)
+              if d0_val is None:
+                  try:
+                      five = fetch_daily_5day()
+                      for d in five:
+                          if to_iso(d.get("Date","")) == today_iso:
+                              mx = (((d or {}).get("Temperature") or {}).get("Maximum") or {}).get("Value")
+                              if mx is not None: d0_val = int(round(float(mx)))
+                              break
+                  except Exception as e:
+                      print(f"[Accu] D0 /5day fallback failed: {e}", file=sys.stderr)
+              if d0_val is not None:
+                  new_highs[today_iso] = d0_val
 
-          # Read existing Accu CSV to find last Accu row per target
+          # D1 (tomorrow): use /5day INDEX 1 to avoid date drift; fallback by date
+          d1_val = None
+          try:
+              five = fetch_daily_5day()
+              if len(five) > 1:
+                  mx = (((five[1] or {}).get("Temperature") or {}).get("Maximum") or {}).get("Value")
+                  if mx is not None:
+                      d1_val = int(round(float(mx)))
+              if d1_val is None:
+                  # fallback: date-match
+                  for d in five:
+                      if to_iso(d.get("Date","")) == tomorrow_iso:
+                          mx = (((d or {}).get("Temperature") or {}).get("Maximum") or {}).get("Value")
+                          if mx is not None: d1_val = int(round(float(mx)))
+                          break
+          except Exception as e:
+              print(f"[Accu] D1 /5day fetch failed: {e}", file=sys.stderr)
+          if d1_val is not None:
+              new_highs[tomorrow_iso] = d1_val
+
+          targets = [iso for iso in [today_iso, tomorrow_iso] if (iso != today_iso or not freeze_today)]
+          print(f"[Accu] freeze_today={freeze_today} targets={targets} new_highs={new_highs}")
+
+          # Read last logged Accu highs
           last_accu = {iso: None for iso in targets}
           if os.path.exists(ACCU_CSV):
               with open(ACCU_CSV, newline="", encoding="utf-8") as f:
@@ -153,32 +193,33 @@ jobs:
                       t = (row.get("target_date") or "").strip()
                       if t in last_accu:
                           try:
-                              ph = float(row.get("predicted_high") or "")
+                              ph = int(round(float(row.get("predicted_high") or "")))
                           except Exception:
                               ph = None
                           last_accu[t] = ph  # last seen wins
+          print(f"[Accu] last_accu={last_accu}")
 
-          # Prepare rows to append only if changed
+          # Append only if integer high changed
           fieldnames = [
               "timestamp","target_date","forecast_or_actual","forecast_time",
               "predicted_high","forecast_detail","cli_date","actual_high",
               "high_time","bias_corrected_prediction","source"
           ]
           to_append = []
+          ts = now_et.strftime("%Y-%m-%d %H:%M:%S %Z")
 
           for iso in targets:
-              new_val = accu_highs.get(iso)
-              if new_val is None:
+              nv = new_highs.get(iso)
+              if nv is None:
                   continue
-              prev_val = last_accu.get(iso)
-              if prev_val is None or (new_val != prev_val):  # whole-degree change
-                  ts = now_et.strftime("%Y-%m-%d %H:%M:%S %Z")
+              pv = last_accu.get(iso)
+              if pv is None or nv != pv:
                   to_append.append({
                       "timestamp": ts,
                       "target_date": iso,
                       "forecast_or_actual": "forecast",
-                      "forecast_time": ts,         # using fetch time
-                      "predicted_high": f"{new_val:.1f}",
+                      "forecast_time": ts,
+                      "predicted_high": f"{nv:.1f}",
                       "forecast_detail": "accu-daily",
                       "cli_date": "",
                       "actual_high": "",
@@ -197,7 +238,7 @@ jobs:
                   w = csv.DictWriter(f, fieldnames=fieldnames)
                   for row in to_append:
                       w.writerow(row)
-              print(f"AccuWeather: appended {len(to_append)} changed row(s).")
+              print(f"AccuWeather: appended {len(to_append)} changed row(s). rows={to_append}")
           else:
               print("AccuWeather: no changes; nothing appended.")
           PY
