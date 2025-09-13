@@ -764,9 +764,9 @@ if (newNames.length > 0) {
 }
 
 // Update Hedge weights + Bias/RMSE when an actual arrives
-function updateHedgeOnActual(kind, targetISO, candidates, actual) {
+function updateHedgeOnActual(kind, season, candidates, actual, targetISO) {
   if (!CLIENT_LEARNING) return;  // disabled in production
-  const key = contextKey(lead, season);
+  const key = contextKey(kind, season);
   let st = loadState(key) || { w:{}, bias:null, rmse:null, lastDay:null, learnCounts:{} };
 
   // Track how many times each candidate has been trained
@@ -871,22 +871,34 @@ function historySignature(){
   return `${allRows.length}|${last.timestamp||last.date_pulled||''}|${last.cli_date||last.target_date||''}`;
 }
 
-async function warmOnceForCurrentCSV(){
-
-  
+async function warmOnceForCurrentCSV() {
   resetHedgeState();
-  
-  // Your exact trained state from regular browser
- localStorage.setItem(`${ENS_KEY}:today:warm`,     '...JSON...');
-localStorage.setItem(`${ENS_KEY}:today:cool`,     '...JSON...');
-localStorage.setItem(`${ENS_KEY}:tomorrow:warm`,  '...JSON...');
-localStorage.setItem(`${ENS_KEY}:tomorrow:cool`,  '...JSON...');
 
-  
-  // DON'T TRAIN - use your exact state
-  // pretrainFromHistory();  // REMOVE THIS LINE
-  
+  // === SEEDS (production deterministic defaults) ===
+  // Today (D0): lean on NWS latest; no AccuWeather
+  const todayWarm = {
+    w: { D0_latest: 0.60, D0_trimmed: 0.20, series_rep: 0.20, AccuWeather: 0.00 },
+    bias: 0.0, rmse: 1.9, lastDay: null, learnCounts: {}
+  };
+  const todayCool = {
+    w: { D0_latest: 0.55, D0_trimmed: 0.25, series_rep: 0.20, AccuWeather: 0.00 },
+    bias: 0.0, rmse: 2.0, lastDay: null, learnCounts: {}
+  };
 
+  // Tomorrow (D1): make AccuWeather dominant; NWS as light sanity check
+  const tomorrowWarm = {
+    w: { D1_latest: 0.03, D1_trimmed: 0.02, series_rep: 0.02, AccuWeather: 0.93 },
+    bias: 0.0, rmse: 2.4, lastDay: null, learnCounts: {}
+  };
+  const tomorrowCool = {
+    w: { D1_latest: 0.04, D1_trimmed: 0.03, series_rep: 0.03, AccuWeather: 0.90 },
+    bias: 0.0, rmse: 2.5, lastDay: null, learnCounts: {}
+  };
+
+  localStorage.setItem(`${ENS_KEY}:today:warm`,     JSON.stringify(todayWarm));
+  localStorage.setItem(`${ENS_KEY}:today:cool`,     JSON.stringify(todayCool));
+  localStorage.setItem(`${ENS_KEY}:tomorrow:warm`,  JSON.stringify(tomorrowWarm));
+  localStorage.setItem(`${ENS_KEY}:tomorrow:cool`,  JSON.stringify(tomorrowCool));
 }
 
 // optional: expose for debugging
