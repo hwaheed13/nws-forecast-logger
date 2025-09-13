@@ -853,9 +853,24 @@ function historySignature(){
 async function warmOnceForCurrentCSV(){
   const sigKey = `${ENS_KEY}:trained_sig`;
   const sig = historySignature();
-  if (localStorage.getItem(sigKey) === sig) return;  // already warmed for this data
-  resetHedgeState();           // start from clean state
-  pretrainFromHistory();       // train on CSV once
+  if (localStorage.getItem(sigKey) === sig) return;
+  
+  resetHedgeState();
+  
+  // Set consistent initial bias for everyone (weights start empty and will be learned)
+  const initialStates = {
+    "today:warm": { w: {}, bias: 0.1, rmse: 2.5, lastDay: null, learnCounts: {} },
+    "today:cool": { w: {}, bias: 0.1, rmse: 2.5, lastDay: null, learnCounts: {} },
+    "tomorrow:warm": { w: {}, bias: 0.1, rmse: 2.5, lastDay: null, learnCounts: {} },
+    "tomorrow:cool": { w: {}, bias: 0.1, rmse: 2.5, lastDay: null, learnCounts: {} }
+  };
+  
+  Object.entries(initialStates).forEach(([key, state]) => {
+    saveState(key, state);
+  });
+  
+  pretrainFromHistory();  // This learns the weights from scratch
+  
   try { localStorage.setItem(sigKey, sig); } catch {}
 }
 
