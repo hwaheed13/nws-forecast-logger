@@ -43,14 +43,21 @@ def ensure_csv_header() -> None:
             csv.writer(f).writerow(BASE_HEADER + [BCP_FIELD])
 
 def _read_all_rows() -> Tuple[List[dict], List[str]]:
+    """Read NWS + AccuWeather rows together."""
     ensure_csv_header()
     rows: List[dict] = []
-    fieldnames = None
-    with open(CSV_FILE, newline="") as f:
-        reader = csv.DictReader(f)
-        fieldnames = reader.fieldnames or (BASE_HEADER + [BCP_FIELD])
-        for r in reader:
-            rows.append(r)
+    fieldnames = BASE_HEADER + [BCP_FIELD]
+
+    for fname in [CSV_FILE, "accuweather_log.csv"]:
+        if os.path.exists(fname):
+            with open(fname, newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                if reader.fieldnames:
+                    for fn in reader.fieldnames:
+                        if fn not in fieldnames:
+                            fieldnames.append(fn)
+                for r in reader:
+                    rows.append(r)
     return rows, fieldnames
 
 def _write_all_rows(rows: List[dict], fieldnames: List[str]) -> None:
