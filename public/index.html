@@ -772,12 +772,10 @@ function buildCandidatesForDay(targetISO, highTime){
   const tomorrowISO = nycISODate(1);
   
   // Check if accuWeatherData exists and has values
-  if (typeof accuWeatherData !== 'undefined' && accuWeatherData && 
-      targetISO === todayISO && accuWeatherData.today != null) {
-    candidates.AccuWeather = Number(accuWeatherData.today);
-  } else if (typeof accuWeatherData !== 'undefined' && accuWeatherData && 
-             targetISO === tomorrowISO && accuWeatherData.tomorrow != null) {
-    candidates.AccuWeather = Number(accuWeatherData.tomorrow);
+  if (window.accuWeatherData && targetISO === todayISO && window.accuWeatherData.today != null) {
+    candidates.AccuWeather = Number(window.accuWeatherData.today);
+  } else if (window.accuWeatherData && targetISO === tomorrowISO && window.accuWeatherData.tomorrow != null) {
+    candidates.AccuWeather = Number(window.accuWeatherData.tomorrow);
   } else {
     // Fallback to CSV data - use accuRows which is the global array
      const accRowsFiltered = accuRows
@@ -1987,7 +1985,7 @@ updateCorrectionBoxes();  // now uses the freshly-trained state
     async function fetchNwsHighSoFar(station = "KNYC") { return fetchJSON(NWS_HIGH_SO_FAR_URLS, { station }); }
     async function fetchNwsCurrentTemp(station = "KNYC") { return fetchJSON(NWS_CURRENT_TEMP_URLS, { station, cb: Date.now() }); }
     // AccuWeather data storage
-const accuWeatherData = { today: null, tomorrow: null };
+    window.accuWeatherData = { today: null, tomorrow: null };
 
 async function fetchAccuWeatherForecasts() {
   try {
@@ -1998,8 +1996,8 @@ async function fetchAccuWeatherForecasts() {
     const oldToday = accuWeatherData.today;
     const oldTomorrow = accuWeatherData.tomorrow;
     
-    accuWeatherData.today = Math.round(data.DailyForecasts[0].Temperature.Maximum.Value);
-    accuWeatherData.tomorrow = Math.round(data.DailyForecasts[1].Temperature.Maximum.Value);
+    window.accuWeatherData.today = Math.round(data.DailyForecasts[0].Temperature.Maximum.Value);
+    window.accuWeatherData.tomorrow = Math.round(data.DailyForecasts[1].Temperature.Maximum.Value);
     
     console.log(`AccuWeather: Today ${accuWeatherData.today}°F, Tomorrow ${accuWeatherData.tomorrow}°F`);
     
