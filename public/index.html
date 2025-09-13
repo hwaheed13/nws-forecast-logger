@@ -753,19 +753,21 @@ function buildCandidatesForDay(targetISO, highTime){
   if (c0.trimmed != null) candidates.D0_trimmed = Number(c0.trimmed);
   if (seriesRep  != null) candidates.series_rep = Number(seriesRep);
 
- // Use live AccuWeather API data if available, fall back to CSV
+// Use live AccuWeather API data if available, fall back to CSV
   const todayISO = nycISODate(0);
   const tomorrowISO = nycISODate(1);
   
-  // Prioritize live API data over CSV for AccuWeather
-  if (targetISO === todayISO && accuWeatherData.today != null) {
+  // Check if accuWeatherData exists and has values
+  if (typeof accuWeatherData !== 'undefined' && accuWeatherData && 
+      targetISO === todayISO && accuWeatherData.today != null) {
     candidates.AccuWeather = Number(accuWeatherData.today);
-  } else if (targetISO === tomorrowISO && accuWeatherData.tomorrow != null) {
+  } else if (typeof accuWeatherData !== 'undefined' && accuWeatherData && 
+             targetISO === tomorrowISO && accuWeatherData.tomorrow != null) {
     candidates.AccuWeather = Number(accuWeatherData.tomorrow);
   } else {
-    // Fallback to CSV data if API data not available
-    const accRows = [...allRows, ...accuRows]
-      .filter(r => r.source === "AccuWeather" && r.target_date === targetISO)
+    // Fallback to CSV data - use accuRows which is the global array
+     const accRowsFiltered = accuRows
+      .filter(r => r.target_date === targetISO)
       .sort((a, b) => {
         const ta = (a.timestamp || a.forecast_time || "");
         const tb = (b.timestamp || b.forecast_time || "");
