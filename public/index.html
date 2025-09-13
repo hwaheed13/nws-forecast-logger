@@ -13,7 +13,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 
   <style>
-    :root {
+ :root {
       --bg-primary: #fafbfc;
       --bg-secondary: #ffffff;
       --bg-tertiary: #f8f9fa;
@@ -32,6 +32,27 @@
       --accent-amber-light: #fef3c7;
       --shadow-sm: 0 1px 2px rgba(0, 0, 0, .05);
     }
+
+:root[data-theme="dark"] {
+  --bg-primary: #0b1220;
+  --bg-secondary: #0e1726;
+  --bg-tertiary: #121a2b;
+  --bg-accent: #0f1a33;
+  --text-primary: #e6edf7;
+  --text-secondary: #c7d2e3;
+  --text-muted: #9fb0c8;
+  --text-light: #7f93b1;
+  --border-subtle: #1f2937;
+  --border-default: #334155;
+  --accent-blue: #3b82f6;
+  --accent-blue-light: #1e3a8a;
+  --accent-green: #10b981;
+  --accent-green-light: #064e3b;
+  --accent-amber: #f59e0b;
+  --accent-amber-light: #78350f;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
 
     * { box-sizing: border-box; }
 
@@ -417,12 +438,13 @@
             <p class="brand-sub">Automatically logs every NWS forecast update for Central Park and compares to the official daily high</p>
           </div>
         </div>
-        <div class="brand-right">
+      <div class="brand-right">
           <div class="pill-group">
             <span class="pill live"><span class="dot"></span> Live</span>
             <span class="pill">NYC</span>
             <span class="pill">KNYC</span>
           </div>
+          <button id="themeToggle" class="pill">Switch to dark</button>
           <button id="btn-billing" class="pill">Manage billing</button>
           <button id="btn-logout" class="pill logout-btn">Log out</button>
         </div>
@@ -2825,6 +2847,30 @@ supabase.auth.onAuthStateChange((_event, session) => {
 });
 
   checkAccess();
+(function() {
+  const KEY = "ddp.theme";
+  const root = document.documentElement;
+  const btn = document.getElementById("themeToggle");
+
+  const saved = localStorage.getItem(KEY);
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const initial = saved || (prefersDark ? "dark" : "light");
+  applyTheme(initial);
+  updateButton(initial);
+
+  if (btn) {
+    btn.addEventListener("click", () => {
+      const next = (root.dataset.theme === "dark") ? "light" : "dark";
+      localStorage.setItem(KEY, next);
+      applyTheme(next);
+      updateButton(next);
+    });
+  }
+
+  function applyTheme(t) { root.dataset.theme = t; }
+  function updateButton(t) {
+    if (btn) btn.textContent = (t === "dark") ? "Switch to light" : "Switch to dark";
+  }
 })();
 </script>
 </body>
