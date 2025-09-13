@@ -55,7 +55,6 @@ jobs:
 
           should_log_today = (not after_six) and (not has_actual_today)
 
-          # Export to env for later steps
           with open(os.environ["GITHUB_ENV"], "a") as env:
               env.write(f"TODAY_ISO={today_iso}\n")
               env.write(f"AFTER_SIX_ET={'true' if after_six else 'false'}\n")
@@ -68,18 +67,149 @@ jobs:
           print("should_log_today:", should_log_today)
           PY
 
-      # ✅ Only log today's forecast when we still need it
-      - name: Log today's forecast (only if needed)
+      # ✅ Only log today's NWS forecast when we still need it
+      - name: Log today's NWS forecast (only if needed)
         if: env.SHOULD_LOG_TODAY == 'true'
         env:
           TASK: forecast_today
         run: python run_smart.py
 
-      # ✅ Always log tomorrow's forecast every run
-      - name: Log tomorrow's forecast
+      # ✅ Always log tomorrow's NWS forecast every run
+      - name: Log tomorrow's NWS forecast
         env:
           TASK: forecast_tomorrow
         run: python run_smart.py
+
+      # ✅ AccuWeather: append only if changed (freeze today when actual exists)
+      - name: Log AccuWeather forecasts if changed
+        env:
+          ACCU_API_KEY: ${{ secrets.ACCU_API_KEY }}
+          ACCU_LOCATION_KEY: ${{ secrets.ACCU_LOCATION_KEY }}
+          HAS_ACTUAL_TODAY: ${{ env.HAS_ACTUAL_TODAY }}
+        run: |
+          python - <<'PY'
+          import os, csv, datetime, pytz, requests, sys
+
+          CSV_PATH = "nws_forecast_log.csv"
+          API_KEY = os.environ.get("ACCU_API_KEY")
+          LOC_KEY = os.environ.get("ACCU_LOCATION_KEY")
+          if not API_KEY or not LOC_KEY:
+              print("AccuWeather: missing API key or location key; skipping.", file=sys.stderr)
+              sys.exit(0)
+
+          et = pytz.timezone("America/New_York")
+          now_et = datetime.datetime.now(et)
+          today_iso = now_et.strftime("%Y-%m-%d")
+          tomorrow_iso = (now_et + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+
+          freeze_today = (os.environ.get("HAS_ACTUAL_TODAY","false").lower() == "true")
+
+          # Fetch 5-day daily forecasts (imperial)
+          url = f"https://dataservice.accuweather.com/forecasts/v1/daily/5day/{LOC_KEY}"
+          params = {
+              "apikey": API_KEY,
+              "details": "true",
+              "metric": "false"
+          }
+          try:
+              resp = requests.get(url, params=params, timeout=20)
+              resp.raise_for_status()
+              data = resp.json()
+              daily = data.get("DailyForecasts", [])
+          except Exception as e:
+              print(f"AccuWeather fetch failed: {e}", file=sys.stderr)
+              sys.exit(0)
+
+          # Map ISO date -> predicted high (°F) from Accu daily
+          def to_iso(dstr):
+              # Example: "2025-09-13T07:00:00-04:00"
+              try:
+                  dt = datetime.datetime.fromisoformat(dstr)
+                  return dt.astimezone(et).strftime("%Y-%m-%d")
+              except Exception:
+                  return None
+
+          accu_highs = {}
+          for d in daily:
+              iso = to_iso(d.get("Date",""))
+              mx = (((d or {}).get("Temperature") or {}).get("Maximum") or {}).get("Value")
+              if iso and mx is not None:
+                  try:
+                      accu_highs[iso] = float(mx)
+                  except Exception:
+                      pass
+
+          targets = []
+          if not freeze_today:
+              targets.append(today_iso)
+          targets.append(tomorrow_iso)
+
+          # Read existing CSV to find last Accu row per target
+          last_accu = {iso: None for iso in targets}
+          if os.path.exists(CSV_PATH):
+              with open(CSV_PATH, newline="", encoding="utf-8") as f:
+                  r = csv.DictReader(f)
+                  for row in r:
+                      if (row.get("source") or "").strip() != "AccuWeather": 
+                          continue
+                      if (row.get("forecast_or_actual") or "").strip() != "forecast":
+                          continue
+                      t = (row.get("target_date") or "").strip()
+                      if t in last_accu:
+                          try:
+                              ph = float(row.get("predicted_high") or "")
+                          except Exception:
+                              ph = None
+                          # Keep the *latest* by timestamp order as we read (CSV is append-only)
+                          last_accu[t] = ph
+
+          # Prepare rows to append only if changed
+          fieldnames = [
+              "timestamp","target_date","forecast_or_actual","forecast_time",
+              "predicted_high","forecast_detail","cli_date","actual_high",
+              "high_time","bias_corrected_prediction","source"
+          ]
+          to_append = []
+
+          for iso in targets:
+              new_val = accu_highs.get(iso)
+              if new_val is None:
+                  continue
+              prev_val = last_accu.get(iso)
+              if prev_val is None or (new_val != prev_val):
+                  # Build row
+                  ts = now_et.strftime("%Y-%m-%d %H:%M:%S %Z")
+                  # Use the API "Date" (local midnight) as forecast_time if present; else now
+                  forecast_time = ts
+                  to_append.append({
+                      "timestamp": ts,
+                      "target_date": iso,
+                      "forecast_or_actual": "forecast",
+                      "forecast_time": forecast_time,
+                      "predicted_high": f"{new_val:.1f}",
+                      "forecast_detail": "accu-daily",
+                      "cli_date": "",
+                      "actual_high": "",
+                      "high_time": "",
+                      "bias_corrected_prediction": "",
+                      "source": "AccuWeather",
+                  })
+
+          if to_append:
+              file_exists = os.path.exists(CSV_PATH)
+              # Ensure header exists
+              if not file_exists:
+                  with open(CSV_PATH, "w", newline="", encoding="utf-8") as f:
+                      w = csv.DictWriter(f, fieldnames=fieldnames)
+                      w.writeheader()
+              with open(CSV_PATH, "a", newline="", encoding="utf-8") as f:
+                  w = csv.DictWriter(f, fieldnames=fieldnames)
+                  for row in to_append:
+                      w.writerow(row)
+              print(f"AccuWeather: appended {len(to_append)} changed row(s).")
+          else:
+              print("AccuWeather: no changes; nothing appended.")
+          PY
 
       # Tidy CSV (no blank lines)
       - name: Remove empty/blank lines
