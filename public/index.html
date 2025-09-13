@@ -718,22 +718,9 @@ function predictWithHedge(lead, season, candidates, rmseContext){
     const existingNames = Object.keys(st.w);
     const newNames = names.filter(n => !(n in st.w));
     
-    if (newNames.length > 0) {
-      // If AccuWeather is joining, reset everyone to equal weight for fair competition
-        if (newNames.includes('AccuWeather')) {
-          const equalWeight = 1 / names.length;
-          names.forEach(n => st.w[n] = equalWeight);
-          console.log(`AccuWeather joined: all ${names.length} sources reset to ${(equalWeight*100).toFixed(1)}% weight each`);
-          // persist immediately and refresh UI once, so the 25% shows up right away
-          saveState(key, st);
-          if (typeof window.updateCorrectionBoxes === 'function') {
-            setTimeout(window.updateCorrectionBoxes, 0);
-          }
-        } else {
-          // For other new sources, use minimal weight as before
-          newNames.forEach(n => st.w[n] = 1e-6);
-        }
-
+if (newNames.length > 0) {
+      // Add all new sources with minimal weight
+      newNames.forEach(n => st.w[n] = 1e-6);
     }
   }
 
@@ -2079,14 +2066,14 @@ function hasActualFor(dateISO) {
 }
 
 function updateCorrectionBoxes() {
-  const todayISO = nycISODate(0);
-  const tomorrowISO = nycISODate(1);
+  try {
+    const todayISO = nycISODate(0);
+    const tomorrowISO = nycISODate(1);
 
-  // ----- Today -----
-  {
-    const season = isWarmSeason(todayISO) ? "warm" : "cool";
+    // ----- Today -----
+    const seasonToday = isWarmSeason(todayISO) ? "warm" : "cool";
     const builtToday = buildCandidatesForDay(todayISO, "");
-    const predToday = predictWithHedge("today", season, builtToday.candidates);
+    const predToday = predictWithHedge("today", seasonToday, builtToday.candidates);
 
     console.log("TODAY →",
       "candidates:", builtToday.candidates,
@@ -2094,68 +2081,50 @@ function updateCorrectionBoxes() {
       "bias:", predToday?.bias
     );
 
-    document.getElementById("correctionBoxToday").textContent =
-      (predToday?.y != null) ? predToday.y.toFixed(1) + "°F" : "–";
-  }
-
-  // ----- Tomorrow -----
-  {
-    const season = isWarmSeason(tomorrowISO) ? "warm" : "cool";
+    // ----- Tomorrow -----
+    const seasonTomorrow = isWarmSeason(tomorrowISO) ? "warm" : "cool";
     const builtTomorrow = buildCandidatesForDay(tomorrowISO, "");
-    const predTomorrow = predictWithHedge("tomorrow", season, builtTomorrow.candidates);
+    const predTomorrow = predictWithHedge("tomorrow", seasonTomorrow, builtTomorrow.candidates);
 
     console.log("TOMORROW →",
-      "NWS:", builtTomorrow.candidates.NWS,
-      "Accu:", builtTomorrow.candidates.AccuWeather,
+      "candidates:", builtTomorrow.candidates,
       "prediction:", predTomorrow?.y,
       "bias:", predTomorrow?.bias
     );
 
- document.getElementById("correctionBoxTomorrow").textContent =
-  (predTomorrow?.y != null) ? predTomorrow.y.toFixed(1) + "°F" : "–";
-}
-}
-
-updateCorrectionBoxes(); // run once on load
-
-// Format predictions with proper display
-
-    
     // Format predictions with proper display
     const el0 = document.getElementById('correctionBoxToday');
     const el1 = document.getElementById('correctionBoxTomorrow');
     
-  if (el0) {
-    // If today's actual has been published, suppress the bias-corrected display
-    if (hasActualFor(todayISO)) {
-      el0.innerHTML = `
-        <div class="prediction-value">—</div>
-        <div class="prediction-subtitle">Actual high published for ${todayISO}</div>
-      `;
-    } else if (Number.isFinite(out0?.y)) {
-      const val  = out0.y.toFixed(1);
-      const bias = out0.bias != null ? out0.bias.toFixed(1) : "0.0";
-      const sign = Number(bias) >= 0 ? "+" : "";
-      el0.innerHTML = `
-        <div class="prediction-value">${val}°F</div>
-        <div class="prediction-subtitle">
-          <small>Smart ensemble (${Object.keys(out0.weights || {}).length} sources, weights learn daily) ${sign}${bias}°F</small>
-        </div>
-      `;
-    } else {
-      el0.innerHTML = `<div class="prediction-value">—</div><div class="prediction-subtitle">Awaiting forecast data</div>`;
+    if (el0) {
+      if (hasActualFor(todayISO)) {
+        el0.innerHTML = `
+          <div class="prediction-value">—</div>
+          <div class="prediction-subtitle">Actual high published for ${todayISO}</div>
+        `;
+      } else if (Number.isFinite(predToday?.y)) {
+        const val  = predToday.y.toFixed(1);
+        const bias = predToday.bias != null ? predToday.bias.toFixed(1) : "0.0";
+        const sign = Number(bias) >= 0 ? "+" : "";
+        el0.innerHTML = `
+          <div class="prediction-value">${val}°F</div>
+          <div class="prediction-subtitle">
+            <small>Smart ensemble (${Object.keys(predToday.weights || {}).length} sources, weights learn daily) ${sign}${bias}°F</small>
+          </div>
+        `;
+      } else {
+        el0.innerHTML = `<div class="prediction-value">—</div><div class="prediction-subtitle">Awaiting forecast data</div>`;
+      }
     }
-  }
-
     
     if (el1) {
-      if (Number.isFinite(out1?.y)) {
-        const val = out1.y.toFixed(1);
-        const bias = out1.bias != null ? out1.bias.toFixed(1) : "0.0";
+      if (Number.isFinite(predTomorrow?.y)) {
+        const val = predTomorrow.y.toFixed(1);
+        const bias = predTomorrow.bias != null ? predTomorrow.bias.toFixed(1) : "0.0";
         const sign = Number(bias) >= 0 ? "+" : "";
         el1.innerHTML = `
           <div class="prediction-value">${val}°F</div>
-          <div class="prediction-subtitle"><small>Smart ensemble (${Object.keys(out1.weights || {}).length} sources, weights learn daily) ${sign}${bias}°F</small></div>
+          <div class="prediction-subtitle"><small>Smart ensemble (${Object.keys(predTomorrow.weights || {}).length} sources, weights learn daily) ${sign}${bias}°F</small></div>
         `;
       } else {
         el1.innerHTML = `<div class="prediction-value">—</div><div class="prediction-subtitle">Awaiting forecast data</div>`;
@@ -2756,8 +2725,10 @@ stats.innerHTML = `
     setInterval(() => { try { window.updateCorrectionBoxes && window.updateCorrectionBoxes(); } catch {} }, 60 * 1000);
     setInterval(() => { try { window.pollCsvAndUpdate && window.pollCsvAndUpdate(); } catch {} }, 60 * 1000);
     // Poll AccuWeather every 2 hours
-    fetchAccuWeatherForecasts();
-    setInterval(fetchAccuWeatherForecasts, 2 * 60 * 60 * 1000);
+    if (typeof fetchAccuWeatherForecasts === 'function') {
+      fetchAccuWeatherForecasts();
+      setInterval(fetchAccuWeatherForecasts, 2 * 60 * 60 * 1000);
+    }
 
     try {
       localStorage.setItem("dashboard_heartbeat", String(Date.now()));
