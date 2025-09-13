@@ -740,19 +740,33 @@ function ewmaUpdate(old, value, halfLifeDays){
 // Build candidates + envelope for a target date.
 // Uses your existing d0CandidatesFor, d1CandidatesFor, combineSeries, repFromSeries.
 function buildCandidatesForDay(targetISO, highTime){
+  // DEBUG CODE START
+  console.log("=== DEBUG buildCandidates ===");
+  console.log("targetISO:", targetISO);
+  console.log("todayISO:", nycISODate(0));
+  console.log("tomorrowISO:", nycISODate(1));
+  console.log("accuWeatherData exists?", typeof accuWeatherData !== 'undefined');
+  if (typeof accuWeatherData !== 'undefined') {
+    console.log("accuWeatherData.today:", accuWeatherData.today);
+    console.log("accuWeatherData.tomorrow:", accuWeatherData.tomorrow);
+  } else {
+    console.log("accuWeatherData is UNDEFINED!");
+  }
+  console.log("=== END DEBUG ===");
+  // DEBUG CODE END
+  
   const c0 = d0CandidatesFor(targetISO, highTime);   // today-for-today (pre-high)
   const c1 = d1CandidatesFor(targetISO);             // yesterday-for-today, or today-for-tomorrow
-
   const seriesAll = combineSeries(c1.series, c0.series);
   const seriesRep = repFromSeries(seriesAll); // (keep your current rep; easy to swap to time-aware later)
-
+  
   const candidates = {};
   if (c1.latest  != null) candidates.D1_latest  = Number(c1.latest);
   if (c1.trimmed != null) candidates.D1_trimmed = Number(c1.trimmed);
   if (c0.latest  != null) candidates.D0_latest  = Number(c0.latest);
   if (c0.trimmed != null) candidates.D0_trimmed = Number(c0.trimmed);
   if (seriesRep  != null) candidates.series_rep = Number(seriesRep);
-
+  
 // Use live AccuWeather API data if available, fall back to CSV
   const todayISO = nycISODate(0);
   const tomorrowISO = nycISODate(1);
