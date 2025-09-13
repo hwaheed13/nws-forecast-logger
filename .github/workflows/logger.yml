@@ -49,7 +49,7 @@ jobs:
         env:
           TASK: ${{ github.event.inputs.task || 'smart_all' }}
         run: python run_smart.py
-
+      
       - name: Run AccuWeather logger (today & tomorrow)
         env:
           ACCU_API_KEY: ${{ secrets.ACCU_API_KEY }}
@@ -57,26 +57,15 @@ jobs:
           TZ: America/New_York
         run: python accuweather_logger.py
 
-      - name: Remove empty/blank lines (AccuWeather)
+      - name: Remove empty/blank lines
         run: |
-          if [ -f accuweather_log.csv ]; then
-            grep -Ev '^[[:space:]]*(,?[[:space:]]*)*$' accuweather_log.csv > /tmp/clean_accu.csv || true
-            mv /tmp/clean_accu.csv accuweather_log.csv || true
-          fi
+          grep -Ev '^[[:space:]]*(,?[[:space:]]*)*$' nws_forecast_log.csv > /tmp/clean.csv || true
+          mv /tmp/clean.csv nws_forecast_log.csv
 
-      # (Optional) seed it once so your site never 404s on first deploy
-      - name: Seed accuweather_log.csv if missing
+      - name: Commit and push CSV
         run: |
-          if [ ! -f accuweather_log.csv ]; then
-            echo "timestamp,target_date,forecast_or_actual,forecast_time,predicted_high,forecast_detail,cli_date,actual_high,high_time,bias_corrected_prediction,source" > accuweather_log.csv
-          fi
-
-      # Keep your existing NWS cleanup step as-is
-
-      - name: Commit and push CSVs
-        run: |
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add nws_forecast_log.csv accuweather_log.csv
-          git commit -m "Update forecast logs [skip ci]" || echo "No changes to commit"
+          git commit -m "Update forecast log [skip ci]" || echo "No changes to commit"
           git push origin main
