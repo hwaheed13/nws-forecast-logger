@@ -419,6 +419,25 @@ input[type="date"] {
 :root[data-theme="dark"] #btn-billing:hover {
   background: var(--bg-accent);
 }
+.theme-switch {
+  display: flex; align-items: center; gap: 6px;
+  cursor: pointer; font: 500 14px/1 Inter, system-ui, sans-serif;
+  color: var(--text-secondary);
+}
+.theme-switch input { display: none; }
+.theme-switch .slider {
+  position: relative; width: 36px; height: 20px;
+  background: var(--border-default);
+  border-radius: 20px; transition: background .3s;
+}
+.theme-switch .slider::before {
+  content: ""; position: absolute; height: 14px; width: 14px;
+  left: 3px; top: 3px; background: var(--bg-secondary);
+  border-radius: 50%; transition: transform .3s;
+}
+.theme-switch input:checked + .slider { background: #2563eb; }
+.theme-switch input:checked + .slider::before { transform: translateX(16px); }
+.theme-label { min-width: 40px; }
 
   </style>
 </head>
@@ -461,7 +480,11 @@ input[type="date"] {
             <span class="pill">NYC</span>
             <span class="pill">KNYC</span>
           </div>
-             <button id="themeToggle" class="pill">Theme: Auto</button>
+             <label class="theme-switch">
+            <input type="checkbox" id="themeToggle">
+            <span class="slider"></span>
+            <span class="theme-label">Auto</span>
+          </label>
           <button id="btn-billing" class="pill">Manage billing</button>
           <button id="btn-logout" class="pill logout-btn">Log out</button>
         </div>
@@ -2882,7 +2905,8 @@ supabase.auth.onAuthStateChange((_event, session) => {
   const KEY = "theme-pref"; // "system" | "dark" | "light"
   const root = document.documentElement;
   const mql = window.matchMedia("(prefers-color-scheme: dark)");
-  const btn = document.getElementById("themeToggle");
+  const togg = document.getElementById("themeToggle");
+  const themeLabel = document.querySelector(".theme-label");
 
   function currentPref() {
     return localStorage.getItem(KEY) || "system";
@@ -2899,12 +2923,13 @@ supabase.auth.onAuthStateChange((_event, session) => {
     }
 
   function updateButton(pref) {
-    if (!btn) return;
-    const label =
-      pref === "system" ? "Theme: Auto" :
-      pref === "dark"   ? "Theme: Dark" :
-                          "Theme: Light";
-    btn.textContent = label;
+    if (!togg || !themeLabel) return;
+    themeLabel.textContent =
+      pref === "system" ? "Auto" :
+      pref === "dark"   ? "Dark" :
+                          "Light";
+    // Visual: we show "on" when Dark; Light/Auto both look off/neutral
+    togg.checked = (pref === "dark");
   }
 
   function cycle(pref) {
@@ -2920,9 +2945,9 @@ supabase.auth.onAuthStateChange((_event, session) => {
       if (currentPref() === "system") applyTheme("system");
     });
 
-    if (btn) {
-      btn.addEventListener("click", () => {
-        const next = cycle(currentPref());
+    if (togg) {
+      togg.addEventListener("change", () => {
+        const next = cycle(currentPref()); // cycle: system → dark → light → system
         localStorage.setItem(KEY, next);
         applyTheme(next);
       });
