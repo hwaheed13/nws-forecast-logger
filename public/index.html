@@ -849,9 +849,22 @@ function historySignature(){
 async function warmOnceForCurrentCSV(){
   const sigKey = `${ENS_KEY}:trained_sig`;
   const sig = historySignature();
-  if (localStorage.getItem(sigKey) === sig) return;  // already warmed for this data
-  resetHedgeState();           // start from clean state
-  pretrainFromHistory();       // train on CSV once
+  if (localStorage.getItem(sigKey) === sig) return;
+  
+  resetHedgeState();
+  
+  // Your exact trained state from regular browser
+  localStorage.setItem("hedge_v3:today:warm", '{"w":{"D1_latest":0.01737082660006999,"D1_trimmed":0.02204927311236135,"D0_latest":0.03690952334777587,"D0_trimmed":0.03195218321839705,"series_rep":0.024060452848493393,"AccuWeather":0.8676577408729022},"bias":0.09927077601606057,"rmse":2.0809174914485724,"lastDay":"2025-09-12","learnCounts":{"D1_latest":98,"D1_trimmed":98,"D0_latest":68,"D0_trimmed":68,"series_rep":108,"AccuWeather":2}}');
+  
+  localStorage.setItem("hedge_v3:today:cool", '{"w":{"D1_latest":0.02,"D1_trimmed":0.02,"D0_latest":0.02,"D0_trimmed":0.02,"series_rep":0.02,"AccuWeather":0.9},"bias":0.1,"rmse":2.5}');
+  
+  localStorage.setItem("hedge_v3:tomorrow:warm", '{"w":{"D1_latest":0.018340531662924032,"D1_trimmed":0.022616263552155215,"series_rep":0.02309189677699067,"AccuWeather":0.9359513080079301},"bias":0.09612649710406033,"rmse":2.34195214397285,"lastDay":"2025-09-12","learnCounts":{"D1_latest":98,"D1_trimmed":98,"series_rep":98}}');
+  
+  localStorage.setItem("hedge_v3:tomorrow:cool", '{"w":{"D1_latest":0.02,"D1_trimmed":0.02,"series_rep":0.02,"AccuWeather":0.94},"bias":0.1,"rmse":2.5}');
+  
+  // DON'T TRAIN - use your exact state
+  // pretrainFromHistory();  // REMOVE THIS LINE
+  
   try { localStorage.setItem(sigKey, sig); } catch {}
 }
 
