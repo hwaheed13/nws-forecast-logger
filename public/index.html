@@ -959,6 +959,11 @@ function reloadCSV(opts = {}) {
       }
     }
 
+    // Reset + pretrain the learner from the CSVs we just loaded (NWS history + AccuWeather)
+    if (typeof warmOnceForCurrentCSV === "function") {
+      try { warmOnceForCurrentCSV(); } catch (e) { console.warn("warmOnceForCurrentCSV failed:", e); }
+    }
+
     // Continue normal boot
     seedForecastSignatures();
     lastActualSig = actualSignatureFor(allRows);
@@ -969,10 +974,11 @@ function reloadCSV(opts = {}) {
       resetFilter();
       showMostRecent();
       updateSummaryBoxes();
-      updateCorrectionBoxes();
+      updateCorrectionBoxes();   // now uses CSV-trained weights/bias
       updateCorrectionBoxes();
       updateObservations();
     }
+
   })
   .catch(err => {
     alert("Could not load CSVs. " + err);
@@ -1744,6 +1750,14 @@ const changedTomorrow = sigTmrwNew  !== lastSig.tomorrow;
 
 // If nothing changed at all, bail
 if (!changedToday && !changedTomorrow && !actualChanged) return;
+
+// Forecasts or actual changed → reset + pretrain so normal/incognito match
+if (typeof warmOnceForCurrentCSV === "function") {
+  try { warmOnceForCurrentCSV(); } catch (e) { console.warn("warmOnceForCurrentCSV failed:", e); }
+}
+
+// (optional) refresh the bias-corrected cards immediately
+try { updateCorrectionBoxes(); } catch {}
 
 // Adopt new signatures (we still only *log* on forecast changes)
 lastSig.today    = sigTodayNew;
