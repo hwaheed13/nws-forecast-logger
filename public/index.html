@@ -805,8 +805,8 @@ if (newNames.length > 0) {
 }
 
 // Update Hedge weights + Bias/RMSE when an actual arrives
-function updateHedgeOnActual(kind, season, candidates, actual, targetISO) {
-  if (!CLIENT_LEARNING) return;  // disabled in production
+function updateHedgeOnActual(kind, season, candidates, actual, targetISO, force = false) {
+  if (!CLIENT_LEARNING && !force) return;  // allow forced pretraining
   const key = contextKey(kind, season);
   let st = loadState(key) || { w:{}, bias:null, rmse:null, lastDay:null, learnCounts:{} };
 
@@ -816,8 +816,8 @@ function updateHedgeOnActual(kind, season, candidates, actual, targetISO) {
   const names = Object.keys(candidates);
   if (!names.length || actual == null) return;
 
-  if (st.lastDay && st.lastDay !== dayISO) decayWeights(st.w);
-  st.lastDay = dayISO;
+ if (st.lastDay && st.lastDay !== targetISO) decayWeights(st.w);
+  st.lastDay = targetISO;
 
   // compute pre-bias ensemble pred for residual
   mixWithUniform(st.w, MIX_GAMMA);
@@ -880,8 +880,8 @@ function updateHedgeOnActual(kind, season, candidates, actual, targetISO) {
 
     // Train the "today" policy using everything you'd have for that day
     const builtToday = buildCandidatesForDay(iso, hiTime);
-    updateHedgeOnActual("today", season, builtToday.candidates, actualF, iso);
-
+    updateHedgeOnActual("today", season, builtToday.candidates, actualF, iso, true);
+    
     // Train the "tomorrow" policy using only D1 info (what you knew the day before)
     const d1 = d1CandidatesFor(iso);
     const candTomorrow = {};
@@ -894,7 +894,7 @@ function updateHedgeOnActual(kind, season, candidates, actual, targetISO) {
     if (Number.isFinite(accD1)) {
       candTomorrow.AccuWeather = Number(accD1);
     }
-    updateHedgeOnActual("tomorrow", season, candTomorrow, actualF, iso);
+    updateHedgeOnActual("tomorrow", season, candTomorrow, actualF, iso, true);
   }
 }
 window.pretrainFromHistory = pretrainFromHistory;
@@ -1036,6 +1036,9 @@ function reloadCSV(opts = {}) {
     // Reset + pretrain the learner from the CSVs we just loaded (NWS history + AccuWeather)
     if (typeof warmOnceForCurrentCSV === "function") {
       try { warmOnceForCurrentCSV(); } catch (e) { console.warn("warmOnceForCurrentCSV failed:", e); }
+    }
+    if (typeof pretrainFromHistory === "function") {
+      try { pretrainFromHistory(); } catch (e) { console.warn("pretrainFromHistory failed:", e); }
     }
 
     // Continue normal boot
