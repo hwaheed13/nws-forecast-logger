@@ -2111,11 +2111,15 @@ function updateCorrectionBoxes() {
       "bias:", predTomorrow?.bias
     );
 
-    document.getElementById("correctionBoxTomorrow").textContent =
-      (predTomorrow?.y != null) ? predTomorrow.y.toFixed(1) + "°F" : "–";
-  }
+ document.getElementById("correctionBoxTomorrow").textContent =
+  (predTomorrow?.y != null) ? predTomorrow.y.toFixed(1) + "°F" : "–";
 }
-    updateCorrectionBoxes();  // <--- add this line
+}
+
+updateCorrectionBoxes(); // run once on load
+
+// Format predictions with proper display
+
     
     // Format predictions with proper display
     const el0 = document.getElementById('correctionBoxToday');
