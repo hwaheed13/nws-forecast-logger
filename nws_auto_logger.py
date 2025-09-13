@@ -747,5 +747,31 @@ def run_all_once():
     except Exception as e:
         print(f"⚠️ write_today_bcp_snapshot_if_after_6pm error: {e}")
 
+def debug_bias_preview():
+    """Print Accu tomorrow forecast and bias-corrected adjustment."""
+    rows, _ = _read_all_rows()
+    print("✅ Loaded rows:", len(rows))
+    tm_iso = (today_nyc() + datetime.timedelta(days=1)).isoformat()
+
+    # Show AccuWeather forecasts for tomorrow
+    acc_tmr = [r for r in rows if r.get("source") == "AccuWeather" and r.get("target_date") == tm_iso]
+    if not acc_tmr:
+        print(f"⚠️ No AccuWeather rows found for tomorrow {tm_iso}")
+        return
+
+    print(f"Accu rows for tomorrow ({tm_iso}):")
+    for r in acc_tmr:
+        print("  ", r)
+
+    avg_bias = _compute_avg_bias_excluding(rows, exclude_date_iso="")
+    if avg_bias is None:
+        print("⚠️ Cannot compute avg bias yet (no completed days).")
+        return
+
+    new_val = float(acc_tmr[-1]["predicted_high"])
+    bcp_val = new_val + avg_bias
+    print(f"📊 Avg bias: {avg_bias:+.2f}")
+    print(f"🌤️ Tomorrow forecast={new_val}°F → Bias-corrected={bcp_val:.1f}°F")
+
 if __name__ == "__main__":
     run_all_once()
