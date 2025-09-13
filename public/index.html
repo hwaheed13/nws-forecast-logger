@@ -2741,11 +2741,12 @@ stats.innerHTML = `
     try { window.updateSummaryBoxes && window.updateSummaryBoxes(); } catch {}
     try { window.updateCorrectionBoxes && window.updateCorrectionBoxes(); } catch {}
     try { window.updateObservations && window.updateObservations(); } catch {}
-    try { window.updateDSM && window.updateDSM(); } catch {}
+    try { updateDSM && window.updateDSM(); } catch {}
     try { window.updateSixHourMax && window.updateSixHourMax(); } catch {}
     try { window.updateObservations && window.updateObservations(); } catch {}
     try { window.updateSummaryBoxes && window.updateSummaryBoxes(); } catch {}
     try { window.updateCorrectionBoxes && window.updateCorrectionBoxes(); } catch {}
+
 
     try { window.pollCsvAndUpdate && window.pollCsvAndUpdate(); } catch {}
     setInterval(() => { try { window.updateObservations && window.updateObservations(); } catch {} }, 5 * 60 * 1000);
