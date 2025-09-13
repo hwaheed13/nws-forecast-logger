@@ -3,25 +3,51 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
   <title>Access – Daily Dew Point</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; }
-    body {
-      font-family: 'Inter', sans-serif;
-      display: flex; align-items: center; justify-content: center;
-      min-height: 100vh; margin: 0; background: #f1f5f9; color: #0f172a; padding: 16px;
+
+    :root {
+      --bg-primary: #f1f5f9;
+      --bg-secondary: #ffffff;
+      --text-primary: #0f172a;
+      --text-secondary: #334155;
+      --border-default: #cbd5e1;
     }
+    :root[data-theme="dark"] {
+      --bg-primary: #0f172a;
+      --bg-secondary: #111827;
+      --text-primary: #f8fafc;
+      --text-secondary: #cbd5e1;
+      --border-default: #334155;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; margin: 0; background: var(--bg-primary); color: var(--text-primary); padding: 16px;
+    }
+
     .card {
-      background: #fff; padding: 28px; border-radius: 16px; box-shadow: 0 8px 28px rgba(0,0,0,.12);
+      background: var(--bg-secondary); padding: 28px; border-radius: 16px; box-shadow: 0 8px 28px rgba(0,0,0,.12);
       width: 100%; max-width: 480px;
     }
+
     h1 { font-size: 24px; margin: 0 0 20px; text-align: center; font-weight: 700; }
 
     /* Inputs / labels */
     input[type="email"], input[type="password"] {
-      width: 100%; padding: 12px; margin: 8px 0 0 0; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px;
-      outline: none; background:#fff;
+      width: 100%;
+      padding: 12px;
+      margin: 8px 0 0 0;
+      border: 1px solid var(--border-default);
+      border-radius: 8px;
+      font-size: 14px;
+      outline: none;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
     }
     input[type="email"]:focus, input[type="password"]:focus {
       border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.15);
@@ -35,7 +61,7 @@
     button:hover { background: #1e40af; }
 
     /* Tabs */
-    .tabs { display: flex; border-bottom: 1px solid #e2e8f0; margin-bottom: 20px; }
+    .tabs { display: flex; border-bottom: 1px solid var(--border-default); margin-bottom: 20px; }
     .tab { flex: 1; text-align: center; padding: 10px; font-weight: 600; cursor: pointer; border-bottom: 3px solid transparent; }
     .tab.active { color: #2563eb; border-color: #2563eb; }
 
@@ -65,20 +91,36 @@
     .remember-block label { text-align: left; }
     .magic-block a { text-align: left; }
 
-    /* Inline actions under errors */
+    /* Inline actions under errors (dark-aware) */
     #login-actions, #signup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
     #login-actions button, #signup-actions button {
       width: auto; padding: 10px 12px; font-size: 13px;
-      background: #e2e8f0; color: #0f172a; border-radius: 8px;
+      background: var(--bg-secondary); color: var(--text-primary); border-radius: 8px;
+      border: 1px solid var(--border-default);
     }
-    #login-actions button:hover, #signup-actions button:hover { background: #cbd5e1; }
+    #login-actions button:hover, #signup-actions button:hover { background: #e2e8f0; }
 
     .notice { background:#eef2ff; border:1px solid #c7d2fe; color:#312e81;
       padding:10px; border-radius:8px; font-size:13px; margin-bottom:12px; display:none; }
+
     @media (max-width: 480px) { .pw-block .toggle { text-align: left; } }
+
+    /* Floating theme pill for login */
+    #loginThemeToggle {
+      position: fixed; top: 12px; right: 12px; z-index: 9999;
+      border: 1px solid var(--border-default);
+      background: var(--bg-secondary);
+      color: var(--text-secondary);
+      border-radius: 12px; padding: 8px 12px; font: 500 14px/1 Inter, system-ui, sans-serif;
+      cursor: pointer;
+      width: auto; /* don't inherit 100% button width */
+      margin-top: 0;
+    }
   </style>
 </head>
 <body>
+  <button id="loginThemeToggle">Theme: Auto</button>
+
   <div class="card">
     <h1>Daily Dew Point</h1>
 
@@ -132,370 +174,430 @@
     <div class="help">Subscribers only. <a class="link" href="/subscribe.html">Go to subscribe</a></div>
   </div>
 
-<script type="module">
-  import { createClient } from "https://esm.sh/@supabase/supabase-js";
+  <!-- App (module) -->
+  <script type="module">
+    import { createClient } from "https://esm.sh/@supabase/supabase-js";
 
-  const supabase = createClient(
-    "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw",
-    { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }
-  );
+    const supabase = createClient(
+      "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw",
+      { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }
+    );
 
-  // DOM helpers
-  const $ = (s,p=document)=>p.querySelector(s);
+    // DOM helpers
+    const $ = (s,p=document)=>p.querySelector(s);
 
-  // Tabs
-  const tabLogin  = $("#tab-login");
-  const tabSignup = $("#tab-signup");
-  const formLogin = $("#form-login");
-  const formSignup= $("#form-signup");
+    // Tabs
+    const tabLogin  = $("#tab-login");
+    const tabSignup = $("#tab-signup");
+    const formLogin = $("#form-login");
+    const formSignup= $("#form-signup");
 
-  function showLogin(){
-    tabLogin.classList.add("active");
-    tabSignup.classList.remove("active");
-    formLogin.classList.remove("hidden");
-    formSignup.classList.add("hidden");
-  }
-  function showSignup(){
-    tabSignup.classList.add("active");
-    tabLogin.classList.remove("active");
-    formSignup.classList.remove("hidden");
-    formLogin.classList.add("hidden");
-  }
-  tabLogin.onclick = showLogin;
-  tabSignup.onclick= showSignup;
+    function showLogin(){
+      tabLogin.classList.add("active");
+      tabSignup.classList.remove("active");
+      formLogin.classList.remove("hidden");
+      formSignup.classList.add("hidden");
+    }
+    function showSignup(){
+      tabSignup.classList.add("active");
+      tabLogin.classList.remove("active");
+      formSignup.classList.remove("hidden");
+      formLogin.classList.add("hidden");
+    }
+    tabLogin.onclick = showLogin;
+    tabSignup.onclick= showSignup;
 
-  // Show/hide password toggles
-  $("#show-login-pw")?.addEventListener("change", (e)=>{
-    $("#login-password").type = e.target.checked ? "text" : "password";
-  });
-  $("#show-signup-pw")?.addEventListener("change", (e)=>{
-    $("#signup-password").type = e.target.checked ? "text" : "password";
-  });
+    // Show/hide password toggles
+    $("#show-login-pw")?.addEventListener("change", (e)=>{
+      $("#login-password").type = e.target.checked ? "text" : "password";
+    });
+    $("#show-signup-pw")?.addEventListener("change", (e)=>{
+      $("#signup-password").type = e.target.checked ? "text" : "password";
+    });
 
-  // Remember email (optional)
-  (function hydrateRemembered(){
-    const remembered = localStorage.getItem("remember_email");
-    if (remembered) $("#login-email").value = remembered;
-    const cb = $("#remember-me"); if (cb) cb.checked = !!remembered;
-  })();
-  function rememberEmailMaybe(email){
-    const cb = $("#remember-me");
-    if (cb?.checked) localStorage.setItem("remember_email", email);
-    else localStorage.removeItem("remember_email");
-  }
-
-  const isValidEmail = (e)=>/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(e).trim());
-  const ALLOW = new Set(["active", "trialing"]);
-
-  async function routeByProfile(userId){
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("subscription_status")
-      .eq("id", userId)
-      .maybeSingle();
-    const status = profile?.subscription_status ?? "inactive";
-    const pref = localStorage.getItem("ddp_prefplan");
-    const qs = pref ? `?prefplan=${encodeURIComponent(pref)}` : "";
-    window.location.href = ALLOW.has(status) ? "/" : `/subscribe.html${qs}`;
-  }
-
-  // ----- Query params / CTA deep-linking -----
-  const params  = new URLSearchParams(location.search);
-  const urlMode = params.get("mode");
-  // Accept BOTH prefplan= (new) and plan= (legacy from CTA)
-  const urlPrefA = params.get("prefplan"); // "3" | "30"
-  const urlPrefB = params.get("plan");     // "3" | "30"
-  const pick = urlPrefA || urlPrefB;
-  if (pick === "3")  localStorage.setItem("ddp_prefplan","monthly");
-  if (pick === "30") localStorage.setItem("ddp_prefplan","yearly");
-
-  // If CTA requested signup, show that tab immediately
-  if (urlMode === "signup" || pick) showSignup();
-
-  // Magic link / verification notes
-  const verifiedNote = $("#verified-note");
-  if (params.get("type") === "signup" || params.get("type") === "recovery") {
-    verifiedNote.textContent = params.get("type") === "signup"
-      ? "Email verified — please log in to continue."
-      : "Password reset link confirmed — set your new password.";
-    verifiedNote.style.display = "block";
-  }
-
-  // Password recovery (hash or query)
-  const isRecovery = location.hash.includes("type=recovery") || params.get("type") === "recovery";
-  if (isRecovery) {
-    verifiedNote.textContent = "Open the link from your email on this device to finish resetting your password.";
-    verifiedNote.style.display = "block";
-  }
-
-  // ── AUTO-ROUTING (with escape hatch) ─────────────────────────────────────────
-  (async () => {
-    const stayHere = params.get("stay") === "1";
-
-    // Explicit account switch → sign out, then stay on this page
-    if (params.get("switch") === "1") {
-      await supabase.auth.signOut();
-      localStorage.removeItem("remember_email");
-      showLogin();
-      return;
+    // Remember email (optional)
+    (function hydrateRemembered(){
+      const remembered = localStorage.getItem("remember_email");
+      if (remembered) $("#login-email").value = remembered;
+      const cb = $("#remember-me"); if (cb) cb.checked = !!remembered;
+    })();
+    function rememberEmailMaybe(email){
+      const cb = $("#remember-me");
+      if (cb?.checked) localStorage.setItem("remember_email", email);
+      else localStorage.removeItem("remember_email");
     }
 
-    // Already signed in?
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user?.id) return;
+    const isValidEmail = (e)=>/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(e).trim());
+    const ALLOW = new Set(["active", "trialing"]);
 
-    // If we were asked to "stay", do NOT auto-route. Show inactive banner + actions instead.
-    if (stayHere) {
+    async function routeByProfile(userId){
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("subscription_status")
+        .eq("id", userId)
+        .maybeSingle();
+      const status = profile?.subscription_status ?? "inactive";
+      const pref = localStorage.getItem("ddp_prefplan");
+      const qs = pref ? `?prefplan=${encodeURIComponent(pref)}` : "";
+      window.location.href = ALLOW.has(status) ? "/" : `/subscribe.html${qs}`;
+    }
+
+    // ----- Query params / CTA deep-linking -----
+    const params  = new URLSearchParams(location.search);
+    const urlMode = params.get("mode");
+    // Accept BOTH prefplan= (new) and plan= (legacy from CTA)
+    const urlPrefA = params.get("prefplan"); // "3" | "30"
+    const urlPrefB = params.get("plan");     // "3" | "30"
+    const pick = urlPrefA || urlPrefB;
+    if (pick === "3")  localStorage.setItem("ddp_prefplan","monthly");
+    if (pick === "30") localStorage.setItem("ddp_prefplan","yearly");
+
+    // If CTA requested signup, show that tab immediately
+    if (urlMode === "signup" || pick) showSignup();
+
+    // Magic link / verification notes
+    const verifiedNote = $("#verified-note");
+    if (params.get("type") === "signup" || params.get("type") === "recovery") {
+      verifiedNote.textContent = params.get("type") === "signup"
+        ? "Email verified — please log in to continue."
+        : "Password reset link confirmed — set your new password.";
+      verifiedNote.style.display = "block";
+    }
+
+    // Password recovery (hash or query)
+    const isRecovery = location.hash.includes("type=recovery") || params.get("type") === "recovery";
+    if (isRecovery) {
+      verifiedNote.textContent = "Open the link from your email on this device to finish resetting your password.";
+      verifiedNote.style.display = "block";
+    }
+
+    // ── AUTO-ROUTING (with escape hatch) ─────────────────────────────────────────
+    (async () => {
+      const stayHere = params.get("stay") === "1";
+
+      // Explicit account switch → sign out, then stay on this page
+      if (params.get("switch") === "1") {
+        await supabase.auth.signOut();
+        localStorage.removeItem("remember_email");
+        showLogin();
+        return;
+      }
+
+      // Already signed in?
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) return;
+
+      // If we were asked to "stay", do NOT auto-route. Show inactive banner + actions instead.
+      if (stayHere) {
+        await supabase.auth.refreshSession();
+        const email = session.user.email || "this account";
+        const note = $("#login-error");
+        if (note) {
+          note.innerHTML = `You're signed in as <strong>${email}</strong> but not subscribed.`;
+          note.style.display = "block";
+          let actions = document.getElementById("login-actions");
+          if (!actions) {
+            actions = document.createElement("div");
+            actions.id = "login-actions";
+
+            const toSubscribe = document.createElement("button");
+            toSubscribe.type = "button";
+            toSubscribe.textContent = "Go to Subscribe";
+            toSubscribe.onclick = () => {
+              const pref = localStorage.getItem("ddp_prefplan");
+              const qs = pref ? `?prefplan=${pref === "yearly" ? "30" : "3"}` : "";
+              window.location.href = `/subscribe.html${qs}`;
+            };
+
+            const switchBtn = document.createElement("button");
+            switchBtn.type = "button";
+            switchBtn.textContent = "Sign out to switch account";
+            switchBtn.onclick = async () => {
+              await supabase.auth.signOut();
+              localStorage.removeItem("remember_email");
+              location.href = "/login.html?stay=1";
+            };
+
+            actions.append(toSubscribe, switchBtn);
+            note.insertAdjacentElement("afterend", actions);
+          }
+        }
+        return; // stop normal auto-route
+      }
+
+      // Normal behavior: auto-route based on subscription
       await supabase.auth.refreshSession();
-      const email = session.user.email || "this account";
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("subscription_status")
+        .eq("id", session.user.id)
+        .maybeSingle();
+
+      const status = profile?.subscription_status ?? "inactive";
+      if (ALLOW.has(status)) {
+        location.replace("/");
+        return;
+      }
+
+      // Inactive (and not stay=1): nudge and offer sign out
       const note = $("#login-error");
       if (note) {
-        note.innerHTML = `You're signed in as <strong>${email}</strong> but not subscribed.`;
+        note.textContent = "You're signed in but not subscribed. Sign in with a different account or sign out below.";
         note.style.display = "block";
-        let actions = document.getElementById("login-actions");
-        if (!actions) {
-          actions = document.createElement("div");
-          actions.id = "login-actions";
-
-          const toSubscribe = document.createElement("button");
-          toSubscribe.type = "button";
-          toSubscribe.textContent = "Go to Subscribe";
-          toSubscribe.onclick = () => {
-            const pref = localStorage.getItem("ddp_prefplan");
-            const qs = pref ? `?prefplan=${pref === "yearly" ? "30" : "3"}` : "";
-            window.location.href = `/subscribe.html${qs}`;
-          };
-
-          const switchBtn = document.createElement("button");
-          switchBtn.type = "button";
-          switchBtn.textContent = "Sign out to switch account";
-          switchBtn.onclick = async () => {
-            await supabase.auth.signOut();
-            localStorage.removeItem("remember_email");
-            location.href = "/login.html?stay=1";
-          };
-
-          actions.append(toSubscribe, switchBtn);
-          note.insertAdjacentElement("afterend", actions);
-        }
       }
-      return; // stop normal auto-route
-    }
-
-    // Normal behavior: auto-route based on subscription
-    await supabase.auth.refreshSession();
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("subscription_status")
-      .eq("id", session.user.id)
-      .maybeSingle();
-
-    const status = profile?.subscription_status ?? "inactive";
-    if (ALLOW.has(status)) {
-      location.replace("/");
-      return;
-    }
-
-    // Inactive (and not stay=1): nudge and offer sign out
-    const note = $("#login-error");
-    if (note) {
-      note.textContent = "You're signed in but not subscribed. Sign in with a different account or sign out below.";
-      note.style.display = "block";
-    }
-    const signout = document.createElement("button");
-    signout.type = "button";
-    signout.textContent = "Sign out";
-    signout.style.marginTop = "8px";
-    signout.onclick = async () => {
-      await supabase.auth.signOut();
-      localStorage.removeItem("remember_email");
-      location.reload();
-    };
-    formLogin?.appendChild(signout);
-  })();
-
-  // Login submit
-  formLogin.addEventListener("submit", async (e)=>{
-    e.preventDefault();
-    const errBox = $("#login-error");
-    errBox.style.display = "none";
-    $("#login-actions")?.remove();
-
-    const email = $("#login-email").value.trim();
-    const password = $("#login-password").value;
-    if (!isValidEmail(email)) {
-      errBox.textContent = "Please enter a valid email address.";
-      errBox.style.display = "block";
-      return;
-    }
-
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      const msg = (error.message || "").toLowerCase();
-      errBox.textContent = msg.includes("invalid login credentials")
-        ? "Wrong email or password."
-        : error.message;
-      errBox.style.display = "block";
-
-      const actions = document.createElement("div");
-      actions.id = "login-actions";
-
-      const reset = document.createElement("button");
-      reset.type = "button";
-      reset.textContent = "Reset Password";
-      reset.onclick = async () => {
-        const { error: rErr } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: "https://app.dailydewpoint.com/login.html?type=recovery"
-        });
-        if (rErr) { errBox.textContent = rErr.message; errBox.style.display = "block"; }
-        else { alert("Password reset email sent."); }
+      const signout = document.createElement("button");
+      signout.type = "button";
+      signout.textContent = "Sign out";
+      signout.style.marginTop = "8px";
+      signout.onclick = async () => {
+        await supabase.auth.signOut();
+        localStorage.removeItem("remember_email");
+        location.reload();
       };
+      formLogin?.appendChild(signout);
+    })();
 
-      const magic = document.createElement("button");
-      magic.type = "button";
-      magic.textContent = "Send Magic Link";
-      magic.onclick = async () => {
-        const { error: otpErr } = await supabase.auth.signInWithOtp({
-          email,
-          options: { emailRedirectTo: "https://app.dailydewpoint.com/login.html" }
-        });
-        if (otpErr) { errBox.textContent = otpErr.message; errBox.style.display = "block"; }
-        else { alert("Magic link sent. Check your inbox."); }
-      };
+    // Login submit
+    formLogin.addEventListener("submit", async (e)=>{
+      e.preventDefault();
+      const errBox = $("#login-error");
+      errBox.style.display = "none";
+      $("#login-actions")?.remove();
 
-      actions.append(reset, magic);
+      const email = $("#login-email").value.trim();
+      const password = $("#login-password").value;
+      if (!isValidEmail(email)) {
+        errBox.textContent = "Please enter a valid email address.";
+        errBox.style.display = "block";
+        return;
+      }
 
-      if (msg.includes("confirm") || msg.includes("verify")) {
-        const resend = document.createElement("button");
-        resend.type = "button";
-        resend.textContent = "Resend Verification";
-        resend.onclick = async () => {
-          const { error: rvErr } = await supabase.auth.resend({ type: "signup", email });
-          if (rvErr) { errBox.textContent = rvErr.message; errBox.style.display = "block"; }
-          else { alert("Verification email resent."); }
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        const msg = (error.message || "").toLowerCase();
+        errBox.textContent = msg.includes("invalid login credentials")
+          ? "Wrong email or password."
+          : error.message;
+        errBox.style.display = "block";
+
+        const actions = document.createElement("div");
+        actions.id = "login-actions";
+
+        const reset = document.createElement("button");
+        reset.type = "button";
+        reset.textContent = "Reset Password";
+        reset.onclick = async () => {
+          const { error: rErr } = await supabase.auth.resetPasswordForEmail(email, {
+            redirectTo: "https://app.dailydewpoint.com/login.html?type=recovery"
+          });
+          if (rErr) { errBox.textContent = rErr.message; errBox.style.display = "block"; }
+          else { alert("Password reset email sent."); }
         };
-        actions.append(resend);
+
+        const magic = document.createElement("button");
+        magic.type = "button";
+        magic.textContent = "Send Magic Link";
+        magic.onclick = async () => {
+          const { error: otpErr } = await supabase.auth.signInWithOtp({
+            email,
+            options: { emailRedirectTo: "https://app.dailydewpoint.com/login.html" }
+          });
+          if (otpErr) { errBox.textContent = otpErr.message; errBox.style.display = "block"; }
+          else { alert("Magic link sent. Check your inbox."); }
+        };
+
+        actions.append(reset, magic);
+
+        if (msg.includes("confirm") || msg.includes("verify")) {
+          const resend = document.createElement("button");
+          resend.type = "button";
+          resend.textContent = "Resend Verification";
+          resend.onclick = async () => {
+            const { error: rvErr } = await supabase.auth.resend({ type: "signup", email });
+            if (rvErr) { errBox.textContent = rvErr.message; errBox.style.display = "block"; }
+            else { alert("Verification email resent."); }
+          };
+          actions.append(resend);
+        }
+
+        errBox.insertAdjacentElement("afterend", actions);
+        return;
       }
 
-      errBox.insertAdjacentElement("afterend", actions);
-      return;
-    }
-
-    // success
-    rememberEmailMaybe(email);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user?.id) {
-      errBox.textContent = "Sign-in succeeded, but no user session was returned.";
-      errBox.style.display = "block";
-      return;
-    }
-    await routeByProfile(user.id);
-  });
-
-  // Magic link (login)
-  $("#forgot-link")?.addEventListener("click", async (e)=>{
-    e.preventDefault();
-    const email = $("#login-email").value.trim();
-    if (!isValidEmail(email)) return alert("Enter your email first.");
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: "https://app.dailydewpoint.com/login.html" }
-    });
-    if (error) return alert(error.message);
-    alert("Check your inbox for a magic link.");
-  });
-
-  // Signup
-  formSignup.addEventListener("submit", async (e)=>{
-    e.preventDefault();
-    const okBox = $("#signup-ok");
-    const errBox = $("#signup-error");
-    okBox.style.display = "none";
-    errBox.style.display = "none";
-
-    const email = $("#signup-email").value.trim();
-    const password = $("#signup-password").value;
-    if (!isValidEmail(email)) { errBox.textContent = "Please enter a valid email address."; errBox.style.display = "block"; return; }
-
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.user?.email && session.user.email.toLowerCase() === email.toLowerCase()) {
-      errBox.textContent = "You're already signed in with this email. Use Login or go to Subscribe.";
-      errBox.style.display = "block";
-      return;
-    }
-
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { emailRedirectTo: "https://app.dailydewpoint.com/login.html?type=signup" }
+      // success
+      rememberEmailMaybe(email);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user?.id) {
+        errBox.textContent = "Sign-in succeeded, but no user session was returned.";
+        errBox.style.display = "block";
+        return;
+      }
+      await routeByProfile(user.id);
     });
 
-    const identities = data?.user?.identities ?? [];
-    if (!error && identities.length === 0) {
-      showExistsActions(errBox, okBox, email);
-      return;
-    }
+    // Magic link (login)
+    $("#forgot-link")?.addEventListener("click", async (e)=>{
+      e.preventDefault();
+      const email = $("#login-email").value.trim();
+      if (!isValidEmail(email)) return alert("Enter your email first.");
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: "https://app.dailydewpoint.com/login.html" }
+      });
+      if (error) return alert(error.message);
+      alert("Check your inbox for a magic link.");
+    });
 
-    if (error) {
-      const msg = (error.message || "").toLowerCase();
-      if (msg.includes("already registered") || msg.includes("already exists")) {
+    // Signup
+    formSignup.addEventListener("submit", async (e)=>{
+      e.preventDefault();
+      const okBox = $("#signup-ok");
+      const errBox = $("#signup-error");
+      okBox.style.display = "none";
+      errBox.style.display = "none";
+
+      const email = $("#signup-email").value.trim();
+      const password = $("#signup-password").value;
+      if (!isValidEmail(email)) { errBox.textContent = "Please enter a valid email address."; errBox.style.display = "block"; return; }
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.email && session.user.email.toLowerCase() === email.toLowerCase()) {
+        errBox.textContent = "You're already signed in with this email. Use Login or go to Subscribe.";
+        errBox.style.display = "block";
+        return;
+      }
+
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { emailRedirectTo: "https://app.dailydewpoint.com/login.html?type=signup" }
+      });
+
+      const identities = data?.user?.identities ?? [];
+      if (!error && identities.length === 0) {
         showExistsActions(errBox, okBox, email);
         return;
       }
-      errBox.textContent = error.message;
+
+      if (error) {
+        const msg = (error.message || "").toLowerCase();
+        if (msg.includes("already registered") || msg.includes("already exists")) {
+          showExistsActions(errBox, okBox, email);
+          return;
+        }
+        errBox.textContent = error.message;
+        errBox.style.display = "block";
+        return;
+      }
+
+      okBox.textContent = "Check your inbox to confirm your email!";
+      okBox.style.display = "block";
+    });
+
+    function showExistsActions(errBox, okBox, email) {
+      errBox.innerHTML = `An account with <strong>${email}</strong> already exists.`;
       errBox.style.display = "block";
-      return;
+
+      let actions = document.getElementById("signup-actions");
+      if (!actions) {
+        actions = document.createElement("div");
+        actions.id = "signup-actions";
+
+        const toLogin = document.createElement("button");
+        toLogin.type = "button";
+        toLogin.textContent = "Go to Login";
+        toLogin.onclick = () => {
+          $("#login-email").value = email;
+          showLogin();
+        };
+
+        const magic = document.createElement("button");
+        magic.type = "button";
+        magic.textContent = "Send Magic Link";
+        magic.onclick = async () => {
+          const { error: otpErr } = await supabase.auth.signInWithOtp({
+            email,
+            options: { emailRedirectTo: "https://app.dailydewpoint.com/login.html" }
+          });
+          if (otpErr) { errBox.textContent = otpErr.message; }
+          else { okBox.textContent = "Magic link sent. Check your inbox."; okBox.style.display = "block"; }
+        };
+
+        const reset = document.createElement("button");
+        reset.type = "button";
+        reset.textContent = "Reset Password";
+        reset.onclick = async () => {
+          const { error: rErr } = await supabase.auth.resetPasswordForEmail(email, {
+            redirectTo: "https://app.dailydewpoint.com/login.html?type=recovery"
+          });
+          if (rErr) { errBox.textContent = rErr.message; errBox.style.display = "block"; }
+          else { okBox.textContent = "Password reset email sent."; okBox.style.display = "block"; }
+        };
+
+        actions.append(toLogin, magic, reset);
+        errBox.insertAdjacentElement("afterend", actions);
+      }
     }
+  </script>
 
-    okBox.textContent = "Check your inbox to confirm your email!";
-    okBox.style.display = "block";
-  });
+  <!-- Theme (non-module) -->
+  <script>
+    // ===== Theme: system by default, toggle cycles System → Dark → Light =====
+    (function () {
+      const KEY = "theme-pref"; // reuse across pages
+      const root = document.documentElement;
+      const mql = window.matchMedia("(prefers-color-scheme: dark)");
+      const btn = document.getElementById("loginThemeToggle");
 
-  function showExistsActions(errBox, okBox, email) {
-    errBox.innerHTML = `An account with <strong>${email}</strong> already exists.`;
-    errBox.style.display = "block";
+      function currentPref() {
+        return localStorage.getItem(KEY) || "system";
+      }
 
-    let actions = document.getElementById("signup-actions");
-    if (!actions) {
-      actions = document.createElement("div");
-      actions.id = "signup-actions";
+      function applyTheme(pref) {
+        if (pref === "system") {
+          // Mirror OS explicitly so :root[data-theme="dark"] variables apply
+          root.setAttribute("data-theme", mql.matches ? "dark" : "light");
+        } else {
+          root.setAttribute("data-theme", pref); // "dark" or "light"
+        }
+        updateButton(pref);
+      }
 
-      const toLogin = document.createElement("button");
-      toLogin.type = "button";
-      toLogin.textContent = "Go to Login";
-      toLogin.onclick = () => {
-        $("#login-email").value = email;
-        showLogin();
-      };
+      function updateButton(pref) {
+        if (!btn) return;
+        btn.textContent =
+          pref === "system" ? "Theme: Auto" :
+          pref === "dark"   ? "Theme: Dark" :
+                              "Theme: Light";
+      }
 
-      const magic = document.createElement("button");
-      magic.type = "button";
-      magic.textContent = "Send Magic Link";
-      magic.onclick = async () => {
-        const { error: otpErr } = await supabase.auth.signInWithOtp({
-          email,
-          options: { emailRedirectTo: "https://app.dailydewpoint.com/login.html" }
+      function cycle(pref) {
+        return pref === "system" ? "dark" : pref === "dark" ? "light" : "system";
+      }
+
+      function init() {
+        const pref = currentPref();
+        applyTheme(pref);
+
+        // If following system, react to OS changes
+        mql.addEventListener("change", () => {
+          if (currentPref() === "system") applyTheme("system");
         });
-        if (otpErr) { errBox.textContent = otpErr.message; }
-        else { okBox.textContent = "Magic link sent. Check your inbox."; okBox.style.display = "block"; }
-      };
 
-      const reset = document.createElement("button");
-      reset.type = "button";
-      reset.textContent = "Reset Password";
-      reset.onclick = async () => {
-        const { error: rErr } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: "https://app.dailydewpoint.com/login.html?type=recovery"
-        });
-        if (rErr) { errBox.textContent = rErr.message; errBox.style.display = "block"; }
-        else { okBox.textContent = "Password reset email sent."; okBox.style.display = "block"; }
-      };
+        if (btn) {
+          btn.addEventListener("click", () => {
+            const next = cycle(currentPref());
+            localStorage.setItem(KEY, next);
+            applyTheme(next);
+          });
+        }
 
-      actions.append(toLogin, magic, reset);
-      errBox.insertAdjacentElement("afterend", actions);
-    }
-  }
-</script>
+        if (!localStorage.getItem(KEY)) localStorage.setItem(KEY, "system");
+      }
+
+      init();
+    })();
+  </script>
 </body>
 </html>
