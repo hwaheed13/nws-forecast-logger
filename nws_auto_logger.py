@@ -42,29 +42,41 @@ def ensure_csv_header() -> None:
         with open(CSV_FILE, mode="w", newline="") as f:
             csv.writer(f).writerow(BASE_HEADER + [BCP_FIELD])
 
-def _read_all_rows() -> Tuple[List[dict], List[str]]:
-    """Read NWS + AccuWeather rows together."""
+def _read_all_rows(include_accu: bool = False) -> Tuple[List[dict], List[str]]:
+    """
+    Read rows from NWS file; optionally also include AccuWeather rows in-memory.
+    NEVER write combined rows back to NWS CSV.
+    """
     ensure_csv_header()
     rows: List[dict] = []
     fieldnames = BASE_HEADER + [BCP_FIELD]
 
-    for fname in [CSV_FILE, "accuweather_log.csv"]:
-        if os.path.exists(fname):
-            with open(fname, newline="", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                if reader.fieldnames:
-                    for fn in reader.fieldnames:
-                        if fn not in fieldnames:
-                            fieldnames.append(fn)
-                for r in reader:
-                    rows.append(r)
+    # Always read NWS
+    if os.path.exists(CSV_FILE):
+        with open(CSV_FILE, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            if reader.fieldnames:
+                for fn in reader.fieldnames:
+                    if fn not in fieldnames:
+                        fieldnames.append(fn)
+            for r in reader:
+                rows.append(r)
+
+    # Optionally include AccuWeather (for analytics only)
+    if include_accu and os.path.exists("accuweather_log.csv"):
+        with open("accuweather_log.csv", newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            if reader.fieldnames:
+                for fn in reader.fieldnames:
+                    if fn not in fieldnames:
+                        fieldnames.append(fn)
+            for r in reader:
+                rows.append(r)
+
     return rows, fieldnames
 
+
 def _write_all_rows(rows: List[dict], fieldnames: List[str]) -> None:
-    with open(CSV_FILE, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames)
-        w.writeheader()
-        w.writerows(rows)
 
 def _append_row(row: Dict[str, str]) -> None:
     """
