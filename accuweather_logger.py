@@ -1,5 +1,5 @@
 # accuweather_logger.py
-# Appends AccuWeather forecast rows (D0 today & D1 tomorrow) to nws_forecast_log.csv
+# Appends AccuWeather forecast rows (D0 today & D1 tomorrow) to accuweather_log.csv
 # Columns: timestamp,target_date,forecast_or_actual,forecast_time,predicted_high,
 #          forecast_detail,cli_date,actual_high,high_time,bias_corrected_prediction,source
 
@@ -8,7 +8,9 @@ import requests
 import pytz
 
 CSV_PATH = "accuweather_log.csv"  # adjust if your CSV is elsewhere
+assert CSV_PATH.endswith("accuweather_log.csv"), "Accu logger must write only to accuweather_log.csv"
 print(f"[Accu logger] CSV_PATH={CSV_PATH}", file=sys.stderr)
+
 
 ACCU_API_KEY = os.environ.get("ACCU_API_KEY")
 ACCU_LOCATION_KEY = os.environ.get("ACCU_LOCATION_KEY")  # e.g. 349727
