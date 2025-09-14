@@ -77,7 +77,13 @@ def _read_all_rows(include_accu: bool = False) -> Tuple[List[dict], List[str]]:
 
 
 def _write_all_rows(rows: List[dict], fieldnames: List[str]) -> None:
-
+    # Never persist AccuWeather rows into the NWS CSV
+    nws_only = [r for r in rows if (r.get("source") or "").lower() != "accuweather"]
+    with open(CSV_FILE, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        w.writerows(nws_only)
+    
 def _append_row(row: Dict[str, str]) -> None:
     """
     Append using current file header so column count always matches.
@@ -392,7 +398,7 @@ def log_forecast_for_tomorrow() -> None:
 
     # Ensure BCP column exists and compute a persisted BCP for tomorrow using
     # the latest historical average bias (include all completed days).
-    rows, fns = _read_all_rows()
+    rows, fns = _read_all_rows(include_accu=True)
     fns = _upgrade_header_to_include_bcp(rows, fns)
     avg_bias_all = _compute_avg_bias_excluding(rows, exclude_date_iso="")  # exclude nothing
     bcp_str = ""
@@ -544,7 +550,7 @@ def log_actual_today_if_after_6pm_local() -> None:
 
         # --- Freeze today's BCP snapshot into the latest today-forecast row (once) ---
         try:
-            rows, fns = _read_all_rows()
+            rows, fns = _read_all_rows(include_accu=True)
             fns = _upgrade_header_to_include_bcp(rows, fns)
             today_iso = cli_date
 
@@ -555,7 +561,7 @@ def log_actual_today_if_after_6pm_local() -> None:
 
             if avg_bias_excl_today is not None and today_pre_mean is not None:
                 bcp_freeze = today_pre_mean + avg_bias_excl_today
-                bcp_str = f"{bcp_freeze:.1f}"
+                bcp_str = f"{bcp_freeze:.1f}" 
 
                 todays_fc = [r for r in rows
                              if r.get("forecast_or_actual") == "forecast"
@@ -582,7 +588,7 @@ def upsert_actual_row(cli_date_iso: str, temp: str, time_clean: str) -> None:
     """
     Insert or replace an 'actual' row for cli_date_iso (YYYY-MM-DD).
     """
-    rows, fns = _read_all_rows()
+    rows, fns = _read_all_rows(include_accu=False)
     now_s = now_nyc().strftime("%Y-%m-%d %H:%M:%S")
     target_date = cli_date_iso
 
@@ -664,7 +670,7 @@ def write_today_bcp_snapshot_if_after_6pm() -> None:
         print("⏭️ Skipping BCP snapshot: it’s before 6pm ET")
         return
 
-    rows, fns = _read_all_rows()
+    rows, fns = _read_all_rows(include_accu=True)
     fns = _upgrade_header_to_include_bcp(rows, fns)
 
     today_iso = today_nyc().isoformat()
@@ -761,7 +767,7 @@ def run_all_once():
 
 def debug_bias_preview():
     """Print Accu tomorrow forecast and bias-corrected adjustment."""
-    rows, _ = _read_all_rows()
+    rows, _ = _read_all_rows(include_accu=True)
     print("✅ Loaded rows:", len(rows))
     tm_iso = (today_nyc() + datetime.timedelta(days=1)).isoformat()
 
