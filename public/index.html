@@ -680,24 +680,54 @@ input[type="date"] {
 /* ========= DATA + UI ========= */
 let allRows = [], filteredRows = [], chartInstance = null, accuRows = [];
 
+// Gate inputs (populated by updateObservations / updateSixHourMax)
+window._recentObservedF = window._recentObservedF ?? null;
+window._sixHourMaxF    = window._sixHourMaxF ?? null;
+
+function gateForToday() {
+  const ro  = Number.isFinite(window._recentObservedF) ? Math.round(window._recentObservedF) : null;
+  const six = Number.isFinite(window._sixHourMaxF)     ? Math.round(window._sixHourMaxF)     : null;
+  if (ro == null && six == null) return null;
+  return (ro == null) ? six : (six == null ? ro : Math.max(ro, six));
+}
+
 // --- Helpers: separate NWS vs AccuWeather rows ---
 function getNwsForecastRowsFor(targetISO, kind) {
   const dayPrev = prevISO(targetISO);
+  const isToday = (targetISO === nycISODate(0));
+  const gate    = gateForToday();
+
   return allRows.filter(r => {
     if ((r.forecast_or_actual || "") !== "forecast") return false;
     if ((r.target_date || "") !== targetISO) return false;
-    
+
     const issueISO = etDateISOFromTS(r.timestamp || r.forecast_time || "");
     if (!issueISO) return false;
-    
-    if (kind === "D0") return issueISO === targetISO;
+
+    if (kind === "D0") {
+      if (issueISO !== targetISO) return false;
+      // Gate only today's intraday captures: drop if forecast high <= max(recent obs, 6-hr max)
+      if (isToday && gate != null) {
+        const v = Math.round(Number(r.predicted_high));
+        if (Number.isFinite(v) && v <= gate) return false;
+      }
+      return true;
+    }
+
     if (kind === "D1") return issueISO === dayPrev;
-    if (!kind) return true; // If no kind specified, return all forecasts for this target
-    
+
+    // No kind specified: still gate today's D0 rows
+    if (!kind) {
+      if (isToday && gate != null && issueISO === targetISO) {
+        const v = Math.round(Number(r.predicted_high));
+        if (Number.isFinite(v) && v <= gate) return false;
+      }
+      return true;
+    }
+
     return false;
   });
 }
-
 
 
     // === Online ensemble (Hedge) + Bias EWMA (self-learning) =====================
@@ -2099,7 +2129,8 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
       try {
         const parsed = await fetchJSON(NWS_6HR_JSON_URLS, { station: "KNYC" });
         if (parsed && parsed.value != null) {
-          el.textContent = `${parsed.value}°F`;
+         el.textContent = `${parsed.value}°F`;
+        window._sixHourMaxF = Number(parsed.value);
           note.textContent = parsed.time ? `as of ${parsed.time} • 6-hr max` : "Latest 6-hr max";
         } else {
           note.textContent = "6-Hr Max not available";
@@ -2117,7 +2148,8 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
         const note = document.getElementById("box-today-current-note");
         if (!el || !note) return;
         if (cur && cur.currentF != null) {
-          el.textContent = `${Number(cur.currentF).toFixed(1)}°F`;
+         el.textContent = `${Number(cur.currentF).toFixed(1)}°F`;
+        window._recentObservedF = Number(cur.currentF);
           const ts = cur.atISO ? new Date(cur.atISO) : null;
           const tNY = ts ? new Intl.DateTimeFormat("en-US", {
             timeZone: "America/New_York",
