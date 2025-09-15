@@ -145,7 +145,62 @@ def pick_tomorrow_day_period(periods: List[dict]) -> Optional[dict]:
             return p
     return None
 
+# -------------------------
+# Observation gate helpers
+# -------------------------
+OBS_STATION = os.environ.get("NWS_OBS_STATION", "KNYC")  # Central Park
+
+def _c_to_f(c: float) -> float:
+    return c * 9.0 / 5.0 + 32.0
+
+def _latest_ob_f(station: str = OBS_STATION) -> Optional[int]:
+    """Most recent observed temp (°F, int) or None."""
+    try:
+        u = f"https://api.weather.gov/stations/{station}/observations?limit=1"
+        r = requests.get(u, headers={"User-Agent":"Mozilla/5.0"}, timeout=15)
+        r.raise_for_status()
+        feats = (r.json().get("features") or [])
+        if not feats:
+            return None
+        c = (((feats[0] or {}).get("properties") or {}).get("temperature") or {}).get("value")
+        if c is None:
+            return None
+        return int(round(_c_to_f(float(c))))
+    except Exception:
+        return None
+
+def _six_hour_max_f(station: str = OBS_STATION) -> Optional[int]:
+    """Max observed temp over last 6h (°F, int) or None."""
+    try:
+        now = datetime.datetime.utcnow().replace(microsecond=0)
+        start = now - datetime.timedelta(hours=6)
+        u = (f"https://api.weather.gov/stations/{station}/observations"
+             f"?start={start.isoformat()}Z&end={now.isoformat()}Z&limit=100")
+        r = requests.get(u, headers={"User-Agent":"Mozilla/5.0"}, timeout=20)
+        r.raise_for_status()
+        feats = r.json().get("features") or []
+        vals = []
+        for f in feats:
+            c = (((f or {}).get("properties") or {}).get("temperature") or {}).get("value")
+            if c is None:
+                continue
+            vals.append(_c_to_f(float(c)))
+        if not vals:
+            return None
+        return int(round(max(vals)))
+    except Exception:
+        return None
+
+def compute_today_gate_f() -> Optional[int]:
+    """Gate = max(recent observed, six-hour max), or None if unavailable."""
+    ro  = _latest_ob_f()
+    six = _six_hour_max_f()
+    if ro is None and six is None:
+        return None
+    return max(v for v in (ro, six) if v is not None)
+
 def _get_last_forecast_row_for_date(target_date: str) -> Optional[dict]:
+
     """Return the last (most recent) forecast row for target_date, or None."""
     if not os.path.exists(CSV_FILE):
         return None
@@ -362,7 +417,18 @@ def log_forecast() -> None:
         print(f"⏭️ Unchanged since last for {target_date}: {new_val}°F")
         return
 
-    now_local = now_nyc().strftime("%Y-%m-%d %H:%M:%S")
+   now_local = now_nyc().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Gate: skip capture if today's D0 forecast <= max(recent obs, 6-hr max)
+        gate = compute_today_gate_f()
+        try:
+            nv_int = int(round(float(new_val)))
+        except Exception:
+            nv_int = None
+        if gate is not None and nv_int is not None and nv_int <= gate:
+            print(f"⏭️ Gate active: forecast {nv_int}°F ≤ gate {gate}°F; skipping capture.")
+            return
+
     _append_row({
         "timestamp": now_local,
         "target_date": target_date,
