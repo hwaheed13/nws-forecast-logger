@@ -35,12 +35,11 @@ BASE_HEADER = [
     "timestamp", "target_date", "forecast_or_actual", "forecast_time",
     "predicted_high", "forecast_detail", "cli_date", "actual_high", "high_time"
 ]
-BCP_FIELD = "bias_corrected_prediction"  # persisted field
 
 def ensure_csv_header() -> None:
     if not os.path.exists(CSV_FILE):
         with open(CSV_FILE, mode="w", newline="") as f:
-            csv.writer(f).writerow(BASE_HEADER + [BCP_FIELD])
+            csv.writer(f).writerow(BASE_HEADER)
 
 def _read_all_rows(include_accu: bool = False) -> Tuple[List[dict], List[str]]:
     """
@@ -49,7 +48,7 @@ def _read_all_rows(include_accu: bool = False) -> Tuple[List[dict], List[str]]:
     """
     ensure_csv_header()
     rows: List[dict] = []
-    fieldnames = BASE_HEADER + [BCP_FIELD]
+    fieldnames = list(BASE_HEADER)
 
     # Always read NWS
     if os.path.exists(CSV_FILE):
@@ -92,26 +91,11 @@ def _append_row(row: Dict[str, str]) -> None:
     ensure_csv_header()
     with open(CSV_FILE, newline="") as f:
         reader = csv.DictReader(f)
-        fns = reader.fieldnames or (BASE_HEADER + [BCP_FIELD])
+        fns = reader.fieldnames or (BASE_HEADER)
     safe_row = {k: row.get(k, "") for k in fns}
     with open(CSV_FILE, "a", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fns)
         w.writerow(safe_row)
-
-def _upgrade_header_to_include_bcp(rows: List[dict], fieldnames: List[str]) -> List[str]:
-    """
-    If the file exists without the BCP column, add it and blank-fill rows.
-    """
-    if BCP_FIELD in (fieldnames or []):
-        return fieldnames
-    new_fns = list(fieldnames or BASE_HEADER)
-    if BCP_FIELD not in new_fns:
-        new_fns.append(BCP_FIELD)
-    for r in rows:
-        if BCP_FIELD not in r:
-            r[BCP_FIELD] = ""
-    _write_all_rows(rows, new_fns)
-    return new_fns
 
 # =========================
 # Forecast helpers
@@ -439,12 +423,11 @@ def log_forecast() -> None:
         "cli_date": "",
         "actual_high": "",
         "high_time": "",
-        # bias_corrected_prediction intentionally blank for today's rolling rows;
     })
     print(f"✅ Logged forecast for today: {new_val}°F")
 
 def log_forecast_for_tomorrow() -> None:
-    """Capture tomorrow's forecast high if it changed (and persist BCP on that row)."""
+    """Capture tomorrow's forecast high if it changed."""
     print("🔍 Fetching tomorrow’s forecast...")
     periods = get_forecast_periods()
     period = pick_tomorrow_day_period(periods)
@@ -461,19 +444,6 @@ def log_forecast_for_tomorrow() -> None:
 
     now_local = now_nyc().strftime("%Y-%m-%d %H:%M:%S")
 
-    # Ensure BCP column exists and compute a persisted BCP for tomorrow using
-    # the latest historical average bias (include all completed days).
-    rows, fns = _read_all_rows(include_accu=True)
-    fns = _upgrade_header_to_include_bcp(rows, fns)
-    avg_bias_all = _compute_avg_bias_excluding(rows, exclude_date_iso="")  # exclude nothing
-    bcp_str = ""
-    if avg_bias_all is not None:
-        try:
-            bcp_val = float(new_val) + float(avg_bias_all)
-            bcp_str = f"{bcp_val:.1f}"
-        except Exception:
-            bcp_str = ""
-
     _append_row({
         "timestamp": now_local,
         "target_date": tm,
@@ -484,9 +454,8 @@ def log_forecast_for_tomorrow() -> None:
         "cli_date": "",
         "actual_high": "",
         "high_time": "",
-        "bias_corrected_prediction": bcp_str,
     })
-    print(f"✅ Logged forecast for {tm}: {new_val}°F (BCP: {bcp_str or 'n/a'})")
+    print(f"✅ Logged forecast for {tm}: {new_val}°F")
 
 # =========================
 # CLI parsing (robust)
@@ -564,7 +533,6 @@ def _parse_cli_sections(cli_text: str) -> Dict[str, Optional[Tuple[str, str]]]:
 def log_actual_today_if_after_6pm_local() -> None:
     """
     After 6pm ET, log 'TODAY MAXIMUM' from v1 as a provisional actual.
-    Also freeze today's BCP snapshot (as-seen pre-high) into the latest forecast row.
     """
     now = now_nyc()
     if now.hour < 18:
@@ -612,39 +580,6 @@ def log_actual_today_if_after_6pm_local() -> None:
             print(f"✅ Logged TODAY actual (provisional): {temp}°F at {time_clean} for {cli_date}")
         else:
             print(f"⏭️ Actual for {cli_date} already logged. Skipping append.")
-
-        # --- Freeze today's BCP snapshot into the latest today-forecast row (once) ---
-        try:
-            rows, fns = _read_all_rows(include_accu=True)
-            fns = _upgrade_header_to_include_bcp(rows, fns)
-            today_iso = cli_date
-
-            # Average bias EXCLUDING today
-            avg_bias_excl_today = _compute_avg_bias_excluding(rows, today_iso)
-            # Today's mean of pre-high forecasts
-            today_pre_mean = _compute_today_pre_high_mean(rows, today_iso)
-
-            if avg_bias_excl_today is not None and today_pre_mean is not None:
-                bcp_freeze = today_pre_mean + avg_bias_excl_today
-                bcp_str = f"{bcp_freeze:.1f}" 
-
-                todays_fc = [r for r in rows
-                             if r.get("forecast_or_actual") == "forecast"
-                             and r.get("target_date") == today_iso
-                             and _float_or_none(r.get("predicted_high")) is not None]
-                if todays_fc:
-                    todays_fc.sort(key=lambda r: (r.get("timestamp") or r.get("forecast_time") or ""))
-                    latest_fc = todays_fc[-1]
-                    if not (latest_fc.get(BCP_FIELD) or "").strip():
-                        latest_fc[BCP_FIELD] = bcp_str
-                        _write_all_rows(rows, fns)
-                        print(f"✅ Frozen today's BCP snapshot at actual time: {bcp_str}°F")
-                    else:
-                        print("⏭️ Today's latest forecast row already has a BCP; leaving as-is.")
-            else:
-                print("⏭️ Could not compute frozen BCP (missing bias or pre-high mean).")
-        except Exception as e:
-            print(f"⚠️ Error freezing today's BCP snapshot: {e}")
 
     except Exception as e:
         print(f"❌ Error logging today's actual high: {e}")
@@ -726,44 +661,9 @@ def upsert_yesterday_actual_if_morning_local() -> None:
 # =========================
 def write_today_bcp_snapshot_if_after_6pm() -> None:
     """
-    Legacy/compat: after 6pm ET, write BCP into today's latest forecast row.
-    With the new freeze-in-actual logic above, this will usually just no-op
-    (because the BCP will already be set).
+    Disabled: BCP is now handled via Supabase (prediction_writer.py).
     """
-    now = now_nyc()
-    if now.hour < 18:
-        print("⏭️ Skipping BCP snapshot: it’s before 6pm ET")
-        return
-
-    rows, fns = _read_all_rows(include_accu=True)
-    fns = _upgrade_header_to_include_bcp(rows, fns)
-
-    today_iso = today_nyc().isoformat()
-    todays_forecasts = [r for r in rows
-                        if r.get("forecast_or_actual") == "forecast"
-                        and r.get("target_date") == today_iso
-                        and _float_or_none(r.get("predicted_high")) is not None]
-
-    if not todays_forecasts:
-        print("⏭️ No forecasts for today; skipping BCP snapshot.")
-        return
-
-    todays_forecasts.sort(key=lambda r: (r.get("timestamp") or r.get("forecast_time") or ""))
-    latest = todays_forecasts[-1]
-
-    if (latest.get(BCP_FIELD) or "").strip():
-        print("⏭️ BCP already set on latest forecast row; leaving as-is.")
-        return
-
-    avg_bias, today_mean = _compute_avg_bias_and_today_mean(rows, today_iso)
-    if avg_bias is None or today_mean is None:
-        print("⏭️ Insufficient data to compute BCP; skipping.")
-        return
-
-    bcp_value = today_mean + avg_bias
-    latest[BCP_FIELD] = f"{bcp_value:.1f}"
-    _write_all_rows(rows, fns)
-    print(f"✅ Wrote today's bias-corrected prediction: {bcp_value:.1f}°F (into latest forecast row for {today_iso})")
+    print("⏭️ BCP CSV snapshot disabled (Supabase is source of truth).")
 
 # =========================
 # (Optional) Simple loop mode
@@ -792,7 +692,6 @@ def main_loop() -> None:
 
         log_actual_today_if_after_6pm_local()        # no-op before 6pm ET
         upsert_yesterday_actual_if_morning_local()   # no-op after noon ET
-        write_today_bcp_snapshot_if_after_6pm()      # typically no-op now
 
         time.sleep(60)
 
@@ -805,7 +704,6 @@ def run_all_once():
       - Forecast captures de-dupe and freeze after actual exists.
       - Provisional actual runs after 6pm ET only.
       - Morning upsert runs midnight–noon ET only.
-      - BCP snapshot freezes at actual time; tomorrow rows persist BCP on write.
     """
     ensure_csv_header()
     try:
@@ -824,11 +722,6 @@ def run_all_once():
         upsert_yesterday_actual_if_morning_local()
     except Exception as e:
         print(f"⚠️ upsert_yesterday_actual_if_morning_local error: {e}")
-    # Compat snapshot; will usually skip since we freeze at actual time
-    try:
-        write_today_bcp_snapshot_if_after_6pm()
-    except Exception as e:
-        print(f"⚠️ write_today_bcp_snapshot_if_after_6pm error: {e}")
 
 def debug_bias_preview():
     """Print Accu tomorrow forecast and bias-corrected adjustment."""
