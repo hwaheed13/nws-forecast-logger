@@ -417,17 +417,17 @@ def log_forecast() -> None:
         print(f"⏭️ Unchanged since last for {target_date}: {new_val}°F")
         return
 
-   now_local = now_nyc().strftime("%Y-%m-%d %H:%M:%S")
+    now_local = now_nyc().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Gate: skip capture if today's D0 forecast <= max(recent obs, 6-hr max)
-        gate = compute_today_gate_f()
-        try:
-            nv_int = int(round(float(new_val)))
-        except Exception:
-            nv_int = None
-        if gate is not None and nv_int is not None and nv_int <= gate:
-            print(f"⏭️ Gate active: forecast {nv_int}°F ≤ gate {gate}°F; skipping capture.")
-            return
+    # Gate: skip capture if today's D0 forecast <= max(recent obs, 6-hr max)
+    gate = compute_today_gate_f()
+    try:
+        nv_int = int(round(float(new_val)))
+    except Exception:
+        nv_int = None
+    if gate is not None and nv_int is not None and nv_int <= gate:
+        print(f"⏭️ Gate active: forecast {nv_int}°F ≤ gate {gate}°F; skipping capture.")
+        return
 
     _append_row({
         "timestamp": now_local,
@@ -440,7 +440,6 @@ def log_forecast() -> None:
         "actual_high": "",
         "high_time": "",
         # bias_corrected_prediction intentionally blank for today's rolling rows;
-        # we freeze it when the actual posts.
     })
     print(f"✅ Logged forecast for today: {new_val}°F")
 
