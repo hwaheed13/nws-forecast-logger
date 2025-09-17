@@ -2250,71 +2250,239 @@ function hasActualFor(dateISO) {
     r.actual_high && String(r.actual_high).trim() !== ""
   );
 }
+/* ===================== Ensemble v1 (skill + recency + bias) ===================== */
+const ENS_CONF = {
+  skillWindowDays: 30,
+  recencyHalfLifeHrs: 3,
+  minWeight: 0.25,
+  lockHourET: 15,
+  d1OvershootBeta: 0.3,
+  d1OvershootCap: 2.0
+};
+
+function hoursSince(ts) {
+  if (!ts) return Infinity;
+  const d = new Date(String(ts).replace(" ", "T"));
+  if (!Number.isFinite(d.getTime())) return Infinity;
+  return (Date.now() - d.getTime()) / 36e5;
+}
+function recencyW(ageHrs) {
+  const h = ENS_CONF.recencyHalfLifeHrs;
+  if (!isFinite(ageHrs) || ageHrs < 0) return 1;
+  return Math.pow(0.5, ageHrs / h);
+}
+
+function rollingMAE(sourceName, lead /* 'D0'|'D1' */) {
+  const cutoffISO = nycISODate(0);
+  const byDay = new Map(); // iso -> { actual, v, ts }
+
+  for (const r of allRows) {
+    const iso = r.cli_date || r.target_date;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso||"")) continue;
+
+    if ((r.forecast_or_actual||"") === "actual") {
+      byDay.set(iso, Object.assign(byDay.get(iso)||{}, { actual: Number(r.actual_high) }));
+      continue;
+    }
+    if ((r.forecast_or_actual||"") !== "forecast") continue;
+    if (String(r.source||"").trim() !== String(sourceName).trim()) continue;
+
+    const issueISO = etDateISOFromTS(r.timestamp || r.forecast_time || "");
+    if (lead === "D0" && issueISO !== r.target_date) continue;
+    if (lead === "D1" && issueISO !== prevISO(r.target_date)) continue;
+
+    const cur = byDay.get(r.target_date) || {};
+    if (!cur.v || (r.timestamp||r.forecast_time||"") > (cur.ts||"")) {
+      cur.v = Number(r.predicted_high);
+      cur.ts = r.timestamp || r.forecast_time || "";
+      byDay.set(r.target_date, cur);
+    }
+  }
+
+  const days = Array.from(byDay.keys()).filter(iso=>{
+    if (lead === "D0" && iso === cutoffISO) return false;
+    const v = byDay.get(iso);
+    return Number.isFinite(v?.v) && Number.isFinite(v?.actual);
+  }).sort().slice(-ENS_CONF.skillWindowDays);
+
+  if (!days.length) return null;
+  const absErrs = days.map(iso => Math.abs(byDay.get(iso).v - byDay.get(iso).actual)).filter(Number.isFinite);
+  return absErrs.length ? absErrs.reduce((a,b)=>a+b,0) / absErrs.length : null;
+}
+
+function latestIssueFor(sourceName, targetISO, lead) {
+  const rows = (sourceName === "AccuWeather")
+    ? getAccuRowsFor(targetISO, lead)
+    : getNwsForecastRowsFor(targetISO, lead);
+  const ser = rows.filter(r => r.predicted_high != null && r.predicted_high !== "")
+                  .sort((a,b)=>String(a.timestamp||a.forecast_time||"").localeCompare(String(b.timestamp||b.forecast_time||"")));
+  const last = ser[ser.length-1];
+  return last?.timestamp || last?.forecast_time || null;
+}
+
+function candidateFor(sourceName, targetISO, lead, highTime /* "" ok */) {
+  if (sourceName === "AccuWeather") return latestPreHighValue(getAccuRowsFor(targetISO, lead), highTime);
+  return latestPreHighValue(getNwsForecastRowsFor(targetISO, lead), highTime);
+}
+
+function rollingBias(sourceWeights, targetISO, lead) {
+  const cutoffISO = nycISODate(0);
+  const daysBack = 90;
+  const allIsos = new Set(allRows.map(r => (r.cli_date || r.target_date)).filter(x=>/^\d{4}-\d{2}-\d{2}$/.test(x||"")));
+  const pool = Array.from(allIsos).sort().slice(-daysBack).filter(iso => !(lead==="D0" && iso===cutoffISO) && hasActualFor(iso));
+
+  let num = 0, den = 0;
+  for (const iso of pool) {
+    const actual = Number(getActualFor(iso));
+    if (!Number.isFinite(actual)) continue;
+
+    const vN = candidateFor("NWS", iso, lead, "");
+    const vA = candidateFor("AccuWeather", iso, lead, "");
+
+    let f = 0, wsum = 0;
+    if (Number.isFinite(vN) && sourceWeights.NWS)        { f += sourceWeights.NWS * vN; wsum += sourceWeights.NWS; }
+    if (Number.isFinite(vA) && sourceWeights.AccuWeather){ f += sourceWeights.AccuWeather * vA; wsum += sourceWeights.AccuWeather; }
+    if (wsum <= 0) continue;
+    f /= wsum;
+
+    num += (actual - f);
+    den += 1;
+  }
+  return den ? (num / den) : 0;
+}
+
+function getActualFor(iso) {
+  const r = allRows.find(r => (r.forecast_or_actual==="actual") && r.cli_date===iso && r.actual_high && String(r.actual_high).trim() !== "");
+  return r ? Number(r.actual_high) : null;
+}
+function hasActualFor(iso) { return Number.isFinite(getActualFor(iso)); }
+function nowETHours() {
+  return Number(new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'2-digit',hour12:false}).format(new Date()));
+}
+
+function blendTwo(sourceVals /* {NWS, AccuWeather} */, sourceAges /* {NWS, AccuWeather} */, lead) {
+  const maeN = rollingMAE("NWS", lead);
+  const maeA = rollingMAE("AccuWeather", lead);
+
+  let wSkillN = (maeN && maeN > 0) ? 1/maeN : 1;
+  let wSkillA = (maeA && maeA > 0) ? 1/maeA : 1;
+
+  const wRecN = recencyW(sourceAges.NWS ?? Infinity);
+  const wRecA = recencyW(sourceAges.AccuWeather ?? Infinity);
+
+  let wN = (Number.isFinite(sourceVals.NWS)        ? (wSkillN * wRecN) : 0);
+  let wA = (Number.isFinite(sourceVals.AccuWeather) ? (wSkillA * wRecA) : 0);
+
+  if (wN > 0 && wA > 0) {
+    const s = wN + wA;
+    let pN = wN / s, pA = wA / s;
+    const floor = ENS_CONF.minWeight;
+    pN = Math.max(floor, pN);
+    pA = Math.max(floor, pA);
+    const ps = pN + pA;
+    wN = pN / ps; wA = pA / ps;
+  } else {
+    const sum = wN + wA;
+    if (sum > 0) { wN = wN/sum; wA = wA/sum; }
+  }
+
+  const y0 =
+    (Number.isFinite(sourceVals.NWS)        ? wN * sourceVals.NWS : 0) +
+    (Number.isFinite(sourceVals.AccuWeather) ? wA * sourceVals.AccuWeather : 0);
+
+  return { y0, weights: { NWS: wN || 0, AccuWeather: wA || 0 } };
+}
+
+function computeD0D1(targetTodayISO = nycISODate(0)) {
+  const todayISO = targetTodayISO;
+  const tomorrowISO = nycISODate(1);
+
+  // D0 (today)
+  const d0N = candidateFor("NWS", todayISO, "D0", "");
+  const d0A = candidateFor("AccuWeather", todayISO, "D0", "");
+  const ageN0 = hoursSince(latestIssueFor("NWS", todayISO, "D0"));
+  const ageA0 = hoursSince(latestIssueFor("AccuWeather", todayISO, "D0"));
+  const b0 = blendTwo({ NWS: d0N, AccuWeather: d0A }, { NWS: ageN0, AccuWeather: ageA0 }, "D0");
+  const biasD0 = rollingBias(b0.weights, todayISO, "D0");
+  let d0 = (b0.y0 == null ? null : (b0.y0 + biasD0));
+
+  const locked = (nowETHours() >= ENS_CONF.lockHourET) || hasActualFor(todayISO);
+  if (!locked && d0 != null) {
+    const ro  = Number.isFinite(window._recentObservedF) ? window._recentObservedF : -Infinity;
+    const six = Number.isFinite(window._sixHourMaxF)     ? window._sixHourMaxF     : -Infinity;
+    d0 = Math.max(d0, ro, six);
+  }
+
+  // D1 (tomorrow)
+  const d1N = candidateFor("NWS", tomorrowISO, "D1", "");
+  const d1A = candidateFor("AccuWeather", tomorrowISO, "D1", "");
+  const ageN1 = hoursSince(latestIssueFor("NWS", tomorrowISO, "D1"));
+  const ageA1 = hoursSince(latestIssueFor("AccuWeather", tomorrowISO, "D1"));
+  const b1 = blendTwo({ NWS: d1N, AccuWeather: d1A }, { NWS: ageN1, AccuWeather: ageA1 }, "D1");
+  const biasD1 = rollingBias(b1.weights, tomorrowISO, "D1");
+  let d1 = (b1.y0 == null ? null : (b1.y0 + biasD1));
+
+  // overshoot feature for D1
+  const provisional = Math.max(
+    Number.isFinite(window._recentObservedF) ? window._recentObservedF : -Infinity,
+    Number.isFinite(window._sixHourMaxF)     ? window._sixHourMaxF     : -Infinity
+  );
+  const noonCut = "12:00";
+  const todayNRows = getNwsForecastRowsFor(todayISO, "D0").filter(r => (r.forecast_time||"").slice(11,16) <= noonCut);
+  const todayARows = getAccuRowsFor(todayISO, "D0").filter(r => (r.forecast_time||"").slice(11,16) <= noonCut);
+  const preN = latestPreHighValue(todayNRows, "12:00");
+  const preA = latestPreHighValue(todayARows, "12:00");
+  const preVals = [];
+  if (Number.isFinite(preN)) preVals.push(preN);
+  if (Number.isFinite(preA)) preVals.push(preA);
+  const preMean = preVals.length ? (preVals.reduce((a,b)=>a+b,0)/preVals.length) : null;
+  if (Number.isFinite(provisional) && Number.isFinite(preMean)) {
+    const overshoot = Math.max(0, provisional - preMean);
+    const adj = Math.min(ENS_CONF.d1OvershootCap, ENS_CONF.d1OvershootBeta * overshoot);
+    if (Number.isFinite(d1)) d1 += adj;
+  }
+
+  return {
+    D0: Number.isFinite(d0) ? d0 : null,
+    D1: Number.isFinite(d1) ? d1 : null
+  };
+}
+/* ===================== /Ensemble v1 ===================== */
 
 function updateCorrectionBoxes() {
   try {
-    const todayISO = nycISODate(0);
-    const tomorrowISO = nycISODate(1);
+    const { D0, D1 } = computeD0D1();
 
-    // ----- Today -----
-    const seasonToday = isWarmSeason(todayISO) ? "warm" : "cool";
-    const builtToday = buildCandidatesForDay(todayISO, "");
-    const predToday = predictWithHedge("today", seasonToday, builtToday.candidates);
-
-    console.log("TODAY →",
-      "candidates:", builtToday.candidates,
-      "prediction:", predToday?.y,
-      "bias:", predToday?.bias
-    );
-
-    // ----- Tomorrow -----
-    const seasonTomorrow = isWarmSeason(tomorrowISO) ? "warm" : "cool";
-    const builtTomorrow = buildCandidatesForDay(tomorrowISO, "");
-    const predTomorrow = predictWithHedge("tomorrow", seasonTomorrow, builtTomorrow.candidates);
-
-    console.log("TOMORROW →",
-      "candidates:", builtTomorrow.candidates,
-      "prediction:", predTomorrow?.y,
-      "bias:", predTomorrow?.bias
-    );
-
-    // Format predictions with proper display
+    const fmt = v => (v == null ? "—" : (Math.round(v * 10) / 10).toFixed(1) + "°F");
     const el0 = document.getElementById('correctionBoxToday');
     const el1 = document.getElementById('correctionBoxTomorrow');
-    
+    const todayISO = nycISODate(0);
+
+    // Today (D0)
     if (el0) {
       if (hasActualFor(todayISO)) {
         el0.innerHTML = `
           <div class="prediction-value">—</div>
           <div class="prediction-subtitle">Actual high published for ${todayISO}</div>
         `;
-      } else if (Number.isFinite(predToday?.y)) {
-        const val  = predToday.y.toFixed(1);
-        const bias = predToday.bias != null ? predToday.bias.toFixed(2) : "0.00";
-        const sign = Number(bias) >= 0 ? "+" : "";
+      } else {
         el0.innerHTML = `
-          <div class="prediction-value">${val}°F</div>
+          <div class="prediction-value">${fmt(D0)}</div>
           <div class="prediction-subtitle">
-            <small>Smart ensemble (${Object.keys(predToday.weights || {}).length} sources, weights learn daily) ${sign}${bias}°F</small>
+            <small>Blended (skill + recency) with pre-high bias; floors active until 3 pm ET.</small>
           </div>
         `;
-      } else {
-        el0.innerHTML = `<div class="prediction-value">—</div><div class="prediction-subtitle">Awaiting forecast data</div>`;
       }
     }
-    
+
+    // Tomorrow (D1)
     if (el1) {
-      if (Number.isFinite(predTomorrow?.y)) {
-        const val = predTomorrow.y.toFixed(1);
-        const bias = predTomorrow.bias != null ? predTomorrow.bias.toFixed(2) : "0.00";
-        const sign = Number(bias) >= 0 ? "+" : "";
-        el1.innerHTML = `
-          <div class="prediction-value">${val}°F</div>
-          <div class="prediction-subtitle"><small>Smart ensemble (${Object.keys(predTomorrow.weights || {}).length} sources, weights learn daily) ${sign}${bias}°F</small></div>
-        `;
-      } else {
-        el1.innerHTML = `<div class="prediction-value">—</div><div class="prediction-subtitle">Awaiting forecast data</div>`;
-      }
+      el1.innerHTML = `
+        <div class="prediction-value">${fmt(D1)}</div>
+        <div class="prediction-subtitle">
+          <small>Blended (skill + recency) + bias + capped overshoot signal.</small>
+        </div>
+      `;
     }
   } catch (e) {
     console.warn("updateCorrectionBoxes() failed", e);
@@ -2325,6 +2493,7 @@ function updateCorrectionBoxes() {
   }
 }
 window.updateCorrectionBoxes = updateCorrectionBoxes;
+
   function showChart() {
     // Group rows by target/cli date (the "day" label)
     const byDate = {};
