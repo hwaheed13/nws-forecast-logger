@@ -2288,13 +2288,19 @@ function updateCorrectionBoxes() {
   window._d1Adj_debug = null;   // debug
   
   try {
-    // Find today's actual directly from allRows
-    const actualRow = (Array.isArray(window.allRows) ? window.allRows : []).find(r =>
-      r && r.forecast_or_actual === "actual" &&
-      r.cli_date === todayISO &&
-      r.actual_high != null && String(r.actual_high).trim() !== ""
-    );
-    const actual = actualRow ? Number(actualRow.actual_high) : NaN;
+  // Find today's actual directly from allRows (case-insensitive + cli_date OR target_date + multiple field names)
+  const rowsSrc = Array.isArray(window.allRows) ? window.allRows : [];
+  const actualRow = rowsSrc.find(r =>
+    r &&
+    String(r.forecast_or_actual || "").toLowerCase() === "actual" &&
+    (r.cli_date === todayISO || r.target_date === todayISO) &&
+    (r.actual_high != null || r.actual != null || r.high != null)
+  );
+  const actual = actualRow
+    ? (Number.isFinite(Number(actualRow.actual_high)) ? Number(actualRow.actual_high)
+       : Number.isFinite(Number(actualRow.actual))     ? Number(actualRow.actual)
+       : Number(actualRow.high))
+    : NaN;
   
     // Build a baseline from today's intraday forecasts: prefer D0_*; if none, use D1_*; always include AccuWeather if present
     const cT = builtToday?.candidates || {};
@@ -2322,6 +2328,7 @@ function updateCorrectionBoxes() {
     console.debug("D1 momentum adj skipped:", e);
   }
 
+  
 
      console.log("TOMORROW →",
     "candidates:", builtTomorrow.candidates,
