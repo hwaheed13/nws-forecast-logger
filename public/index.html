@@ -1002,10 +1002,18 @@ const todayCool = {
     bias: 0.0, rmse: 2.5, lastDay: null, learnCounts: {}
   };
 
-  localStorage.setItem(`${ENS_KEY}:today:warm`,     JSON.stringify(todayWarm));
-  localStorage.setItem(`${ENS_KEY}:today:cool`,     JSON.stringify(todayCool));
-  localStorage.setItem(`${ENS_KEY}:tomorrow:warm`,  JSON.stringify(tomorrowWarm));
-  localStorage.setItem(`${ENS_KEY}:tomorrow:cool`,  JSON.stringify(tomorrowCool));
+// Only seed if no prior state exists (so the learner can keep adapting)
+const seeds = [
+  [`${ENS_KEY}:today:warm`,     todayWarm],
+  [`${ENS_KEY}:today:cool`,     todayCool],
+  [`${ENS_KEY}:tomorrow:warm`,  tomorrowWarm],
+  [`${ENS_KEY}:tomorrow:cool`,  tomorrowCool],
+];
+
+for (const [k, v] of seeds) {
+  if (!localStorage.getItem(k)) {
+    localStorage.setItem(k, JSON.stringify(v));
+  }
 }
 
 // optional: expose for debugging
@@ -2272,6 +2280,40 @@ function updateCorrectionBoxes() {
     const seasonTomorrow = isWarmSeason(tomorrowISO) ? "warm" : "cool";
     const builtTomorrow = buildCandidatesForDay(tomorrowISO, "");
     const predTomorrow = predictWithHedge("tomorrow", seasonTomorrow, builtTomorrow.candidates);
+    // === Feed today's realization into D1 (momentum/realized-heat) ===
+// Compare today's ACTUAL vs today's intraday forecasts (D0 preferred, else D1 + Accu).
+// Then apply a small capped adjustment (±) to tomorrow's prediction.
+
+let d1AdjF = 0;
+try {
+  if (hasActualFor(todayISO) && predTomorrow && Number.isFinite(predTomorrow.y)) {
+    const actual = Number(getActualFor(todayISO));
+    const cT = builtToday?.candidates || {};
+
+    // Build a baseline from today’s intraday forecasts:
+    // Prefer D0; if missing, fall back to D1. Always include Accu if present.
+    const pool = [];
+    if (Number.isFinite(cT.D0_latest))   pool.push(cT.D0_latest);
+    if (Number.isFinite(cT.D0_trimmed))  pool.push(cT.D0_trimmed);
+
+    if (!pool.length) { // no D0 today → use D1 as proxy
+      if (Number.isFinite(cT.D1_latest))   pool.push(cT.D1_latest);
+      if (Number.isFinite(cT.D1_trimmed))  pool.push(cT.D1_trimmed);
+    }
+
+    if (Number.isFinite(cT.AccuWeather)) pool.push(cT.AccuWeather);
+
+    if (pool.length) {
+      const base = pool.reduce((a,b)=>a+b,0) / pool.length;
+      const overshoot = actual - base;       // can be + or -
+      const BETA = 0.30;                     // tune 0.2–0.4 as you like
+      const CAP  = 2.0;                      // cap the *magnitude* of the bump
+      const bump = Math.max(-CAP, Math.min(CAP, BETA * overshoot));
+      d1AdjF = bump;                         // store for rendering (don’t mutate predTomorrow.y)
+    }
+  }
+} catch (e) { console.debug("D1 momentum adj skipped:", e); }
+
 
     console.log("TOMORROW →",
       "candidates:", builtTomorrow.candidates,
