@@ -2347,19 +2347,26 @@ try {
       }
     }
     
-    if (el1) {
-      if (Number.isFinite(predTomorrow?.y)) {
-        const val = predTomorrow.y.toFixed(1);
-        const bias = predTomorrow.bias != null ? predTomorrow.bias.toFixed(2) : "0.00";
-        const sign = Number(bias) >= 0 ? "+" : "";
-        el1.innerHTML = `
-          <div class="prediction-value">${val}°F</div>
-          <div class="prediction-subtitle"><small>Smart ensemble (${Object.keys(predTomorrow.weights || {}).length} sources, weights learn daily) ${sign}${bias}°F</small></div>
-        `;
-      } else {
-        el1.innerHTML = `<div class="prediction-value">—</div><div class="prediction-subtitle">Awaiting forecast data</div>`;
-      }
-    }
+if (el1) {
+  if (Number.isFinite(predTomorrow?.y)) {
+    const raw = Number(predTomorrow.y);
+    const bump = (typeof d1AdjF === "number" && Number.isFinite(d1AdjF)) ? d1AdjF : 0;
+    const val = (raw + bump).toFixed(1);
+    const bias = predTomorrow.bias != null ? Number(predTomorrow.bias).toFixed(2) : "0.00";
+    const sign = Number(bias) >= 0 ? "+" : "";
+    const bumpTxt = bump ? ` • momentum ${bump >= 0 ? "+" : ""}${bump.toFixed(1)}°` : "";
+
+    el1.innerHTML = `
+      <div class="prediction-value">${val}°F</div>
+      <div class="prediction-subtitle">
+        <small>Smart ensemble (${Object.keys(predTomorrow.weights || {}).length} sources, weights learn daily) ${sign}${bias}°F${bumpTxt}</small>
+      </div>
+    `;
+  } else {
+    el1.innerHTML = `<div class="prediction-value">—</div><div class="prediction-subtitle">Awaiting forecast data</div>`;
+  }
+}
+
   } catch (e) {
     console.warn("updateCorrectionBoxes() failed", e);
     const el0 = document.getElementById('correctionBoxToday');
