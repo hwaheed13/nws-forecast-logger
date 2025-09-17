@@ -981,16 +981,16 @@ function historySignature(){
 async function warmOnceForCurrentCSV() {
   resetHedgeState();
 
-  // === SEEDS (production deterministic defaults) ===
-  // Today (D0): lean on NWS latest; no AccuWeather
-  const todayWarm = {
-    w: { D0_latest: 0.60, D0_trimmed: 0.20, series_rep: 0.20, AccuWeather: 0.00 },
-    bias: 0.0, rmse: 1.9, lastDay: null, learnCounts: {}
-  };
-  const todayCool = {
-    w: { D0_latest: 0.55, D0_trimmed: 0.25, series_rep: 0.20, AccuWeather: 0.00 },
-    bias: 0.0, rmse: 2.0, lastDay: null, learnCounts: {}
-  };
+// === SEEDS (production deterministic defaults) ===
+// Today (D0): mirror D1 scheme — Accu dominant, NWS as light sanity check
+const todayWarm = {
+  w: { D0_latest: 0.03, D0_trimmed: 0.02, series_rep: 0.02, AccuWeather: 0.93 },
+  bias: 0.0, rmse: 1.9, lastDay: null, learnCounts: {}
+};
+const todayCool = {
+  w: { D0_latest: 0.04, D0_trimmed: 0.03, series_rep: 0.03, AccuWeather: 0.90 },
+  bias: 0.0, rmse: 2.0, lastDay: null, learnCounts: {}
+};
 
   // Tomorrow (D1): make AccuWeather dominant; NWS as light sanity check
   const tomorrowWarm = {
