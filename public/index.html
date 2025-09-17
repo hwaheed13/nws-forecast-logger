@@ -2281,42 +2281,46 @@ function updateCorrectionBoxes() {
     const seasonTomorrow = isWarmSeason(tomorrowISO) ? "warm" : "cool";
     const builtTomorrow = buildCandidatesForDay(tomorrowISO, "");
     const predTomorrow = predictWithHedge("tomorrow", seasonTomorrow, builtTomorrow.candidates);
-    // === Feed today's realization into D1 (momentum/realized-heat) ===
-// Compare today's ACTUAL vs today's intraday forecasts (D0 preferred, else D1 + Accu).
-// Then apply a small capped adjustment (±) to tomorrow's prediction.
-
-let d1AdjF = 0;       // local for rendering
-window._d1AdjF = 0;   // expose for console debugging (optional)
-try {
-  if (hasActualFor(todayISO) && predTomorrow && Number.isFinite(predTomorrow.y)) {
-    const actual = Number(getActualFor(todayISO));
+  // === Feed today's realization into D1 (momentum/realized-heat) ===
+  // Self-contained: don't rely on getActualFor / hasActualFor
+  let d1AdjF = 0;               // local used by renderer
+  window._d1AdjF = 0;           // debug
+  window._d1Adj_debug = null;   // debug
+  
+  try {
+    // Find today's actual directly from allRows
+    const actualRow = (Array.isArray(window.allRows) ? window.allRows : []).find(r =>
+      r && r.forecast_or_actual === "actual" &&
+      r.cli_date === todayISO &&
+      r.actual_high != null && String(r.actual_high).trim() !== ""
+    );
+    const actual = actualRow ? Number(actualRow.actual_high) : NaN;
+  
+    // Build a baseline from today's intraday forecasts: prefer D0_*; if none, use D1_*; always include AccuWeather if present
     const cT = builtToday?.candidates || {};
-
-    // Build a baseline from today’s intraday forecasts:
-    // Prefer D0; if missing, fall back to D1. Always include Accu if present.
     const pool = [];
     if (Number.isFinite(cT.D0_latest))   pool.push(cT.D0_latest);
     if (Number.isFinite(cT.D0_trimmed))  pool.push(cT.D0_trimmed);
-
-    if (!pool.length) { // no D0 today → use D1 as proxy
+    if (!pool.length) {
       if (Number.isFinite(cT.D1_latest))   pool.push(cT.D1_latest);
       if (Number.isFinite(cT.D1_trimmed))  pool.push(cT.D1_trimmed);
     }
-
     if (Number.isFinite(cT.AccuWeather)) pool.push(cT.AccuWeather);
-
-    if (pool.length) {
+  
+    if (Number.isFinite(actual) && pool.length && Number.isFinite(predTomorrow?.y)) {
       const base = pool.reduce((a,b)=>a+b,0) / pool.length;
-      const overshoot = actual - base;
-      const BETA = 0.30;
-      const CAP  = 2.0;
+      const overshoot = actual - base;          // ±
+      const BETA = 0.30;                        // tune 0.2–0.4
+      const CAP  = 2.0;                         // max |bump|
       const bump = Math.max(-CAP, Math.min(CAP, BETA * overshoot));
-      d1AdjF = bump;                 // used by the renderer below
-      window._d1AdjF = d1AdjF;       // <-- so you can check it in the console
-      window._d1Adj_debug = { actual, base, overshoot, bump: d1AdjF, pool: [...pool] }; // optional
+      d1AdjF = bump;
+      window._d1AdjF = d1AdjF;                  // debug
+      window._d1Adj_debug = { actual, base, overshoot, bump: d1AdjF, pool: [...pool] }; // debug
+      console.log("D1 momentum bump applied:", d1AdjF, window._d1Adj_debug);
     }
+  } catch (e) {
+    console.debug("D1 momentum adj skipped:", e);
   }
-} catch (e) { console.debug("D1 momentum adj skipped:", e); }
 
 
     console.log("TOMORROW →",
