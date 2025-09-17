@@ -2281,6 +2281,10 @@ function updateCorrectionBoxes() {
     const seasonTomorrow = isWarmSeason(tomorrowISO) ? "warm" : "cool";
     const builtTomorrow = buildCandidatesForDay(tomorrowISO, "");
     const predTomorrow = predictWithHedge("tomorrow", seasonTomorrow, builtTomorrow.candidates);
+    
+    // expose for debugging
+window._predTomorrow = predTomorrow;
+
   // === Feed today's realization into D1 (momentum/realized-heat) ===
   // Self-contained: don't rely on getActualFor / hasActualFor
   let d1AdjF = 0;               // local used by renderer
