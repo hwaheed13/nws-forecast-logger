@@ -2285,7 +2285,8 @@ function updateCorrectionBoxes() {
 // Compare today's ACTUAL vs today's intraday forecasts (D0 preferred, else D1 + Accu).
 // Then apply a small capped adjustment (±) to tomorrow's prediction.
 
-let d1AdjF = 0;
+let d1AdjF = 0;       // local for rendering
+window._d1AdjF = 0;   // expose for console debugging (optional)
 try {
   if (hasActualFor(todayISO) && predTomorrow && Number.isFinite(predTomorrow.y)) {
     const actual = Number(getActualFor(todayISO));
@@ -2306,11 +2307,13 @@ try {
 
     if (pool.length) {
       const base = pool.reduce((a,b)=>a+b,0) / pool.length;
-      const overshoot = actual - base;       // can be + or -
-      const BETA = 0.30;                     // tune 0.2–0.4 as you like
-      const CAP  = 2.0;                      // cap the *magnitude* of the bump
+      const overshoot = actual - base;
+      const BETA = 0.30;
+      const CAP  = 2.0;
       const bump = Math.max(-CAP, Math.min(CAP, BETA * overshoot));
-      d1AdjF = bump;                         // store for rendering (don’t mutate predTomorrow.y)
+      d1AdjF = bump;                 // used by the renderer below
+      window._d1AdjF = d1AdjF;       // <-- so you can check it in the console
+      window._d1Adj_debug = { actual, base, overshoot, bump: d1AdjF, pool: [...pool] }; // optional
     }
   }
 } catch (e) { console.debug("D1 momentum adj skipped:", e); }
