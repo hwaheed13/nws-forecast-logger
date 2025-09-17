@@ -2352,12 +2352,19 @@ try {
     
 if (el1) {
   if (Number.isFinite(predTomorrow?.y)) {
-    const raw = Number(predTomorrow.y);
+    const raw  = Number(predTomorrow.y);
     const bump = (typeof d1AdjF === "number" && Number.isFinite(d1AdjF)) ? d1AdjF : 0;
-    const val = (raw + bump).toFixed(1);
-    const bias = predTomorrow.bias != null ? Number(predTomorrow.bias).toFixed(2) : "0.00";
+
+    // round the displayed value to 0.1°F AFTER adding the bump
+    const final = Math.round((raw + bump) * 10) / 10;
+    const val   = final.toFixed(1);
+
+    const bias = predTomorrow?.bias != null ? Number(predTomorrow.bias).toFixed(2) : "0.00";
     const sign = Number(bias) >= 0 ? "+" : "";
-    const bumpTxt = bump ? ` • momentum ${bump >= 0 ? "+" : ""}${bump.toFixed(1)}°` : "";
+
+    // only show tag if the bump magnitude is at least 0.05°F (so it won’t be a no-op at 1 decimal)
+    const showBump = Math.abs(bump) >= 0.05;
+    const bumpTxt  = showBump ? ` • momentum ${bump >= 0 ? "+" : ""}${bump.toFixed(1)}°` : "";
 
     el1.innerHTML = `
       <div class="prediction-value">${val}°F</div>
