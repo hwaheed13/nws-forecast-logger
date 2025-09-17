@@ -2323,11 +2323,13 @@ function updateCorrectionBoxes() {
   }
 
 
-    console.log("TOMORROW →",
-      "candidates:", builtTomorrow.candidates,
-      "prediction:", predTomorrow?.y,
-      "bias:", predTomorrow?.bias
-    );
+     console.log("TOMORROW →",
+    "candidates:", builtTomorrow.candidates,
+    "raw:", predTomorrow?.y,
+    "bump:", (typeof d1AdjF === "number" ? d1AdjF : 0),
+    "final:", (Number(predTomorrow?.y) + (Number.isFinite(d1AdjF) ? d1AdjF : 0)),
+    "bias:", predTomorrow?.bias
+  );
 
     // Format predictions with proper display
     const el0 = document.getElementById('correctionBoxToday');
