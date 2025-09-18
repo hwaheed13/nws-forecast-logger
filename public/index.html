@@ -2293,7 +2293,7 @@ window._predTomorrow = predTomorrow;
   
   try {
   // Find today's actual directly from allRows (case-insensitive + cli_date OR target_date + multiple field names)
-  const rowsSrc = Array.isArray(window.allRows) ? window.allRows : [];
+  const rowsSrc = Array.isArray(allRows) ? allRows : [];
   const actualRow = rowsSrc.find(r =>
     r &&
     String(r.forecast_or_actual || "").toLowerCase() === "actual" &&
