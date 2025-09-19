@@ -15,6 +15,8 @@
       --text-primary: #0f172a;
       --text-secondary: #334155;
       --border-default: #cbd5e1;
+      --accent-blue: #2563eb;
+      --accent-green: #10b981;
     }
     :root[data-theme="dark"] {
       --bg-primary: #0f172a;
@@ -133,6 +135,24 @@
   .theme-switch.is-auto .slider {
     box-shadow: 0 0 6px 2px #2563eb; /* blue glow */
   }
+/* brand mini styles */
+.brand-mini{
+  display:flex; align-items:center; justify-content:center;
+  gap:12px; margin:0 0 20px;
+}
+.brand-mini .mark{
+  width:36px; height:36px; border-radius:10px;
+  display:grid; place-items:center;
+  background: linear-gradient(135deg, var(--accent-blue), var(--accent-green));
+  border:1px solid var(--border-default);
+  box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+.brand-mini .mark svg{ display:block; width:30px; height:30px; }
+.brand-mini .title{
+  font-size:24px; font-weight:800; letter-spacing:.2px; margin:0;
+  color: var(--text-primary);
+}
+.brand-mini .title .thin{ font-weight:600; color: var(--text-secondary); }
 
   </style>
 </head>
@@ -144,7 +164,21 @@
   </label>
 
   <div class="card">
-    <h1>Daily Dew Point</h1>
+  <div class="brand-mini" aria-label="Daily Dew Point">
+  <div class="mark" aria-hidden="true">
+    <svg viewBox="0 0 64 64" width="30" height="30" role="img">
+      <defs>
+        <linearGradient id="dpGradLogin" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="var(--accent-blue)"/>
+          <stop offset="100%" stop-color="var(--accent-green)"/>
+        </linearGradient>
+      </defs>
+      <path fill="url(#dpGradLogin)"
+            d="M32 6c6 10 16 18 16 30 0 9.94-8.06 18-18 18s-18-8.06-18-18C12 24 26 16 32 6z"/>
+    </svg>
+  </div>
+  <h1 class="title"><span class="thin">Daily</span> Dew&nbsp;Point</h1>
+</div>
 
     <div id="verified-note" class="notice"></div>
 
