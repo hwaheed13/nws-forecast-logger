@@ -2350,6 +2350,28 @@ window._predTomorrow = predTomorrow;
     "bias:", predTomorrow?.bias
   );
 
+    // Fetch Kalshi data to map predictions to ranges
+    let todayKalshiRange = null;
+    let tomorrowKalshiRange = null;
+    
+    try {
+      const [todayMarket, tomorrowMarket] = await Promise.all([
+        fetchKalshiLiveLeader(todayISO).catch(() => null),
+        fetchKalshiLiveLeader(tomorrowISO).catch(() => null)
+      ]);
+      
+      if (todayMarket && predToday?.y) {
+        todayKalshiRange = mapToKalshiRange(predToday.y, todayMarket);
+      }
+      
+      if (tomorrowMarket && predTomorrow?.y) {
+        const finalTemp = predTomorrow.y + (Number.isFinite(d1AdjF) ? d1AdjF : 0);
+        tomorrowKalshiRange = mapToKalshiRange(finalTemp, tomorrowMarket);
+      }
+    } catch (e) {
+      console.debug("Kalshi range mapping failed:", e);
+    }
+
     // Format predictions with proper display
     const el0 = document.getElementById('correctionBoxToday');
     const el1 = document.getElementById('correctionBoxTomorrow');
@@ -2360,14 +2382,20 @@ window._predTomorrow = predTomorrow;
           <div class="prediction-value">—</div>
           <div class="prediction-subtitle">Actual high published for ${todayISO}</div>
         `;
-      } else if (Number.isFinite(predToday?.y)) {
+  } else if (Number.isFinite(predToday?.y)) {
         const val  = predToday.y.toFixed(1);
         const bias = predToday.bias != null ? predToday.bias.toFixed(2) : "0.00";
         const sign = Number(bias) >= 0 ? "+" : "";
+        
+        // Add Kalshi range if available
+        const kalshiNote = todayKalshiRange?.label 
+          ? ` • Kalshi: ${todayKalshiRange.label}` 
+          : "";
+        
         el0.innerHTML = `
           <div class="prediction-value">${val}°F</div>
           <div class="prediction-subtitle">
-            <small>Smart ensemble (${Object.keys(predToday.weights || {}).length} sources, weights learn daily) ${sign}${bias}°F</small>
+            <small>Smart ensemble (${Object.keys(predToday.weights || {}).length} sources, weights learn daily) ${sign}${bias}°F${kalshiNote}</small>
           </div>
         `;
       } else {
@@ -2391,10 +2419,14 @@ if (el1) {
     const showBump = Math.abs(bump) >= 0.05;
     const bumpTxt  = showBump ? ` • momentum ${bump >= 0 ? "+" : ""}${bump.toFixed(1)}°` : "";
 
+  const kalshiNote = tomorrowKalshiRange?.label 
+      ? ` • Kalshi: ${tomorrowKalshiRange.label}` 
+      : "";
+    
     el1.innerHTML = `
       <div class="prediction-value">${val}°F</div>
       <div class="prediction-subtitle">
-        <small>Smart ensemble (${Object.keys(predTomorrow.weights || {}).length} sources, weights learn daily) ${sign}${bias}°F${bumpTxt}</small>
+        <small>Smart ensemble (${Object.keys(predTomorrow.weights || {}).length} sources, weights learn daily) ${sign}${bias}°F${bumpTxt}${kalshiNote}</small>
       </div>
     `;
   } else {
@@ -2442,6 +2474,23 @@ window.updateCorrectionBoxes = updateCorrectionBoxes;
   
     const labels = [];
     for (let d=new Date(start); d<=end; d=addDays(d,1)) labels.push(dateToISO(d));
+
+    // Helper function to map temperature to Kalshi range
+function mapToKalshiRange(temp, kalshiData) {
+  if (!kalshiData?.ranges || !Array.isArray(kalshiData.ranges)) return null;
+  
+  const t = Math.round(temp);
+  
+  for (const range of kalshiData.ranges) {
+    // Handle "X° or less" ranges
+    if (range.min === null && t <= range.max) return range;
+    // Handle "X° or more" ranges  
+    if (range.max === null && t >= range.min) return range;
+    // Handle "X° to Y°" ranges
+    if (range.min !== null && range.max !== null && t >= range.min && t <= range.max) return range;
+  }
+  return null;
+}
   
     // Helpers to compute daily stats from detailed log
     const actualMap   = new Map();  // day → actual
