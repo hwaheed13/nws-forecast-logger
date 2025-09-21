@@ -2012,7 +2012,12 @@ updateCorrectionBoxes();  // now uses the freshly-trained state
     async function fetchKalshiLiveLeader(dateISO)   { return fetchJSON(KALSHI_LIVE_URLS, { date: dateISO, cb: Date.now() }); }
     async function fetchNwsHighSoFar(station = "KNYC") { return fetchJSON(NWS_HIGH_SO_FAR_URLS, { station }); }
     async function fetchNwsCurrentTemp(station = "KNYC") { return fetchJSON(NWS_CURRENT_TEMP_URLS, { station, cb: Date.now() }); }
- 
+
+// Helper function to check if DSM exists for today
+function hasDSMForToday() {
+  const dsmEl = document.getElementById("box-dsm-max");
+  return dsmEl && dsmEl.textContent && dsmEl.textContent !== "—";
+} 
 async function fetchAccuWeatherForecasts() {
   try {
     const response = await fetch('/api/accuweather-forecast');
@@ -2028,7 +2033,10 @@ async function fetchAccuWeatherForecasts() {
     const oldToday = window.accuWeatherData.today;
     const oldTomorrow = window.accuWeatherData.tomorrow;
     
-    window.accuWeatherData.today = Math.round(data.DailyForecasts[0].Temperature.Maximum.Value);
+    // Only update today's AccuWeather if DSM hasn't been published
+    if (!hasDSMForToday()) {
+      window.accuWeatherData.today = Math.round(data.DailyForecasts[0].Temperature.Maximum.Value);
+    }
     window.accuWeatherData.tomorrow = Math.round(data.DailyForecasts[1].Temperature.Maximum.Value);
     
     console.log(`AccuWeather: Today ${window.accuWeatherData.today}°F, Tomorrow ${window.accuWeatherData.tomorrow}°F`);
