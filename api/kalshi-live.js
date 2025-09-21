@@ -114,8 +114,8 @@ function parseRangeFromLabel(label) {
     };
   }
   
-  // Handle "X° or less" OR "X° or below" format
-  const lessMatch = label.match(/(\d+)°?\s*or\s*(?:less|below)/i);
+  // Handle "X° or less" format
+  const lessMatch = label.match(/(\d+)°?\s*or\s*less/i);
   if (lessMatch) {
     return { 
       min: null, 
@@ -123,8 +123,8 @@ function parseRangeFromLabel(label) {
     };
   }
   
-  // Handle "X° or more" OR "X° or above" format
-  const moreMatch = label.match(/(\d+)°?\s*or\s*(?:more|above)/i);
+  // Handle "X° or more" format
+  const moreMatch = label.match(/(\d+)°?\s*or\s*more/i);
   if (moreMatch) {
     return { 
       min: parseInt(moreMatch[1]), 
@@ -134,4 +134,42 @@ function parseRangeFromLabel(label) {
   
   // Fallback - couldn't parse
   return { min: null, max: null };
+}
+
+/**
+ * Stable implied YES probability for LIVE view.
+ * Uses best bid/ask (or order_book) — never last trade.
+ * Returns 0..1 or null.
+ */
+function impliedYesProb(m) {
+  const bidRaw = numOrNull(m.yes_bid)
+    ?? pathNum(m, ["order_book", "yes", "best_bid", "price"])
+    ?? pathNum(m, ["order_book", "bids", 0, "price"]);
+  const askRaw = numOrNull(m.yes_ask)
+    ?? pathNum(m, ["order_book", "yes", "best_ask", "price"])
+    ?? pathNum(m, ["order_book", "asks", 0, "price"]);
+  
+  const norm = v => (v > 1 && v <= 100 ? v / 100 : v);
+  const b = bidRaw != null ? norm(bidRaw) : null;
+  const a = askRaw != null ? norm(askRaw) : null;
+  const in01 = v => v != null && Number.isFinite(v) && v >= 0 && v <= 1;
+  
+  if (in01(b) && in01(a) && a >= b) return (a + b) / 2;
+  if (in01(b) && a == null) return b;
+  if (in01(a) && b == null) return a;
+  return null;
+}
+
+function numOrNull(x) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : null;
+}
+
+function pathNum(obj, path) {
+  let cur = obj;
+  for (const k of path) {
+    if (!cur || typeof cur !== "object" || !(k in cur)) return null;
+    cur = cur[k];
+  }
+  return numOrNull(cur);
 }
