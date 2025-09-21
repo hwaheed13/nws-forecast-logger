@@ -2278,6 +2278,8 @@ async function updateCorrectionBoxes() {
     const seasonToday = isWarmSeason(todayISO) ? "warm" : "cool";
     const builtToday = buildCandidatesForDay(todayISO, "");
     const predToday = predictWithHedge("today", seasonToday, builtToday.candidates);
+    // expose for debugging
+window._predToday = predToday;
 
     console.log("TODAY →",
       "candidates:", builtToday.candidates,
@@ -2443,6 +2445,22 @@ if (el1) {
   }
 }
 window.updateCorrectionBoxes = updateCorrectionBoxes;
+  // Helper function to map temperature to Kalshi range
+function mapToKalshiRange(temp, kalshiData) {
+  if (!kalshiData?.ranges || !Array.isArray(kalshiData.ranges)) return null;
+  
+  const t = Math.round(temp);
+  
+  for (const range of kalshiData.ranges) {
+    // Handle "X° or less" ranges
+    if (range.min === null && t <= range.max) return range;
+    // Handle "X° or more" ranges  
+    if (range.max === null && t >= range.min) return range;
+    // Handle "X° to Y°" ranges
+    if (range.min !== null && range.max !== null && t >= range.min && t <= range.max) return range;
+  }
+  return null;
+}
   function showChart() {
     // Group rows by target/cli date (the "day" label)
     const byDate = {};
