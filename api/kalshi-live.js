@@ -123,11 +123,29 @@ function parseRangeFromLabel(label) {
     };
   }
   
+  // Handle "X° or below" format
+  const belowMatch = label.match(/(\d+)°?\s*or\s*below/i);
+  if (belowMatch) {
+    return { 
+      min: null, 
+      max: parseInt(belowMatch[1]) 
+    };
+  }
+  
   // Handle "X° or more" format
   const moreMatch = label.match(/(\d+)°?\s*or\s*more/i);
   if (moreMatch) {
     return { 
       min: parseInt(moreMatch[1]), 
+      max: null 
+    };
+  }
+  
+  // Handle "X° or above" format
+  const aboveMatch = label.match(/(\d+)°?\s*or\s*above/i);
+  if (aboveMatch) {
+    return { 
+      min: parseInt(aboveMatch[1]), 
       max: null 
     };
   }
