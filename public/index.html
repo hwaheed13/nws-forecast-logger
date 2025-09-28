@@ -705,6 +705,9 @@ input[type="date"] {
 /* ========= DATA + UI ========= */
 let allRows = [], filteredRows = [], chartInstance = null, accuRows = [];
 
+// Track last logged values to prevent duplicate API calls
+let lastLoggedPredictions = { today: null, tomorrow: null };
+
 // Prediction tracking system
 const predictionHistory = {
   today: [],
@@ -2594,14 +2597,22 @@ window._predTomorrow = predTomorrow;
         )
       : null;
 
-    // Log exactly what we're showing on the UI (non-blocking)
+    // Only log when prediction values actually change
     if (predToday?.y && !hasActualFor(todayISO)) {
-      logUIprediction('today', predToday.y, builtToday.candidates, todayWarning, predToday.bias, predToday.pad);
+      const roundedToday = Math.round(predToday.y * 10) / 10;
+      if (lastLoggedPredictions.today !== roundedToday) {
+        logUIprediction('today', predToday.y, builtToday.candidates, todayWarning, predToday.bias, predToday.pad);
+        lastLoggedPredictions.today = roundedToday;
+      }
     }
     
     if (predTomorrow?.y) {
       const finalValue = predTomorrow.y + (Number.isFinite(d1AdjF) ? d1AdjF : 0);
-      logUIprediction('tomorrow', finalValue, builtTomorrow.candidates, tomorrowWarning, predTomorrow.bias, predTomorrow.pad);
+      const roundedTomorrow = Math.round(finalValue * 10) / 10;
+      if (lastLoggedPredictions.tomorrow !== roundedTomorrow) {
+        logUIprediction('tomorrow', finalValue, builtTomorrow.candidates, tomorrowWarning, predTomorrow.bias, predTomorrow.pad);
+        lastLoggedPredictions.tomorrow = roundedTomorrow;
+      }
     }
     
     const el0 = document.getElementById('correctionBoxToday');
