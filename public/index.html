@@ -835,19 +835,22 @@ const boundaryDetector = new KalshiBoundaryDetector();
 async function logUIprediction(which, prediction, candidates, warning, bias, rmse) {
   if (!PREDICTION_LOGGING_ENABLED) return;
   
-  // Only use fields that exist in your prediction_logs table
+  // Match your actual table schema from the data you showed
   const payload = {
     target_date: which === 'today' ? nycISODate(0) : nycISODate(1),
-    lead_used: which,
-    prediction_value: Math.round(prediction * 10) / 10,
-    timestamp: new Date().toISOString(),
-    model_name: 'hedge_v4',
-    version: '4.1'
+    record_type: which === 'today' ? 'today_for_today' : 'today_for_tomorrow',
+    bcp_f: Math.round(prediction * 10) / 10,  // Your bias-corrected prediction
+    nws_latest_f: candidates?.D0_latest || candidates?.D1_latest || null,
+    accu_latest_f: candidates?.AccuWeather || null,
+    model_version: 'hedge_v4',
+    source: 'UI_dashboard',
+    as_of: new Date().toISOString()
   };
   
-  // Only add optional fields that we know exist
-  // Remove bias_applied since it doesn't exist
-  // If you want to track bias, you'd need to add that column to your DB
+  // Optional: add warning info in notes field
+  if (warning) {
+    payload.notes = `${warning.level}: ${warning.recommendation}`;
+  }
   
   try {
     const r = await fetch(`${API_BASE}/log-prediction`, {
@@ -856,7 +859,7 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
       body: JSON.stringify(payload)
     });
     
-    if (!r.ok && r.status !== 409) {  // 409 = duplicate, which is OK
+    if (!r.ok && r.status !== 409) {
       const text = await r.text();
       console.debug(`log-prediction ${r.status}:`, text);
     }
