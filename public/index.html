@@ -835,33 +835,29 @@ const boundaryDetector = new KalshiBoundaryDetector();
 async function logUIprediction(which, prediction, candidates, warning, bias, rmse) {
   if (!PREDICTION_LOGGING_ENABLED) return;
   
-  const payload = {
-    target_date: which === 'today' ? nycISODate(0) : nycISODate(1),
-    lead_used: which,
-    model_name: 'hedge_v4',
-    prediction_value: Math.round(prediction * 10) / 10,
-    rep_forecast: candidates?.series_rep || 0,
-    bias_applied: bias || 0,
-    delta_last3: 0,  // Add this field with a default value
-    version: '4.1',
-    timestamp: new Date().toISOString()
-  };
+  // Skip the broken API, write directly to your table
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return;
   
-  try {
-    const r = await fetch(`${API_BASE}/log-prediction`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
+  const { error } = await supabase
+    .from('prediction_logs')
+    .insert({
+      target_date: which === 'today' ? nycISODate(0) : nycISODate(1),
+      prediction_type: which,
+      hedge_prediction: Math.round(prediction * 10) / 10,
+      nws_latest: candidates?.D0_latest || candidates?.D1_latest || null,
+      accuweather: candidates?.AccuWeather || null,
+      bias: bias || 0,
+      rmse: rmse || 2.0,
+      boundary_warning: warning?.message || null,
+      warning_level: warning?.level || null,
+      model_version: 'hedge_v4'
     });
     
-    if (!r.ok) {
-      const text = await r.text();
-      console.error(`API error (${r.status}):`, text);
-    } else {
-      console.log(`Successfully logged ${which}: ${payload.prediction_value}°F`);
-    }
-  } catch (e) {
-    console.error("Network error:", e);
+  if (error) {
+    console.error('Supabase insert failed:', error);
+  } else {
+    console.log(`Logged ${which}: ${Math.round(prediction * 10) / 10}°F`);
   }
 }
     
