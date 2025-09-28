@@ -835,32 +835,45 @@ const boundaryDetector = new KalshiBoundaryDetector();
 async function logUIprediction(which, prediction, candidates, warning, bias, rmse) {
   if (!PREDICTION_LOGGING_ENABLED) return;
   
-  // Use the Supabase client that's already on your page
-  const supabase = window.supabase.createClient(
-    "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
-  );
+  const now = new Date();
+  const payload = {
+    // Required fields
+    target_date: which === 'today' ? nycISODate(0) : nycISODate(1),
+    lead_used: which === 'today' ? 'D0' : 'D1',  // API expects D0/D1, not today/tomorrow
+    
+    // Fields the API is looking for
+    rep_forecast: candidates?.series_rep || prediction,
+    delta_last3: 0,
+    issuance_iso: now.toISOString(),
+    issuance_hour_local: now.getHours(),
+    season: isWarmSeason(which === 'today' ? nycISODate(0) : nycISODate(1)) ? 'warm' : 'cool',
+    bias_applied: bias || 0,
+    prediction_value: Math.round(prediction * 10) / 10,
+    uncertainty_rmse: rmse || 2.0,
+    model_name: 'hedge_v4',
+    version: '4.1',
+    forecast_signature: '',  // API expects this
+    representative_kind: 'blend',
+    
+    // Optional
+    timestamp_et: now.toISOString()
+  };
   
-  const { error } = await supabase
-    .from('prediction_logs')
-    .insert({
-      created_at: new Date().toISOString(),
-      target_date: which === 'today' ? nycISODate(0) : nycISODate(1),
-      prediction_type: which,
-      hedge_prediction: Math.round(prediction * 10) / 10,
-      nws_latest: candidates?.D0_latest || candidates?.D1_latest || null,
-      accuweather: candidates?.AccuWeather || null,
-      bias: bias || 0,
-      rmse: rmse || 2.0,
-      boundary_warning: warning?.message || null,
-      warning_level: warning?.level || null,
-      model_version: 'hedge_v4'
+  try {
+    const r = await fetch(`${API_BASE}/log-prediction`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
     });
     
-  if (error) {
-    console.error('Direct Supabase insert failed:', error);
-  } else {
-    console.log(`Successfully logged ${which}: ${Math.round(prediction * 10) / 10}°F`);
+    if (!r.ok) {
+      const text = await r.text();
+      console.error(`API error (${r.status}):`, text);
+    } else {
+      console.log(`Successfully logged ${which}: ${payload.prediction_value}°F`);
+    }
+  } catch (e) {
+    console.error("Network error:", e);
   }
 }
     
