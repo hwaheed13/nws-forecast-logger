@@ -863,13 +863,7 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
     console.error("Failed to call log-prediction:", e);
   }
 }
-  
-  try {
-    await logPrediction(payload);
-  } catch (e) {
-    console.debug("Failed to log UI prediction:", e);
-  }
-}
+
 
 // Gate inputs (populated by updateObservations / updateSixHourMax)
 window._recentObservedF = window._recentObservedF ?? null;
