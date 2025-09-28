@@ -835,22 +835,24 @@ const boundaryDetector = new KalshiBoundaryDetector();
 async function logUIprediction(which, prediction, candidates, warning, bias, rmse) {
   if (!PREDICTION_LOGGING_ENABLED) return;
   
+  // Match your existing database schema
   const payload = {
     target_date: which === 'today' ? nycISODate(0) : nycISODate(1),
     timestamp: new Date().toISOString(),
-    prediction_value: Math.round(prediction * 10) / 10,  // Matches UI display
-    bias_applied: bias || 0,
-    rmse: rmse || 2.0,
-    nws_d0: candidates?.D0_latest || null,
-    nws_d1: candidates?.D1_latest || null, 
-    accuweather: candidates?.AccuWeather || null,
-    has_boundary_warning: !!warning,
-    warning_level: warning?.level || null,
-    warning_message: warning?.message || null,
-    recommendation: warning?.recommendation || null,
-    model_name: 'hedge_v4',
-    source: 'UI_card'  // Distinguishes from other logs
+    bias_corrected_prediction: Math.round(prediction * 10) / 10,  // This might be the field name your DB expects
+    predicted_high: Math.round(prediction * 10) / 10,  // Or maybe this one
+    forecast_or_actual: 'forecast',
+    source: 'bias_corrected_UI'
   };
+  
+  // Only add fields if they exist to avoid nulls causing issues
+  if (candidates?.D0_latest) payload.nws_latest = candidates.D0_latest;
+  if (candidates?.AccuWeather) payload.accuweather_forecast = candidates.AccuWeather;
+  if (warning) {
+    payload.boundary_warning = warning.message;
+    payload.warning_level = warning.level;
+    payload.recommendation = warning.recommendation;
+  }
   
   try {
     await logPrediction(payload);
