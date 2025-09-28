@@ -838,16 +838,22 @@ const boundaryDetector = new KalshiBoundaryDetector();
 async function logUIprediction(which, prediction, candidates, warning, bias, rmse) {
   if (!PREDICTION_LOGGING_ENABLED) return;
   
+  // Use a stable hourly timestamp to prevent refresh duplicates
   const now = new Date();
+  const hourlyTimestamp = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+    now.getHours(),
+    0, 0, 0  // Zero out minutes, seconds, ms
+  );
+  
   const payload = {
-    // Required fields
     target_date: which === 'today' ? nycISODate(0) : nycISODate(1),
-    lead_used: which === 'today' ? 'D0' : 'D1',  // API expects D0/D1, not today/tomorrow
-    
-    // Fields the API is looking for
+    lead_used: which === 'today' ? 'D0' : 'D1',
     rep_forecast: candidates?.series_rep || prediction,
     delta_last3: 0,
-    issuance_iso: now.toISOString(),
+    issuance_iso: hourlyTimestamp.toISOString(),  // This stays the same within the hour
     issuance_hour_local: now.getHours(),
     season: isWarmSeason(which === 'today' ? nycISODate(0) : nycISODate(1)) ? 'warm' : 'cool',
     bias_applied: bias || 0,
@@ -855,10 +861,8 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
     uncertainty_rmse: rmse || 2.0,
     model_name: 'hedge_v4',
     version: '4.1',
-    forecast_signature: '',  // API expects this
+    forecast_signature: '',
     representative_kind: 'blend',
-    
-    // Optional
     timestamp_et: now.toISOString()
   };
   
@@ -869,10 +873,9 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
       body: JSON.stringify(payload)
     });
     
-    if (!r.ok) {
-      const text = await r.text();
-      console.error(`API error (${r.status}):`, text);
-    } else {
+    if (!r.ok && r.status !== 409) {  // 409 is duplicate, which is OK
+      console.error(`API error (${r.status}):`, await r.text());
+    } else if (r.ok) {
       console.log(`Successfully logged ${which}: ${payload.prediction_value}°F`);
     }
   } catch (e) {
@@ -2597,8 +2600,8 @@ window._predTomorrow = predTomorrow;
         )
       : null;
 
-    // Only log when prediction values actually change
-    if (predToday?.y && !hasActualFor(todayISO)) {
+  // Only log when prediction values actually change AND after data is loaded
+    if (predToday?.y && !hasActualFor(todayISO) && window.accuWeatherData !== undefined) {
       const roundedToday = Math.round(predToday.y * 10) / 10;
       if (lastLoggedPredictions.today !== roundedToday) {
         logUIprediction('today', predToday.y, builtToday.candidates, todayWarning, predToday.bias, predToday.pad);
@@ -2606,7 +2609,7 @@ window._predTomorrow = predTomorrow;
       }
     }
     
-    if (predTomorrow?.y) {
+    if (predTomorrow?.y && window.accuWeatherData !== undefined) {
       const finalValue = predTomorrow.y + (Number.isFinite(d1AdjF) ? d1AdjF : 0);
       const roundedTomorrow = Math.round(finalValue * 10) / 10;
       if (lastLoggedPredictions.tomorrow !== roundedTomorrow) {
