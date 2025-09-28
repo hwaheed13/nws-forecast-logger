@@ -2593,14 +2593,14 @@ window._predTomorrow = predTomorrow;
         )
       : null;
 
-    // Log exactly what we're showing on the UI
+    // Log exactly what we're showing on the UI (non-blocking)
     if (predToday?.y && !hasActualFor(todayISO)) {
-      await logUIprediction('today', predToday.y, builtToday.candidates, todayWarning, predToday.bias, predToday.pad);
+      logUIprediction('today', predToday.y, builtToday.candidates, todayWarning, predToday.bias, predToday.pad);
     }
     
     if (predTomorrow?.y) {
       const finalValue = predTomorrow.y + (Number.isFinite(d1AdjF) ? d1AdjF : 0);
-      await logUIprediction('tomorrow', finalValue, builtTomorrow.candidates, tomorrowWarning, predTomorrow.bias, predTomorrow.pad);
+      logUIprediction('tomorrow', finalValue, builtTomorrow.candidates, tomorrowWarning, predTomorrow.bias, predTomorrow.pad);
     }
     
     const el0 = document.getElementById('correctionBoxToday');
