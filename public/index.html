@@ -842,11 +842,10 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
     prediction_value: Math.round(prediction * 10) / 10,
     rep_forecast: candidates?.series_rep || 0,
     bias_applied: bias || 0,
+    delta_last3: 0,  // Add this field with a default value
     version: '4.1',
     timestamp: new Date().toISOString()
   };
-  
-  console.log(`Sending payload:`, JSON.stringify(payload, null, 2));
   
   try {
     const r = await fetch(`${API_BASE}/log-prediction`, {
@@ -855,17 +854,11 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
       body: JSON.stringify(payload)
     });
     
-    const responseText = await r.text();
-    
     if (!r.ok) {
-      console.error(`API returned ${r.status}:`, responseText);
-      
-      // Store failed attempts locally
-      const failedLogs = JSON.parse(localStorage.getItem('failed_prediction_logs') || '[]');
-      failedLogs.push({ ...payload, error: responseText, status: r.status });
-      localStorage.setItem('failed_prediction_logs', JSON.stringify(failedLogs));
+      const text = await r.text();
+      console.error(`API error (${r.status}):`, text);
     } else {
-      console.log(`Successfully logged ${which} prediction`);
+      console.log(`Successfully logged ${which}: ${payload.prediction_value}°F`);
     }
   } catch (e) {
     console.error("Network error:", e);
