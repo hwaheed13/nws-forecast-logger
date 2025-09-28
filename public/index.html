@@ -225,6 +225,30 @@
       background: linear-gradient(90deg, var(--bg-accent), var(--bg-tertiary), var(--bg-accent));
       background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 4px; }
     @keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
+    
+    /* Boundary warning styles */
+    .boundary-warning {
+      background: #fef3c7;
+      border: 1px solid #f59e0b;
+      color: #92400e;
+      padding: 10px 14px;
+      border-radius: 10px;
+      margin-top: 12px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .boundary-warning.critical {
+      background: #fee2e2;
+      border: 1px solid #dc2626;
+      color: #991b1b;
+    }
+    .prediction-history {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border-subtle);
+      font-size: 11px;
+      color: var(--text-muted);
+    }
 
     .footer { margin-top: 28px; padding: 18px 24px; background: var(--bg-tertiary); border-top: 1px solid var(--border-subtle);
       text-align: center; font-size: 12px; color: var(--text-light); }
@@ -680,6 +704,133 @@ input[type="date"] {
 
 /* ========= DATA + UI ========= */
 let allRows = [], filteredRows = [], chartInstance = null, accuRows = [];
+
+// Prediction tracking system
+const predictionHistory = {
+  today: [],
+  tomorrow: [],
+  
+  add(which, value, timestamp = new Date().toISOString()) {
+    if (!['today', 'tomorrow'].includes(which)) return;
+    
+    const entry = {
+      timestamp,
+      value: Math.round(value * 10) / 10,
+      hour: new Date(timestamp).getHours()
+    };
+    
+    this[which].push(entry);
+    
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    this[which] = this[which].filter(e => new Date(e.timestamp) > cutoff);
+  },
+  
+  getRange(which) {
+    if (!this[which].length) return null;
+    const values = this[which].map(e => e.value);
+    return {
+      min: Math.min(...values),
+      max: Math.max(...values),
+      current: values[values.length - 1],
+      changes: values.length
+    };
+  },
+  
+  crossedBoundary(which, boundary) {
+    const values = this[which].map(e => e.value);
+    if (values.length < 2) return false;
+    
+    for (let i = 1; i < values.length; i++) {
+      const prev = values[i-1];
+      const curr = values[i];
+      if ((prev < boundary && curr >= boundary) || 
+          (prev >= boundary && curr < boundary)) {
+        return true;
+      }
+    }
+    return false;
+  }
+};
+
+// Boundary detector for Kalshi bucket warnings
+class KalshiBoundaryDetector {
+  constructor() {
+    this.BOUNDARY_THRESHOLD = 1.0;
+    this.CRITICAL_THRESHOLD = 0.5;
+  }
+  
+  getWarning(prediction, ranges, history, candidates) {
+    if (!ranges || !ranges.length) return null;
+    
+    const nws = candidates?.D0_latest || candidates?.D1_latest;
+    const accu = candidates?.AccuWeather;
+    
+    // Find current bucket based on rounded prediction
+    const roundedPred = Math.round(prediction);
+    const currentBucket = ranges.find(r => {
+      if (r.min === null) return roundedPred <= r.max;
+      if (r.max === null) return roundedPred >= r.min;
+      return roundedPred >= r.min && roundedPred <= r.max;
+    });
+    
+    if (!currentBucket) return null;
+    
+    // Check if neighboring degrees fall in different buckets
+    const floor = Math.floor(prediction);
+    const ceil = Math.ceil(prediction);
+    
+    const floorBucket = ranges.find(r => {
+      if (r.min === null) return floor <= r.max;
+      if (r.max === null) return floor >= r.min;
+      return floor >= r.min && floor <= r.max;
+    });
+    
+    const ceilBucket = ranges.find(r => {
+      if (r.min === null) return ceil <= r.max;
+      if (r.max === null) return ceil >= r.min;
+      return ceil >= r.min && ceil <= r.max;
+    });
+    
+    // Critical: neighboring degrees are in different buckets  
+    if (floorBucket && ceilBucket && floorBucket !== ceilBucket) {
+      const forecastSpread = (nws && accu) ? Math.abs(nws - accu) : 0;
+      
+      // Check if forecasts straddle the boundary
+      const boundary = ceil;
+      const nwsSide = nws ? (nws < boundary ? 'below' : 'above') : null;
+      const accuSide = accu ? (accu < boundary ? 'below' : 'above') : null;
+      const forecastsDisagree = nwsSide && accuSide && (nwsSide !== accuSide);
+      
+      if (forecastsDisagree) {
+        return {
+          level: 'critical',
+          message: `⚠️ BUCKET SPLIT: ${floor}°F is in [${floorBucket.min || '—'}-${floorBucket.max || '—'}] but ${ceil}°F is in [${ceilBucket.min || '—'}-${ceilBucket.max || '—'}]. NWS=${nws}° vs AccuWeather=${accu}°`,
+          recommendation: 'SKIP or SPLIT',
+          details: { 
+            forecastSpread: forecastSpread.toFixed(1),
+            forecastsDisagree,
+            crossed: history?.crossedBoundary('today', boundary)
+          }
+        };
+      } else if (forecastSpread <= 1) {
+        return {
+          level: 'warning',
+          message: `⚠️ BOUNDARY: Near ${boundary}° where buckets split. Forecasts agree on ${nws || accu}°`,
+          recommendation: 'CAUTIOUS BET',
+          details: { 
+            forecastSpread: forecastSpread.toFixed(1),
+            forecastsDisagree: false,
+            crossed: history?.crossedBoundary('today', boundary)
+          }
+        };
+      }
+    }
+    
+    return null;
+  }
+}
+
+const boundaryDetector = new KalshiBoundaryDetector();
 
 // Gate inputs (populated by updateObservations / updateSixHourMax)
 window._recentObservedF = window._recentObservedF ?? null;
@@ -2375,8 +2526,78 @@ window._predTomorrow = predTomorrow;
     }
 
     // Format predictions with proper display
+  // Track predictions
+    if (predToday?.y) {
+      predictionHistory.add('today', predToday.y);
+    }
+    if (predTomorrow?.y) {
+      const finalTomorrow = predTomorrow.y + (Number.isFinite(d1AdjF) ? d1AdjF : 0);
+      predictionHistory.add('tomorrow', finalTomorrow);
+    }
+    
+    // Check for boundary warnings  
+    const todayWarning = todayKalshiRange?.ranges && predToday?.y
+      ? boundaryDetector.getWarning(predToday.y, todayKalshiRange.ranges, predictionHistory, builtToday.candidates)
+      : null;
+      
+    const tomorrowWarning = tomorrowKalshiRange?.ranges && predTomorrow?.y
+      ? boundaryDetector.getWarning(
+          predTomorrow.y + (Number.isFinite(d1AdjF) ? d1AdjF : 0),
+          tomorrowKalshiRange.ranges,
+          predictionHistory,
+          builtTomorrow.candidates
+        )
+      : null;
+
     const el0 = document.getElementById('correctionBoxToday');
     const el1 = document.getElementById('correctionBoxTomorrow');
+    
+    if (el0) {
+      if (hasActualFor(todayISO)) {
+        el0.innerHTML = `
+          <div class="prediction-value">—</div>
+          <div class="prediction-subtitle">Actual high published for ${todayISO}</div>
+        `;
+      } else if (Number.isFinite(predToday?.y)) {
+        const val = predToday.y.toFixed(1);
+        const bias = predToday.bias != null ? predToday.bias.toFixed(2) : "0.00";
+        const sign = Number(bias) >= 0 ? "+" : "";
+        
+        const kalshiNote = todayKalshiRange?.label 
+          ? ` • Kalshi: ${todayKalshiRange.label}` 
+          : "";
+        
+        // Add warning if present
+        const warningHTML = todayWarning 
+          ? `<div class="boundary-warning ${todayWarning.level}">
+              ${todayWarning.message}<br>
+              <strong>Recommendation: ${todayWarning.recommendation}</strong>
+              ${todayWarning.details.crossed ? '<br>⚠️ Prediction crossed this boundary today' : ''}
+              ${todayWarning.details.forecastSpread > 1 ? `<br>Forecast spread: ${todayWarning.details.forecastSpread}°F` : ''}
+            </div>` 
+          : '';
+        
+        // Add prediction history
+        const historyRange = predictionHistory.getRange('today');
+        const historyHTML = historyRange 
+          ? `<div class="prediction-history">
+              Today's range: ${historyRange.min.toFixed(1)}°F - ${historyRange.max.toFixed(1)}°F 
+              (${historyRange.changes} updates)
+            </div>`
+          : '';
+        
+        el0.innerHTML = `
+          <div class="prediction-value">${val}°F</div>
+          <div class="prediction-subtitle">
+            <small>Smart ensemble (${Object.keys(predToday.weights || {}).length} sources, weights learn daily) ${sign}${bias}°F${kalshiNote}</small>
+          </div>
+          ${warningHTML}
+          ${historyHTML}
+        `;
+      } else {
+        el0.innerHTML = `<div class="prediction-value">—</div><div class="prediction-subtitle">Awaiting forecast data</div>`;
+      }
+    }
     
     if (el0) {
       if (hasActualFor(todayISO)) {
@@ -2406,35 +2627,52 @@ window._predTomorrow = predTomorrow;
     }
     
 if (el1) {
-  if (Number.isFinite(predTomorrow?.y)) {
-    const raw  = Number(predTomorrow.y);
-    const bump = (typeof d1AdjF === "number" && Number.isFinite(d1AdjF)) ? d1AdjF : 0;
+      if (Number.isFinite(predTomorrow?.y)) {
+        const raw = Number(predTomorrow.y);
+        const bump = (typeof d1AdjF === "number" && Number.isFinite(d1AdjF)) ? d1AdjF : 0;
+        const final = Math.round((raw + bump) * 10) / 10;
+        const val = final.toFixed(1);
 
-    // round the displayed value to 0.1°F AFTER adding the bump
-    const final = Math.round((raw + bump) * 10) / 10;
-    const val   = final.toFixed(1);
+        const bias = predTomorrow?.bias != null ? Number(predTomorrow.bias).toFixed(2) : "0.00";
+        const sign = Number(bias) >= 0 ? "+" : "";
+        const showBump = Math.abs(bump) >= 0.05;
+        const bumpTxt = showBump ? ` • momentum ${bump >= 0 ? "+" : ""}${bump.toFixed(1)}°` : "";
 
-    const bias = predTomorrow?.bias != null ? Number(predTomorrow.bias).toFixed(2) : "0.00";
-    const sign = Number(bias) >= 0 ? "+" : "";
-
-    // only show tag if the bump magnitude is at least 0.05°F (so it won’t be a no-op at 1 decimal)
-    const showBump = Math.abs(bump) >= 0.05;
-    const bumpTxt  = showBump ? ` • momentum ${bump >= 0 ? "+" : ""}${bump.toFixed(1)}°` : "";
-
-  const kalshiNote = tomorrowKalshiRange?.label 
-      ? ` • Kalshi: ${tomorrowKalshiRange.label}` 
-      : "";
-    
-    el1.innerHTML = `
-      <div class="prediction-value">${val}°F</div>
-      <div class="prediction-subtitle">
-        <small>Smart ensemble (${Object.keys(predTomorrow.weights || {}).length} sources, weights learn daily) ${sign}${bias}°F${bumpTxt}${kalshiNote}</small>
-      </div>
-    `;
-  } else {
-    el1.innerHTML = `<div class="prediction-value">—</div><div class="prediction-subtitle">Awaiting forecast data</div>`;
-  }
-}
+        const kalshiNote = tomorrowKalshiRange?.label 
+            ? ` • Kalshi: ${tomorrowKalshiRange.label}` 
+            : "";
+        
+        // Add warning if present
+        const warningHTML = tomorrowWarning 
+          ? `<div class="boundary-warning ${tomorrowWarning.level}">
+              ${tomorrowWarning.message}<br>
+              <strong>Recommendation: ${tomorrowWarning.recommendation}</strong>
+              ${tomorrowWarning.details.crossed ? '<br>⚠️ Prediction crossed this boundary today' : ''}
+              ${tomorrowWarning.details.forecastSpread > 1 ? `<br>Forecast spread: ${tomorrowWarning.details.forecastSpread}°F` : ''}
+            </div>` 
+          : '';
+        
+        // Add prediction history
+        const historyRange = predictionHistory.getRange('tomorrow');
+        const historyHTML = historyRange 
+          ? `<div class="prediction-history">
+              Range: ${historyRange.min.toFixed(1)}°F - ${historyRange.max.toFixed(1)}°F 
+              (${historyRange.changes} updates)
+            </div>`
+          : '';
+        
+        el1.innerHTML = `
+          <div class="prediction-value">${val}°F</div>
+          <div class="prediction-subtitle">
+            <small>Smart ensemble (${Object.keys(predTomorrow.weights || {}).length} sources, weights learn daily) ${sign}${bias}°F${bumpTxt}${kalshiNote}</small>
+          </div>
+          ${warningHTML}
+          ${historyHTML}
+        `;
+      } else {
+        el1.innerHTML = `<div class="prediction-value">—</div><div class="prediction-subtitle">Awaiting forecast data</div>`;
+      }
+    }
 
   } catch (e) {
     console.warn("updateCorrectionBoxes() failed", e);
