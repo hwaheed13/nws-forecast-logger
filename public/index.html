@@ -833,47 +833,38 @@ class KalshiBoundaryDetector {
 const boundaryDetector = new KalshiBoundaryDetector();
 // Log predictions to Supabase - matches what's on the UI
 async function logUIprediction(which, prediction, candidates, warning, bias, rmse) {
-  if (!PREDICTION_LOGGING_ENABLED) return;
+  console.log(`logUIprediction called for ${which} with prediction ${prediction}`);
   
-  // Don't block on logging - fire and forget
-  setTimeout(async () => {
-    const payload = {
-      target_date: which === 'today' ? nycISODate(0) : nycISODate(1),
-      lead_used: which === 'today' ? 'today' : 'tomorrow',
-      prediction_value: Math.round(prediction * 10) / 10,
-      timestamp: new Date().toISOString(),
-      model_name: 'hedge_v4',
-      version: '4.1'
-    };
+  if (!PREDICTION_LOGGING_ENABLED) {
+    console.log("Prediction logging is disabled");
+    return;
+  }
+  
+  const payload = {
+    target_date: which === 'today' ? nycISODate(0) : nycISODate(1),
+    lead_used: which,
+    prediction_value: Math.round(prediction * 10) / 10,
+    timestamp: new Date().toISOString(),
+    model_name: 'hedge_v4',
+    version: '4.1'
+  };
+  
+  console.log(`Payload for ${which}:`, payload);
+  
+  try {
+    const r = await fetch(`${API_BASE}/log-prediction`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
     
-    // Add optional fields
-    if (bias != null) payload.bias_applied = Number(bias);
-    if (rmse != null) payload.rmse = Number(rmse);
-    if (candidates?.D0_latest != null) payload.nws_d0 = Number(candidates.D0_latest);
-    if (candidates?.D1_latest != null) payload.nws_d1 = Number(candidates.D1_latest);
-    if (candidates?.AccuWeather != null) payload.accuweather = Number(candidates.AccuWeather);
-    
-    if (warning) {
-      payload.has_boundary_warning = true;
-      payload.warning_level = warning.level || null;
-      payload.warning_message = warning.message || null;
-      payload.recommendation = warning.recommendation || null;
+    if (!r.ok) {
+      const text = await r.text();
+      console.error(`Server returned ${r.status}:`, text);
     }
-    
-    try {
-      const r = await fetch(`${API_BASE}/log-prediction`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      
-      if (!r.ok && r.status !== 409) {
-        console.debug(`log-prediction ${r.status} for ${which}:`, payload);
-      }
-    } catch (e) {
-      console.debug("log-prediction failed silently:", e);
-    }
-  }, 100);  // Small delay to not block UI
+  } catch (e) {
+    console.error("Network error:", e);
+  }
 }
 
 // Gate inputs (populated by updateObservations / updateSixHourMax)
