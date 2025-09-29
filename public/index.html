@@ -839,21 +839,22 @@ const boundaryDetector = new KalshiBoundaryDetector();
 async function logUIprediction(which, prediction, candidates, warning, bias, rmse) {
   if (!PREDICTION_LOGGING_ENABLED) return;
   
-  const now = new Date();
+  // Round the prediction first
   const rounded = Math.round(prediction * 10) / 10;
   
-  // Skip if value hasn't changed
+  // CHECK IF VALUE CHANGED - EXIT EARLY IF NOT
   if (lastLoggedPredictions[which] === rounded) {
-    return;
+    return;  // Same value, don't log
   }
   
-  // Use minute-level timestamp to allow multiple logs per hour
+  const now = new Date();
+  // Use minute-level timestamp for uniqueness when values DO change
   const minuteTimestamp = new Date(
     now.getFullYear(),
     now.getMonth(),
     now.getDate(),
     now.getHours(),
-    now.getMinutes(), // ADD THIS
+    now.getMinutes(),
     0, 0
   );
   
@@ -862,7 +863,7 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
     lead_used: which === 'today' ? 'D0' : 'D1',
     rep_forecast: candidates?.series_rep || prediction,
     delta_last3: 0,
-    issuance_iso: minuteTimestamp.toISOString(), // CHANGED FROM hourlyTimestamp
+    issuance_iso: minuteTimestamp.toISOString(),
     issuance_hour_local: now.getHours(),
     season: isWarmSeason(which === 'today' ? nycISODate(0) : nycISODate(1)) ? 'warm' : 'cool',
     bias_applied: bias || 0,
@@ -882,11 +883,12 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
       body: JSON.stringify(payload)
     });
     
-    if (!r.ok && r.status !== 409) {
+    if (!r.ok && r.status !== 409) {  // 409 is duplicate, which is OK
       console.error(`API error (${r.status}):`, await r.text());
     } else if (r.ok) {
       console.log(`Successfully logged ${which}: ${payload.prediction_value}°F`);
-      lastLoggedPredictions[which] = rounded; // ADD THIS to update tracker
+      // UPDATE TRACKER ONLY AFTER SUCCESSFUL LOG
+      lastLoggedPredictions[which] = rounded;
     }
   } catch (e) {
     console.error("Network error:", e);
