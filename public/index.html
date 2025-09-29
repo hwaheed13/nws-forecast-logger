@@ -2679,7 +2679,7 @@ window._predTomorrow = predTomorrow;
         el0.innerHTML = `
           <div class="prediction-value">${val}°F</div>
           <div class="prediction-subtitle">
-            <small>Smart ensemble (${Object.keys(predToday.weights || {}).length} sources, weights learn daily) ${sign}${bias}°F${kalshiNote}</small>
+            <small>Smart ensemble (${Object.keys(builtToday.candidates || {}).length} sources, weights learn daily) ${sign}${bias}°F${kalshiNote}</small>
           </div>
           ${warningHTML}
           ${historyHTML}
@@ -2728,7 +2728,7 @@ if (el1) {
         el1.innerHTML = `
           <div class="prediction-value">${val}°F</div>
           <div class="prediction-subtitle">
-            <small>Smart ensemble (${Object.keys(predTomorrow.weights || {}).length} sources, weights learn daily) ${sign}${bias}°F${bumpTxt}${kalshiNote}</small>
+            <small>Smart ensemble (${Object.keys(builtTomorrow.candidates || {}).length} sources, weights learn daily) ${sign}${bias}°F${bumpTxt}${kalshiNote}</small>
           </div>
           ${warningHTML}
           ${historyHTML}
