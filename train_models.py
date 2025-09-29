@@ -62,11 +62,18 @@ def _safe_parse_ts(x):
         return pd.NaT
 
 
+def _normalize_date_col(df: pd.DataFrame, col: str):
+    """Coerce a date-like column to 'YYYY-MM-DD' strings with NaNs dropped later by caller."""
+    if col in df.columns:
+        coerced = pd.to_datetime(df[col], errors="coerce").dt.date
+        df[col] = coerced.astype("string")  # keeps 'YYYY-MM-DD' or <NA>
+
+
 class NYCTemperatureModelTrainer:
     def __init__(self):
-        self.nws_df = None
-        self.accu_df = None
-        self.features_df = None
+        self.nws_df: pd.DataFrame | None = None
+        self.accu_df: pd.DataFrame | None = None
+        self.features_df: pd.DataFrame | None = None
         self.temp_model = None
         self.bucket_model = None
 
@@ -123,14 +130,22 @@ class NYCTemperatureModelTrainer:
                 else:
                     self.accu_df = self.accu_df.dropna(subset=["timestamp"])
 
+        # normalize date columns to sortable, consistent strings
+        _normalize_date_col(self.nws_df, "target_date")
+        _normalize_date_col(self.nws_df, "cli_date")
+        if not self.accu_df.empty:
+            _normalize_date_col(self.accu_df, "target_date")
+
         print(f"Loaded {len(self.nws_df)} NWS rows, {len(self.accu_df)} AccuWeather rows")
 
-    def extract_features_for_date(self, target_date):
+    def extract_features_for_date(self, target_date: str):
+        # NWS forecasts for the target date
         nws_forecasts = self.nws_df[
             (self.nws_df["target_date"] == target_date)
             & (self.nws_df["forecast_or_actual"] == "forecast")
         ].copy()
 
+        # AccuWeather forecasts for the target date (optional)
         if not self.accu_df.empty:
             accu_forecasts = self.accu_df[
                 (self.accu_df["target_date"] == target_date)
@@ -139,6 +154,7 @@ class NYCTemperatureModelTrainer:
         else:
             accu_forecasts = pd.DataFrame()
 
+        # Actual row for the date
         actual_row = self.nws_df[
             (self.nws_df["cli_date"] == target_date)
             & (self.nws_df["forecast_or_actual"] == "actual")
@@ -149,13 +165,14 @@ class NYCTemperatureModelTrainer:
 
         actual_high = float(actual_row.iloc[0]["actual_high"])
 
+        # Sort by issuance time
         nws_forecasts = nws_forecasts.sort_values("timestamp")
         if not accu_forecasts.empty:
             accu_forecasts = accu_forecasts.sort_values("timestamp")
 
         nws_values = nws_forecasts["predicted_high"].astype(float).values
-        month = int(target_date.split("-")[1])
 
+        month = int(target_date.split("-")[1])
         features = {
             "nws_first": nws_values[0] if len(nws_values) > 0 else np.nan,
             "nws_last": nws_values[-1] if len(nws_values) > 0 else np.nan,
@@ -163,15 +180,17 @@ class NYCTemperatureModelTrainer:
             "nws_min": nws_values.min() if len(nws_values) > 0 else np.nan,
             "nws_mean": nws_values.mean() if len(nws_values) > 0 else np.nan,
             "nws_median": float(np.median(nws_values)) if len(nws_values) > 0 else np.nan,
-            "nws_count": int(len(nws_values)),
-            "nws_spread": float(nws_values.max() - nws_values.min()) if len(nws_values) > 0 else 0.0,
+            "nws_count": len(nws_values),
+            "nws_spread": (nws_values.max() - nws_values.min()) if len(nws_values) > 0 else 0.0,
             "nws_std": float(nws_values.std()) if len(nws_values) > 1 else 0.0,
             "nws_trend": float(nws_values[-1] - nws_values[0]) if len(nws_values) > 1 else 0.0,
             "forecast_velocity": self.calculate_velocity(nws_values),
             "forecast_acceleration": self.calculate_acceleration(nws_values),
-            "accu_last": float(accu_forecasts.iloc[-1]["predicted_high"]) if not accu_forecasts.empty else np.nan,
+            "accu_last": float(accu_forecasts.iloc[-1]["predicted_high"])
+            if not accu_forecasts.empty
+            else np.nan,
             "accu_count": int(len(accu_forecasts)),
-            "nws_accu_spread": np.nan,
+            "nws_accu_spread": np.nan,  # filled below if both present
             "month": month,
             "is_summer": int(month in [6, 7, 8]),
             "is_winter": int(month in [12, 1, 2]),
@@ -200,23 +219,36 @@ class NYCTemperatureModelTrainer:
     def build_feature_matrix(self):
         print("\nExtracting features for all dates...")
         dates_with_actuals = (
-            self.nws_df[self.nws_df["forecast_or_actual"] == "actual"]["cli_date"].unique()
+            self.nws_df.loc[self.nws_df["forecast_or_actual"] == "actual", "cli_date"]
+            .dropna()
+            .tolist()
         )
+
+        # clean and sort by actual date
+        dates_with_actuals = sorted(
+            {d for d in dates_with_actuals if isinstance(d, str) and d and d != "<NA>"},
+            key=lambda d: pd.to_datetime(d, errors="coerce"),
+        )
+
         features_list = []
-        for date in sorted(dates_with_actuals):
+        for date in dates_with_actuals:
             feat = self.extract_features_for_date(date)
             if feat:
                 features_list.append(feat)
 
         if not features_list:
-            raise ValueError("No features built. Ensure CSVs have forecasts and actuals.")
+            raise ValueError("No features built. Check that your CSVs contain actuals and forecasts.")
 
         self.features_df = pd.DataFrame(features_list)
 
+        # Fill NaNs for modeling
         if "accu_last" in self.features_df.columns:
-            self.features_df["accu_last"] = self.features_df["accu_last"].fillna(self.features_df["nws_last"])
+            self.features_df["accu_last"] = self.features_df["accu_last"].fillna(
+                self.features_df["nws_last"]
+            )
         self.features_df["nws_accu_spread"] = self.features_df["nws_accu_spread"].fillna(0.0)
 
+        # Basic integrity check
         missing_any = [c for c in FEATURE_COLS if c not in self.features_df.columns]
         if missing_any:
             raise ValueError(f"Feature matrix missing cols: {', '.join(missing_any)}")
@@ -271,6 +303,7 @@ class NYCTemperatureModelTrainer:
         with open("bucket_model.pkl", "wb") as f:
             pickle.dump(self.bucket_model, f)
 
+        # In-sample sanity metrics
         X_all = self.features_df[FEATURE_COLS]
         temp_pred_all = self.temp_model.predict(X_all)
         bucket_pred_all = self.bucket_model.predict(X_all)
@@ -284,8 +317,12 @@ class NYCTemperatureModelTrainer:
             },
             "feature_columns": FEATURE_COLS,
             "model_performance": {
-                "temperature_mae": float(mean_absolute_error(self.features_df["actual_high"], temp_pred_all)),
-                "bucket_accuracy": float(accuracy_score(self.features_df["winning_bucket"], bucket_pred_all)),
+                "temperature_mae": float(
+                    mean_absolute_error(self.features_df["actual_high"], temp_pred_all)
+                ),
+                "bucket_accuracy": float(
+                    accuracy_score(self.features_df["winning_bucket"], bucket_pred_all)
+                ),
             },
         }
 
