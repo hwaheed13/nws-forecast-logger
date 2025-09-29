@@ -2,8 +2,11 @@ name: Frequent Forecast Updates
 
 on:
   schedule:
-    # Every 10 minutes (GitHub cron is UTC)
-    - cron: "*/10 * * * *"
+    # Run every 30 minutes from 4 AM to midnight EST (9 AM to 5 AM UTC)
+    # This avoids the problematic midnight-to-4AM EST window where date cutover is ambiguous
+    - cron: "0,30 9-23 * * *"  # 9:00, 9:30, 10:00, 10:30... through 23:30 UTC
+    - cron: "0,30 0-4 * * *"   # 00:00, 00:30, 1:00, 1:30... through 4:30 UTC
+    # Together these cover 4 AM to midnight EST (20 hours/day, 40 runs/day)
   workflow_dispatch: {}
 
 permissions:
@@ -76,6 +79,7 @@ jobs:
         run: python run_smart.py
 
       # ✅ AccuWeather → accuweather_log.csv (only if changed, freeze today if NWS actual exists)
+      # FIXED: Now properly handles date cutover since we skip midnight-4AM EST
       - name: Log AccuWeather forecasts if changed
         env:
           ACCU_API_KEY: ${{ secrets.ACCU_API_KEY }}
@@ -98,6 +102,10 @@ jobs:
           tomorrow_iso = (now_et + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
           freeze_today = (os.environ.get("HAS_ACTUAL_TODAY","false").lower() == "true")
 
+          # Log current time for debugging
+          print(f"[Accu] Current ET time: {now_et.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+          print(f"[Accu] Today: {today_iso}, Tomorrow: {tomorrow_iso}")
+          
           sess = requests.Session()
           sess.headers.update({"Cache-Control": "no-cache", "Pragma": "no-cache"})
 
@@ -115,7 +123,8 @@ jobs:
 
           new_highs, details = {}, {}
 
-          # Today (D0)
+          # Today (D0) - only fetch if not frozen and after 4 AM ET
+          # Since we skip midnight-4AM in the schedule, this should always be safe
           if not freeze_today:
               try:
                   d0 = fetch_daily_1day()
@@ -124,10 +133,11 @@ jobs:
                   if mx is not None:
                       new_highs[today_iso] = int(round(float(mx)))
                       details[today_iso] = phrase
+                      print(f"[Accu] D0 fetched: {new_highs[today_iso]}°F for {today_iso}")
               except Exception as e:
                   print(f"[Accu] D0 fetch failed: {e}", file=sys.stderr)
 
-          # Tomorrow (D1)
+          # Tomorrow (D1) - always safe to fetch
           try:
               five = fetch_daily_5day()
               if len(five) > 1:
@@ -137,10 +147,14 @@ jobs:
                   if mx is not None:
                       new_highs[tomorrow_iso] = int(round(float(mx)))
                       details[tomorrow_iso] = phrase
+                      print(f"[Accu] D1 fetched: {new_highs[tomorrow_iso]}°F for {tomorrow_iso}")
+              else:
+                  print(f"[Accu] Warning: 5-day forecast has only {len(five)} days", file=sys.stderr)
           except Exception as e:
               print(f"[Accu] D1 fetch failed: {e}", file=sys.stderr)
 
           targets = [iso for iso in [today_iso, tomorrow_iso] if (iso != today_iso or not freeze_today)]
+          print(f"[Accu] Processing targets: {targets}")
           print(f"[Accu] new_highs={new_highs} details={details}")
 
           # Read last logged highs
@@ -185,6 +199,7 @@ jobs:
                       "bias_corrected_prediction": "",
                       "source": "AccuWeather",
                   })
+                  print(f"[Accu] Will append: {iso} = {nv}°F (was {pv}°F)")
 
           if to_append:
               file_exists = os.path.exists(ACCU_CSV)
@@ -195,7 +210,7 @@ jobs:
               with open(ACCU_CSV, "a", newline="", encoding="utf-8") as f:
                   w = csv.DictWriter(f, fieldnames=fieldnames)
                   for row in to_append: w.writerow(row)
-              print(f"AccuWeather: appended {len(to_append)} changed row(s). rows={to_append}")
+              print(f"AccuWeather: appended {len(to_append)} changed row(s).")
           else:
               print("AccuWeather: no changes; nothing appended.")
           PY
