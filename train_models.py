@@ -33,12 +33,31 @@ FEATURE_COLS = [
 
 
 def _safe_parse_ts(x):
+    """
+    Robust per-row timestamp parser for inputs like:
+      '2025-09-12 14:59:22 EDT', '2025-09-14 04:37:00', ' 2025-09-15 04:46:39 EDT '
+    Normalizes to America/New_York then returns naive local time.
+    """
+    if x in (None, "", "None", "null", "NaT"):
+        return pd.NaT
+
+    s = str(x).strip()
+    # normalize common tz abbreviations
+    if "EDT" in s:
+        s = s.replace("EDT", "-04:00").strip()
+    elif "EST" in s:
+        s = s.replace("EST", "-05:00").strip()
+
     try:
-        if x in (None, "", "None", "null", "NaT"):
+        ts = pd.to_datetime(s, errors="coerce")
+        if pd.isna(ts):
             return pd.NaT
-        if isinstance(x, (pd.Timestamp, datetime)):
-            return pd.to_datetime(x, errors="coerce")
-        return pd.to_datetime(str(x), errors="coerce")
+        # assume NYC if no tz
+        if getattr(ts, "tz", None) is None:
+            ts = ts.tz_localize("America/New_York")
+        else:
+            ts = ts.tz_convert("America/New_York")
+        return ts.tz_localize(None)
     except Exception:
         return pd.NaT
 
@@ -51,18 +70,16 @@ class NYCTemperatureModelTrainer:
         self.temp_model = None
         self.bucket_model = None
 
-    def _validate_columns(self, df, required, name):
-        missing = [c for c in required if c not in df.columns]
+    def _require(self, df, needed, name):
+        missing = [c for c in needed if c not in df.columns]
         if missing:
-            raise ValueError(
-                f"{name} is missing required columns: {', '.join(missing)}"
-            )
+            raise ValueError(f"{name} missing columns: {', '.join(missing)}")
 
     def load_data(self):
         print("Loading CSV files...")
-        # NWS file is required
+        # NWS file required
         self.nws_df = pd.read_csv("nws_forecast_log.csv")
-        self._validate_columns(
+        self._require(
             self.nws_df,
             [
                 "timestamp",
@@ -75,12 +92,11 @@ class NYCTemperatureModelTrainer:
             "nws_forecast_log.csv",
         )
 
-        # AccuWeather is optional
+        # AccuWeather optional
         try:
             self.accu_df = pd.read_csv("accuweather_log.csv")
             if not self.accu_df.empty:
-                # Only require minimal columns if present
-                self._validate_columns(
+                self._require(
                     self.accu_df,
                     ["timestamp", "forecast_or_actual", "predicted_high", "target_date"],
                     "accuweather_log.csv",
@@ -89,22 +105,20 @@ class NYCTemperatureModelTrainer:
             print("AccuWeather file not found, proceeding with NWS only")
             self.accu_df = pd.DataFrame()
 
-        # Convert timestamps with safe parser
+        # timestamps with safe parser
         self.nws_df["timestamp"] = self.nws_df["timestamp"].apply(_safe_parse_ts)
         self.nws_df = self.nws_df.dropna(subset=["timestamp"])
 
         if not self.accu_df.empty:
-            # If timestamp column holds structured data, skip AccuWeather
+            # bail if column has structured objects
             if self.accu_df["timestamp"].apply(lambda v: isinstance(v, (dict, list))).any():
                 print("AccuWeather timestamp column is structured. Skipping AccuWeather.")
                 self.accu_df = pd.DataFrame()
             else:
                 self.accu_df["timestamp"] = self.accu_df["timestamp"].apply(_safe_parse_ts)
-                bad_rate = self.accu_df["timestamp"].isna().mean()
-                if bad_rate > 0.5:
-                    print(
-                        f"AccuWeather timestamps too messy ({bad_rate:.0%} invalid). Skipping AccuWeather."
-                    )
+                invalid = float(self.accu_df["timestamp"].isna().mean())
+                if invalid > 0.5:
+                    print(f"AccuWeather timestamps too messy ({invalid:.0%} invalid). Skipping AccuWeather.")
                     self.accu_df = pd.DataFrame()
                 else:
                     self.accu_df = self.accu_df.dropna(subset=["timestamp"])
@@ -112,13 +126,11 @@ class NYCTemperatureModelTrainer:
         print(f"Loaded {len(self.nws_df)} NWS rows, {len(self.accu_df)} AccuWeather rows")
 
     def extract_features_for_date(self, target_date):
-        # NWS forecasts for the target date
         nws_forecasts = self.nws_df[
             (self.nws_df["target_date"] == target_date)
             & (self.nws_df["forecast_or_actual"] == "forecast")
         ].copy()
 
-        # AccuWeather forecasts for the target date (optional)
         if not self.accu_df.empty:
             accu_forecasts = self.accu_df[
                 (self.accu_df["target_date"] == target_date)
@@ -127,7 +139,6 @@ class NYCTemperatureModelTrainer:
         else:
             accu_forecasts = pd.DataFrame()
 
-        # Actual row for the date
         actual_row = self.nws_df[
             (self.nws_df["cli_date"] == target_date)
             & (self.nws_df["forecast_or_actual"] == "actual")
@@ -138,14 +149,13 @@ class NYCTemperatureModelTrainer:
 
         actual_high = float(actual_row.iloc[0]["actual_high"])
 
-        # Sort by issuance time
         nws_forecasts = nws_forecasts.sort_values("timestamp")
         if not accu_forecasts.empty:
             accu_forecasts = accu_forecasts.sort_values("timestamp")
 
         nws_values = nws_forecasts["predicted_high"].astype(float).values
-
         month = int(target_date.split("-")[1])
+
         features = {
             "nws_first": nws_values[0] if len(nws_values) > 0 else np.nan,
             "nws_last": nws_values[-1] if len(nws_values) > 0 else np.nan,
@@ -153,17 +163,15 @@ class NYCTemperatureModelTrainer:
             "nws_min": nws_values.min() if len(nws_values) > 0 else np.nan,
             "nws_mean": nws_values.mean() if len(nws_values) > 0 else np.nan,
             "nws_median": float(np.median(nws_values)) if len(nws_values) > 0 else np.nan,
-            "nws_count": len(nws_values),
-            "nws_spread": (nws_values.max() - nws_values.min()) if len(nws_values) > 0 else 0.0,
+            "nws_count": int(len(nws_values)),
+            "nws_spread": float(nws_values.max() - nws_values.min()) if len(nws_values) > 0 else 0.0,
             "nws_std": float(nws_values.std()) if len(nws_values) > 1 else 0.0,
             "nws_trend": float(nws_values[-1] - nws_values[0]) if len(nws_values) > 1 else 0.0,
             "forecast_velocity": self.calculate_velocity(nws_values),
             "forecast_acceleration": self.calculate_acceleration(nws_values),
-            "accu_last": float(accu_forecasts.iloc[-1]["predicted_high"])
-            if not accu_forecasts.empty
-            else np.nan,
+            "accu_last": float(accu_forecasts.iloc[-1]["predicted_high"]) if not accu_forecasts.empty else np.nan,
             "accu_count": int(len(accu_forecasts)),
-            "nws_accu_spread": np.nan,  # filled below if both present
+            "nws_accu_spread": np.nan,
             "month": month,
             "is_summer": int(month in [6, 7, 8]),
             "is_winter": int(month in [12, 1, 2]),
@@ -201,18 +209,14 @@ class NYCTemperatureModelTrainer:
                 features_list.append(feat)
 
         if not features_list:
-            raise ValueError("No features built. Check that your CSVs contain actuals and forecasts.")
+            raise ValueError("No features built. Ensure CSVs have forecasts and actuals.")
 
         self.features_df = pd.DataFrame(features_list)
 
-        # Fill NaNs for modeling
         if "accu_last" in self.features_df.columns:
-            self.features_df["accu_last"] = self.features_df["accu_last"].fillna(
-                self.features_df["nws_last"]
-            )
+            self.features_df["accu_last"] = self.features_df["accu_last"].fillna(self.features_df["nws_last"])
         self.features_df["nws_accu_spread"] = self.features_df["nws_accu_spread"].fillna(0.0)
 
-        # Basic integrity check
         missing_any = [c for c in FEATURE_COLS if c not in self.features_df.columns]
         if missing_any:
             raise ValueError(f"Feature matrix missing cols: {', '.join(missing_any)}")
@@ -267,7 +271,6 @@ class NYCTemperatureModelTrainer:
         with open("bucket_model.pkl", "wb") as f:
             pickle.dump(self.bucket_model, f)
 
-        # In-sample sanity metrics
         X_all = self.features_df[FEATURE_COLS]
         temp_pred_all = self.temp_model.predict(X_all)
         bucket_pred_all = self.bucket_model.predict(X_all)
