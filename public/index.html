@@ -2291,6 +2291,24 @@ async function fetchAccuWeatherForecasts() {
 }
 window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
 
+async function loadTodaysPredictionHistory() {
+  const today = nycISODate(0);
+  const { data, error } = await supabase
+    .from('prediction_logs')
+    .select('prediction_value, timestamp')
+    .eq('target_date', today)
+    .eq('lead_used', 'D0')
+    .order('timestamp', { ascending: true });
+    
+  if (data && !error) {
+    predictionHistory.today = data.map(row => ({
+      timestamp: row.timestamp,
+      value: row.prediction_value,
+      hour: new Date(row.timestamp).getHours()
+    }));
+  }
+}
+
     // Kalshi cache
     const kalshiCache = new Map();
     async function getKalshiLabel(dateISO) {
@@ -3358,6 +3376,9 @@ async function bootApp() {
     try { window.scheduleMidnightUpdate && window.scheduleMidnightUpdate(); } catch {}
 
     try { window.probeLoggingEndpoint && await window.probeLoggingEndpoint(); } catch {}
+
+    // Load today's prediction history from database
+    try { await loadTodaysPredictionHistory(); } catch {}
 
     // Fetch AccuWeather API data early
     if (typeof fetchAccuWeatherForecasts === 'function') {
