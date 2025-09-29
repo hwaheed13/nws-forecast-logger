@@ -893,6 +893,7 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
     forecast_signature: '',
     representative_kind: 'blend',
     timestamp_et: now.toISOString()
+    };
   
   try {
     const r = await fetch(`${API_BASE}/log-prediction`, {
