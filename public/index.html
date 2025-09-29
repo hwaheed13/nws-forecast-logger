@@ -720,9 +720,21 @@ const predictionHistory = {
   add(which, value, timestamp = new Date().toISOString()) {
     if (!['today', 'tomorrow'].includes(which)) return;
     
+    const rounded = Math.round(value * 10) / 10;
+    
+    // Check if this is actually a new/different value
+    const last = this[which][this[which].length - 1];
+    if (last) {
+      // Skip if same value within 1 minute
+      if (last.value === rounded) {
+        const timeDiff = new Date(timestamp) - new Date(last.timestamp);
+        if (timeDiff < 60000) return;
+      }
+    }
+    
     const entry = {
       timestamp,
-      value: Math.round(value * 10) / 10,
+      value: rounded,
       hour: new Date(timestamp).getHours()
     };
     
