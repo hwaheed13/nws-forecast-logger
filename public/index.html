@@ -3329,8 +3329,10 @@ const supabase = window.supabase.createClient(
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
   );
 
- async function loadTodaysPredictionHistory() {
+async function loadTodaysPredictionHistory() {
   const today = window.nycISODate(0);
+  console.log("Loading predictions for:", today);
+  
   const { data, error } = await supabase
     .from('prediction_logs')
     .select('prediction_value, timestamp')
@@ -3338,34 +3340,45 @@ const supabase = window.supabase.createClient(
     .eq('lead_used', 'D0')
     .order('timestamp', { ascending: true });
     
-  if (data && !error) {
+  if (error) {
+    console.error("Error loading predictions:", error);
+    return;
+  }
+  
+  console.log("Raw data from database:", data);
+  
+  if (data && data.length > 0) {
     // Clear existing history before loading from database
     window.predictionHistory.today = [];
     
-    // Use the add method to properly process each value
+    // Process all values
+    const processedValues = [];
     data.forEach(row => {
-      // Ensure the value is properly rounded to 1 decimal place
       const roundedValue = Math.round(row.prediction_value * 10) / 10;
+      processedValues.push(roundedValue);
       
-      // Manually add to the array with proper rounding
-      // This ensures consistency with how values are added during runtime
       const entry = {
         timestamp: row.timestamp,
         value: roundedValue,
         hour: new Date(row.timestamp).getHours()
       };
       
-      // Check if this value is actually different from the last one
+      // Only add if different from last value
       const last = window.predictionHistory.today[window.predictionHistory.today.length - 1];
       if (!last || last.value !== roundedValue) {
         window.predictionHistory.today.push(entry);
+        console.log("Added entry:", entry);
+      } else {
+        console.log("Skipped duplicate:", roundedValue);
       }
     });
     
-    console.log('Loaded prediction history:', {
-      count: window.predictionHistory.today.length,
-      values: window.predictionHistory.today.map(e => e.value),
-      range: window.predictionHistory.getRange('today')
+    console.log('Processing complete:', {
+      rawCount: data.length,
+      processedValues: processedValues,
+      uniqueValues: [...new Set(processedValues)],
+      finalHistory: window.predictionHistory.today,
+      computedRange: window.predictionHistory.getRange('today')
     });
   }
 }
