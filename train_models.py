@@ -31,11 +31,17 @@ class NYCTemperatureModelTrainer:
             self.accu_df = pd.DataFrame()
         
         # Convert timestamps
-        self.nws_df['timestamp'] = pd.to_datetime(self.nws_df['timestamp'])
+        # NEW:
+        self.nws_df['timestamp'] = pd.to_datetime(self.nws_df['timestamp'], errors='coerce')
         if not self.accu_df.empty:
-            self.accu_df['timestamp'] = pd.to_datetime(self.accu_df['timestamp'])
-        
-        print(f"Loaded {len(self.nws_df)} NWS rows, {len(self.accu_df)} AccuWeather rows")
+            self.accu_df['timestamp'] = pd.to_datetime(self.accu_df['timestamp'], errors='coerce')
+            
+        # Drop rows with invalid timestamps
+        self.nws_df = self.nws_df.dropna(subset=['timestamp'])
+        if not self.accu_df.empty:
+            self.accu_df = self.accu_df.dropna(subset=['timestamp'])
+                
+                print(f"Loaded {len(self.nws_df)} NWS rows, {len(self.accu_df)} AccuWeather rows")
         
     def extract_features_for_date(self, target_date):
         """Extract all features for a single date"""
