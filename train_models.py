@@ -22,11 +22,18 @@ class NYCTemperatureModelTrainer:
         """Load NWS and AccuWeather CSV files"""
         print("Loading CSV files...")
         self.nws_df = pd.read_csv('nws_forecast_log.csv')
-        self.accu_df = pd.read_csv('accuweather_log.csv')
+        
+        # Try to load AccuWeather, but don't fail if missing
+        try:
+            self.accu_df = pd.read_csv('accuweather_log.csv')
+        except FileNotFoundError:
+            print("AccuWeather file not found, proceeding with NWS only")
+            self.accu_df = pd.DataFrame()
         
         # Convert timestamps
         self.nws_df['timestamp'] = pd.to_datetime(self.nws_df['timestamp'])
-        self.accu_df['timestamp'] = pd.to_datetime(self.accu_df['timestamp'])
+        if not self.accu_df.empty:
+            self.accu_df['timestamp'] = pd.to_datetime(self.accu_df['timestamp'])
         
         print(f"Loaded {len(self.nws_df)} NWS rows, {len(self.accu_df)} AccuWeather rows")
         
@@ -39,10 +46,13 @@ class NYCTemperatureModelTrainer:
         ].copy()
         
         # Get AccuWeather forecasts
-        accu_forecasts = self.accu_df[
-            (self.accu_df['target_date'] == target_date) & 
-            (self.accu_df['forecast_or_actual'] == 'forecast')
-        ].copy()
+        if not self.accu_df.empty:
+            accu_forecasts = self.accu_df[
+                (self.accu_df['target_date'] == target_date) & 
+                (self.accu_df['forecast_or_actual'] == 'forecast')
+            ].copy()
+        else:
+            accu_forecasts = pd.DataFrame()
         
         # Get actual
         actual_row = self.nws_df[
@@ -57,7 +67,8 @@ class NYCTemperatureModelTrainer:
         
         # Sort forecasts by time
         nws_forecasts = nws_forecasts.sort_values('timestamp')
-        accu_forecasts = accu_forecasts.sort_values('timestamp') if not accu_forecasts.empty else accu_forecasts
+        if not accu_forecasts.empty:
+            accu_forecasts = accu_forecasts.sort_values('timestamp')
         
         # NWS features
         nws_values = nws_forecasts['predicted_high'].astype(float).values
