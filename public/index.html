@@ -705,7 +705,10 @@ input[type="date"] {
 /* ========= DATA + UI ========= */
 let allRows = [], filteredRows = [], chartInstance = null, accuRows = [];
 // Track last logged values to prevent duplicate API calls
-let lastLoggedPredictions = { today: null, tomorrow: null };
+let lastLoggedPredictions = { 
+  today: localStorage.getItem('lastLoggedPred_today') ? parseFloat(localStorage.getItem('lastLoggedPred_today')) : null,
+  tomorrow: localStorage.getItem('lastLoggedPred_tomorrow') ? parseFloat(localStorage.getItem('lastLoggedPred_tomorrow')) : null
+};
 // Flag to prevent logging before system is ready
 let systemFullyLoaded = false;
 
@@ -839,16 +842,16 @@ const boundaryDetector = new KalshiBoundaryDetector();
 async function logUIprediction(which, prediction, candidates, warning, bias, rmse) {
   if (!PREDICTION_LOGGING_ENABLED) return;
   
-  // Round the prediction first
+  // Round the prediction
   const rounded = Math.round(prediction * 10) / 10;
   
-  // CHECK IF VALUE CHANGED - EXIT EARLY IF NOT
+  // ONLY LOG IF VALUE ACTUALLY CHANGED
   if (lastLoggedPredictions[which] === rounded) {
-    return;  // Same value, don't log
+    console.log(`Skipping log for ${which}: ${rounded}°F (no change)`);
+    return;
   }
   
   const now = new Date();
-  // Use minute-level timestamp for uniqueness when values DO change
   const minuteTimestamp = new Date(
     now.getFullYear(),
     now.getMonth(),
@@ -883,12 +886,13 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
       body: JSON.stringify(payload)
     });
     
-    if (!r.ok && r.status !== 409) {  // 409 is duplicate, which is OK
+    if (!r.ok && r.status !== 409) {
       console.error(`API error (${r.status}):`, await r.text());
     } else if (r.ok) {
-      console.log(`Successfully logged ${which}: ${payload.prediction_value}°F`);
-      // UPDATE TRACKER ONLY AFTER SUCCESSFUL LOG
+      console.log(`Successfully logged ${which}: ${rounded}°F (was ${lastLoggedPredictions[which]}°F)`);
+      // SAVE TO BOTH MEMORY AND LOCALSTORAGE
       lastLoggedPredictions[which] = rounded;
+      localStorage.setItem(`lastLoggedPred_${which}`, rounded.toString());
     }
   } catch (e) {
     console.error("Network error:", e);
