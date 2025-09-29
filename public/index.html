@@ -940,7 +940,7 @@ const CLIENT_LEARNING = false;
 const ETA = 0.25;                         // learning rate per °F (Hedge)
 const MIX_GAMMA = 0.02;                   // uniform mix-in to avoid collapse
 const DECAY_PER_DAY = 0.997;              // gently decay old info
-const BIAS_HALFLIFE_DAYS = 14;            // bias recency (~1 month)
+const BIAS_HALFLIFE_DAYS = 21;            // bias recency (~1 month)
 const RMSE_HALFLIFE_DAYS = 21;            // uncertainty recency for clamp
 
 function loadState(key){
