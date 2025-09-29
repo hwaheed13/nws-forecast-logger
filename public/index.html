@@ -2688,32 +2688,6 @@ window._predTomorrow = predTomorrow;
       }
     }
     
-    if (el0) {
-      if (hasActualFor(todayISO)) {
-        el0.innerHTML = `
-          <div class="prediction-value">—</div>
-          <div class="prediction-subtitle">Actual high published for ${todayISO}</div>
-        `;
-  } else if (Number.isFinite(predToday?.y)) {
-        const val  = predToday.y.toFixed(1);
-        const bias = predToday.bias != null ? predToday.bias.toFixed(2) : "0.00";
-        const sign = Number(bias) >= 0 ? "+" : "";
-        
-        // Add Kalshi range if available
-        const kalshiNote = todayKalshiRange?.label 
-          ? ` • Kalshi: ${todayKalshiRange.label}` 
-          : "";
-        
-        el0.innerHTML = `
-          <div class="prediction-value">${val}°F</div>
-          <div class="prediction-subtitle">
-            <small>Smart ensemble (${Object.keys(predToday.weights || {}).length} sources, weights learn daily) ${sign}${bias}°F${kalshiNote}</small>
-          </div>
-        `;
-      } else {
-        el0.innerHTML = `<div class="prediction-value">—</div><div class="prediction-subtitle">Awaiting forecast data</div>`;
-      }
-    }
     
 if (el1) {
       if (Number.isFinite(predTomorrow?.y)) {
