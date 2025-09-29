@@ -712,68 +712,66 @@ let lastLoggedPredictions = {
 // Flag to prevent logging before system is ready
 let systemFullyLoaded = false;
 
-// Prediction tracking system
-const predictionHistory = {
-  today: [],
-  tomorrow: [],
-  
-  add(which, value, timestamp = new Date().toISOString()) {
-  if (!['today', 'tomorrow'].includes(which)) return;
-  
-  const rounded = Math.round(value * 10) / 10;
-  
-  // Check if this is actually a new/different value
-  const last = this[which][this[which].length - 1];
-  if (last) {
-    // Skip if same value within 1 minute
-    if (last.value === rounded) {
-      const timeDiff = new Date(timestamp) - new Date(last.timestamp);
-      if (timeDiff < 60000) return;
-    }
-  }
-  
-  const entry = {
-    timestamp,
-    value: rounded,
-    hour: new Date(timestamp).getHours()
-  };
-  
-  this[which].push(entry);
-  
-  // REMOVED the cutoff filtering that was deleting your history
-  // const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-  // this[which] = this[which].filter(e => new Date(e.timestamp) > cutoff);
-},
-  
-getRange(which) {
-  if (!this[which].length) return null;
-  // Round values to ensure consistency
-  const values = this[which].map(e => Math.round(e.value * 10) / 10);
-  const uniqueValues = [...new Set(values)];
-  
-  return {
-    min: Math.min(...uniqueValues),
-    max: Math.max(...uniqueValues),
-    current: values[values.length - 1],
-    changes: uniqueValues.length // Count unique values, not total entries
-  };
-},
-  
-  crossedBoundary(which, boundary) {
-    const values = this[which].map(e => e.value);
-    if (values.length < 2) return false;
+// Initialize global if it doesn't exist
+if (!window.predictionHistory) {
+  window.predictionHistory = {
+    today: [],
+    tomorrow: [],
     
-    for (let i = 1; i < values.length; i++) {
-      const prev = values[i-1];
-      const curr = values[i];
-      if ((prev < boundary && curr >= boundary) || 
-          (prev >= boundary && curr < boundary)) {
-        return true;
+    add(which, value, timestamp = new Date().toISOString()) {
+      if (!['today', 'tomorrow'].includes(which)) return;
+      
+      const rounded = Math.round(value * 10) / 10;
+      
+      const last = this[which][this[which].length - 1];
+      if (last) {
+        if (last.value === rounded) {
+          const timeDiff = new Date(timestamp) - new Date(last.timestamp);
+          if (timeDiff < 60000) return;
+        }
       }
+      
+      const entry = {
+        timestamp,
+        value: rounded,
+        hour: new Date(timestamp).getHours()
+      };
+      
+      this[which].push(entry);
+    },
+    
+    getRange(which) {
+      if (!this[which].length) return null;
+      const values = this[which].map(e => Math.round(e.value * 10) / 10);
+      const uniqueValues = [...new Set(values)];
+      
+      return {
+        min: Math.min(...uniqueValues),
+        max: Math.max(...uniqueValues),
+        current: values[values.length - 1],
+        changes: uniqueValues.length
+      };
+    },
+    
+    crossedBoundary(which, boundary) {
+      const values = this[which].map(e => e.value);
+      if (values.length < 2) return false;
+      
+      for (let i = 1; i < values.length; i++) {
+        const prev = values[i-1];
+        const curr = values[i];
+        if ((prev < boundary && curr >= boundary) || 
+            (prev >= boundary && curr < boundary)) {
+          return true;
+        }
+      }
+      return false;
     }
-    return false;
-  }
-};
+  };
+}
+
+// Use the global object directly
+const predictionHistory = window.predictionHistory;
 
 // Boundary detector for Kalshi bucket warnings
 class KalshiBoundaryDetector {
