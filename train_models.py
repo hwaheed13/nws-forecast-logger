@@ -310,7 +310,7 @@ def load_data(self):
         print(f"Temperature MAE: {metadata['model_performance']['temperature_mae']:.2f}°F")
         print(f"Bucket accuracy: {metadata['model_performance']['bucket_accuracy']:.1%}")
     
-    def run(self):
+def run(self):
         """Main training pipeline"""
         print("="*50)
         print("NYC Temperature Model Training")
