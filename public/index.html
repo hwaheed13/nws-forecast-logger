@@ -2292,7 +2292,15 @@ async function fetchAccuWeatherForecasts() {
 window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
 
 async function loadTodaysPredictionHistory() {
+  console.log("Loading prediction history...");
   const today = nycISODate(0);
+  
+  // Check if supabase exists
+  if (typeof supabase === 'undefined') {
+    console.error("Supabase client not available!");
+    return;
+  }
+  
   const { data, error } = await supabase
     .from('prediction_logs')
     .select('prediction_value, timestamp')
@@ -2300,12 +2308,16 @@ async function loadTodaysPredictionHistory() {
     .eq('lead_used', 'D0')
     .order('timestamp', { ascending: true });
     
-  if (data && !error) {
+  if (error) {
+    console.error("Error loading history:", error);
+  } else if (data) {
+    console.log("Loaded history data:", data);
     predictionHistory.today = data.map(row => ({
       timestamp: row.timestamp,
       value: row.prediction_value,
       hour: new Date(row.timestamp).getHours()
     }));
+    console.log("Updated predictionHistory.today:", predictionHistory.today);
   }
 }
 
