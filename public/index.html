@@ -892,18 +892,7 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
     version: '4.1',
     forecast_signature: '',
     representative_kind: 'blend',
-    timestamp_et: new Intl.DateTimeFormat('en-US', {
-  timeZone: 'America/New_York',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  fractionalSecondDigits: 3,
-  hour12: false
-}).format(now).replace(/(\d+)\/(\d+)\/(\d+),? /, '$3-$1-$2 ') + ' ET'
-  };
+    timestamp_et: now.toISOString()
   
   try {
     const r = await fetch(`${API_BASE}/log-prediction`, {
