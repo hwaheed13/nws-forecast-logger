@@ -704,9 +704,10 @@ input[type="date"] {
 
 /* ========= DATA + UI ========= */
 let allRows = [], filteredRows = [], chartInstance = null, accuRows = [];
-
 // Track last logged values to prevent duplicate API calls
 let lastLoggedPredictions = { today: null, tomorrow: null };
+// Flag to prevent logging before system is ready
+let systemFullyLoaded = false;
 
 // Prediction tracking system
 const predictionHistory = {
@@ -838,14 +839,14 @@ const boundaryDetector = new KalshiBoundaryDetector();
 async function logUIprediction(which, prediction, candidates, warning, bias, rmse) {
   if (!PREDICTION_LOGGING_ENABLED) return;
   
-  // Use a stable hourly timestamp to prevent refresh duplicates
   const now = new Date();
+  // Use stable hourly timestamp to prevent refresh duplicates
   const hourlyTimestamp = new Date(
     now.getFullYear(),
     now.getMonth(),
     now.getDate(),
     now.getHours(),
-    0, 0, 0  // Zero out minutes, seconds, ms
+    0, 0, 0
   );
   
   const payload = {
@@ -853,7 +854,7 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
     lead_used: which === 'today' ? 'D0' : 'D1',
     rep_forecast: candidates?.series_rep || prediction,
     delta_last3: 0,
-    issuance_iso: hourlyTimestamp.toISOString(),  // This stays the same within the hour
+    issuance_iso: hourlyTimestamp.toISOString(),
     issuance_hour_local: now.getHours(),
     season: isWarmSeason(which === 'today' ? nycISODate(0) : nycISODate(1)) ? 'warm' : 'cool',
     bias_applied: bias || 0,
@@ -2600,8 +2601,8 @@ window._predTomorrow = predTomorrow;
         )
       : null;
 
-  // Only log when prediction values actually change AND after data is loaded
-    if (predToday?.y && !hasActualFor(todayISO) && window.accuWeatherData !== undefined) {
+  // Only log valid predictions after system is fully loaded
+    if (systemFullyLoaded && predToday?.y && predToday.y > 40 && !hasActualFor(todayISO)) {
       const roundedToday = Math.round(predToday.y * 10) / 10;
       if (lastLoggedPredictions.today !== roundedToday) {
         logUIprediction('today', predToday.y, builtToday.candidates, todayWarning, predToday.bias, predToday.pad);
@@ -2609,7 +2610,7 @@ window._predTomorrow = predTomorrow;
       }
     }
     
-    if (predTomorrow?.y && window.accuWeatherData !== undefined) {
+    if (systemFullyLoaded && predTomorrow?.y && predTomorrow.y > 40) {
       const finalValue = predTomorrow.y + (Number.isFinite(d1AdjF) ? d1AdjF : 0);
       const roundedTomorrow = Math.round(finalValue * 10) / 10;
       if (lastLoggedPredictions.tomorrow !== roundedTomorrow) {
@@ -3380,10 +3381,16 @@ async function bootApp() {
       setInterval(fetchAccuWeatherForecasts, 2 * 60 * 60 * 1000);
     }
 
-    try {
+  try {
       localStorage.setItem("dashboard_heartbeat", String(Date.now()));
       setInterval(() => { try { localStorage.setItem("dashboard_heartbeat", String(Date.now())); } catch {} }, 60 * 1000);
     } catch {}
+    
+    // Mark system as fully loaded after initial data load
+    setTimeout(() => { 
+      systemFullyLoaded = true;
+      console.log("System fully loaded, logging enabled");
+    }, 2000);
   }
 
 async function checkAccess() {
