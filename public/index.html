@@ -2291,35 +2291,7 @@ async function fetchAccuWeatherForecasts() {
 }
 window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
 
-async function loadTodaysPredictionHistory() {
-  console.log("Loading prediction history...");
-  const today = nycISODate(0);
-  
-  // Check if supabase exists
-  if (typeof supabase === 'undefined') {
-    console.error("Supabase client not available!");
-    return;
-  }
-  
-  const { data, error } = await supabase
-    .from('prediction_logs')
-    .select('prediction_value, timestamp')
-    .eq('target_date', today)
-    .eq('lead_used', 'D0')
-    .order('timestamp', { ascending: true });
-    
-  if (error) {
-    console.error("Error loading history:", error);
-  } else if (data) {
-    console.log("Loaded history data:", data);
-    predictionHistory.today = data.map(row => ({
-      timestamp: row.timestamp,
-      value: row.prediction_value,
-      hour: new Date(row.timestamp).getHours()
-    }));
-    console.log("Updated predictionHistory.today:", predictionHistory.today);
-  }
-}
+
 
     // Kalshi cache
     const kalshiCache = new Map();
@@ -3353,6 +3325,23 @@ stats.innerHTML = `
     "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
   );
+  async function loadTodaysPredictionHistory() {
+    const today = window.nycISODate(0);
+    const { data, error } = await supabase
+      .from('prediction_logs')
+      .select('prediction_value, timestamp')
+      .eq('target_date', today)
+      .eq('lead_used', 'D0')
+      .order('timestamp', { ascending: true });
+      
+    if (data && !error) {
+      window.predictionHistory.today = data.map(row => ({
+        timestamp: row.timestamp,
+        value: row.prediction_value,
+        hour: new Date(row.timestamp).getHours()
+      }));
+    }
+  }
 
   const gate = document.getElementById("gate");
   function gateMsg(msg){
@@ -3383,6 +3372,9 @@ stats.innerHTML = `
   });
 
 async function bootApp() {
+    // Load today's prediction history first
+    try { await loadTodaysPredictionHistory(); } catch {}
+    
     // light, defensive calls
     try { window.showTodayDate && window.showTodayDate(); } catch {}
     try { window.scheduleMidnightUpdate && window.scheduleMidnightUpdate(); } catch {}
