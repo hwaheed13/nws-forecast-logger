@@ -842,12 +842,16 @@ const boundaryDetector = new KalshiBoundaryDetector();
 async function logUIprediction(which, prediction, candidates, warning, bias, rmse) {
   if (!PREDICTION_LOGGING_ENABLED) return;
   
-  // Round the prediction
   const rounded = Math.round(prediction * 10) / 10;
+  const targetDate = which === 'today' ? nycISODate(0) : nycISODate(1);
   
-  // ONLY LOG IF VALUE ACTUALLY CHANGED
-  if (lastLoggedPredictions[which] === rounded) {
-    console.log(`Skipping log for ${which}: ${rounded}°F (no change)`);
+  // Create unique key combining date + value
+  const uniqueKey = `${targetDate}|${rounded}`;
+  const lastLoggedKey = localStorage.getItem(`lastLoggedKey_${which}`);
+  
+  // ONLY LOG IF THIS EXACT DATE+VALUE COMBO HASN'T BEEN LOGGED
+  if (lastLoggedKey === uniqueKey) {
+    console.log(`Skipping: ${which} already logged ${rounded}°F for ${targetDate}`);
     return;
   }
   
@@ -862,13 +866,13 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
   );
   
   const payload = {
-    target_date: which === 'today' ? nycISODate(0) : nycISODate(1),
+    target_date: targetDate,
     lead_used: which === 'today' ? 'D0' : 'D1',
     rep_forecast: candidates?.series_rep || prediction,
     delta_last3: 0,
     issuance_iso: minuteTimestamp.toISOString(),
     issuance_hour_local: now.getHours(),
-    season: isWarmSeason(which === 'today' ? nycISODate(0) : nycISODate(1)) ? 'warm' : 'cool',
+    season: isWarmSeason(targetDate) ? 'warm' : 'cool',
     bias_applied: bias || 0,
     prediction_value: rounded,
     uncertainty_rmse: rmse || 2.0,
@@ -889,11 +893,10 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
     if (!r.ok && r.status !== 409) {
       console.error(`API error (${r.status}):`, await r.text());
     } else if (r.ok) {
-      console.log(`Successfully logged ${which}: ${rounded}°F (was ${lastLoggedPredictions[which]}°F)`);
-      // SAVE TO BOTH MEMORY AND LOCALSTORAGE
+      console.log(`Successfully logged ${which}: ${rounded}°F for ${targetDate}`);
+      // Store the unique key so we don't log this combo again
+      localStorage.setItem(`lastLoggedKey_${which}`, uniqueKey);
       lastLoggedPredictions[which] = rounded;
-      const dateKey = which === 'today' ? nycISODate(0) : nycISODate(1);
-    localStorage.setItem(`lastPred_${which}_${dateKey}`, rounded.toString());
     }
   } catch (e) {
     console.error("Network error:", e);
