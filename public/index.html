@@ -704,10 +704,10 @@ input[type="date"] {
 
 /* ========= DATA + UI ========= */
 let allRows = [], filteredRows = [], chartInstance = null, accuRows = [];
-// Track last logged values to prevent duplicate API calls
+// Track last logged values to prevent duplicate API calls (date-specific)
 let lastLoggedPredictions = { 
-  today: localStorage.getItem('lastLoggedPred_today') ? parseFloat(localStorage.getItem('lastLoggedPred_today')) : null,
-  tomorrow: localStorage.getItem('lastLoggedPred_tomorrow') ? parseFloat(localStorage.getItem('lastLoggedPred_tomorrow')) : null
+  today: localStorage.getItem(`lastPred_today_${nycISODate(0)}`) ? parseFloat(localStorage.getItem(`lastPred_today_${nycISODate(0)}`)) : null,
+  tomorrow: localStorage.getItem(`lastPred_tomorrow_${nycISODate(1)}`) ? parseFloat(localStorage.getItem(`lastPred_tomorrow_${nycISODate(1)}`)) : null
 };
 // Flag to prevent logging before system is ready
 let systemFullyLoaded = false;
@@ -892,7 +892,8 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
       console.log(`Successfully logged ${which}: ${rounded}°F (was ${lastLoggedPredictions[which]}°F)`);
       // SAVE TO BOTH MEMORY AND LOCALSTORAGE
       lastLoggedPredictions[which] = rounded;
-      localStorage.setItem(`lastLoggedPred_${which}`, rounded.toString());
+      const dateKey = which === 'today' ? nycISODate(0) : nycISODate(1);
+    localStorage.setItem(`lastPred_${which}_${dateKey}`, rounded.toString());
     }
   } catch (e) {
     console.error("Network error:", e);
