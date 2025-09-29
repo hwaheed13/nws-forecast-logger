@@ -1069,42 +1069,91 @@ const parseTs = (t) => {
 }
 
 // Make a prediction with Hedge (+ stored bias)
-function predictWithHedge(lead, season, candidates, rmseContext){
-  const key = contextKey(lead, season);
-  let st = loadState(key) || { w:{}, bias:null, rmse:null, lastDay:null };
+// ==== ML math helpers ====
+function calculateStd(arr) {
+  if (!arr || arr.length < 2) return 0;
+  const m = arr.reduce((a,b)=>a+b,0)/arr.length;
+  const v = arr.reduce((a,b)=>a+(b-m)*(b-m),0)/arr.length;
+  return Math.sqrt(v);
+}
+function calculateVelocity(values) {
+  if (!values || values.length < 2) return 0;
+  let s = 0;
+  for (let i=1;i<values.length;i++) s += (values[i]-values[i-1]);
+  return s / (values.length-1);
+}
+function calculateAcceleration(values) {
+  if (!values || values.length < 3) return 0;
+  const diffs = [];
+  for (let i=1;i<values.length;i++) diffs.push(values[i]-values[i-1]);
+  let s = 0;
+  for (let i=1;i<diffs.length;i++) s += (diffs[i]-diffs[i-1]);
+  return s / (diffs.length-1);
+}
 
-  const names = Reflect.ownKeys(candidates).filter(k => typeof k === 'string' && candidates[k] != null);
-  if (!names.length) return { y:null, y0:null, bias:0, pad:2, weights:{}, key };
+// ==== New model-backed predictor (replaces predictWithHedge) ====
+async function predictWithML(builtToday) {
+  // Gather all forecast highs you already render in c1/c0 series
+  const allForecasts = [
+    ...((builtToday?.c1?.series) || []),
+    ...((builtToday?.c0?.series) || [])
+  ]
+    .map(r => Number(r?.predicted_high))
+    .filter(v => Number.isFinite(v));
 
-  // init on first use
-  if (!Object.keys(st.w).length) {
-    const init = 1 / names.length;
-    names.forEach(n => st.w[n] = init);
-} else {
-    // Check for new candidates
-    const existingNames = Object.keys(st.w);
-    const newNames = names.filter(n => !(n in st.w));
-    
-if (newNames.length > 0) {
-      // Add all new sources with minimal weight
-      newNames.forEach(n => st.w[n] = 1e-6);
-    }
+  const nws_last = allForecasts[allForecasts.length-1];
+  if (!allForecasts.length || !Number.isFinite(nws_last)) {
+    // keep UI from breaking
+    return { y: builtToday?.candidates?.D0_latest ?? null, confidence: 0, bucket: null, shouldBet: false, bias: 0 };
   }
 
-  // small uniform mix to prevent collapse
-  mixWithUniform(st.w, MIX_GAMMA);
+  const month = new Date().getMonth() + 1;
+  const nws_first = allForecasts[0];
+  const nws_max = Math.max(...allForecasts);
+  const nws_min = Math.min(...allForecasts);
+  const nws_mean = allForecasts.reduce((a,b)=>a+b,0)/allForecasts.length;
 
-  const denom = names.reduce((s,n)=>s + (st.w[n]||0), 0) || 1;
-  const y0 = names.reduce((s,n)=>s + (st.w[n]||0) * (candidates[n] || 0), 0) / denom;
-  if (!Number.isFinite(y0) || y0 === 0) return { y:null, y0:null, bias:0, pad:2, weights:{...st.w}, key };
+  const accu_last = Number(builtToday?.candidates?.AccuWeather ?? NaN);
+  const refNws = Number(builtToday?.candidates?.D0_latest ?? builtToday?.candidates?.D1_latest ?? nws_last);
+  const nws_accu_spread = Number.isFinite(accu_last) ? Math.abs(refNws - accu_last) : 0;
 
-  const bias = st.bias ?? 0;
-  const y = (y0 == null) ? null : (y0 + bias);
+  const features = {
+    nws_first,
+    nws_last,
+    nws_max,
+    nws_min,
+    nws_mean,
+    nws_spread: nws_max - nws_min,
+    nws_std: calculateStd(allForecasts),
+    nws_trend: nws_last - nws_first,
+    nws_count: allForecasts.length,
+    forecast_velocity: calculateVelocity(allForecasts),
+    forecast_acceleration: calculateAcceleration(allForecasts),
+    accu_last: Number.isFinite(accu_last) ? accu_last : null,
+    nws_accu_spread,
+    month
+  };
 
-  // clamp pad from stored RMSE or provided context
-  const pad = Math.max(2, Number(st.rmse ?? rmseContext ?? 0) || 0);
-
-  return { y, y0, bias, pad, weights:{...st.w}, key };
+  try {
+    const resp = await fetch('/api/predict-ml', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(features)
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const result = await resp.json();
+    return {
+      y: result.temperature,         // numeric prediction from temp_model.pkl
+      confidence: result.confidence, // prob of best bucket
+      bucket: result.best_bucket,    // e.g., "78-79"
+      shouldBet: result.should_bet,  // simple rule-of-thumb boolean
+      bias: 0                        // legacy field kept for UI compatibility
+    };
+  } catch (err) {
+    console.error('ML prediction failed, falling back:', err);
+    // optional: if you kept another hedge fallback elsewhere, you could call it here
+    return { y: nws_last, confidence: 0, bucket: null, shouldBet: false, bias: 0 };
+  }
 }
 
 // Update Hedge weights + Bias/RMSE when an actual arrives
@@ -2516,7 +2565,7 @@ async function updateCorrectionBoxes() {
     // ----- Today -----
     const seasonToday = isWarmSeason(todayISO) ? "warm" : "cool";
     const builtToday = buildCandidatesForDay(todayISO, "");
-    const predToday = predictWithHedge("today", seasonToday, builtToday.candidates);
+    const predToday = await predictWithML(builtToday);
     // expose for debugging
 window._predToday = predToday;
 
