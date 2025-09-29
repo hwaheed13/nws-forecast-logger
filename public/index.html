@@ -3321,25 +3321,35 @@ stats.innerHTML = `
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
 (() => {
-  const supabase = window.supabase.createClient(
+const supabase = window.supabase.createClient(
     "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
   );
+
   async function loadTodaysPredictionHistory() {
+    console.log("Loading prediction history - START");
     const today = window.nycISODate(0);
+    console.log("Loading for date:", today);
+    
     const { data, error } = await supabase
       .from('prediction_logs')
       .select('prediction_value, timestamp')
       .eq('target_date', today)
       .eq('lead_used', 'D0')
       .order('timestamp', { ascending: true });
-      
-    if (data && !error) {
+    
+    if (error) {
+      console.error("Supabase error:", error);
+    } else if (data) {
+      console.log("Got data from Supabase:", data);
       window.predictionHistory.today = data.map(row => ({
         timestamp: row.timestamp,
         value: row.prediction_value,
         hour: new Date(row.timestamp).getHours()
       }));
+      console.log("Set predictionHistory.today to:", window.predictionHistory.today);
+    } else {
+      console.log("No data returned");
     }
   }
 
