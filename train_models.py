@@ -18,30 +18,29 @@ class NYCTemperatureModelTrainer:
         self.temp_model = None
         self.bucket_model = None
         
-    def load_data(self):
-        """Load NWS and AccuWeather CSV files"""
-        print("Loading CSV files...")
-        self.nws_df = pd.read_csv('nws_forecast_log.csv')
-        
-        # Try to load AccuWeather, but don't fail if missing
-        try:
-            self.accu_df = pd.read_csv('accuweather_log.csv')
-        except FileNotFoundError:
-            print("AccuWeather file not found, proceeding with NWS only")
-            self.accu_df = pd.DataFrame()
-        
-        # Convert timestamps
-        # NEW:
-        self.nws_df['timestamp'] = pd.to_datetime(self.nws_df['timestamp'], errors='coerce')
-        if not self.accu_df.empty:
-            self.accu_df['timestamp'] = pd.to_datetime(self.accu_df['timestamp'], errors='coerce')
-            
-        # Drop rows with invalid timestamps
-        self.nws_df = self.nws_df.dropna(subset=['timestamp'])
-        if not self.accu_df.empty:
-            self.accu_df = self.accu_df.dropna(subset=['timestamp'])
-                
-                print(f"Loaded {len(self.nws_df)} NWS rows, {len(self.accu_df)} AccuWeather rows")
+def load_data(self):
+    """Load NWS and AccuWeather CSV files"""
+    print("Loading CSV files...")
+    self.nws_df = pd.read_csv('nws_forecast_log.csv')
+    
+    # Try to load AccuWeather, but don't fail if missing
+    try:
+        self.accu_df = pd.read_csv('accuweather_log.csv')
+    except FileNotFoundError:
+        print("AccuWeather file not found, proceeding with NWS only")
+        self.accu_df = pd.DataFrame()
+    
+    # Convert timestamps
+    self.nws_df['timestamp'] = pd.to_datetime(self.nws_df['timestamp'], errors='coerce')
+    if not self.accu_df.empty:
+        self.accu_df['timestamp'] = pd.to_datetime(self.accu_df['timestamp'], errors='coerce')
+    
+    # Drop rows with invalid timestamps
+    self.nws_df = self.nws_df.dropna(subset=['timestamp'])
+    if not self.accu_df.empty:
+        self.accu_df = self.accu_df.dropna(subset=['timestamp'])
+    
+    print(f"Loaded {len(self.nws_df)} NWS rows, {len(self.accu_df)} AccuWeather rows")
         
     def extract_features_for_date(self, target_date):
         """Extract all features for a single date"""
