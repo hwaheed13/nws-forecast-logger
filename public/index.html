@@ -2671,7 +2671,9 @@ window._predTomorrow = predTomorrow;
         const historyRange = predictionHistory.getRange('today');
         const historyHTML = historyRange 
           ? `<div class="prediction-history">
-              Range: ${historyRange.min.toFixed(1)}°F - ${historyRange.max.toFixed(1)}°F 
+              ${historyRange.min === historyRange.max 
+                ? `Stable at ${historyRange.current.toFixed(1)}°F` 
+                : `Today's range: ${historyRange.min.toFixed(1)}°F - ${historyRange.max.toFixed(1)}°F`} 
               (${historyRange.changes} updates)
             </div>`
           : '';
@@ -2718,12 +2720,14 @@ if (el1) {
         
         // Add prediction history
         const historyRange = predictionHistory.getRange('tomorrow');
-        const historyHTML = historyRange 
-          ? `<div class="prediction-history">
-              Range: ${historyRange.min.toFixed(1)}°F - ${historyRange.max.toFixed(1)}°F 
-              (${historyRange.changes} updates)
-            </div>`
-          : '';
+         const historyHTML = historyRange 
+      ? `<div class="prediction-history">
+          ${historyRange.min === historyRange.max 
+            ? `Stable at ${historyRange.current.toFixed(1)}°F` 
+            : `Range: ${historyRange.min.toFixed(1)}°F - ${historyRange.max.toFixed(1)}°F`} 
+          (${historyRange.changes} updates)
+        </div>`
+      : '';
         
         el1.innerHTML = `
           <div class="prediction-value">${val}°F</div>
