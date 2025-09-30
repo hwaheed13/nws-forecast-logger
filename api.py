@@ -78,5 +78,21 @@ def predict_ml():
 def health():
     return {"ok": True}
 
+@app.get("/api/version")
+def version():
+    meta = {}
+    try:
+        with open("model_metadata.json", "r") as f:
+            meta = json.load(f)
+    except Exception:
+        pass
+    return {
+        "service": "nws-ml-api",
+        "models_loaded": bool(TEMP_MODEL) and bool(BUCKET_MODEL),
+        "trained_on": meta.get("trained_on"),
+        "date_range": meta.get("date_range"),
+    }
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)
