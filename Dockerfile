@@ -15,5 +15,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Start the Flask app via gunicorn (Railway injects $PORT)
-CMD ["sh", "-c", "gunicorn -w 2 -b 0.0.0.0:$PORT api:app"]
-
+CMD sh -c "gunicorn -w 2 -b 0.0.0.0:$PORT api:app"
