@@ -17,5 +17,5 @@ COPY . .
 # Railway exposes $PORT; default to 8080 locally
 ENV PORT=8080
 
-# Start the Flask app via gunicorn
-CMD ["gunicorn", "-w", "2", "-b", "0.0.0.0:8080", "api:app"]
+# Start the Flask app via gunicorn (use shell form so $PORT expands)
+CMD gunicorn -w 2 -b 0.0.0.0:$PORT api:app
