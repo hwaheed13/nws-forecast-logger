@@ -4,6 +4,11 @@
     { "source": "/dashboard", "destination": "/dashboard/index.html" },
     { "source": "/terms", "destination": "/terms.html" },
     { "source": "/privacy", "destination": "/privacy.html" },
+
+    // NEW: proxy ML API calls to your Flask service
+    { "source": "/api/predict-ml", "destination": "http://localhost:8000/api/predict-ml" },
+    { "source": "/api/health", "destination": "http://localhost:8000/api/health" },
+
     { "source": "/:path*", "destination": "/:path*" }
   ]
 }
