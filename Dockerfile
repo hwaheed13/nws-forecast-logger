@@ -14,8 +14,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the app code + model files
 COPY . .
 
-# Railway exposes $PORT; default to 8080 locally
-ENV PORT=8080
-
-# Start the Flask app via gunicorn (use shell form so $PORT expands)
+# Start the Flask app via gunicorn (Railway injects $PORT)
 CMD ["sh", "-c", "gunicorn -w 2 -b 0.0.0.0:$PORT api:app"]
+
