@@ -18,4 +18,4 @@ COPY . .
 ENV PORT=8080
 
 # Start the Flask app via gunicorn (use shell form so $PORT expands)
-CMD gunicorn -w 2 -b 0.0.0.0:$PORT api:app
+CMD ["sh", "-c", "gunicorn -w 2 -b 0.0.0.0:$PORT api:app"]
