@@ -410,8 +410,9 @@ def log_forecast() -> None:
     except Exception:
         nv_int = None
     if gate is not None and nv_int is not None and nv_int <= gate:
-        print(f"⏭️ Gate active: forecast {nv_int}°F ≤ gate {gate}°F; skipping capture.")
-        return
+        print(f"⏭️ Gate active: forecast {nv_int}°F ≤ gate {gate}°F — keeping capture")
+        # no return; forecast will still be logged
+
 
     _append_row({
         "timestamp": now_local,
