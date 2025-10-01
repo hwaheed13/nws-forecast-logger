@@ -1086,6 +1086,19 @@ function predictWithHedge(lead, season, candidates, rmseContext){
   const key = contextKey(lead, season);
   console.log("predictWithHedge loading key:", key);
   let st = loadState(key) || { w:{}, bias:null, rmse:null, lastDay:null };
+  
+  // Fallback: if no bias learned for this season yet, borrow from opposite season
+  if ((st.bias == null || st.bias === 0) && st.lastDay == null) {
+    const altSeason = season === "warm" ? "cool" : "warm";
+    const altKey = contextKey(lead, altSeason);
+    const altSt = loadState(altKey);
+    if (altSt && altSt.bias != null && altSt.bias !== 0) {
+      console.log(`No ${season} bias yet, using ${altSeason} bias: ${altSt.bias}`);
+      st.bias = altSt.bias;
+      st.rmse = altSt.rmse;
+    }
+  }
+  
   console.log("predictWithHedge loaded state:", st);
 
   const names = Reflect.ownKeys(candidates).filter(k => typeof k === 'string' && candidates[k] != null);
