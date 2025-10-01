@@ -994,7 +994,10 @@ function saveState(key, obj){
   try { localStorage.setItem(`${ENS_KEY}:${key}`, JSON.stringify(obj)); } catch {}
 }
 function decayWeights(ws){ for (const k in ws) ws[k] *= DECAY_PER_DAY; }
-function contextKey(lead, season){ return `${lead}:${season}`; } // lead: 'today'|'tomorrow'
+function contextKey(lead, season, hour = null){ 
+  // For backward compatibility with stored states during transition
+  return `${lead}:${season}`; 
+}
 
 function softmaxNormalize(obj){
   let sum = 0; for (const k in obj) sum += obj[k];
@@ -1081,7 +1084,9 @@ const parseTs = (t) => {
 // Make a prediction with Hedge (+ stored bias)
 function predictWithHedge(lead, season, candidates, rmseContext){
   const key = contextKey(lead, season);
+  console.log("predictWithHedge loading key:", key);
   let st = loadState(key) || { w:{}, bias:null, rmse:null, lastDay:null };
+  console.log("predictWithHedge loaded state:", st);
 
   const names = Reflect.ownKeys(candidates).filter(k => typeof k === 'string' && candidates[k] != null);
   if (!names.length) return { y:null, y0:null, bias:0, pad:2, weights:{}, key };
