@@ -1226,7 +1226,10 @@ function historySignature(){
 }
 
 async function warmOnceForCurrentCSV() {
-  resetHedgeState();
+  // Don't reset - preserve learned biases across reloads
+  // resetHedgeState();
+
+// === SEEDS (production deterministic defaults) ===
 
 // === SEEDS (production deterministic defaults) ===
 // Today (D0): mirror D1 scheme — Accu dominant, NWS as light sanity check
@@ -1258,8 +1261,12 @@ const seeds = [
 ];
 
 for (const [k, v] of seeds) {
-  if (!localStorage.getItem(k)) {
+  const existing = localStorage.getItem(k);
+  if (!existing) {
     localStorage.setItem(k, JSON.stringify(v));
+    console.log(`Seeded ${k} with initial values`);
+  } else {
+    console.log(`Preserving learned state for ${k}`);
   }
  }
 }
