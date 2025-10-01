@@ -673,6 +673,8 @@ input[type="date"] {
                   <th>Error (°F)</th>
                   <th>Best?</th>
                   <th>Kalshi Range</th>
+                  <th>Night Before Prediction</th>
+                  <th>Morning Of Prediction</th>
                 </tr>
               </thead>
               <tbody></tbody>
@@ -3077,6 +3079,22 @@ function mapToKalshiRange(temp, kalshiData) {
       const tb = document.querySelector("#dataTable tbody");
       if (!tb) return;
       tb.innerHTML = "";
+    
+      // Load prediction snapshots
+      const predSnapshots = {};
+      try {
+        const resp = await fetch('https://raw.githubusercontent.com/hwaheed13/nws-forecast-logger/main/predictions_snapshot.csv');
+        const text = await resp.text();
+        const rows = csvToRows(text);
+        for (let i = 1; i < rows.length; i++) {
+          const [time, date, type, value] = rows[i];
+          if (date && type && value) {
+            predSnapshots[`${date}_${type}`] = parseFloat(value).toFixed(1);
+          }
+        }
+      } catch (e) {
+        console.log('No prediction snapshots yet');
+      }
 
       const dayMap = {};
       filteredRows.forEach(r => {
@@ -3161,38 +3179,44 @@ function mapToKalshiRange(temp, kalshiData) {
             tb.appendChild(tr);
           });
 
-          if (actual) {
-            const pulled = actual.timestamp || actual.date_pulled || "";
-            const actTxt = actual.actual_high ? `${actual.actual_high}°F` : "";
-            const k = kalshiByDate[date];
-            const label = k && k.label ? k.label : "";
-            const exact = (k && k.exactTemp != null) ? ` (${k.exactTemp.toFixed(1)}°F)` : "";
-
-            let kalshiCell = "—";
-            if (date === yISO) {
-              kalshiCell = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}${kalshiAnchorForISO(yISO)}" target="_blank" rel="noopener noreferrer">${label || "Open market"}${exact}</a>`;
-            } else if (date === todayISO) {
-              kalshiCell = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${label || "Open market"}</a>`;
-            } else if (label) {
-              kalshiCell = `<span class="kalshi-badge">${label}${exact}</span>`;
-            }
-
-            const tr = document.createElement("tr");
-            tr.className = "actual-row is-hidden";
-            tr.dataset.month = mk;
-            tr.innerHTML = `
-              <td>${pulled}</td>
-              <td></td>
-              <td>${date}</td>
-              <td></td>
-              <td>${actTxt}</td>
-              <td>${actual.high_time || ""}</td>
-              <td></td>
-              <td></td>
-              <td>${kalshiCell}</td>
-            `;
-            tb.appendChild(tr);
-          }
+        if (actual) {
+        const pulled = actual.timestamp || actual.date_pulled || "";
+        const actTxt = actual.actual_high ? `${actual.actual_high}°F` : "";
+        const k = kalshiByDate[date];
+        const label = k && k.label ? k.label : "";
+        const exact = (k && k.exactTemp != null) ? ` (${k.exactTemp.toFixed(1)}°F)` : "";
+      
+        let kalshiCell = "—";
+        if (date === yISO) {
+          kalshiCell = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}${kalshiAnchorForISO(yISO)}" target="_blank" rel="noopener noreferrer">${label || "Open market"}${exact}</a>`;
+        } else if (date === todayISO) {
+          kalshiCell = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${label || "Open market"}</a>`;
+        } else if (label) {
+          kalshiCell = `<span class="kalshi-badge">${label}${exact}</span>`;
+        }
+      
+        // Get prediction snapshots
+        const nightBefore = predSnapshots[`${date}_night_before`] || '—';
+        const morningOf = predSnapshots[`${date}_morning_of`] || '—';
+      
+        const tr = document.createElement("tr");
+        tr.className = "actual-row is-hidden";
+        tr.dataset.month = mk;
+        tr.innerHTML = `
+          <td>${pulled}</td>
+          <td></td>
+          <td>${date}</td>
+          <td></td>
+          <td>${actTxt}</td>
+          <td>${actual.high_time || ""}</td>
+          <td></td>
+          <td></td>
+          <td>${kalshiCell}</td>
+          <td>${nightBefore !== '—' ? nightBefore + '°F' : '—'}</td>
+          <td>${morningOf !== '—' ? morningOf + '°F' : '—'}</td>
+        `;
+        tb.appendChild(tr);
+      }
         });
       });
 
