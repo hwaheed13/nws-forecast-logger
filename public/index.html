@@ -1167,7 +1167,9 @@ function updateHedgeOnActual(kind, season, candidates, actual, targetISO, force 
 
   saveState(key, st);
 }
-    function pretrainFromHistory() {
+  function pretrainFromHistory() {
+    console.log("=== PRETRAIN DEBUG START ===");
+    console.log("Total rows in allRows:", allRows.length);
   // Collect which days have an actual
   const byDay = new Map();
   for (const r of allRows) {
@@ -1178,6 +1180,9 @@ function updateHedgeOnActual(kind, season, candidates, actual, targetISO, force 
   }
 
   const todayISO = nycISODate(0);
+  
+  console.log("Days with actuals:", Array.from(byDay.entries()).filter(([_, v]) => v.actual).length);
+  console.log("First 3 days:", Array.from(byDay.entries()).slice(0, 3));
 
   for (const [iso, { actual }] of byDay.entries()) {
   if (!actual || actual.actual_high == null) continue;
@@ -1207,8 +1212,14 @@ function updateHedgeOnActual(kind, season, candidates, actual, targetISO, force 
     if (Number.isFinite(accD1)) {
       candTomorrow.AccuWeather = Number(accD1);
     }
-    updateHedgeOnActual("tomorrow", season, candTomorrow, actualF, iso, true);
+updateHedgeOnActual("tomorrow", season, candTomorrow, actualF, iso, true);
   }
+  
+  // Check what was learned
+  const todayWarmState = loadState("today:warm");
+  console.log("After pretrain - today:warm bias:", todayWarmState?.bias);
+  console.log("After pretrain - today:warm rmse:", todayWarmState?.rmse);
+  console.log("=== PRETRAIN DEBUG END ===");
 }
 window.pretrainFromHistory = pretrainFromHistory;
 function resetHedgeState(){
