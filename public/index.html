@@ -948,10 +948,14 @@ function getNwsForecastRowsFor(targetISO, kind) {
       const issueDate = new Date(r.timestamp || r.forecast_time);
       const issueHour = issueDate.getHours();
     
-      // Don’t apply gate for the 1:51 AM cycle (it still carries yesterday’s max)
-      if (issueHour !== 1) {
-        const v = Math.round(Number(r.predicted_high));
-        if (Number.isFinite(v) && v <= gate) return false;
+      const v = Math.round(Number(r.predicted_high));
+      if (Number.isFinite(v) && v <= gate) {
+        if (issueHour === 1) {
+          console.log(`⏭️ Gate triggered at 1 AM cycle (forecast ${v}°F ≤ gate ${gate}°F) — keeping row`);
+        } else {
+          console.log(`⏭️ Gate triggered (forecast ${v}°F ≤ gate ${gate}°F) — keeping row`);
+        }
+        // don’t skip, just continue (row will still be returned)
       }
     }
       return true;
