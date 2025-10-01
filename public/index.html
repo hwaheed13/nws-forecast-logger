@@ -1090,16 +1090,21 @@ function predictWithHedge(lead, season, candidates, rmseContext){
   let st = loadState(key) || { w:{}, bias:null, rmse:null, lastDay:null };
   
   // Fallback: if no bias learned for this season yet, borrow from opposite season
-  if ((st.bias == null || st.bias === 0) && st.lastDay == null) {
-    const altSeason = season === "warm" ? "cool" : "warm";
-    const altKey = contextKey(lead, altSeason);
-    const altSt = loadState(altKey);
-    if (altSt && altSt.bias != null && altSt.bias !== 0) {
-      console.log(`No ${season} bias yet, using ${altSeason} bias: ${altSt.bias}`);
-      st.bias = altSt.bias;
-      st.rmse = altSt.rmse;
+    // Require minimum 14 observations before trusting seasonal bias
+    const MIN_SEASONAL_OBS = 14;
+    const totalObs = st.learnCounts ? Object.values(st.learnCounts).reduce((sum, count) => sum + count, 0) : 0;
+    
+    if (!st.bias || st.bias === 0 || !st.lastDay || totalObs < MIN_SEASONAL_OBS) {
+      const altSeason = season === "warm" ? "cool" : "warm";
+      const altKey = contextKey(lead, altSeason);
+      const altSt = loadState(altKey);
+      if (altSt && altSt.bias != null && altSt.bias !== 0) {
+        const reason = !st.lastDay ? "no data yet" : `only ${totalObs} days (need ${MIN_SEASONAL_OBS})`;
+        console.log(`${season} bias not ready (${reason}), using ${altSeason} bias: ${altSt.bias}`);
+        st.bias = altSt.bias;
+        st.rmse = altSt.rmse;
+      }
     }
-  }
   
   console.log("predictWithHedge loaded state:", st);
 
