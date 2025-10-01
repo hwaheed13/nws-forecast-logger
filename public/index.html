@@ -944,10 +944,16 @@ function getNwsForecastRowsFor(targetISO, kind) {
     if (kind === "D0") {
       if (issueISO !== targetISO) return false;
       // Gate only today's intraday captures: drop if forecast high <= max(recent obs, 6-hr max)
-      if (isToday && gate != null) {
+    if (isToday && gate != null) {
+      const issueDate = new Date(r.timestamp || r.forecast_time);
+      const issueHour = issueDate.getHours();
+    
+      // Don’t apply gate for the 1:51 AM cycle (it still carries yesterday’s max)
+      if (issueHour !== 1) {
         const v = Math.round(Number(r.predicted_high));
         if (Number.isFinite(v) && v <= gate) return false;
       }
+    }
       return true;
     }
 
