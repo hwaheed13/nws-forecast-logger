@@ -3666,6 +3666,71 @@ supabase.auth.onAuthStateChange((_event, session) => {
 
   init();
 })();
+// Prediction snapshot scheduler
+function checkAndLogPredictionSnapshots() {
+  const et = new Date().toLocaleString("en-US", {timeZone: "America/New_York"});
+  const hour = new Date(et).getHours();
+  const today = nycISODate(0);
+  const tomorrow = nycISODate(1);
+  
+  const lastLogged = JSON.parse(localStorage.getItem('last_snapshot_logged') || '{}');
+  
+  // 7 AM: capture morning-of prediction for today
+  if (hour === 7 && lastLogged.morning !== today) {
+    const predBox = document.getElementById('correctionBoxToday');
+    const valueEl = predBox?.querySelector('.prediction-value');
+    if (valueEl) {
+      const text = valueEl.textContent;
+      const match = text.match(/([\d.]+)°F/);
+      if (match) {
+        const value = parseFloat(match[1]);
+        logPredictionSnapshot(today, 'morning_of', value);
+        lastLogged.morning = today;
+        localStorage.setItem('last_snapshot_logged', JSON.stringify(lastLogged));
+      }
+    }
+  }
+  
+  // 7 PM: capture night-before prediction for tomorrow
+  if (hour === 19 && lastLogged.evening !== today) {
+    const predBox = document.getElementById('correctionBoxTomorrow');
+    const valueEl = predBox?.querySelector('.prediction-value');
+    if (valueEl) {
+      const text = valueEl.textContent;
+      const match = text.match(/([\d.]+)°F/);
+      if (match) {
+        const value = parseFloat(match[1]);
+        logPredictionSnapshot(tomorrow, 'night_before', value);
+        lastLogged.evening = today;
+        localStorage.setItem('last_snapshot_logged', JSON.stringify(lastLogged));
+      }
+    }
+  }
+}
+
+async function logPredictionSnapshot(targetDate, type, value) {
+  try {
+    const response = await fetch('/api/log-prediction-snapshot', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        target_date: targetDate,
+        prediction_type: type,
+        prediction_value: value,
+        snapshot_time: new Date().toISOString()
+      })
+    });
+    if (response.ok) {
+      console.log(`Logged ${type} prediction: ${value}°F for ${targetDate}`);
+    }
+  } catch (e) {
+    console.error('Failed to log prediction snapshot:', e);
+  }
+}
+
+// Check every 5 minutes
+setInterval(checkAndLogPredictionSnapshots, 5 * 60 * 1000);
+checkAndLogPredictionSnapshots(); // Run immediately on load
 </script>
 </body>
 </html>
