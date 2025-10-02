@@ -1,6 +1,11 @@
 name: NWS Auto Logger
 on:
   schedule:
+    # Midnight-4am ET - NWS collection continues (AccuWeather will skip via Python check)
+    - cron: "0 5 * * *"   # 1am EDT / midnight EST
+    - cron: "0 6 * * *"   # 2am EDT / 1am EST  
+    - cron: "0 7 * * *"   # 3am EDT / 2am EST
+    
     # Today's forecast — 7am, 9am, 11am, 2pm ET
     - cron: "0 11 * * *"  # 7am EDT / 6am EST
     - cron: "0 13 * * *"  # 9am EDT / 8am EST
@@ -14,8 +19,6 @@ on:
     # Actuals
     - cron: "0 22 * * *"  # 6pm EDT / 5pm EST - provisional TODAY
     - cron: "0 9 * * *"   # 5am EDT / 4am EST - finalize YESTERDAY
-    # CHANGED: Was "0 8" (4am EDT/3am EST) → Now "0 9" (5am EDT/4am EST)
-    # This ensures we never run during midnight-4am EST/EDT
     
   workflow_dispatch:
     inputs:
@@ -74,13 +77,17 @@ jobs:
         
       - name: Remove empty/blank lines
         run: |
-          grep -Ev '^[[:space:]]*(,?[[:space:]]*)*$' nws_forecast_log.csv > /tmp/clean.csv || true
-          mv /tmp/clean.csv nws_forecast_log.csv
+          for f in nws_forecast_log.csv accuweather_log.csv; do
+            if [ -f "$f" ]; then
+              grep -Ev '^[[:space:]]*(,?[[:space:]]*)*$' "$f" > /tmp/clean.csv || true
+              if [ -s /tmp/clean.csv ]; then mv /tmp/clean.csv "$f"; fi
+            fi
+          done
           
       - name: Commit and push CSV
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add nws_forecast_log.csv accuweather_log.csv
+          git add nws_forecast_log.csv accuweather_log.csv || true
           git commit -m "Update forecast log [skip ci]" || echo "No changes to commit"
           git push origin main
