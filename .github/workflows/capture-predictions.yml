@@ -4,7 +4,6 @@ on:
     - cron: '0 12 * * *'  # 7 AM EST (noon UTC)
     - cron: '0 0 * * *'   # 7 PM EST (midnight UTC)
   workflow_dispatch:      # Allows manual trigger from GitHub UI
-
 jobs:
   capture:
     runs-on: ubuntu-latest
@@ -22,29 +21,29 @@ jobs:
           echo "Fetching predictions from dashboard..."
           PREDICTIONS=$(curl -s https://app.dailydewpoint.com/)
           
-      if [ "$HOUR" = "07" ]; then
-      echo "7 AM EST - Capturing both today and tomorrow predictions"
-      
-      # Extract today's prediction value from HTML
-      VALUE_TODAY=$(echo "$PREDICTIONS" | grep -oP 'correctionBoxToday.*?(\d+\.\d+)°F' | head -1 | grep -oP '\d+\.\d+')
-      echo "Today's value: $VALUE_TODAY"
-      
-      # Log today's morning_of prediction
-      curl -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
-        -H "Content-Type: application/json" \
-        -d "{\"target_date\":\"$DATE\",\"prediction_type\":\"morning_of\",\"prediction_value\":$VALUE_TODAY,\"snapshot_time\":\"$(TZ='America/New_York' date +%Y-%m-%dT%H:%M:%S)\"}"
-      
-      # Get tomorrow's date and prediction
-      TOMORROW=$(TZ='America/New_York' date -d '+1 day' +%Y-%m-%d)
-      VALUE_TOMORROW=$(echo "$PREDICTIONS" | grep -oP 'correctionBoxTomorrow.*?(\d+\.\d+)°F' | head -1 | grep -oP '\d+\.\d+')
-      echo "Tomorrow's value: $VALUE_TOMORROW"
-      
-      # Log tomorrow's day_before_morning prediction
-      curl -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
-        -H "Content-Type: application/json" \
-        -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"day_before_morning\",\"prediction_value\":$VALUE_TOMORROW,\"snapshot_time\":\"$(TZ='America/New_York' date +%Y-%m-%dT%H:%M:%S)\"}"
-      
-      echo "Logged both: morning_of=$VALUE_TODAY for $DATE, day_before_morning=$VALUE_TOMORROW for $TOMORROW"
+          if [ "$HOUR" = "07" ]; then
+            echo "7 AM EST - Capturing both today and tomorrow predictions"
+            
+            # Extract today's prediction value from HTML
+            VALUE_TODAY=$(echo "$PREDICTIONS" | grep -oP 'correctionBoxToday.*?(\d+\.\d+)°F' | head -1 | grep -oP '\d+\.\d+')
+            echo "Today's value: $VALUE_TODAY"
+            
+            # Log today's morning_of prediction
+            curl -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
+              -H "Content-Type: application/json" \
+              -d "{\"target_date\":\"$DATE\",\"prediction_type\":\"morning_of\",\"prediction_value\":$VALUE_TODAY,\"snapshot_time\":\"$(TZ='America/New_York' date +%Y-%m-%dT%H:%M:%S)\"}"
+            
+            # Get tomorrow's date and prediction
+            TOMORROW=$(TZ='America/New_York' date -d '+1 day' +%Y-%m-%d)
+            VALUE_TOMORROW=$(echo "$PREDICTIONS" | grep -oP 'correctionBoxTomorrow.*?(\d+\.\d+)°F' | head -1 | grep -oP '\d+\.\d+')
+            echo "Tomorrow's value: $VALUE_TOMORROW"
+            
+            # Log tomorrow's day_before_morning prediction
+            curl -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
+              -H "Content-Type: application/json" \
+              -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"day_before_morning\",\"prediction_value\":$VALUE_TOMORROW,\"snapshot_time\":\"$(TZ='America/New_York' date +%Y-%m-%dT%H:%M:%S)\"}"
+            
+            echo "Logged both: morning_of=$VALUE_TODAY for $DATE, day_before_morning=$VALUE_TOMORROW for $TOMORROW"
             
           elif [ "$HOUR" = "19" ]; then
             echo "7 PM EST - Capturing night_before prediction for tomorrow"
@@ -59,7 +58,7 @@ jobs:
             # Log to GitHub CSV via your API
             curl -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
               -H "Content-Type: application/json" \
-             -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"night_before\",\"prediction_value\":$VALUE,\"snapshot_time\":\"$(TZ='America/New_York' date +%Y-%m-%dT%H:%M:%S)\"}"
+              -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"night_before\",\"prediction_value\":$VALUE,\"snapshot_time\":\"$(TZ='America/New_York' date +%Y-%m-%dT%H:%M:%S)\"}"
             
             echo "Logged night_before: $VALUE for $TOMORROW"
             
