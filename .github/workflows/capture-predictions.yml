@@ -1,36 +1,58 @@
 name: Capture Predictions EST
 on:
   schedule:
-    - cron: '0 12 * * *'  # 7 AM EST
-    - cron: '0 0 * * *'   # 7 PM EST
-  workflow_dispatch:
+    - cron: '0 12 * * *'  # 7 AM EST (noon UTC)
+    - cron: '0 0 * * *'   # 7 PM EST (midnight UTC)
+  workflow_dispatch:      # Allows manual trigger from GitHub UI
 
 jobs:
   capture:
     runs-on: ubuntu-latest
     steps:
-      - name: Capture Predictions
+      - name: Capture and Log Predictions
         run: |
+          # Get current hour in Eastern Time
           HOUR=$(TZ='America/New_York' date +%H)
           DATE=$(TZ='America/New_York' date +%Y-%m-%d)
           
+          echo "Current ET hour: $HOUR"
+          echo "Current ET date: $DATE"
+          
           # Fetch current predictions from your dashboard
+          echo "Fetching predictions from dashboard..."
           PREDICTIONS=$(curl -s https://app.dailydewpoint.com/)
           
           if [ "$HOUR" = "07" ]; then
-            # Extract today's prediction and log as morning_of
-            VALUE=$(echo "$PREDICTIONS" | grep -oP 'correctionBoxToday.*?(\d+\.\d+)°F' | head -1 | grep -oP '\d+\.\d+')
+            echo "7 AM EST - Capturing morning_of prediction for today"
             
+            # Extract today's prediction value from HTML
+            VALUE=$(echo "$PREDICTIONS" | grep -oP 'correctionBoxToday.*?(\d+\.\d+)°F' | head -1 | grep -oP '\d+\.\d+')
+            echo "Extracted value: $VALUE"
+            
+            # Log to GitHub CSV via your API
             curl -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
               -H "Content-Type: application/json" \
               -d "{\"target_date\":\"$DATE\",\"prediction_type\":\"morning_of\",\"prediction_value\":$VALUE,\"snapshot_time\":\"$(date -u +%Y-%m-%dT%H:%M:%S)Z\"}"
-              
-          elif [ "$HOUR" = "19" ]; then
-            # Extract tomorrow's prediction and log as night_before
-            TOMORROW=$(TZ='America/New_York' date -d '+1 day' +%Y-%m-%d)
-            VALUE=$(echo "$PREDICTIONS" | grep -oP 'correctionBoxTomorrow.*?(\d+\.\d+)°F' | head -1 | grep -oP '\d+\.\d+')
             
+            echo "Logged morning_of: $VALUE for $DATE"
+            
+          elif [ "$HOUR" = "19" ]; then
+            echo "7 PM EST - Capturing night_before prediction for tomorrow"
+            
+            # Get tomorrow's date
+            TOMORROW=$(TZ='America/New_York' date -d '+1 day' +%Y-%m-%d)
+            
+            # Extract tomorrow's prediction value from HTML
+            VALUE=$(echo "$PREDICTIONS" | grep -oP 'correctionBoxTomorrow.*?(\d+\.\d+)°F' | head -1 | grep -oP '\d+\.\d+')
+            echo "Extracted value: $VALUE"
+            
+            # Log to GitHub CSV via your API
             curl -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
               -H "Content-Type: application/json" \
               -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"night_before\",\"prediction_value\":$VALUE,\"snapshot_time\":\"$(date -u +%Y-%m-%dT%H:%M:%S)Z\"}"
+            
+            echo "Logged night_before: $VALUE for $TOMORROW"
+            
+          else
+            echo "Not scheduled capture time (hour is $HOUR, expecting 07 or 19)"
           fi
