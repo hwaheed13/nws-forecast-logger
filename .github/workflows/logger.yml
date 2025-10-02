@@ -1,19 +1,22 @@
 name: NWS Auto Logger
-
 on:
   schedule:
     # Today's forecast — 7am, 9am, 11am, 2pm ET
-    - cron: "0 11 * * *"
-    - cron: "0 13 * * *"
-    - cron: "0 15 * * *"
-    - cron: "0 18 * * *"
+    - cron: "0 11 * * *"  # 7am EDT / 6am EST
+    - cron: "0 13 * * *"  # 9am EDT / 8am EST
+    - cron: "0 15 * * *"  # 11am EDT / 10am EST
+    - cron: "0 18 * * *"  # 2pm EDT / 1pm EST
+    
     # Tomorrow's forecast — 10am & 8pm ET
-    - cron: "0 14 * * *"
-    - cron: "0 0 * * *"
+    - cron: "0 14 * * *"  # 10am EDT / 9am EST
+    - cron: "0 0 * * *"   # 8pm EDT / 7pm EST (previous day)
+    
     # Actuals
-    - cron: "0 22 * * *"   # 6pm ET provisional TODAY
-    - cron: "0 8 * * *"    # 4am ET finalize YESTERDAY
-
+    - cron: "0 22 * * *"  # 6pm EDT / 5pm EST - provisional TODAY
+    - cron: "0 9 * * *"   # 5am EDT / 4am EST - finalize YESTERDAY
+    # CHANGED: Was "0 8" (4am EDT/3am EST) → Now "0 9" (5am EDT/4am EST)
+    # This ensures we never run during midnight-4am EST/EDT
+    
   workflow_dispatch:
     inputs:
       task:
@@ -38,42 +41,42 @@ jobs:
       TZ: America/New_York
     steps:
       - uses: actions/checkout@v4
-
+      
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
+          
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install requests beautifulsoup4 pytz
-
+          
       - name: Run (scheduled or manual)
         env:
           TASK: ${{ github.event.inputs.task || 'smart_all' }}
         run: python run_smart.py
-
+        
       - name: Run AccuWeather logger (today & tomorrow)
         env:
           ACCU_API_KEY: ${{ secrets.ACCU_API_KEY }}
           ACCU_LOCATION_KEY: ${{ secrets.ACCU_LOCATION_KEY }}
           TZ: America/New_York
         run: python accuweather_logger.py
-
-      # NEW: write predictions to Supabase (reads CSVs, does NOT modify repo)
+        
+      # Write predictions to Supabase (reads CSVs, does NOT modify repo)
       - name: Write Supabase predictions (today_for_today + today_for_tomorrow)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
           TZ: America/New_York
         run: python prediction_writer.py both
-
+        
       - name: Remove empty/blank lines
         run: |
           grep -Ev '^[[:space:]]*(,?[[:space:]]*)*$' nws_forecast_log.csv > /tmp/clean.csv || true
           mv /tmp/clean.csv nws_forecast_log.csv
-
+          
       - name: Commit and push CSV
         run: |
           git config user.name "github-actions[bot]"
