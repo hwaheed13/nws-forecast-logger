@@ -992,12 +992,37 @@ const DECAY_PER_DAY = 0.997;              // gently decay old info
 const BIAS_HALFLIFE_DAYS = 21;            // bias recency (~1 month)
 const RMSE_HALFLIFE_DAYS = 21;            // uncertainty recency for clamp
 
-function loadState(key){
+async function loadState(key){
+  try {
+    const { data } = await supabase
+      .from('model_states')
+      .select('state')
+      .eq('key', `${ENS_KEY}:${key}`)
+      .single();
+    
+    if (data?.state) {
+      localStorage.setItem(`${ENS_KEY}:${key}`, JSON.stringify(data.state));
+      return data.state;
+    }
+  } catch (e) {
+    console.log("Falling back to localStorage");
+  }
+  
   const raw = localStorage.getItem(`${ENS_KEY}:${key}`);
   return raw ? JSON.parse(raw) : null;
 }
+
 function saveState(key, obj){
-  try { localStorage.setItem(`${ENS_KEY}:${key}`, JSON.stringify(obj)); } catch {}
+  localStorage.setItem(`${ENS_KEY}:${key}`, JSON.stringify(obj));
+  
+  supabase
+    .from('model_states')
+    .upsert({ 
+      key: `${ENS_KEY}:${key}`,
+      state: obj,
+      updated_at: new Date().toISOString()
+    })
+    .catch(e => console.log("Failed to save to server:", e));
 }
 function decayWeights(ws){ for (const k in ws) ws[k] *= DECAY_PER_DAY; }
 function contextKey(lead, season, hour = null){ 
@@ -1088,10 +1113,10 @@ const parseTs = (t) => {
 }
 
 // Make a prediction with Hedge (+ stored bias)
-function predictWithHedge(lead, season, candidates, rmseContext){
+async function predictWithHedge(lead, season, candidates, rmseContext){
   const key = contextKey(lead, season);
   console.log("predictWithHedge loading key:", key);
-  let st = loadState(key) || { w:{}, bias:null, rmse:null, lastDay:null };
+  let st = await loadState(key) || { w:{}, bias:null, rmse:null, lastDay:null };
   
   // Fallback: if no bias learned for this season yet, borrow from opposite season
     // Require minimum 14 observations before trusting seasonal bias
@@ -1147,10 +1172,10 @@ if (newNames.length > 0) {
 }
 
 // Update Hedge weights + Bias/RMSE when an actual arrives
-function updateHedgeOnActual(kind, season, candidates, actual, targetISO, force = false) {
+async function updateHedgeOnActual(kind, season, candidates, actual, targetISO, force = false) {
   if (!CLIENT_LEARNING && !force) return;  // allow forced pretraining
   const key = contextKey(kind, season);
-  let st = loadState(key) || { w:{}, bias:null, rmse:null, lastDay:null, learnCounts:{} };
+  let st = await loadState(key) || { w:{}, bias:null, rmse:null, lastDay:null, learnCounts:{} };
 
   // Track how many times each candidate has been trained
   if (!st.learnCounts) st.learnCounts = {};
@@ -1196,7 +1221,7 @@ function updateHedgeOnActual(kind, season, candidates, actual, targetISO, force 
 
   saveState(key, st);
 }
-  function pretrainFromHistory() {
+  async function pretrainFromHistory() {
     console.log("=== PRETRAIN DEBUG START ===");
     console.log("Total rows in allRows:", allRows.length);
   // Collect which days have an actual
@@ -1227,7 +1252,7 @@ function updateHedgeOnActual(kind, season, candidates, actual, targetISO, force 
 
     // Train the "today" policy using everything you'd have for that day
     const builtToday = buildCandidatesForDay(iso, hiTime);
-    updateHedgeOnActual("today", season, builtToday.candidates, actualF, iso, true);
+    await updateHedgeOnActual("today", season, builtToday.candidates, actualF, iso, true);
     
     // Train the "tomorrow" policy using only D1 info (what you knew the day before)
     const d1 = d1CandidatesFor(iso);
@@ -1241,7 +1266,7 @@ function updateHedgeOnActual(kind, season, candidates, actual, targetISO, force 
     if (Number.isFinite(accD1)) {
       candTomorrow.AccuWeather = Number(accD1);
     }
-updateHedgeOnActual("tomorrow", season, candTomorrow, actualF, iso, true);
+await updateHedgeOnActual("tomorrow", season, candTomorrow, actualF, iso, true);
   }
   
   // Check what was learned
@@ -2237,7 +2262,7 @@ if (actualChanged) {
     if (a && a.actual_high != null) {
       const season = isWarmSeason(todayISO) ? "warm" : "cool";
       const built  = buildCandidatesForDay(todayISO, a.high_time || "");
-      updateHedgeOnActual("today", season, built.candidates, Number(a.actual_high), todayISO);
+      await updateHedgeOnActual("today", season, built.candidates, Number(a.actual_high), todayISO);
         // also teach the "tomorrow" model using D1-only candidates for the resolved day
       const c1today = d1CandidatesFor(todayISO);
       const tmCands = {};
@@ -2245,7 +2270,7 @@ if (actualChanged) {
       if (c1today.trimmed != null) tmCands.D1_trimmed = Number(c1today.trimmed);
       const rep1 = repFromSeries(c1today.series);
       if (rep1 != null) tmCands.series_rep = Number(rep1);
-      updateHedgeOnActual("tomorrow", season, tmCands, Number(a.actual_high), todayISO);
+      await updateHedgeOnActual("tomorrow", season, tmCands, Number(a.actual_high), todayISO);
     }
   } catch(_) {}
 }
@@ -2573,7 +2598,7 @@ async function updateCorrectionBoxes() {
     // ----- Today -----
     const seasonToday = isWarmSeason(todayISO) ? "warm" : "cool";
     const builtToday = buildCandidatesForDay(todayISO, "");
-    const predToday = predictWithHedge("today", seasonToday, builtToday.candidates);
+    const predToday = await predictWithHedge("today", seasonToday, builtToday.candidates);
     // expose for debugging
 window._predToday = predToday;
 
@@ -2586,7 +2611,7 @@ window._predToday = predToday;
     // ----- Tomorrow -----
     const seasonTomorrow = isWarmSeason(tomorrowISO) ? "warm" : "cool";
     const builtTomorrow = buildCandidatesForDay(tomorrowISO, "");
-    const predTomorrow = predictWithHedge("tomorrow", seasonTomorrow, builtTomorrow.candidates);
+    const predTomorrow = await predictWithHedge("tomorrow", seasonTomorrow, builtTomorrow.candidates);
     
     // expose for debugging
 window._predTomorrow = predTomorrow;
