@@ -3436,11 +3436,14 @@ stats.innerHTML = `
   <!-- Auth + boot (UMD) -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
-(() => {
+// Create supabase client in global scope so all functions can access it
 const supabase = window.supabase.createClient(
     "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
-  );
+);
+
+(() => {
+// Rest of the auth code continues here, but WITHOUT re-declaring supabase
 
 async function loadTodaysPredictionHistory() {
   const today = window.nycISODate(0);
