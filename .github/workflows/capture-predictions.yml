@@ -1,24 +1,18 @@
 name: Capture Predictions
 on:
   schedule:
-    - cron: '0 12 * * *'  # 7 AM ET (noon UTC)
-    - cron: '0 0 * * *'   # 7 PM ET (midnight UTC)
-  workflow_dispatch:      # Allows manual trigger from GitHub
+    # Runs at both possible times to handle DST changes
+    - cron: '0 11 * * *'  # 7 AM EDT (Mar-Nov)
+    - cron: '0 12 * * *'  # 7 AM EST (Nov-Mar)
+    - cron: '0 23 * * *'  # 7 PM EDT (Mar-Nov)
+    - cron: '0 0 * * *'   # 7 PM EST (Nov-Mar)
+  workflow_dispatch:
 
 jobs:
   capture:
     runs-on: ubuntu-latest
     steps:
-      - name: Capture Morning Prediction (7 AM ET)
-        if: github.event.schedule == '0 12 * * *'
+      - name: Check if it's 7 AM or 7 PM ET and capture
         run: |
-          echo "Running 7 AM capture"
-          # You'll need to create this API endpoint
-          curl -X POST https://app.dailydewpoint.com/api/capture-morning
-          
-      - name: Capture Evening Prediction (7 PM ET)
-        if: github.event.schedule == '0 0 * * *'
-        run: |
-          echo "Running 7 PM capture"
-          # You'll need to create this API endpoint
-          curl -X POST https://app.dailydewpoint.com/api/capture-evening
+          # This will need logic to check current ET hour
+          echo "Running capture check"
