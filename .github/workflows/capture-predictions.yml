@@ -10,6 +10,8 @@ jobs:
     steps:
       - name: Capture and Log Predictions
         run: |
+          set +e  # Turn off exit-on-error
+          
           # Get current hour in Eastern Time
           HOUR=$(TZ='America/New_York' date +%H)
           DATE=$(TZ='America/New_York' date +%Y-%m-%d)
@@ -65,4 +67,3 @@ jobs:
           else
             echo "Not scheduled capture time (hour is $HOUR, expecting 07 or 19)"
           fi
-          exit 0
