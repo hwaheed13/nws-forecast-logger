@@ -3198,17 +3198,19 @@ function mapToKalshiRange(temp, kalshiData) {
             const tr = document.createElement("tr");
             tr.className = cls + " is-hidden";
             tr.dataset.month = mk;
-            tr.innerHTML = `
-              <td>${pulled}</td>
-              <td>${fcTime}</td>
-              <td>${date}</td>
-              <td>${pred}</td>
-              <td>${actTxt}</td>
-              <td>${highTime || ""}</td>
-              <td>${errTxt}</td>
-              <td>${i === bestIdx ? "✅" : ""}</td>
-              <td></td>
-            `;
+          tr.innerHTML = `
+            <td>${pulled}</td>
+            <td>${fcTime}</td>
+            <td>${date}</td>
+            <td>${pred}</td>
+            <td>${actTxt}</td>
+            <td>${highTime || ""}</td>
+            <td>${errTxt}</td>
+            <td>${i === bestIdx ? "✅" : ""}</td>
+            <td></td>
+            <td></td>
+            <td></td>
+          `;
             tb.appendChild(tr);
           });
 
