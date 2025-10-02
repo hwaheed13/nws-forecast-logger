@@ -11,7 +11,6 @@ CSV_PATH = "accuweather_log.csv"  # adjust if your CSV is elsewhere
 assert CSV_PATH.endswith("accuweather_log.csv"), "Accu logger must write only to accuweather_log.csv"
 print(f"[Accu logger] CSV_PATH={CSV_PATH}", file=sys.stderr)
 
-
 ACCU_API_KEY = os.environ.get("ACCU_API_KEY")
 ACCU_LOCATION_KEY = os.environ.get("ACCU_LOCATION_KEY")  # e.g. 349727
 TZ_NAME = os.environ.get("TZ", "America/New_York")
@@ -21,6 +20,18 @@ if not ACCU_API_KEY or not ACCU_LOCATION_KEY:
     sys.exit(0)  # don't fail the workflow; just skip
 
 tz = pytz.timezone(TZ_NAME)
+
+# ===== MIDNIGHT-4AM FREEZE CHECK =====
+# Skip AccuWeather collection between midnight and 4am ET
+# because their API doesn't properly cut over at midnight
+current_time_et = datetime.datetime.now(tz)
+current_hour = current_time_et.hour
+
+if 0 <= current_hour < 4:
+    print(f"[Accu logger] Skipping: Currently {current_time_et.strftime('%H:%M')} ET (midnight-4am freeze period)", file=sys.stderr)
+    print(f"[Accu logger] AccuWeather API returns stale data during this window", file=sys.stderr)
+    sys.exit(0)  # Exit successfully but do nothing
+# ===== END FREEZE CHECK =====
 
 def now_et():
     return datetime.datetime.now(tz)
