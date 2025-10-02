@@ -31,7 +31,7 @@ jobs:
             # Log today's morning_of prediction
             curl -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
               -H "Content-Type: application/json" \
-              -d "{\"target_date\":\"$DATE\",\"prediction_type\":\"morning_of\",\"prediction_value\":$VALUE_TODAY,\"snapshot_time\":\"$(TZ='America/New_York' date +%Y-%m-%dT%H:%M:%S)\"}"
+              -d "{\"target_date\":\"$DATE\",\"prediction_type\":\"morning_of\",\"prediction_value\":$VALUE_TODAY,\"snapshot_time\":\"$(TZ='America/New_York' date +%Y-%m-%dT%H:%M:%S)\"}" || true
             
             # Get tomorrow's date and prediction
             TOMORROW=$(TZ='America/New_York' date -d '+1 day' +%Y-%m-%d)
@@ -41,7 +41,7 @@ jobs:
             # Log tomorrow's day_before_morning prediction
             curl -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
               -H "Content-Type: application/json" \
-              -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"day_before_morning\",\"prediction_value\":$VALUE_TOMORROW,\"snapshot_time\":\"$(TZ='America/New_York' date +%Y-%m-%dT%H:%M:%S)\"}"
+              -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"day_before_morning\",\"prediction_value\":$VALUE_TOMORROW,\"snapshot_time\":\"$(TZ='America/New_York' date +%Y-%m-%dT%H:%M:%S)\"}" || true
             
             echo "Logged both: morning_of=$VALUE_TODAY for $DATE, day_before_morning=$VALUE_TOMORROW for $TOMORROW"
             
@@ -58,7 +58,7 @@ jobs:
             # Log to GitHub CSV via your API
             curl -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
               -H "Content-Type: application/json" \
-              -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"night_before\",\"prediction_value\":$VALUE,\"snapshot_time\":\"$(TZ='America/New_York' date +%Y-%m-%dT%H:%M:%S)\"}"
+              -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"night_before\",\"prediction_value\":$VALUE,\"snapshot_time\":\"$(TZ='America/New_York' date +%Y-%m-%dT%H:%M:%S)\"}" || true
             
             echo "Logged night_before: $VALUE for $TOMORROW"
             
