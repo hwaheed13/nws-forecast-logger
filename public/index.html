@@ -1015,14 +1015,20 @@ async function loadState(key){
 function saveState(key, obj){
   localStorage.setItem(`${ENS_KEY}:${key}`, JSON.stringify(obj));
   
-  supabase
-    .from('model_states')
-    .upsert({ 
-      key: `${ENS_KEY}:${key}`,
-      state: obj,
-      updated_at: new Date().toISOString()
-    })
-    .catch(e => console.log("Failed to save to server:", e));
+  // Fire and forget async save to server
+  (async () => {
+    try {
+      await supabase
+        .from('model_states')
+        .upsert({ 
+          key: `${ENS_KEY}:${key}`,
+          state: obj,
+          updated_at: new Date().toISOString()
+        });
+    } catch (e) {
+      console.log("Failed to save to server:", e);
+    }
+  })();
 }
 function decayWeights(ws){ for (const k in ws) ws[k] *= DECAY_PER_DAY; }
 function contextKey(lead, season, hour = null){ 
