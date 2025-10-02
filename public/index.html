@@ -3157,7 +3157,7 @@ function mapToKalshiRange(temp, kalshiData) {
         const hdr = document.createElement("tr");
         hdr.className = "month-row collapsed";
         hdr.dataset.month = mk;
-        hdr.innerHTML = `<td colspan="9"><span class="caret">▸</span>${label}</td>`;
+        hdr.innerHTML = `<td colspan="11"><span class="caret">▸</span>${label}</td>`;
         tb.appendChild(hdr);
 
         months[mk].forEach(date => {
