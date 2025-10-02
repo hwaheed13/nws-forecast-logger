@@ -10,23 +10,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Capture Predictions
-        env:
-          AUTH_TOKEN: ${{ secrets.AUTH_TOKEN }}
         run: |
           HOUR=$(TZ='America/New_York' date +%H)
           DATE=$(TZ='America/New_York' date +%Y-%m-%d)
           
+          # Fetch current predictions from your dashboard
+          PREDICTIONS=$(curl -s https://app.dailydewpoint.com/)
+          
           if [ "$HOUR" = "07" ]; then
-            # 7 AM - Morning of prediction for today
-            curl -X POST https://app.dailydewpoint.com/api/auto-capture \
-              -H "Authorization: Bearer $AUTH_TOKEN" \
+            # Extract today's prediction and log as morning_of
+            VALUE=$(echo "$PREDICTIONS" | grep -oP 'correctionBoxToday.*?(\d+\.\d+)°F' | head -1 | grep -oP '\d+\.\d+')
+            
+            curl -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
               -H "Content-Type: application/json" \
-              -d "{\"type\":\"morning_of\",\"target_date\":\"$DATE\"}"
+              -d "{\"target_date\":\"$DATE\",\"prediction_type\":\"morning_of\",\"prediction_value\":$VALUE,\"snapshot_time\":\"$(date -u +%Y-%m-%dT%H:%M:%S)Z\"}"
+              
           elif [ "$HOUR" = "19" ]; then
-            # 7 PM - Night before prediction for tomorrow
+            # Extract tomorrow's prediction and log as night_before
             TOMORROW=$(TZ='America/New_York' date -d '+1 day' +%Y-%m-%d)
-            curl -X POST https://app.dailydewpoint.com/api/auto-capture \
-              -H "Authorization: Bearer $AUTH_TOKEN" \
+            VALUE=$(echo "$PREDICTIONS" | grep -oP 'correctionBoxTomorrow.*?(\d+\.\d+)°F' | head -1 | grep -oP '\d+\.\d+')
+            
+            curl -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
               -H "Content-Type: application/json" \
-              -d "{\"type\":\"night_before\",\"target_date\":\"$TOMORROW\"}"
+              -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"night_before\",\"prediction_value\":$VALUE,\"snapshot_time\":\"$(date -u +%Y-%m-%dT%H:%M:%S)Z\"}"
           fi
