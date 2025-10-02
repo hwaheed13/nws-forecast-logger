@@ -1,18 +1,32 @@
-name: Capture Predictions
+name: Capture Predictions EST
 on:
   schedule:
-    # Runs at both possible times to handle DST changes
-    - cron: '0 11 * * *'  # 7 AM EDT (Mar-Nov)
-    - cron: '0 12 * * *'  # 7 AM EST (Nov-Mar)
-    - cron: '0 23 * * *'  # 7 PM EDT (Mar-Nov)
-    - cron: '0 0 * * *'   # 7 PM EST (Nov-Mar)
+    - cron: '0 12 * * *'  # 7 AM EST
+    - cron: '0 0 * * *'   # 7 PM EST
   workflow_dispatch:
 
 jobs:
   capture:
     runs-on: ubuntu-latest
     steps:
-      - name: Check if it's 7 AM or 7 PM ET and capture
+      - name: Capture Predictions
+        env:
+          AUTH_TOKEN: ${{ secrets.AUTH_TOKEN }}
         run: |
-          # This will need logic to check current ET hour
-          echo "Running capture check"
+          HOUR=$(TZ='America/New_York' date +%H)
+          DATE=$(TZ='America/New_York' date +%Y-%m-%d)
+          
+          if [ "$HOUR" = "07" ]; then
+            # 7 AM - Morning of prediction for today
+            curl -X POST https://app.dailydewpoint.com/api/auto-capture \
+              -H "Authorization: Bearer $AUTH_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"type\":\"morning_of\",\"target_date\":\"$DATE\"}"
+          elif [ "$HOUR" = "19" ]; then
+            # 7 PM - Night before prediction for tomorrow
+            TOMORROW=$(TZ='America/New_York' date -d '+1 day' +%Y-%m-%d)
+            curl -X POST https://app.dailydewpoint.com/api/auto-capture \
+              -H "Authorization: Bearer $AUTH_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"type\":\"night_before\",\"target_date\":\"$TOMORROW\"}"
+          fi
