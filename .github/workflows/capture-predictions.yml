@@ -22,7 +22,7 @@ jobs:
           echo "Fetching predictions from dashboard..."
           PREDICTIONS=$(curl -s https://app.dailydewpoint.com/)
           
-    if [ "$HOUR" = "07" ]; then
+      if [ "$HOUR" = "07" ]; then
       echo "7 AM EST - Capturing both today and tomorrow predictions"
       
       # Extract today's prediction value from HTML
@@ -38,13 +38,13 @@ jobs:
       TOMORROW=$(TZ='America/New_York' date -d '+1 day' +%Y-%m-%d)
       VALUE_TOMORROW=$(echo "$PREDICTIONS" | grep -oP 'correctionBoxTomorrow.*?(\d+\.\d+)°F' | head -1 | grep -oP '\d+\.\d+')
       echo "Tomorrow's value: $VALUE_TOMORROW"
-  
-  # Log tomorrow's morning_update prediction
-  curl -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
-    -H "Content-Type: application/json" \
-    -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"morning_update\",\"prediction_value\":$VALUE_TOMORROW,\"snapshot_time\":\"$(TZ='America/New_York' date +%Y-%m-%dT%H:%M:%S)\"}"
-  
-  echo "Logged both: morning_of=$VALUE_TODAY for $DATE, morning_update=$VALUE_TOMORROW for $TOMORROW"
+      
+      # Log tomorrow's day_before_morning prediction
+      curl -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
+        -H "Content-Type: application/json" \
+        -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"day_before_morning\",\"prediction_value\":$VALUE_TOMORROW,\"snapshot_time\":\"$(TZ='America/New_York' date +%Y-%m-%dT%H:%M:%S)\"}"
+      
+      echo "Logged both: morning_of=$VALUE_TODAY for $DATE, day_before_morning=$VALUE_TOMORROW for $TOMORROW"
             
           elif [ "$HOUR" = "19" ]; then
             echo "7 PM EST - Capturing night_before prediction for tomorrow"
