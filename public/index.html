@@ -859,22 +859,19 @@ getWarning(prediction, ranges, history, candidates) {
       return {
         level: 'warning',
         message: `⚠️ NEAR EDGE: Only ${distToLower.toFixed(1)}°F above ${actualInBucket.min}° boundary`,
-        recommendation: 'CAUTIOUS - Close to bucket edge',
+        recommendation: 'CAUTIOUS - Close to lower bucket edge',
         details: { forecastSpread: '0', forecastsDisagree: false }
       };
     }
   }
   
   if (actualInBucket.max !== null) {
-    // Allow up to +0.5°F tolerance above the bucket before flagging
-    const effectiveMax = actualInBucket.max + 0.5;
-    const distToUpper = effectiveMax - prediction;
-  
+    const distToUpper = actualInBucket.max - prediction;
     if (distToUpper >= 0 && distToUpper <= 0.3) {
       return {
         level: 'warning',
         message: `⚠️ NEAR EDGE: Only ${distToUpper.toFixed(1)}°F below ${actualInBucket.max}° boundary`,
-        recommendation: 'CAUTIOUS - Close to bucket edge',
+        recommendation: 'CAUTIOUS - Close to upper bucket edge',
         details: { forecastSpread: '0', forecastsDisagree: false }
       };
     }
