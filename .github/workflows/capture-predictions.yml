@@ -23,33 +23,10 @@ jobs:
           
           PREDICTIONS=$(curl -s https://app.dailydewpoint.com/)
           
-PREDICTIONS=$(curl -s https://app.dailydewpoint.com/)
-
-# Debug: Check if we're getting the right page
-echo "=== Checking HTML content ==="
-echo "$PREDICTIONS" | grep -c "prediction-value"
-echo "$PREDICTIONS" | grep -o 'prediction-value[^>]*>[^<]*' | head -2
-
-# Try multiple extraction patterns
-echo "=== Trying extraction patterns ==="
-# Pattern 1: With °F
-VALUES1=$(echo "$PREDICTIONS" | grep -o 'prediction-value">[0-9.]*°F' | sed 's/prediction-value">//g' | sed 's/°F//g')
-echo "Pattern 1 results: $VALUES1"
-
-# Pattern 2: Without °F
-VALUES2=$(echo "$PREDICTIONS" | grep -o 'prediction-value">[0-9.]*' | sed 's/prediction-value">//g')
-echo "Pattern 2 results: $VALUES2"
-
-# Pattern 3: With class=
-VALUES3=$(echo "$PREDICTIONS" | grep -o 'class="prediction-value">[0-9.]*' | sed 's/class="prediction-value">//g')
-echo "Pattern 3 results: $VALUES3"
-
-# Use whichever worked
-ALL_VALUES="${VALUES1:-${VALUES2:-$VALUES3}}"
-VALUE_TODAY=$(echo "$ALL_VALUES" | head -1)
-VALUE_TOMORROW=$(echo "$ALL_VALUES" | tail -1)
-
-echo "Found values: TODAY=$VALUE_TODAY, TOMORROW=$VALUE_TOMORROW"
+          # Extract prediction values with the °F symbol
+          ALL_VALUES=$(echo "$PREDICTIONS" | grep -o 'prediction-value">[0-9.]*°F' | sed 's/prediction-value">//g' | sed 's/°F//g')
+          VALUE_TODAY=$(echo "$ALL_VALUES" | head -1)
+          VALUE_TOMORROW=$(echo "$ALL_VALUES" | tail -1)
           
           echo "Found values: TODAY=$VALUE_TODAY, TOMORROW=$VALUE_TOMORROW"
           
