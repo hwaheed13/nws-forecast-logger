@@ -65,17 +65,30 @@ jobs:
               echo "Morning hours - running morning capture"
               VALUE_TODAY=$(echo "$PREDICTIONS" | sed -n 's/.*correctionBoxToday.*prediction-value[^>]*>\([0-9.]*\).*/\1/p' | head -1)
               VALUE_TOMORROW=$(echo "$PREDICTIONS" | sed -n 's/.*correctionBoxTomorrow.*prediction-value[^>]*>\([0-9.]*\).*/\1/p' | head -1)
-              [ ! -z "$VALUE_TODAY" ] && curl -s -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
-                -H "Content-Type: application/json" \
-                -d "{\"target_date\":\"$DATE\",\"prediction_type\":\"morning_of\",\"prediction_value\":$VALUE_TODAY,\"snapshot_time\":\"$TIMESTAMP\"}"
-              [ ! -z "$VALUE_TOMORROW" ] && curl -s -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
-                -H "Content-Type: application/json" \
-                -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"day_before_morning\",\"prediction_value\":$VALUE_TOMORROW,\"snapshot_time\":\"$TIMESTAMP\"}"
+              
+              if [ ! -z "$VALUE_TODAY" ]; then
+                curl -s -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
+                  -H "Content-Type: application/json" \
+                  -d "{\"target_date\":\"$DATE\",\"prediction_type\":\"morning_of\",\"prediction_value\":$VALUE_TODAY,\"snapshot_time\":\"$TIMESTAMP\"}"
+                echo "Logged morning_of: $VALUE_TODAY"
+              fi
+              
+              if [ ! -z "$VALUE_TOMORROW" ]; then
+                curl -s -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
+                  -H "Content-Type: application/json" \
+                  -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"day_before_morning\",\"prediction_value\":$VALUE_TOMORROW,\"snapshot_time\":\"$TIMESTAMP\"}"
+                echo "Logged day_before_morning: $VALUE_TOMORROW"
+              fi
+              
             elif [ "$HOUR" -ge "18" ] && [ "$HOUR" -le "21" ]; then
               echo "Evening hours - running evening capture"
               VALUE=$(echo "$PREDICTIONS" | sed -n 's/.*correctionBoxTomorrow.*prediction-value[^>]*>\([0-9.]*\).*/\1/p' | head -1)
-              [ ! -z "$VALUE" ] && curl -s -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
-                -H "Content-Type: application/json" \
-                -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"night_before\",\"prediction_value\":$VALUE,\"snapshot_time\":\"$TIMESTAMP\"}"
+              
+              if [ ! -z "$VALUE" ]; then
+                curl -s -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
+                  -H "Content-Type: application/json" \
+                  -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"night_before\",\"prediction_value\":$VALUE,\"snapshot_time\":\"$TIMESTAMP\"}"
+                echo "Logged night_before: $VALUE"
+              fi
             fi
           fi
