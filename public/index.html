@@ -790,6 +790,14 @@ getWarning(prediction, ranges, history, candidates) {
   console.log("Boundary check start:", prediction, ranges);
   if (!ranges || !ranges.length) return null;
   
+  // Kalshi buckets: "81° to 82°" means 81.0 to 82.99
+  // So we need to check if prediction falls in any bucket using that logic
+  const actualInBucket = ranges.find(r => {
+    if (r.min === null) return prediction < r.max + 1;  // "X° or less" includes up to X.99
+    if (r.max === null) return prediction >= r.min;     // "X° or more" 
+    return prediction >= r.min && prediction < r.max + 1; // "X° to Y°" includes X.0 to Y.99
+  });
+  
   const nws = candidates?.D0_latest || candidates?.D1_latest;
   const accu = candidates?.AccuWeather;
   
@@ -853,45 +861,40 @@ getWarning(prediction, ranges, history, candidates) {
   }
   
 // Check proximity to edges if we're actually IN a bucket
-if (actualInBucket.min !== null) {
-  const distToLower = prediction - actualInBucket.min;
-  // ⚠️ Lower-edge warning only if ≤0.3°F above the lower bound
-  if (distToLower >= 0 && distToLower <= 0.3) {
-    return {
-      level: 'warning',
-      message: `⚠️ NEAR EDGE: Only ${distToLower.toFixed(1)}°F above ${actualInBucket.min}° boundary`,
-      recommendation: 'CAUTIOUS - Close to lower bucket edge',
-      details: { forecastSpread: '0', forecastsDisagree: false }
-    };
+// For Kalshi buckets like "81° to 82°" which includes 81.0-82.99:
+// - Warn if close to 81.0 (could drop to 80.x and fall into 79-80 bucket)  
+// - Warn if close to 83.0 (could rise to 83.x and fall into 83-84 bucket)
+if (actualInBucket) {
+  // Check distance to lower boundary (e.g., 81.0 for "81° to 82°" bucket)
+  if (actualInBucket.min !== null) {
+    const distToLower = prediction - actualInBucket.min;
+    if (distToLower >= 0 && distToLower <= 0.3) {
+      return {
+        level: 'warning',
+        message: `⚠️ NEAR LOWER EDGE: ${prediction.toFixed(1)}°F is only ${distToLower.toFixed(1)}° above the ${actualInBucket.min}° boundary`,
+        recommendation: 'CAUTION - Close to previous bucket',
+        details: { forecastSpread: '0', forecastsDisagree: false }
+      };
+    }
+  }
+  
+  // Check distance to upper boundary (e.g., 83.0 for "81° to 82°" bucket)
+  // Remember: "81° to 82°" goes up to 82.99, so the boundary is at 83.0
+  if (actualInBucket.max !== null) {
+    const upperBoundary = actualInBucket.max + 1; // 82 -> 83
+    const distToUpper = upperBoundary - prediction;
+    if (distToUpper >= 0 && distToUpper <= 0.3) {
+      return {
+        level: 'warning', 
+        message: `⚠️ NEAR UPPER EDGE: ${prediction.toFixed(1)}°F is only ${distToUpper.toFixed(1)}° below the ${upperBoundary}° boundary`,
+        recommendation: 'CAUTION - Close to next bucket',
+        details: { forecastSpread: '0', forecastsDisagree: false }
+      };
+    }
   }
 }
 
-if (actualInBucket.max !== null) {
-  const distToUpper = actualInBucket.max - prediction;
-  const overUpper = prediction - actualInBucket.max;
-
-  // ⚠️ Only warn if truly *below* the top edge (≤0.3°F under)
-  if (distToUpper > 0 && distToUpper <= 0.3) {
-    return {
-      level: 'warning',
-      message: `⚠️ NEAR EDGE: Only ${distToUpper.toFixed(1)}°F below ${actualInBucket.max}° boundary`,
-      recommendation: 'CAUTIOUS - Close to upper bucket edge',
-      details: { forecastSpread: '0', forecastsDisagree: false }
-    };
-  }
-
-  // ⚠️ Only warn if just *above* the top edge (≥0.5°F over)
-  if (overUpper >= 0.5 && overUpper <= 0.8) {
-    return {
-      level: 'warning',
-      message: `⚠️ JUST ABOVE: ${prediction.toFixed(1)}°F is ${overUpper.toFixed(1)}° above ${actualInBucket.max}° boundary`,
-      recommendation: 'CAUTIOUS - Near upper bucket edge',
-      details: { forecastSpread: '0', forecastsDisagree: false }
-    };
-  }
-}
-
-
+// No warning if safely inside the bucket
 return null;
 
   }
@@ -2718,12 +2721,14 @@ window._predTomorrow = predTomorrow;
     "bias:", predTomorrow?.bias
   );
 
-    // Fetch Kalshi data to map predictions to ranges
+  // Fetch Kalshi data to map predictions to ranges
     let todayKalshiRange = null;
     let tomorrowKalshiRange = null;
+    let todayMarket = null;
+    let tomorrowMarket = null;
     
     try {
-      const [todayMarket, tomorrowMarket] = await Promise.all([
+      [todayMarket, tomorrowMarket] = await Promise.all([
         fetchKalshiLiveLeader(todayISO).catch(() => null),
         fetchKalshiLiveLeader(tomorrowISO).catch(() => null)
       ]);
@@ -2758,30 +2763,31 @@ window._predTomorrow = predTomorrow;
     }
   }
     
-    // Check for boundary warnings  
+// Check for boundary warnings  
     const todayWarning = predToday?.y
       ? boundaryDetector.getWarning(
           predToday.y,
-          (todayKalshiRange?.ranges && todayKalshiRange.ranges.length > 0)
-            ? todayKalshiRange.ranges
-            : [{min: Math.floor(predToday.y), max: Math.ceil(predToday.y)}],
+          todayMarket?.ranges || [{min: Math.floor(predToday.y), max: Math.ceil(predToday.y)}],
           predictionHistory,
           builtToday.candidates
         )
       : null;
 
-    const tomorrowWarning = predTomorrow?.y
+  const tomorrowWarning = predTomorrow?.y
       ? (() => {
           const finalTemp = predTomorrow.y + (Number.isFinite(d1AdjF) ? d1AdjF : 0);
+          
+          // Use the actual market ranges from tomorrowMarket, not from the matched range
+          let ranges = tomorrowMarket?.ranges;
+          if (!ranges || ranges.length === 0) {
+            // Create a synthetic range if no market data
+            const floor = Math.floor(finalTemp);
+            ranges = [{min: floor, max: floor + 1}];
+          }
+          
           return boundaryDetector.getWarning(
             finalTemp,
-      (tomorrowKalshiRange?.ranges && tomorrowKalshiRange.ranges.length > 0)
-        ? tomorrowKalshiRange.ranges
-        : [{
-            // Adjust bucket so predictions like 82.1 stay in 81–82
-            min: Math.floor(finalTemp) - (finalTemp % 1 < 0.5 ? 0 : 1),
-            max: Math.floor(finalTemp) + 1 - (finalTemp % 1 < 0.5 ? 0 : 1)
-          }],
+            ranges,
 
             predictionHistory,
             builtTomorrow.candidates
@@ -2921,30 +2927,24 @@ if (el1) {
   }
 }
 window.updateCorrectionBoxes = updateCorrectionBoxes;
-  // Helper function to map temperature to Kalshi range
+// Helper function to map temperature to Kalshi range
 function mapToKalshiRange(temp, kalshiData) {
   if (!kalshiData?.ranges || !Array.isArray(kalshiData.ranges)) return null;
 
-  const t = Math.floor(temp);
-
   for (const range of kalshiData.ranges) {
-    // "X° or less"
-    if (range.min === null && t <= range.max) return range;
-    // "X° or more"
-    if (range.max === null && t >= range.min) return range;
-    // "X° to Y°" ranges
+    // "X° or less" - anything up to and including X.99
+    if (range.min === null && temp < range.max + 1) return range;
+    // "X° or more" - anything X.0 and above
+    if (range.max === null && temp >= range.min) return range;
+    // "X° to Y°" ranges - Kalshi treats these as X.0 to Y.99
+    // So "81° to 82°" includes all temps from 81.0 to 82.99
     if (range.min !== null && range.max !== null) {
-      // Normal case: inside inclusive bounds
-      if (t >= range.min && t <= range.max) return range;
-
-      // Retrofit safeguard:
-      // If prediction is just *above* the upper bound but the *exact value*
-      // is still < next integer, treat it as part of this range
-      if (temp < range.max && temp > range.max - 1 && t === range.max) {
+      if (temp >= range.min && temp < range.max + 1) {
         return range;
       }
     }
   }
+  
   return null;
 }
 
