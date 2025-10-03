@@ -22,16 +22,17 @@ if not ACCU_API_KEY or not ACCU_LOCATION_KEY:
 tz = pytz.timezone(TZ_NAME)
 
 # ===== MIDNIGHT-4AM FREEZE CHECK =====
-# Skip AccuWeather collection between midnight and 4am ET
-# because their API doesn't properly cut over at midnight
-current_time_et = datetime.datetime.now(tz)
-current_hour = current_time_et.hour
+# Force America/New_York timezone so skip logic always works
+et = pytz.timezone("America/New_York")
+current_time_et = datetime.datetime.now(et)
+current_hour_et = current_time_et.hour
 
-if 0 <= current_hour < 4:
-    print(f"[Accu logger] Skipping: Currently {current_time_et.strftime('%H:%M')} ET (midnight-4am freeze period)", file=sys.stderr)
-    print(f"[Accu logger] AccuWeather API returns stale data during this window", file=sys.stderr)
-    sys.exit(0)  # Exit successfully but do nothing
+if 0 <= current_hour_et < 4:
+    print(f"[Accu logger] Skipping: {current_time_et.strftime('%Y-%m-%d %H:%M %Z')} (midnight–4am ET freeze period)", file=sys.stderr)
+    print("::notice title=AccuWeather Skip::Skipped API pull during midnight–4am ET freeze window")
+    sys.exit(0)
 # ===== END FREEZE CHECK =====
+
 
 def now_et():
     return datetime.datetime.now(tz)
