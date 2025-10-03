@@ -1415,7 +1415,8 @@ window.warmOnceForCurrentCSV = warmOnceForCurrentCSV;
       const g = k => parts.find(p => p.type === k).value;
       return `${g('year')}-${g('month')}-${g('day')}`;
     }
-
+    window.nycISODate = nycISODate;  // Make it globally accessible
+    
     function kalshiAnchorForISO(dateISO) {
       const [y,m,d] = dateISO.split('-').map(Number);
       const dt = new Date(Date.UTC(y, m-1, d));
