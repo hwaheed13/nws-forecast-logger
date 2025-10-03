@@ -792,29 +792,20 @@ getWarning(prediction, ranges, history, candidates) {
   const nws = candidates?.D0_latest || candidates?.D1_latest;
   const accu = candidates?.AccuWeather;
   
-  // For Kalshi with gaps (70-71, then 72-73), check if prediction falls in a gap
   const rounded = Math.round(prediction);
-  const floor = Math.floor(prediction);
-  const ceil = Math.ceil(prediction);
   
-  // Check if we're between buckets (in a gap)
-  const floorInBucket = ranges.some(r => 
-    (r.min === null && floor <= r.max) ||
-    (r.max === null && floor >= r.min) ||
-    (r.min !== null && r.max !== null && floor >= r.min && floor <= r.max)
-  );
+  // Check if the ACTUAL prediction (not rounded) falls in any bucket
+  const actualInBucket = ranges.find(r => {
+    if (r.min === null) return prediction <= r.max;
+    if (r.max === null) return prediction >= r.min;
+    return prediction >= r.min && prediction <= r.max;
+  });
   
-  const ceilInBucket = ranges.some(r =>
-    (r.min === null && ceil <= r.max) ||
-    (r.max === null && ceil >= r.min) ||
-    (r.min !== null && r.max !== null && ceil >= r.min && ceil <= r.max)
-  );
-  
-  // Critical: prediction rounds to a value not covered by any bucket OR straddles buckets
-  if (!floorInBucket || !ceilInBucket || (floor !== ceil && (!floorInBucket || !ceilInBucket))) {
+  // If prediction doesn't fall in ANY bucket, it's between buckets
+  if (!actualInBucket) {
     return {
       level: 'critical',
-      message: `⚠️ BOUNDARY: ${prediction.toFixed(1)}°F falls between buckets (rounds to ${rounded}°)`,
+      message: `⚠️ BOUNDARY: ${prediction.toFixed(1)}°F falls between buckets (no range covers this value)`,
       recommendation: 'SKIP - Between Kalshi ranges',
       details: { 
         forecastSpread: (nws && accu) ? Math.abs(nws - accu).toFixed(1) : '0',
@@ -823,30 +814,25 @@ getWarning(prediction, ranges, history, candidates) {
     };
   }
   
-  // Check if near a bucket edge (within 0.3°F)
-  const currentBucket = ranges.find(r => 
-    (r.min === null && rounded <= r.max) ||
-    (r.max === null && rounded >= r.min) ||
-    (r.min !== null && r.max !== null && rounded >= r.min && rounded <= r.max)
-  );
-  
-  if (currentBucket && currentBucket.min !== null) {
-    const distToLower = prediction - currentBucket.min;
-    const distToUpper = currentBucket.max - prediction;
-    
-    if (distToLower <= 0.3) {
+  // Check proximity to edges if we're actually IN a bucket
+  if (actualInBucket.min !== null) {
+    const distToLower = prediction - actualInBucket.min;
+    if (distToLower >= 0 && distToLower <= 0.3) {
       return {
         level: 'warning',
-        message: `⚠️ NEAR EDGE: Only ${distToLower.toFixed(1)}°F above ${currentBucket.min}° boundary`,
+        message: `⚠️ NEAR EDGE: Only ${distToLower.toFixed(1)}°F above ${actualInBucket.min}° boundary`,
         recommendation: 'CAUTIOUS - Close to bucket edge',
         details: { forecastSpread: '0', forecastsDisagree: false }
       };
     }
-    
-    if (distToUpper <= 0.3) {
+  }
+  
+  if (actualInBucket.max !== null) {
+    const distToUpper = actualInBucket.max - prediction;
+    if (distToUpper >= 0 && distToUpper <= 0.3) {
       return {
-        level: 'warning', 
-        message: `⚠️ NEAR EDGE: Only ${distToUpper.toFixed(1)}°F below ${currentBucket.max}° boundary`,
+        level: 'warning',
+        message: `⚠️ NEAR EDGE: Only ${distToUpper.toFixed(1)}°F below ${actualInBucket.max}° boundary`,
         recommendation: 'CAUTIOUS - Close to bucket edge',
         details: { forecastSpread: '0', forecastsDisagree: false }
       };
@@ -856,7 +842,6 @@ getWarning(prediction, ranges, history, candidates) {
   return null;
   }
 }
-
 const boundaryDetector = new KalshiBoundaryDetector();
 // Log predictions to Supabase - matches what's on the UI
 async function logUIprediction(which, prediction, candidates, warning, bias, rmse) {
