@@ -875,7 +875,12 @@ getWarning(prediction, ranges, history, candidates) {
       };
     }
   }
-  
+  console.log("Boundary check:",
+  "prediction=", prediction,
+  "range=", range.min, "-", range.max,
+  "distToUpper=", distToUpper,
+  "distToLower=", distToLower
+);
   return null;
   }
 }
