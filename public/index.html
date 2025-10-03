@@ -855,7 +855,7 @@ getWarning(prediction, ranges, history, candidates) {
 // Check proximity to edges if we're actually IN a bucket
 if (actualInBucket.min !== null) {
   const distToLower = prediction - actualInBucket.min;
-  // Only warn if slightly above lower bound but not below
+  // ⚠️ Lower-edge warning only if ≤0.3°F above the lower bound
   if (distToLower >= 0 && distToLower <= 0.3) {
     return {
       level: 'warning',
@@ -866,11 +866,11 @@ if (actualInBucket.min !== null) {
   }
 }
 
-// Handle upper boundary with 0.5°F tolerance ABOVE the bucket
 if (actualInBucket.max !== null) {
   const distToUpper = actualInBucket.max - prediction;
+  const overUpper = prediction - actualInBucket.max;
 
-  // Case 1: inside bucket, close to top (≤0.3°F below upper edge)
+  // ⚠️ Upper-edge warning only if ≤0.3°F below the top bound
   if (distToUpper >= 0 && distToUpper <= 0.3) {
     return {
       level: 'warning',
@@ -880,8 +880,7 @@ if (actualInBucket.max !== null) {
     };
   }
 
-  // Case 2: just ABOVE the top edge but within +0.5°F
-  const overUpper = prediction - actualInBucket.max;
+  // ⚠️ Just above top edge (within +0.5°F tolerance)
   if (overUpper > 0 && overUpper <= 0.5) {
     return {
       level: 'warning',
