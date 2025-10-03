@@ -802,74 +802,55 @@ getWarning(prediction, ranges, history, candidates) {
   });
   
   // If prediction doesn't fall in ANY bucket, check proximity to nearest edge
-if (!actualInBucket) {
-  // Find closest bucket boundary
-  let closestDist = Infinity;
-  let closestBoundary = null;
-  let boundaryType = '';
-  
-  for (const r of ranges) {
-    if (r.min !== null && prediction < r.min) {
-      const dist = r.min - prediction;
-      if (dist < closestDist) {
-        closestDist = dist;
-        closestBoundary = r.min;
-        boundaryType = 'below';
+  if (!actualInBucket) {
+    // Find closest bucket boundary
+    let closestDist = Infinity;
+    let closestBoundary = null;
+    let boundaryType = '';
+    
+    for (const r of ranges) {
+      if (r.min !== null && prediction < r.min) {
+        const dist = r.min - prediction;
+        if (dist < closestDist) {
+          closestDist = dist;
+          closestBoundary = r.min;
+          boundaryType = 'below';
+        }
+      }
+      if (r.max !== null && prediction > r.max) {
+        const dist = prediction - r.max;
+        if (dist < closestDist) {
+          closestDist = dist;
+          closestBoundary = r.max;
+          boundaryType = 'above';
+        }
       }
     }
-    if (r.max !== null && prediction > r.max) {
-      const dist = prediction - r.max;
-      if (dist < closestDist) {
-        closestDist = dist;
-        closestBoundary = r.max;
-        boundaryType = 'above';
-      }
+    
+    // If very close to a boundary (within 0.3°F), it's a warning
+    if (closestDist <= 0.3) {
+      return {
+        level: 'warning',
+        message: `⚠️ JUST OUTSIDE: ${prediction.toFixed(1)}°F is ${closestDist.toFixed(1)}° ${boundaryType} the ${closestBoundary}° boundary`,
+        recommendation: 'CAUTION - Very close to bucket edge',
+        details: { 
+          forecastSpread: (nws && accu) ? Math.abs(nws - accu).toFixed(1) : '0',
+          forecastsDisagree: nws && accu && Math.round(nws) !== Math.round(accu)
+        }
+      };
+    } else {
+      // Far from any boundary = critical
+      return {
+        level: 'critical',
+        message: `⚠️ BOUNDARY: ${prediction.toFixed(1)}°F falls between buckets (${closestDist.toFixed(1)}° from nearest edge)`,
+        recommendation: 'SKIP - Between Kalshi ranges',
+        details: { 
+          forecastSpread: (nws && accu) ? Math.abs(nws - accu).toFixed(1) : '0',
+          forecastsDisagree: nws && accu && Math.round(nws) !== Math.round(accu)
+        }
+      };
     }
   }
-
-  // High-side rule: only warn if ≥ +0.5°F over the max boundary
-  if (boundaryType === 'above') {
-    if (closestDist < 0.5) {
-      // e.g., 82.1–82.4 when max=82 => no warning
-      return null;
-    }
-    // 0.5°F or more above the boundary => warn
-    return {
-      level: 'warning',
-      message: `⚠️ OUTSIDE: ${prediction.toFixed(1)}°F is ${closestDist.toFixed(1)}° above ${closestBoundary}° boundary`,
-      recommendation: 'CAUTIOUS - Over the next bucket',
-      details: { 
-        forecastSpread: (nws && accu) ? Math.abs(nws - accu).toFixed(1) : '0',
-        forecastsDisagree: !!(nws && accu && Math.round(nws) !== Math.round(accu))
-      }
-    };
-  }
-
-  // Low-side behavior: keep the tight 0.3°F "just outside" warning
-  if (closestDist <= 0.3) {
-    return {
-      level: 'warning',
-      message: `⚠️ JUST OUTSIDE: ${prediction.toFixed(1)}°F is ${closestDist.toFixed(1)}° ${boundaryType} the ${closestBoundary}° boundary`,
-      recommendation: 'CAUTION - Very close to bucket edge',
-      details: { 
-        forecastSpread: (nws && accu) ? Math.abs(nws - accu).toFixed(1) : '0',
-        forecastsDisagree: !!(nws && accu && Math.round(nws) !== Math.round(accu))
-      }
-    };
-  }
-
-  // Otherwise, between buckets -> critical/skip
-  return {
-    level: 'critical',
-    message: `⚠️ BOUNDARY: ${prediction.toFixed(1)}°F falls between buckets (${closestDist.toFixed(1)}° from nearest edge)`,
-    recommendation: 'SKIP - Between Kalshi ranges',
-    details: { 
-      forecastSpread: (nws && accu) ? Math.abs(nws - accu).toFixed(1) : '0',
-      forecastsDisagree: !!(nws && accu && Math.round(nws) !== Math.round(accu))
-    }
-  };
-}
-
   
 // Check proximity to edges if we're actually IN a bucket
 if (actualInBucket.min !== null) {
@@ -884,6 +865,17 @@ if (actualInBucket.min !== null) {
   }
 }
 
+if (actualInBucket.max !== null) {
+  const distToUpper = actualInBucket.max - prediction;
+  if (distToUpper >= 0 && distToUpper <= 0.3) {
+    return {
+      level: 'warning',
+      message: `⚠️ NEAR EDGE: Only ${distToUpper.toFixed(1)}°F below ${actualInBucket.max}° boundary`,
+      recommendation: 'CAUTIOUS - Close to upper bucket edge',
+      details: { forecastSpread: '0', forecastsDisagree: false }
+    };
+  }
+}
   return null;
   }
 }
