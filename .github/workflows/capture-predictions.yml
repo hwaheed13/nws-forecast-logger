@@ -1,79 +1,81 @@
 name: Capture Predictions EST
 on:
   schedule:
-    - cron: '0 12 * * *'  # 7 AM EST (noon UTC)
-    - cron: '0 0 * * *'   # 7 PM EST (midnight UTC)
-  workflow_dispatch:      # Allows manual trigger from GitHub UI
+    - cron: '0 11 * * *'  # 7 AM EDT (11:00 UTC)
+    - cron: '0 23 * * *'  # 7 PM EDT (23:00 UTC)
+  workflow_dispatch:      # Manual trigger option
+
 jobs:
   capture:
     runs-on: ubuntu-latest
     steps:
       - name: Capture and Log Predictions
         run: |
-          set +e  # Turn off exit-on-error
+          set +e
           
-          # Get current hour in Eastern Time
           HOUR=$(TZ='America/New_York' date +%H)
           DATE=$(TZ='America/New_York' date +%Y-%m-%d)
+          TOMORROW=$(TZ='America/New_York' date -d '+1 day' +%Y-%m-%d)
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
           
           echo "Current ET hour: $HOUR"
           echo "Current ET date: $DATE"
           
-          # Fetch current predictions from your dashboard
-          echo "Fetching predictions from dashboard..."
           PREDICTIONS=$(curl -s https://app.dailydewpoint.com/)
           
+          # Morning: 7 AM ET
           if [ "$HOUR" = "07" ]; then
-            echo "7 AM EST - Capturing both today and tomorrow predictions"
+            echo "7 AM ET - Capturing morning predictions"
             
-            # Extract today's prediction value
+            # Today's morning_of
             VALUE_TODAY=$(echo "$PREDICTIONS" | sed -n 's/.*correctionBoxToday.*prediction-value[^>]*>\([0-9.]*\).*/\1/p' | head -1)
-            
-            echo "Today's value: $VALUE_TODAY"
-            
-            # Log today's morning_of prediction if found
             if [ ! -z "$VALUE_TODAY" ]; then
               curl -s -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
                 -H "Content-Type: application/json" \
-                -d "{\"target_date\":\"$DATE\",\"prediction_type\":\"morning_of\",\"prediction_value\":$VALUE_TODAY,\"snapshot_time\":\"$(TZ='America/New_York' date +%Y-%m-%dT%H:%M:%S)\"}"
+                -d "{\"target_date\":\"$DATE\",\"prediction_type\":\"morning_of\",\"prediction_value\":$VALUE_TODAY,\"snapshot_time\":\"$TIMESTAMP\"}"
               echo "Logged morning_of: $VALUE_TODAY"
             fi
             
-            # Get tomorrow's date and prediction
-            TOMORROW=$(TZ='America/New_York' date -d '+1 day' +%Y-%m-%d)
+            # Tomorrow's day_before_morning  
             VALUE_TOMORROW=$(echo "$PREDICTIONS" | sed -n 's/.*correctionBoxTomorrow.*prediction-value[^>]*>\([0-9.]*\).*/\1/p' | head -1)
-            
-            echo "Tomorrow's value: $VALUE_TOMORROW"
-            
-            # Log tomorrow's day_before_morning prediction if found
             if [ ! -z "$VALUE_TOMORROW" ]; then
               curl -s -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
                 -H "Content-Type: application/json" \
-                -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"day_before_morning\",\"prediction_value\":$VALUE_TOMORROW,\"snapshot_time\":\"$(TZ='America/New_York' date +%Y-%m-%dT%H:%M:%S)\"}"
+                -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"day_before_morning\",\"prediction_value\":$VALUE_TOMORROW,\"snapshot_time\":\"$TIMESTAMP\"}"
               echo "Logged day_before_morning: $VALUE_TOMORROW"
             fi
             
+          # Evening: 7 PM ET
           elif [ "$HOUR" = "19" ]; then
-            echo "7 PM EST - Capturing night_before prediction for tomorrow"
+            echo "7 PM ET - Capturing evening prediction"
             
-            # Get tomorrow's date
-            TOMORROW=$(TZ='America/New_York' date -d '+1 day' +%Y-%m-%d)
-            
-            # Extract tomorrow's prediction value
+            # Tomorrow's night_before
             VALUE=$(echo "$PREDICTIONS" | sed -n 's/.*correctionBoxTomorrow.*prediction-value[^>]*>\([0-9.]*\).*/\1/p' | head -1)
-            
-            echo "Extracted value: $VALUE"
-            
-            # Only log if we have a value
             if [ ! -z "$VALUE" ]; then
               curl -s -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
                 -H "Content-Type: application/json" \
-                -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"night_before\",\"prediction_value\":$VALUE,\"snapshot_time\":\"$(TZ='America/New_York' date +%Y-%m-%dT%H:%M:%S)\"}"
-              echo "Logged night_before: $VALUE for $TOMORROW"
-            else
-              echo "ERROR: Could not extract value, skipping"
+                -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"night_before\",\"prediction_value\":$VALUE,\"snapshot_time\":\"$TIMESTAMP\"}"
+              echo "Logged night_before: $VALUE"
             fi
             
+          # Manual trigger - run based on current time
           else
-            echo "Not scheduled capture time (hour is $HOUR, expecting 07 or 19)"
+            echo "Manual trigger or off-schedule run"
+            if [ "$HOUR" -ge "6" ] && [ "$HOUR" -le "10" ]; then
+              echo "Morning hours - running morning capture"
+              VALUE_TODAY=$(echo "$PREDICTIONS" | sed -n 's/.*correctionBoxToday.*prediction-value[^>]*>\([0-9.]*\).*/\1/p' | head -1)
+              VALUE_TOMORROW=$(echo "$PREDICTIONS" | sed -n 's/.*correctionBoxTomorrow.*prediction-value[^>]*>\([0-9.]*\).*/\1/p' | head -1)
+              [ ! -z "$VALUE_TODAY" ] && curl -s -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
+                -H "Content-Type: application/json" \
+                -d "{\"target_date\":\"$DATE\",\"prediction_type\":\"morning_of\",\"prediction_value\":$VALUE_TODAY,\"snapshot_time\":\"$TIMESTAMP\"}"
+              [ ! -z "$VALUE_TOMORROW" ] && curl -s -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
+                -H "Content-Type: application/json" \
+                -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"day_before_morning\",\"prediction_value\":$VALUE_TOMORROW,\"snapshot_time\":\"$TIMESTAMP\"}"
+            elif [ "$HOUR" -ge "18" ] && [ "$HOUR" -le "21" ]; then
+              echo "Evening hours - running evening capture"
+              VALUE=$(echo "$PREDICTIONS" | sed -n 's/.*correctionBoxTomorrow.*prediction-value[^>]*>\([0-9.]*\).*/\1/p' | head -1)
+              [ ! -z "$VALUE" ] && curl -s -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
+                -H "Content-Type: application/json" \
+                -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"night_before\",\"prediction_value\":$VALUE,\"snapshot_time\":\"$TIMESTAMP\"}"
+            fi
           fi
