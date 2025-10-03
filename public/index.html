@@ -866,6 +866,13 @@ if (actualInBucket.min !== null) {
 }
 
 if (actualInBucket.max !== null) {
+  // Allow small tolerance above upper edge before warning
+  const overage = prediction - actualInBucket.max;
+  if (overage > 0.3) {
+    // More than 0.3°F above the bucket — no warning (fully safe)
+    return null;
+  }
+
   const distToUpper = actualInBucket.max - prediction;
   if (distToUpper >= 0 && distToUpper <= 0.3) {
     return {
@@ -876,6 +883,7 @@ if (actualInBucket.max !== null) {
     };
   }
 }
+
   return null;
   }
 }
