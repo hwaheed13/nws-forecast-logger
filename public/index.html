@@ -2748,24 +2748,28 @@ window._predTomorrow = predTomorrow;
   }
     
     // Check for boundary warnings  
-       const todayWarning = predToday?.y
+    const todayWarning = predToday?.y
       ? boundaryDetector.getWarning(
           predToday.y,
-          todayKalshiRange?.ranges || [],
+          (todayKalshiRange?.ranges && todayKalshiRange.ranges.length > 0)
+            ? todayKalshiRange.ranges
+            : [{min: Math.floor(predToday.y), max: Math.ceil(predToday.y)}],
           predictionHistory,
           builtToday.candidates
         )
       : null;
 
-      
     const tomorrowWarning = predTomorrow?.y
       ? boundaryDetector.getWarning(
           predTomorrow.y,
-          tomorrowKalshiRange?.ranges || [],
+          (tomorrowKalshiRange?.ranges && tomorrowKalshiRange.ranges.length > 0)
+            ? tomorrowKalshiRange.ranges
+            : [{min: Math.floor(predTomorrow.y), max: Math.ceil(predTomorrow.y)}],
           predictionHistory,
           builtTomorrow.candidates
         )
       : null;
+
 
   // Only log valid predictions after system is fully loaded
     if (systemFullyLoaded && predToday?.y && predToday.y > 40 && !hasActualFor(todayISO)) {
