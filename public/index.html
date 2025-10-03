@@ -2891,7 +2891,7 @@ window.updateCorrectionBoxes = updateCorrectionBoxes;
 function mapToKalshiRange(temp, kalshiData) {
   if (!kalshiData?.ranges || !Array.isArray(kalshiData.ranges)) return null;
   
-  const t = Math.round(temp);
+  const t = Math.floor(temp);
   
   for (const range of kalshiData.ranges) {
     // Handle "X° or less" ranges
@@ -2939,7 +2939,7 @@ function mapToKalshiRange(temp, kalshiData) {
 function mapToKalshiRange(temp, kalshiData) {
   if (!kalshiData?.ranges || !Array.isArray(kalshiData.ranges)) return null;
   
-  const t = Math.round(temp);
+  const t = Math.floor(temp);
   
   for (const range of kalshiData.ranges) {
     // Handle "X° or less" ranges
