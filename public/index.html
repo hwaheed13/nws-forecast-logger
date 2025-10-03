@@ -852,37 +852,30 @@ getWarning(prediction, ranges, history, candidates) {
     }
   }
   
-  // Check proximity to edges if we're actually IN a bucket
-  if (actualInBucket.min !== null) {
-    const distToLower = prediction - actualInBucket.min;
-    if (distToLower >= 0 && distToLower <= 0.3) {
-      return {
-        level: 'warning',
-        message: `⚠️ NEAR EDGE: Only ${distToLower.toFixed(1)}°F above ${actualInBucket.min}° boundary`,
-        recommendation: 'CAUTIOUS - Close to lower bucket edge',
-        details: { forecastSpread: '0', forecastsDisagree: false }
-      };
-    }
+// Check proximity to edges if we're actually IN a bucket
+if (actualInBucket.min !== null) {
+  const distToLower = prediction - actualInBucket.min;
+  if (distToLower >= 0 && distToLower <= 0.3) {
+    return {
+      level: 'warning',
+      message: `⚠️ NEAR EDGE: Only ${distToLower.toFixed(1)}°F above ${actualInBucket.min}° boundary`,
+      recommendation: 'CAUTIOUS - Close to lower bucket edge',
+      details: { forecastSpread: '0', forecastsDisagree: false }
+    };
   }
-  
-  if (actualInBucket.max !== null) {
-    const distToUpper = actualInBucket.max - prediction;
-    if (distToUpper >= 0 && distToUpper <= 0.3) {
-      return {
-        level: 'warning',
-        message: `⚠️ NEAR EDGE: Only ${distToUpper.toFixed(1)}°F below ${actualInBucket.max}° boundary`,
-        recommendation: 'CAUTIOUS - Close to upper bucket edge',
-        details: { forecastSpread: '0', forecastsDisagree: false }
-      };
-    }
-  }
+}
 
-  console.log("Boundary check:",
-  "prediction=", prediction,
-  "range=", range.min, "-", range.max,
-  "distToUpper=", distToUpper,
-  "distToLower=", distToLower
-);
+if (actualInBucket.max !== null) {
+  const distToUpper = actualInBucket.max - prediction;
+  if (distToUpper >= 0 && distToUpper <= 0.3) {
+    return {
+      level: 'warning',
+      message: `⚠️ NEAR EDGE: Only ${distToUpper.toFixed(1)}°F below ${actualInBucket.max}° boundary`,
+      recommendation: 'CAUTIOUS - Close to upper bucket edge',
+      details: { forecastSpread: '0', forecastsDisagree: false }
+    };
+  }
+}
   return null;
   }
 }
