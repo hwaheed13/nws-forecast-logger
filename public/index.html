@@ -792,20 +792,20 @@ getWarning(prediction, ranges, history, candidates) {
   const nws = candidates?.D0_latest || candidates?.D1_latest;
   const accu = candidates?.AccuWeather;
   
-  const rounded = Math.round(prediction);
-  
-  // Find which bucket the prediction falls in (or doesn't)
+  // Work with actual prediction value, no rounding
+  // Find which bucket the prediction falls in (or if it's between/outside)
   const actualInBucket = ranges.find(r => {
     if (r.min === null) return prediction <= r.max;
     if (r.max === null) return prediction >= r.min;
     return prediction >= r.min && prediction <= r.max;
   });
   
-  // If prediction doesn't fall in ANY bucket, check how close it is
+  // If prediction doesn't fall in ANY bucket, check proximity to nearest edge
   if (!actualInBucket) {
-    // Find the closest bucket edge
+    // Find closest bucket boundary
     let closestDist = Infinity;
     let closestBoundary = null;
+    let boundaryType = '';
     
     for (const r of ranges) {
       if (r.min !== null && prediction < r.min) {
@@ -813,6 +813,7 @@ getWarning(prediction, ranges, history, candidates) {
         if (dist < closestDist) {
           closestDist = dist;
           closestBoundary = r.min;
+          boundaryType = 'below';
         }
       }
       if (r.max !== null && prediction > r.max) {
@@ -820,14 +821,16 @@ getWarning(prediction, ranges, history, candidates) {
         if (dist < closestDist) {
           closestDist = dist;
           closestBoundary = r.max;
+          boundaryType = 'above';
         }
       }
     }
     
+    // If very close to a boundary (within 0.3°F), it's a warning
     if (closestDist <= 0.3) {
       return {
         level: 'warning',
-        message: `⚠️ JUST OUTSIDE: ${closestDist.toFixed(1)}°F from ${closestBoundary}° boundary`,
+        message: `⚠️ JUST OUTSIDE: ${prediction.toFixed(1)}°F is ${closestDist.toFixed(1)}° ${boundaryType} the ${closestBoundary}° boundary`,
         recommendation: 'CAUTION - Very close to bucket edge',
         details: { 
           forecastSpread: (nws && accu) ? Math.abs(nws - accu).toFixed(1) : '0',
@@ -835,9 +838,10 @@ getWarning(prediction, ranges, history, candidates) {
         }
       };
     } else {
+      // Far from any boundary = critical
       return {
         level: 'critical',
-        message: `⚠️ BOUNDARY: ${prediction.toFixed(1)}°F falls between buckets`,
+        message: `⚠️ BOUNDARY: ${prediction.toFixed(1)}°F falls between buckets (${closestDist.toFixed(1)}° from nearest edge)`,
         recommendation: 'SKIP - Between Kalshi ranges',
         details: { 
           forecastSpread: (nws && accu) ? Math.abs(nws - accu).toFixed(1) : '0',
