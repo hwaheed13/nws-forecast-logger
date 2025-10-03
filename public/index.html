@@ -2748,14 +2748,20 @@ window._predTomorrow = predTomorrow;
   }
     
     // Check for boundary warnings  
-    const todayWarning = todayKalshiRange?.ranges && predToday?.y
-      ? boundaryDetector.getWarning(predToday.y, todayKalshiRange.ranges, predictionHistory, builtToday.candidates)
-      : null;
-      
-    const tomorrowWarning = tomorrowKalshiRange?.ranges && predTomorrow?.y
+       const todayWarning = predToday?.y
       ? boundaryDetector.getWarning(
-          predTomorrow.y + (Number.isFinite(d1AdjF) ? d1AdjF : 0),
-          tomorrowKalshiRange.ranges,
+          predToday.y,
+          todayKalshiRange?.ranges || [],
+          predictionHistory,
+          builtToday.candidates
+        )
+      : null;
+
+      
+    const tomorrowWarning = predTomorrow?.y
+      ? boundaryDetector.getWarning(
+          predTomorrow.y,
+          tomorrowKalshiRange?.ranges || [],
           predictionHistory,
           builtTomorrow.candidates
         )
