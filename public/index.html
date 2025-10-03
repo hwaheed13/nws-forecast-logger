@@ -897,8 +897,8 @@ if (actualInBucket) {
 // No warning if safely inside the bucket
 return null;
 
-  }
-}
+  }  // This closes the getWarning method
+}  // This closes the KalshiBoundaryDetector class
 const boundaryDetector = new KalshiBoundaryDetector();
 // Log predictions to Supabase - matches what's on the UI
 async function logUIprediction(which, prediction, candidates, warning, bias, rmse) {
