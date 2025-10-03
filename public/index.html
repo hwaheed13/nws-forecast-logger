@@ -2754,16 +2754,18 @@ window._predTomorrow = predTomorrow;
       : null;
 
     const tomorrowWarning = predTomorrow?.y
-      ? boundaryDetector.getWarning(
-          predTomorrow.y,
-          (tomorrowKalshiRange?.ranges && tomorrowKalshiRange.ranges.length > 0)
-            ? tomorrowKalshiRange.ranges
-            : [{min: Math.floor(predTomorrow.y), max: Math.ceil(predTomorrow.y)}],
-          predictionHistory,
-          builtTomorrow.candidates
-        )
+      ? (() => {
+          const finalTemp = predTomorrow.y + (Number.isFinite(d1AdjF) ? d1AdjF : 0);
+          return boundaryDetector.getWarning(
+            finalTemp,
+            (tomorrowKalshiRange?.ranges && tomorrowKalshiRange.ranges.length > 0)
+              ? tomorrowKalshiRange.ranges
+              : [{min: Math.floor(finalTemp), max: Math.ceil(finalTemp)}],
+            predictionHistory,
+            builtTomorrow.candidates
+          );
+        })()
       : null;
-
 
   // Only log valid predictions after system is fully loaded
     if (systemFullyLoaded && predToday?.y && predToday.y > 40 && !hasActualFor(todayISO)) {
