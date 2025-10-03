@@ -867,9 +867,6 @@ if (actualInBucket.min !== null) {
 
 if (actualInBucket.max !== null) {
   const distToUpper = actualInBucket.max - prediction;
-
-  // Only warn if we're *below* the max (still inside bucket)
-  // or up to +0.5°F above it (slight tolerance)
   if (distToUpper >= 0 && distToUpper <= 0.3) {
     return {
       level: 'warning',
@@ -877,13 +874,11 @@ if (actualInBucket.max !== null) {
       recommendation: 'CAUTIOUS - Close to upper bucket edge',
       details: { forecastSpread: '0', forecastsDisagree: false }
     };
-  } else if (distToUpper < 0 && Math.abs(distToUpper) > 0.5) {
-    // Only flag if truly beyond the range, >0.5°F outside
-    return null;
   }
 }
-return null;
-
+  return null;
+  }
+}
 const boundaryDetector = new KalshiBoundaryDetector();
 // Log predictions to Supabase - matches what's on the UI
 async function logUIprediction(which, prediction, candidates, warning, bias, rmse) {
