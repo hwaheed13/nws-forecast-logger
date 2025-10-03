@@ -866,7 +866,10 @@ getWarning(prediction, ranges, history, candidates) {
   }
   
   if (actualInBucket.max !== null) {
-    const distToUpper = actualInBucket.max - prediction;
+    // Allow up to +0.5°F tolerance above the bucket before flagging
+    const effectiveMax = actualInBucket.max + 0.5;
+    const distToUpper = effectiveMax - prediction;
+  
     if (distToUpper >= 0 && distToUpper <= 0.3) {
       return {
         level: 'warning',
@@ -876,6 +879,7 @@ getWarning(prediction, ranges, history, candidates) {
       };
     }
   }
+
   console.log("Boundary check:",
   "prediction=", prediction,
   "range=", range.min, "-", range.max,
