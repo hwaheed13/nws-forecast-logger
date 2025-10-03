@@ -23,12 +23,17 @@ jobs:
           
           PREDICTIONS=$(curl -s https://app.dailydewpoint.com/)
           
+          # Extract ALL prediction values first (simpler approach)
+          ALL_VALUES=$(echo "$PREDICTIONS" | grep -o 'prediction-value">[0-9.]*' | grep -o '[0-9.]*')
+          VALUE_TODAY=$(echo "$ALL_VALUES" | head -1)
+          VALUE_TOMORROW=$(echo "$ALL_VALUES" | tail -1)
+          
+          echo "Found values: TODAY=$VALUE_TODAY, TOMORROW=$VALUE_TOMORROW"
+          
           # Morning: 7 AM ET
           if [ "$HOUR" = "07" ]; then
             echo "7 AM ET - Capturing morning predictions"
             
-            # Today's morning_of - extract number before °F
-            VALUE_TODAY=$(echo "$PREDICTIONS" | sed -n 's/.*correctionBoxToday.*prediction-value">\([0-9.]*\)°F.*/\1/p' | head -1)
             if [ ! -z "$VALUE_TODAY" ]; then
               curl -s -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
                 -H "Content-Type: application/json" \
@@ -36,8 +41,6 @@ jobs:
               echo "Logged morning_of: $VALUE_TODAY"
             fi
             
-            # Tomorrow's day_before_morning - extract number before °F
-            VALUE_TOMORROW=$(echo "$PREDICTIONS" | sed -n 's/.*correctionBoxTomorrow.*prediction-value">\([0-9.]*\)°F.*/\1/p' | head -1)
             if [ ! -z "$VALUE_TOMORROW" ]; then
               curl -s -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
                 -H "Content-Type: application/json" \
@@ -49,25 +52,18 @@ jobs:
           elif [ "$HOUR" = "19" ]; then
             echo "7 PM ET - Capturing evening prediction"
             
-            # Tomorrow's night_before - extract number before °F
-            VALUE=$(echo "$PREDICTIONS" | sed -n 's/.*correctionBoxTomorrow.*prediction-value">\([0-9.]*\)°F.*/\1/p' | head -1)
-            if [ ! -z "$VALUE" ]; then
+            if [ ! -z "$VALUE_TOMORROW" ]; then
               curl -s -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
                 -H "Content-Type: application/json" \
-                -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"night_before\",\"prediction_value\":$VALUE,\"snapshot_time\":\"$TIMESTAMP\"}"
-              echo "Logged night_before: $VALUE"
+                -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"night_before\",\"prediction_value\":$VALUE_TOMORROW,\"snapshot_time\":\"$TIMESTAMP\"}"
+              echo "Logged night_before: $VALUE_TOMORROW"
             fi
             
-          # Manual trigger - run based on current time
+          # Manual trigger
           else
             echo "Manual trigger or off-schedule run"
             if [ "$HOUR" -ge "6" ] && [ "$HOUR" -le "10" ]; then
               echo "Morning hours - running morning capture"
-              VALUE_TODAY=$(echo "$PREDICTIONS" | sed -n 's/.*correctionBoxToday.*prediction-value">\([0-9.]*\)°F.*/\1/p' | head -1)
-              VALUE_TOMORROW=$(echo "$PREDICTIONS" | sed -n 's/.*correctionBoxTomorrow.*prediction-value">\([0-9.]*\)°F.*/\1/p' | head -1)
-              
-              echo "Extracted TODAY value: $VALUE_TODAY"
-              echo "Extracted TOMORROW value: $VALUE_TOMORROW"
               
               if [ ! -z "$VALUE_TODAY" ]; then
                 curl -s -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
@@ -85,15 +81,12 @@ jobs:
               
             elif [ "$HOUR" -ge "18" ] && [ "$HOUR" -le "21" ]; then
               echo "Evening hours - running evening capture"
-              VALUE=$(echo "$PREDICTIONS" | sed -n 's/.*correctionBoxTomorrow.*prediction-value">\([0-9.]*\)°F.*/\1/p' | head -1)
               
-              echo "Extracted TOMORROW value: $VALUE"
-              
-              if [ ! -z "$VALUE" ]; then
+              if [ ! -z "$VALUE_TOMORROW" ]; then
                 curl -s -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
                   -H "Content-Type: application/json" \
-                  -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"night_before\",\"prediction_value\":$VALUE,\"snapshot_time\":\"$TIMESTAMP\"}"
-                echo "Logged night_before: $VALUE"
+                  -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"night_before\",\"prediction_value\":$VALUE_TOMORROW,\"snapshot_time\":\"$TIMESTAMP\"}"
+                echo "Logged night_before: $VALUE_TOMORROW"
               fi
             fi
           fi
