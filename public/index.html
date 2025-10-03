@@ -2922,7 +2922,63 @@ if (el1) {
 }
 window.updateCorrectionBoxes = updateCorrectionBoxes;
   // Helper function to map temperature to Kalshi range
+function mapToKalshiRange(temp, kalshiData) {
+  if (!kalshiData?.ranges || !Array.isArray(kalshiData.ranges)) return null;
 
+  const t = Math.floor(temp);
+
+  for (const range of kalshiData.ranges) {
+    // "X° or less"
+    if (range.min === null && t <= range.max) return range;
+    // "X° or more"
+    if (range.max === null && t >= range.min) return range;
+    // "X° to Y°" ranges
+    if (range.min !== null && range.max !== null) {
+      // Normal case: inside inclusive bounds
+      if (t >= range.min && t <= range.max) return range;
+
+      // Retrofit safeguard:
+      // If prediction is just *above* the upper bound but the *exact value*
+      // is still < next integer, treat it as part of this range
+      if (temp < range.max && temp > range.max - 1 && t === range.max) {
+        return range;
+      }
+    }
+  }
+  return null;
+}
+
+  function showChart() {
+    // Group rows by target/cli date (the "day" label)
+    const byDate = {};
+    filteredRows.forEach(r => {
+      const d = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d || "")) return;
+      (byDate[d] ??= []).push(r);
+    });
+  
+    const haveDays = Object.keys(byDate).sort();
+    const ctx = document.getElementById('dailyChart').getContext('2d');
+  
+    if (!haveDays.length) {
+      if (chartInstance) chartInstance.destroy();
+      chartInstance = new Chart(ctx, { type:'line', data:{labels:[], datasets:[]}, options:{} });
+      return;
+    }
+  
+    // Build continuous day labels from first Monday-ish to last day (same as before)
+    const isoToDate = iso => { const [Y,M,D] = iso.split('-').map(Number); return new Date(Y, M-1, D); };
+    const dateToISO = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const addDays  = (d,n)=>{ const x=new Date(d); x.setDate(x.getDate()+n); return x; };
+  
+    const first = isoToDate(haveDays[0]);
+    const dow = first.getDay();             // 0=Sun … 6=Sat
+    const back = (dow + 6) % 7;             // start week on Mon
+    const start = addDays(first, -back);
+    const end   = isoToDate(haveDays[haveDays.length - 1]);
+  
+    const labels = [];
+    for (let d=new Date(start); d<=end; d=addDays(d,1)) labels.push(dateToISO(d));
 
     // Helper function to map temperature to Kalshi range
 function mapToKalshiRange(temp, kalshiData) {
