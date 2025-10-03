@@ -855,6 +855,7 @@ getWarning(prediction, ranges, history, candidates) {
 // Check proximity to edges if we're actually IN a bucket
 if (actualInBucket.min !== null) {
   const distToLower = prediction - actualInBucket.min;
+  // Only warn if slightly above lower bound but not below
   if (distToLower >= 0 && distToLower <= 0.3) {
     return {
       level: 'warning',
@@ -865,15 +866,11 @@ if (actualInBucket.min !== null) {
   }
 }
 
+// Handle upper boundary with 0.5°F tolerance ABOVE the bucket
 if (actualInBucket.max !== null) {
-  // Allow small tolerance above upper edge before warning
-  const overage = prediction - actualInBucket.max;
-  if (overage > 0.3) {
-    // More than 0.3°F above the bucket — no warning (fully safe)
-    return null;
-  }
-
   const distToUpper = actualInBucket.max - prediction;
+
+  // Case 1: inside bucket, close to top (≤0.3°F below upper edge)
   if (distToUpper >= 0 && distToUpper <= 0.3) {
     return {
       level: 'warning',
@@ -882,9 +879,21 @@ if (actualInBucket.max !== null) {
       details: { forecastSpread: '0', forecastsDisagree: false }
     };
   }
+
+  // Case 2: just ABOVE the top edge but within +0.5°F
+  const overUpper = prediction - actualInBucket.max;
+  if (overUpper > 0 && overUpper <= 0.5) {
+    return {
+      level: 'warning',
+      message: `⚠️ JUST ABOVE: ${prediction.toFixed(1)}°F is ${overUpper.toFixed(1)}° above ${actualInBucket.max}° boundary`,
+      recommendation: 'CAUTIOUS - Near upper bucket edge',
+      details: { forecastSpread: '0', forecastsDisagree: false }
+    };
+  }
 }
 
-  return null;
+return null;
+
   }
 }
 const boundaryDetector = new KalshiBoundaryDetector();
