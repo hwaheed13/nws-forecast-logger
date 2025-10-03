@@ -787,6 +787,8 @@ class KalshiBoundaryDetector {
   }
   
 getWarning(prediction, ranges, history, candidates) {
+  console.log("DEBUG: Checking boundary for prediction:", prediction);
+  console.log("DEBUG: Ranges received:", ranges);
   if (!ranges || !ranges.length) return null;
   
   const nws = candidates?.D0_latest || candidates?.D1_latest;
