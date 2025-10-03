@@ -866,7 +866,11 @@ if (actualInBucket.min !== null) {
 }
 
 if (actualInBucket.max !== null) {
-  const distToUpper = actualInBucket.max - prediction;
+  // Allow small overshoot (up to +0.5°F) before triggering any warning
+  const effectiveMax = actualInBucket.max + 0.5;
+  const distToUpper = effectiveMax - prediction;
+
+  // Only warn if still within 0.3°F *below* that effective max
   if (distToUpper >= 0 && distToUpper <= 0.3) {
     return {
       level: 'warning',
@@ -876,6 +880,7 @@ if (actualInBucket.max !== null) {
     };
   }
 }
+
   return null;
   }
 }
