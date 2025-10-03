@@ -802,12 +802,7 @@ getWarning(prediction, ranges, history, candidates) {
   const accu = candidates?.AccuWeather;
   
   // Work with actual prediction value, no rounding
-  // Find which bucket the prediction falls in (or if it's between/outside)
-  const actualInBucket = ranges.find(r => {
-    if (r.min === null) return prediction <= r.max;
-    if (r.max === null) return prediction >= r.min;
-    return prediction >= r.min && prediction <= r.max;
-  });
+  // actualInBucket was already defined above with the correct Kalshi logic
   
   // If prediction doesn't fall in ANY bucket, check proximity to nearest edge
   if (!actualInBucket) {
@@ -3799,8 +3794,13 @@ supabase.auth.onAuthStateChange((_event, session) => {
 function checkAndLogPredictionSnapshots() {
   const et = new Date().toLocaleString("en-US", {timeZone: "America/New_York"});
   const hour = new Date(et).getHours();
-  const today = nycISODate(0);
-  const tomorrow = nycISODate(1);
+  const today = window.nycISODate ? window.nycISODate(0) : '';
+  const tomorrow = window.nycISODate ? window.nycISODate(1) : '';
+  
+  if (!window.nycISODate) {
+    console.log('nycISODate not available yet');
+    return;
+  }
   
   const lastLogged = JSON.parse(localStorage.getItem('last_snapshot_logged') || '{}');
   
