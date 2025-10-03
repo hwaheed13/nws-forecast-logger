@@ -24,7 +24,7 @@ jobs:
           PREDICTIONS=$(curl -s https://app.dailydewpoint.com/)
           
           # Extract ALL prediction values first (simpler approach)
-          ALL_VALUES=$(echo "$PREDICTIONS" | grep -o 'prediction-value">[0-9.]*' | grep -o '[0-9.]*')
+          ALL_VALUES=$(echo "$PREDICTIONS" | grep -o 'prediction-value">[0-9.]*°F' | sed 's/prediction-value">//g' | sed 's/°F//g')
           VALUE_TODAY=$(echo "$ALL_VALUES" | head -1)
           VALUE_TOMORROW=$(echo "$ALL_VALUES" | tail -1)
           
