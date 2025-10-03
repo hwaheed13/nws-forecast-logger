@@ -1,14 +1,31 @@
 export default async function handler(req, res) {
+  // LOGGING TO FIND THE MYSTERY CALLER
+  const logData = {
+    timestamp: new Date().toISOString(),
+    method: req.method,
+    body: req.body,
+    headers: {
+      'user-agent': req.headers['user-agent'],
+      'referer': req.headers['referer'],
+      'origin': req.headers['origin'],
+      'x-forwarded-for': req.headers['x-forwarded-for'],
+      'x-real-ip': req.headers['x-real-ip'],
+      'host': req.headers['host']
+    }
+  };
+  
+  console.log('=== LOG-PREDICTION-SNAPSHOT API CALLED ===');
+  console.log(JSON.stringify(logData, null, 2));
+  
+  // ORIGINAL CODE
   if (req.method !== 'POST') {
     return res.status(405).json({error: 'Method not allowed'});
   }
-
   const {target_date, prediction_type, prediction_value, snapshot_time} = req.body;
   
   if (!target_date || !prediction_type || !prediction_value) {
     return res.status(400).json({error: 'Missing required fields'});
   }
-
   try {
     const {Octokit} = await import('@octokit/rest');
     const octokit = new Octokit({auth: process.env.GITHUB_TOKEN});
