@@ -26,11 +26,8 @@ jobs:
           if [ "$HOUR" = "07" ]; then
             echo "7 AM EST - Capturing both today and tomorrow predictions"
             
-            # Extract today's prediction value from HTML (try multiple patterns)
-            VALUE_TODAY=$(echo "$PREDICTIONS" | grep -oP 'correctionBoxToday.*?(\d+\.\d+)°F' | head -1 | grep -oP '\d+\.\d+')
-            if [ -z "$VALUE_TODAY" ]; then
-              VALUE_TODAY=$(echo "$PREDICTIONS" | grep -oP 'prediction-value[^>]*>(\d+\.\d+)' | grep -oP '\d+\.\d+' | head -1)
-            fi
+            # Extract today's prediction value
+            VALUE_TODAY=$(echo "$PREDICTIONS" | sed -n 's/.*correctionBoxToday.*prediction-value[^>]*>\([0-9.]*\).*/\1/p' | head -1)
             
             echo "Today's value: $VALUE_TODAY"
             
@@ -44,10 +41,7 @@ jobs:
             
             # Get tomorrow's date and prediction
             TOMORROW=$(TZ='America/New_York' date -d '+1 day' +%Y-%m-%d)
-            VALUE_TOMORROW=$(echo "$PREDICTIONS" | grep -oP 'correctionBoxTomorrow.*?(\d+\.\d+)°F' | head -1 | grep -oP '\d+\.\d+')
-            if [ -z "$VALUE_TOMORROW" ]; then
-              VALUE_TOMORROW=$(echo "$PREDICTIONS" | grep -oP 'prediction-value[^>]*>(\d+\.\d+)' | grep -oP '\d+\.\d+' | tail -1)
-            fi
+            VALUE_TOMORROW=$(echo "$PREDICTIONS" | sed -n 's/.*correctionBoxTomorrow.*prediction-value[^>]*>\([0-9.]*\).*/\1/p' | head -1)
             
             echo "Tomorrow's value: $VALUE_TOMORROW"
             
@@ -65,14 +59,8 @@ jobs:
             # Get tomorrow's date
             TOMORROW=$(TZ='America/New_York' date -d '+1 day' +%Y-%m-%d)
             
-            # Try multiple extraction patterns
-            VALUE=$(echo "$PREDICTIONS" | grep -oP 'correctionBoxTomorrow.*?(\d+\.\d+)°F' | head -1 | grep -oP '\d+\.\d+')
-            if [ -z "$VALUE" ]; then
-              VALUE=$(echo "$PREDICTIONS" | grep -oP 'prediction-value[^>]*>(\d+\.\d+)' | grep -oP '\d+\.\d+' | tail -1)
-            fi
-            if [ -z "$VALUE" ]; then
-              VALUE=$(echo "$PREDICTIONS" | grep -oP '\d+\.\d+(?=°F)' | tail -1)
-            fi
+            # Extract tomorrow's prediction value
+            VALUE=$(echo "$PREDICTIONS" | sed -n 's/.*correctionBoxTomorrow.*prediction-value[^>]*>\([0-9.]*\).*/\1/p' | head -1)
             
             echo "Extracted value: $VALUE"
             
