@@ -787,8 +787,6 @@ class KalshiBoundaryDetector {
   }
   
 getWarning(prediction, ranges, history, candidates) {
-  console.log("DEBUG: Checking boundary for prediction:", prediction);
-  console.log("DEBUG: Ranges received:", ranges);
   if (!ranges || !ranges.length) return null;
   
   const nws = candidates?.D0_latest || candidates?.D1_latest;
@@ -796,24 +794,57 @@ getWarning(prediction, ranges, history, candidates) {
   
   const rounded = Math.round(prediction);
   
-  // Check if the ACTUAL prediction (not rounded) falls in any bucket
+  // Find which bucket the prediction falls in (or doesn't)
   const actualInBucket = ranges.find(r => {
     if (r.min === null) return prediction <= r.max;
     if (r.max === null) return prediction >= r.min;
     return prediction >= r.min && prediction <= r.max;
   });
   
-  // If prediction doesn't fall in ANY bucket, it's between buckets
+  // If prediction doesn't fall in ANY bucket, check how close it is
   if (!actualInBucket) {
-    return {
-      level: 'critical',
-      message: `⚠️ BOUNDARY: ${prediction.toFixed(1)}°F falls between buckets (no range covers this value)`,
-      recommendation: 'SKIP - Between Kalshi ranges',
-      details: { 
-        forecastSpread: (nws && accu) ? Math.abs(nws - accu).toFixed(1) : '0',
-        forecastsDisagree: nws && accu && Math.round(nws) !== Math.round(accu)
+    // Find the closest bucket edge
+    let closestDist = Infinity;
+    let closestBoundary = null;
+    
+    for (const r of ranges) {
+      if (r.min !== null && prediction < r.min) {
+        const dist = r.min - prediction;
+        if (dist < closestDist) {
+          closestDist = dist;
+          closestBoundary = r.min;
+        }
       }
-    };
+      if (r.max !== null && prediction > r.max) {
+        const dist = prediction - r.max;
+        if (dist < closestDist) {
+          closestDist = dist;
+          closestBoundary = r.max;
+        }
+      }
+    }
+    
+    if (closestDist <= 0.3) {
+      return {
+        level: 'warning',
+        message: `⚠️ JUST OUTSIDE: ${closestDist.toFixed(1)}°F from ${closestBoundary}° boundary`,
+        recommendation: 'CAUTION - Very close to bucket edge',
+        details: { 
+          forecastSpread: (nws && accu) ? Math.abs(nws - accu).toFixed(1) : '0',
+          forecastsDisagree: nws && accu && Math.round(nws) !== Math.round(accu)
+        }
+      };
+    } else {
+      return {
+        level: 'critical',
+        message: `⚠️ BOUNDARY: ${prediction.toFixed(1)}°F falls between buckets`,
+        recommendation: 'SKIP - Between Kalshi ranges',
+        details: { 
+          forecastSpread: (nws && accu) ? Math.abs(nws - accu).toFixed(1) : '0',
+          forecastsDisagree: nws && accu && Math.round(nws) !== Math.round(accu)
+        }
+      };
+    }
   }
   
   // Check proximity to edges if we're actually IN a bucket
