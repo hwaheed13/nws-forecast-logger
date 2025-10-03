@@ -870,8 +870,8 @@ if (actualInBucket.max !== null) {
   const distToUpper = actualInBucket.max - prediction;
   const overUpper = prediction - actualInBucket.max;
 
-  // ⚠️ Upper-edge warning only if ≤0.3°F below the top bound
-  if (distToUpper >= 0 && distToUpper <= 0.3) {
+  // ⚠️ Only warn if truly *below* the top edge (≤0.3°F under)
+  if (distToUpper > 0 && distToUpper <= 0.3) {
     return {
       level: 'warning',
       message: `⚠️ NEAR EDGE: Only ${distToUpper.toFixed(1)}°F below ${actualInBucket.max}° boundary`,
@@ -880,8 +880,8 @@ if (actualInBucket.max !== null) {
     };
   }
 
-  // ⚠️ Just above top edge (within +0.5°F tolerance)
-  if (overUpper > 0 && overUpper <= 0.5) {
+  // ⚠️ Only warn if just *above* the top edge (≥0.5°F over)
+  if (overUpper >= 0.5 && overUpper <= 0.8) {
     return {
       level: 'warning',
       message: `⚠️ JUST ABOVE: ${prediction.toFixed(1)}°F is ${overUpper.toFixed(1)}° above ${actualInBucket.max}° boundary`,
@@ -890,6 +890,7 @@ if (actualInBucket.max !== null) {
     };
   }
 }
+
 
 return null;
 
