@@ -29,17 +29,31 @@ jobs:
             const page = await browser.newPage();
             await page.goto('https://app.dailydewpoint.com/', { waitUntil: 'networkidle' });
 
-            // Grab values by matching card headings
-            const valueToday = parseFloat(await page.$eval(
-              "div:has-text(\"Today's Bias-Corrected Prediction\") >> .prediction-value",
-              el => el.textContent.replace('°F','').trim()
-            ));
-            const valueTomorrow = parseFloat(await page.$eval(
-              "div:has-text(\"Tomorrow's Bias-Corrected Prediction\") >> .prediction-value",
-              el => el.textContent.replace('°F','').trim()
-            ));
+            let valueToday, valueTomorrow;
 
-            console.log(`Scraped TODAY=${valueToday}, TOMORROW=${valueTomorrow}`);
+            try {
+              // Wait explicitly for elements with "Today" / "Tomorrow"
+              await page.waitForSelector("div:has-text('Today') >> .prediction-value", { timeout: 10000 });
+              await page.waitForSelector("div:has-text('Tomorrow') >> .prediction-value", { timeout: 10000 });
+
+              valueToday = parseFloat(await page.$eval(
+                "div:has-text('Today') >> .prediction-value",
+                el => el.textContent.replace('°F','').trim()
+              ));
+
+              valueTomorrow = parseFloat(await page.$eval(
+                "div:has-text('Tomorrow') >> .prediction-value",
+                el => el.textContent.replace('°F','').trim()
+              ));
+            } catch (err) {
+              console.error("❌ Failed to scrape predictions:", err.message);
+              const html = await page.content();
+              console.log("🔍 DOM snippet (first 800 chars):");
+              console.log(html.substring(0, 800));
+              process.exit(1);
+            }
+
+            console.log(`✅ Scraped TODAY=${valueToday}, TOMORROW=${valueTomorrow}`);
 
             const now = new Date();
             const hourET = new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/New_York' }).format(now);
@@ -62,7 +76,7 @@ jobs:
                   snapshot_time: timestamp
                 })
               });
-              console.log(`Logged morning_of: ${valueToday}`);
+              console.log(`📤 Logged morning_of: ${valueToday}`);
 
               await fetch(apiUrl, {
                 method: 'POST',
@@ -74,7 +88,7 @@ jobs:
                   snapshot_time: timestamp
                 })
               });
-              console.log(`Logged day_before_morning: ${valueTomorrow}`);
+              console.log(`📤 Logged day_before_morning: ${valueTomorrow}`);
 
             } else if (hourET == 19) {
               await fetch(apiUrl, {
@@ -87,7 +101,7 @@ jobs:
                   snapshot_time: timestamp
                 })
               });
-              console.log(`Logged night_before: ${valueTomorrow}`);
+              console.log(`📤 Logged night_before: ${valueTomorrow}`);
             } else {
               console.log(`Manual run at ET hour ${hourET}`);
             }
