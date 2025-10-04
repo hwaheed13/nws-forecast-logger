@@ -15,7 +15,7 @@ jobs:
           python-version: '3.x'
       
       - name: Install dependencies
-        run: pip install requests beautifulsoup4 pytz
+        run: pip install requests pytz
       
       - name: Capture and Log Predictions
         run: |
@@ -23,8 +23,12 @@ jobs:
           import requests
           from datetime import datetime, timedelta, timezone
           import pytz
-          import re
           
+          # Config
+          PREDICTIONS_API_URL = "https://app.dailydewpoint.com/api/predictions"  # <-- replace with actual
+          SNAPSHOT_API_URL = "https://app.dailydewpoint.com/api/log-prediction-snapshot"
+          
+          # Time handling
           et = pytz.timezone('America/New_York')
           now = datetime.now(et)
           hour = now.hour
@@ -35,55 +39,50 @@ jobs:
           print(f"Current ET hour: {hour}")
           print(f"Current ET date: {today}")
           
-          # Get the HTML
-          response = requests.get('https://app.dailydewpoint.com/')
-          html = response.text
+          # Get predictions JSON
+          response = requests.get(PREDICTIONS_API_URL)
+          if response.status_code != 200:
+              print(f"Failed to fetch predictions (status={response.status_code})")
+              print(response.text[:500])
+              raise SystemExit(1)
           
-          # Debug: log first part of HTML so we can inspect structure
-          print("----- HTML snippet start -----")
-          print(html[:500])
-          print("----- HTML snippet end -----")
+          data = response.json()
+          print("Fetched predictions JSON:", data)
           
-          # Updated regex (more flexible)
-          pattern = r'class="prediction-value[^"]*">([\d.]+)'
-          matches = re.findall(pattern, html)
+          # Assume JSON has keys like {"today": 81.3, "tomorrow": 82.1}
+          value_today = data.get("today")
+          value_tomorrow = data.get("tomorrow")
           
-          if len(matches) >= 2:
-              value_today = matches[0]
-              value_tomorrow = matches[-1]
-              print(f"Found values: TODAY={value_today}, TOMORROW={value_tomorrow}")
+          if value_today is None or value_tomorrow is None:
+              print("Could not find expected keys in JSON")
+              raise SystemExit(1)
+          
+          # Log to snapshot API
+          if hour == 7:
+              r1 = requests.post(SNAPSHOT_API_URL, json={
+                  'target_date': today,
+                  'prediction_type': 'morning_of',
+                  'prediction_value': float(value_today),
+                  'snapshot_time': timestamp
+              })
+              print(f"Logged morning_of: {value_today} (status={r1.status_code})")
               
-              api_url = 'https://app.dailydewpoint.com/api/log-prediction-snapshot'
-              
-              if hour == 7:
-                  # Morning captures
-                  r1 = requests.post(api_url, json={
-                      'target_date': today,
-                      'prediction_type': 'morning_of',
-                      'prediction_value': float(value_today),
-                      'snapshot_time': timestamp
-                  })
-                  print(f"Logged morning_of: {value_today} (status={r1.status_code})")
-                  
-                  r2 = requests.post(api_url, json={
-                      'target_date': tomorrow,
-                      'prediction_type': 'day_before_morning',
-                      'prediction_value': float(value_tomorrow),
-                      'snapshot_time': timestamp
-                  })
-                  print(f"Logged day_before_morning: {value_tomorrow} (status={r2.status_code})")
-                  
-              elif hour == 19:
-                  # Evening capture
-                  r3 = requests.post(api_url, json={
-                      'target_date': tomorrow,
-                      'prediction_type': 'night_before',
-                      'prediction_value': float(value_tomorrow),
-                      'snapshot_time': timestamp
-                  })
-                  print(f"Logged night_before: {value_tomorrow} (status={r3.status_code})")
-              else:
-                  print(f"Manual run at hour {hour}")
+              r2 = requests.post(SNAPSHOT_API_URL, json={
+                  'target_date': tomorrow,
+                  'prediction_type': 'day_before_morning',
+                  'prediction_value': float(value_tomorrow),
+                  'snapshot_time': timestamp
+              })
+              print(f"Logged day_before_morning: {value_tomorrow} (status={r2.status_code})")
+          
+          elif hour == 19:
+              r3 = requests.post(SNAPSHOT_API_URL, json={
+                  'target_date': tomorrow,
+                  'prediction_type': 'night_before',
+                  'prediction_value': float(value_tomorrow),
+                  'snapshot_time': timestamp
+              })
+              print(f"Logged night_before: {value_tomorrow} (status={r3.status_code})")
           else:
-              print(f"Could not find prediction values. Found: {matches}")
+              print(f"Manual run at hour {hour}")
           EOF
