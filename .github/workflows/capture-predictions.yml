@@ -1,92 +1,86 @@
 name: Capture Predictions EST
 on:
   schedule:
-    - cron: '0 11 * * *'  # 7 AM EDT (11:00 UTC)
-    - cron: '0 23 * * *'  # 7 PM EDT (23:00 UTC)
-  workflow_dispatch:      # Manual trigger option
+    - cron: '0 11 * * *'  # 7 AM EDT
+    - cron: '0 23 * * *'  # 7 PM EDT
+  workflow_dispatch:
 
 jobs:
   capture:
     runs-on: ubuntu-latest
     steps:
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+      
+      - name: Install requests
+        run: pip install requests beautifulsoup4
+      
       - name: Capture and Log Predictions
         run: |
-          set +e
+          python3 << 'EOF'
+          import requests
+          from datetime import datetime, timedelta
+          import pytz
+          import re
           
-          HOUR=$(TZ='America/New_York' date +%H)
-          DATE=$(TZ='America/New_York' date +%Y-%m-%d)
-          TOMORROW=$(TZ='America/New_York' date -d '+1 day' +%Y-%m-%d)
-          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
+          et = pytz.timezone('America/New_York')
+          now = datetime.now(et)
+          hour = now.hour
+          today = now.strftime('%Y-%m-%d')
+          tomorrow = (now + timedelta(days=1)).strftime('%Y-%m-%d')
+          timestamp = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
           
-          echo "Current ET hour: $HOUR"
-          echo "Current ET date: $DATE"
+          print(f"Current ET hour: {hour}")
+          print(f"Current ET date: {today}")
           
-          PREDICTIONS=$(curl -s https://app.dailydewpoint.com/)
+          # Get the HTML
+          response = requests.get('https://app.dailydewpoint.com/')
+          html = response.text
           
-          # Extract prediction values with the °F symbol
-          ALL_VALUES=$(echo "$PREDICTIONS" | grep -o 'prediction-value">[0-9.]*°F' | sed 's/prediction-value">//g' | sed 's/°F//g')
-          VALUE_TODAY=$(echo "$ALL_VALUES" | head -1)
-          VALUE_TOMORROW=$(echo "$ALL_VALUES" | tail -1)
+          # Find prediction values - try multiple patterns
+          pattern1 = r'prediction-value">(\d+\.?\d*)°F'
+          pattern2 = r'prediction-value">(\d+\.?\d*)'
           
-          echo "Found values: TODAY=$VALUE_TODAY, TOMORROW=$VALUE_TOMORROW"
+          matches = re.findall(pattern1, html) or re.findall(pattern2, html)
           
-          # Morning: 7 AM ET
-          if [ "$HOUR" = "07" ]; then
-            echo "7 AM ET - Capturing morning predictions"
-            
-            if [ ! -z "$VALUE_TODAY" ]; then
-              curl -s -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
-                -H "Content-Type: application/json" \
-                -d "{\"target_date\":\"$DATE\",\"prediction_type\":\"morning_of\",\"prediction_value\":$VALUE_TODAY,\"snapshot_time\":\"$TIMESTAMP\"}"
-              echo "Logged morning_of: $VALUE_TODAY"
-            fi
-            
-            if [ ! -z "$VALUE_TOMORROW" ]; then
-              curl -s -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
-                -H "Content-Type: application/json" \
-                -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"day_before_morning\",\"prediction_value\":$VALUE_TOMORROW,\"snapshot_time\":\"$TIMESTAMP\"}"
-              echo "Logged day_before_morning: $VALUE_TOMORROW"
-            fi
-            
-          # Evening: 7 PM ET
-          elif [ "$HOUR" = "19" ]; then
-            echo "7 PM ET - Capturing evening prediction"
-            
-            if [ ! -z "$VALUE_TOMORROW" ]; then
-              curl -s -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
-                -H "Content-Type: application/json" \
-                -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"night_before\",\"prediction_value\":$VALUE_TOMORROW,\"snapshot_time\":\"$TIMESTAMP\"}"
-              echo "Logged night_before: $VALUE_TOMORROW"
-            fi
-            
-          # Manual trigger
-          else
-            echo "Manual trigger or off-schedule run"
-            if [ "$HOUR" -ge "6" ] && [ "$HOUR" -le "10" ]; then
-              echo "Morning hours - running morning capture"
+          if len(matches) >= 2:
+              value_today = matches[0]
+              value_tomorrow = matches[-1]
+              print(f"Found values: TODAY={value_today}, TOMORROW={value_tomorrow}")
               
-              if [ ! -z "$VALUE_TODAY" ]; then
-                curl -s -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
-                  -H "Content-Type: application/json" \
-                  -d "{\"target_date\":\"$DATE\",\"prediction_type\":\"morning_of\",\"prediction_value\":$VALUE_TODAY,\"snapshot_time\":\"$TIMESTAMP\"}"
-                echo "Logged morning_of: $VALUE_TODAY"
-              fi
+              api_url = 'https://app.dailydewpoint.com/api/log-prediction-snapshot'
               
-              if [ ! -z "$VALUE_TOMORROW" ]; then
-                curl -s -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
-                  -H "Content-Type: application/json" \
-                  -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"day_before_morning\",\"prediction_value\":$VALUE_TOMORROW,\"snapshot_time\":\"$TIMESTAMP\"}"
-                echo "Logged day_before_morning: $VALUE_TOMORROW"
-              fi
-              
-            elif [ "$HOUR" -ge "18" ] && [ "$HOUR" -le "21" ]; then
-              echo "Evening hours - running evening capture"
-              
-              if [ ! -z "$VALUE_TOMORROW" ]; then
-                curl -s -X POST https://app.dailydewpoint.com/api/log-prediction-snapshot \
-                  -H "Content-Type: application/json" \
-                  -d "{\"target_date\":\"$TOMORROW\",\"prediction_type\":\"night_before\",\"prediction_value\":$VALUE_TOMORROW,\"snapshot_time\":\"$TIMESTAMP\"}"
-                echo "Logged night_before: $VALUE_TOMORROW"
-              fi
-            fi
-          fi
+              if hour == 7:
+                  # Morning captures
+                  requests.post(api_url, json={
+                      'target_date': today,
+                      'prediction_type': 'morning_of',
+                      'prediction_value': float(value_today),
+                      'snapshot_time': timestamp
+                  })
+                  print(f"Logged morning_of: {value_today}")
+                  
+                  requests.post(api_url, json={
+                      'target_date': tomorrow,
+                      'prediction_type': 'day_before_morning',
+                      'prediction_value': float(value_tomorrow),
+                      'snapshot_time': timestamp
+                  })
+                  print(f"Logged day_before_morning: {value_tomorrow}")
+                  
+              elif hour == 19:
+                  # Evening capture
+                  requests.post(api_url, json={
+                      'target_date': tomorrow,
+                      'prediction_type': 'night_before',
+                      'prediction_value': float(value_tomorrow),
+                      'snapshot_time': timestamp
+                  })
+                  print(f"Logged night_before: {value_tomorrow}")
+              else:
+                  print(f"Manual run at hour {hour}")
+          else:
+              print(f"Could not find values. Found: {matches}")
+          EOF
