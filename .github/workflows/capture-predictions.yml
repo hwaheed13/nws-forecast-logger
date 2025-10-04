@@ -25,7 +25,7 @@ jobs:
           import pytz
           
           # Config
-          PREDICTIONS_API_URL = "https://app.dailydewpoint.com/api/predictions"  # <-- replace with actual
+          PREDICTIONS_API_URL = "https://app.dailydewpoint.com/api/log-prediction"
           SNAPSHOT_API_URL = "https://app.dailydewpoint.com/api/log-prediction-snapshot"
           
           # Time handling
@@ -39,7 +39,7 @@ jobs:
           print(f"Current ET hour: {hour}")
           print(f"Current ET date: {today}")
           
-          # Get predictions JSON
+          # Fetch predictions JSON
           response = requests.get(PREDICTIONS_API_URL)
           if response.status_code != 200:
               print(f"Failed to fetch predictions (status={response.status_code})")
@@ -49,12 +49,14 @@ jobs:
           data = response.json()
           print("Fetched predictions JSON:", data)
           
-          # Assume JSON has keys like {"today": 81.3, "tomorrow": 82.1}
+          # Adjust keys depending on actual JSON
+          # Example assumption: {"today": 81.3, "tomorrow": 82.1}
           value_today = data.get("today")
           value_tomorrow = data.get("tomorrow")
           
           if value_today is None or value_tomorrow is None:
-              print("Could not find expected keys in JSON")
+              print("Could not find expected keys in JSON, raw data:")
+              print(data)
               raise SystemExit(1)
           
           # Log to snapshot API
