@@ -866,7 +866,7 @@ if (actualInBucket) {
     if (distToLower >= 0 && distToLower <= 0.3) {
       return {
         level: 'warning',
-        message: `⚠️ NEAR LOWER EDGE: ${prediction.toFixed(1)}°F is only ${distToLower.toFixed(1)}° above the ${actualInBucket.min}° boundary`,
+        message: `⚠️ ${prediction.toFixed(1)}°F is ${distToLower.toFixed(1)}° above the ${actualInBucket.min}-${actualInBucket.max}° boundary`,
         recommendation: 'CAUTION - Close to previous bucket',
         details: { forecastSpread: '0', forecastsDisagree: false }
       };
