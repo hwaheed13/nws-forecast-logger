@@ -866,8 +866,7 @@ if (actualInBucket) {
     if (distToLower >= 0 && distToLower <= 0.3) {
       return {
         level: 'warning',
-        message: `⚠️ NEAR LOWER EDGE: ${prediction.toFixed(1)}°F is only ${distToLower.toFixed(1)}° above the ${actualInBucket.min}° boundary`,
-        recommendation: 'CAUTION - Close to previous bucket',
+        message: `⚠️ ${prediction.toFixed(1)}°F is ${distToLower.toFixed(1)}° from the edge of its range (${tomorrowKalshiRange.label}) — caution advised,
         details: { forecastSpread: '0', forecastsDisagree: false }
       };
     }
