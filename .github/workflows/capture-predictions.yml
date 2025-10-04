@@ -14,8 +14,10 @@ jobs:
         with:
           node-version: '18'
 
-      - name: Install Playwright
-        run: npm install playwright
+      - name: Install Playwright and browsers
+        run: |
+          npm install playwright
+          npx playwright install --with-deps
 
       - name: Capture and Log Predictions
         run: |
