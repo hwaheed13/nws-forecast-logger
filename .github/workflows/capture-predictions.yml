@@ -9,82 +9,91 @@ jobs:
   capture:
     runs-on: ubuntu-latest
     steps:
-      - name: Setup Python
-        uses: actions/setup-python@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          python-version: '3.x'
-      
-      - name: Install dependencies
-        run: pip install requests pytz
-      
+          node-version: '18'
+
+      - name: Install Playwright
+        run: |
+          npm install playwright
+
       - name: Capture and Log Predictions
         run: |
-          python3 << 'EOF'
-          import requests
-          from datetime import datetime, timedelta, timezone
-          import pytz
-          
-          # Config
-          PREDICTIONS_API_URL = "https://app.dailydewpoint.com/api/log-prediction"
-          SNAPSHOT_API_URL = "https://app.dailydewpoint.com/api/log-prediction-snapshot"
-          
-          # Time handling
-          et = pytz.timezone('America/New_York')
-          now = datetime.now(et)
-          hour = now.hour
-          today = now.strftime('%Y-%m-%d')
-          tomorrow = (now + timedelta(days=1)).strftime('%Y-%m-%d')
-          timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
-          
-          print(f"Current ET hour: {hour}")
-          print(f"Current ET date: {today}")
-          
-          # Fetch predictions JSON
-          response = requests.get(PREDICTIONS_API_URL)
-          if response.status_code != 200:
-              print(f"Failed to fetch predictions (status={response.status_code})")
-              print(response.text[:500])
-              raise SystemExit(1)
-          
-          data = response.json()
-          print("Fetched predictions JSON:", data)
-          
-          # Adjust keys depending on actual JSON
-          # Example assumption: {"today": 81.3, "tomorrow": 82.1}
-          value_today = data.get("today")
-          value_tomorrow = data.get("tomorrow")
-          
-          if value_today is None or value_tomorrow is None:
-              print("Could not find expected keys in JSON, raw data:")
-              print(data)
-              raise SystemExit(1)
-          
-          # Log to snapshot API
-          if hour == 7:
-              r1 = requests.post(SNAPSHOT_API_URL, json={
-                  'target_date': today,
-                  'prediction_type': 'morning_of',
-                  'prediction_value': float(value_today),
-                  'snapshot_time': timestamp
-              })
-              print(f"Logged morning_of: {value_today} (status={r1.status_code})")
-              
-              r2 = requests.post(SNAPSHOT_API_URL, json={
-                  'target_date': tomorrow,
-                  'prediction_type': 'day_before_morning',
-                  'prediction_value': float(value_tomorrow),
-                  'snapshot_time': timestamp
-              })
-              print(f"Logged day_before_morning: {value_tomorrow} (status={r2.status_code})")
-          
-          elif hour == 19:
-              r3 = requests.post(SNAPSHOT_API_URL, json={
-                  'target_date': tomorrow,
-                  'prediction_type': 'night_before',
-                  'prediction_value': float(value_tomorrow),
-                  'snapshot_time': timestamp
-              })
-              print(f"Logged night_before: {value_tomorrow} (status={r3.status_code})")
-          else:
-              print(f"Manual run at hour {hour}")
+          node << 'EOF'
+          const { chromium } = require('playwright');
+          const fetch = require('node-fetch');
+
+          (async () => {
+            const browser = await chromium.launch();
+            const page = await browser.newPage();
+            await page.goto('https://app.dailydewpoint.com/', { waitUntil: 'networkidle' });
+
+            // Grab prediction values from UI
+            const values = await page.$$eval('.prediction-value', els => els.map(e => e.textContent.replace('°F','').trim()));
+
+            console.log("Found prediction values:", values);
+
+            if (values.length < 2) {
+              console.error("Could not find enough values.");
+              process.exit(1);
+            }
+
+            const valueToday = parseFloat(values[0]);
+            const valueTomorrow = parseFloat(values[values.length - 1]);
+
+            const now = new Date();
+            const hourET = new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/New_York' }).format(now);
+            const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(now);
+            const tomorrow = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date(now.getTime() + 24*60*60*1000));
+            const timestamp = now.toISOString();
+
+            console.log(`ET hour: ${hourET}, Today: ${today}, Tomorrow: ${tomorrow}`);
+            console.log(`TODAY=${valueToday}, TOMORROW=${valueTomorrow}`);
+
+            const apiUrl = "https://app.dailydewpoint.com/api/log-prediction-snapshot";
+
+            if (hourET == 7) {
+              await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  target_date: today,
+                  prediction_type: 'morning_of',
+                  prediction_value: valueToday,
+                  snapshot_time: timestamp
+                })
+              });
+              console.log(`Logged morning_of: ${valueToday}`);
+
+              await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  target_date: tomorrow,
+                  prediction_type: 'day_before_morning',
+                  prediction_value: valueTomorrow,
+                  snapshot_time: timestamp
+                })
+              });
+              console.log(`Logged day_before_morning: ${valueTomorrow}`);
+
+            } else if (hourET == 19) {
+              await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  target_date: tomorrow,
+                  prediction_type: 'night_before',
+                  prediction_value: valueTomorrow,
+                  snapshot_time: timestamp
+                })
+              });
+              console.log(`Logged night_before: ${valueTomorrow}`);
+            } else {
+              console.log(`Manual run at ET hour ${hourET}`);
+            }
+
+            await browser.close();
+          })();
           EOF
