@@ -867,7 +867,6 @@ if (actualInBucket) {
       return {
         level: 'warning',
         message: `⚠️ Prediction is ${distToLower.toFixed(1)}° above the ${actualInBucket.min}°-${actualInBucket.max}° range`,
-        recommendation: 'CAUTION',
         details: { forecastSpread: '0', forecastsDisagree: false }
       };
     }
