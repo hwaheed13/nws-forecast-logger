@@ -21,7 +21,7 @@ jobs:
         run: |
           python3 << 'EOF'
           import requests
-          from datetime import datetime, timedelta
+          from datetime import datetime, timedelta, timezone
           import pytz
           import re
           
@@ -30,7 +30,7 @@ jobs:
           hour = now.hour
           today = now.strftime('%Y-%m-%d')
           tomorrow = (now + timedelta(days=1)).strftime('%Y-%m-%d')
-          timestamp = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+          timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
           
           print(f"Current ET hour: {hour}")
           print(f"Current ET date: {today}")
@@ -39,11 +39,14 @@ jobs:
           response = requests.get('https://app.dailydewpoint.com/')
           html = response.text
           
-          # Find prediction values - try multiple patterns
-          pattern1 = r'prediction-value">(\d+\.?\d*)°F'
-          pattern2 = r'prediction-value">(\d+\.?\d*)'
+          # Debug: log first part of HTML so we can inspect structure
+          print("----- HTML snippet start -----")
+          print(html[:500])
+          print("----- HTML snippet end -----")
           
-          matches = re.findall(pattern1, html) or re.findall(pattern2, html)
+          # Updated regex (more flexible)
+          pattern = r'class="prediction-value[^"]*">([\d.]+)'
+          matches = re.findall(pattern, html)
           
           if len(matches) >= 2:
               value_today = matches[0]
@@ -54,33 +57,33 @@ jobs:
               
               if hour == 7:
                   # Morning captures
-                  requests.post(api_url, json={
+                  r1 = requests.post(api_url, json={
                       'target_date': today,
                       'prediction_type': 'morning_of',
                       'prediction_value': float(value_today),
                       'snapshot_time': timestamp
                   })
-                  print(f"Logged morning_of: {value_today}")
+                  print(f"Logged morning_of: {value_today} (status={r1.status_code})")
                   
-                  requests.post(api_url, json={
+                  r2 = requests.post(api_url, json={
                       'target_date': tomorrow,
                       'prediction_type': 'day_before_morning',
                       'prediction_value': float(value_tomorrow),
                       'snapshot_time': timestamp
                   })
-                  print(f"Logged day_before_morning: {value_tomorrow}")
+                  print(f"Logged day_before_morning: {value_tomorrow} (status={r2.status_code})")
                   
               elif hour == 19:
                   # Evening capture
-                  requests.post(api_url, json={
+                  r3 = requests.post(api_url, json={
                       'target_date': tomorrow,
                       'prediction_type': 'night_before',
                       'prediction_value': float(value_tomorrow),
                       'snapshot_time': timestamp
                   })
-                  print(f"Logged night_before: {value_tomorrow}")
+                  print(f"Logged night_before: {value_tomorrow} (status={r3.status_code})")
               else:
                   print(f"Manual run at hour {hour}")
           else:
-              print(f"Could not find values. Found: {matches}")
+              print(f"Could not find prediction values. Found: {matches}")
           EOF
