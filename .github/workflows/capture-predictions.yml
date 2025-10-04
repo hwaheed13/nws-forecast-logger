@@ -14,8 +14,8 @@ jobs:
         with:
           python-version: '3.x'
       
-      - name: Install requests
-        run: pip install requests beautifulsoup4
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 pytz
       
       - name: Capture and Log Predictions
         run: |
