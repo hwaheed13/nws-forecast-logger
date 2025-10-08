@@ -990,6 +990,7 @@ async function checkEarlyMorningExceedance() {
   return null;
 }
 // --- Show overnight exceedance note inside today's Bias-Corrected card ---
+console.log("[Overnight debug]", await checkEarlyMorningExceedance());
 async function handleOvernightExceedanceNote() {
   const noteEl = document.querySelector("#correctionBoxToday");
   if (!noteEl) return;
