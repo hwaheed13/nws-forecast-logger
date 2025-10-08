@@ -1005,6 +1005,38 @@ async function checkEarlyMorningExceedance() {
   
   return null;
 }
+  
+  const hour = Number(etHour);
+  
+  // Only check between midnight and 6am ET
+  if (hour < 0 || hour >= 6) return null;
+  
+  // Get current observed temp
+  const currentTemp = window._recentObservedF;
+  if (!currentTemp) return null;
+  
+  // Get today's latest forecast
+  const latestForecast = latestPreHighValue(
+    getForecastRowsFor(todayISO, "D0"), 
+    ""
+  );
+  
+  if (!latestForecast) return null;
+  
+  // Check if we've already exceeded the forecast
+  const exceedance = currentTemp - latestForecast;
+  
+  if (exceedance > 0.5) { // Already 0.5°F+ above forecast
+    return {
+      currentTemp,
+      forecast: latestForecast,
+      exceedance,
+      hour
+    };
+  }
+  
+  return null;
+}
 function gateForToday() {
   const ro  = Number.isFinite(window._recentObservedF) ? Math.round(window._recentObservedF) : null;
   const six = Number.isFinite(window._sixHourMaxF)     ? Math.round(window._sixHourMaxF)     : null;
@@ -2894,9 +2926,9 @@ window._predTomorrow = predTomorrow;
 
 const exceedanceNote = exceedance 
   ? `<div class="boundary-warning" style="background: #dbeafe; border-color: #3b82f6; color: #1e40af;">
-      ℹ️ <strong>Note:</strong> Currently ${exceedance.currentTemp.toFixed(1)}°F at ${exceedance.hour}:00 AM ET — already at/above forecast (${exceedance.forecast.toFixed(1)}°F).
-      High may occur overnight. Forecast reflects expected daytime high.
-    </div>` 
+      ℹ️ <strong>Note:</strong> High so far is ${exceedance.currentHigh.toFixed(1)}°F — already ${exceedance.exceedance.toFixed(1)}°F above forecast (${exceedance.forecast.toFixed(1)}°F).
+      High may have occurred overnight/early morning. Forecast reflects expected daytime high.
+    </div>`
   : '';
 
 el0.innerHTML = `
