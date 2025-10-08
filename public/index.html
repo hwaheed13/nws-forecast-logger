@@ -964,26 +964,11 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
 window._recentObservedF = window._recentObservedF ?? null;
 window._sixHourMaxF    = window._sixHourMaxF ?? null;
 
-// Check if early morning temp already exceeds forecast
+// Check if overnight high exceeded forecast OR if early morning temp suggests it will
 async function checkEarlyMorningExceedance() {
   const todayISO = nycISODate(0);
-  const now = new Date();
-  const etHour = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    hour: "2-digit",
-    hour12: false
-  }).format(now);
   
-  const hour = Number(etHour);
-  
-  // Only check between midnight and 6am ET
-  if (hour < 0 || hour >= 6) return null;
-  
-  // Get current observed temp
-  const currentTemp = window._recentObservedF;
-  if (!currentTemp) return null;
-  
-  // Get today's latest forecast
+  // Get latest forecast for today
   const latestForecast = latestPreHighValue(
     getForecastRowsFor(todayISO, "D0"), 
     ""
@@ -991,15 +976,21 @@ async function checkEarlyMorningExceedance() {
   
   if (!latestForecast) return null;
   
-  // Check if we've already exceeded the forecast
-  const exceedance = currentTemp - latestForecast;
+  // Check: Do we have 6-hour max or recent observed that exceeds forecast?
+  const sixHourMax = window._sixHourMaxF;
+  const recentObs = window._recentObservedF;
   
-  if (exceedance > 0.5) { // Already 0.5°F+ above forecast
+  const highestSoFar = Math.max(
+    Number.isFinite(sixHourMax) ? sixHourMax : -999,
+    Number.isFinite(recentObs) ? recentObs : -999
+  );
+  
+  if (highestSoFar > -999 && highestSoFar > latestForecast + 0.5) {
     return {
-      currentTemp,
+      currentHigh: highestSoFar,
       forecast: latestForecast,
-      exceedance,
-      hour
+      exceedance: highestSoFar - latestForecast,
+      isLive: true
     };
   }
   
