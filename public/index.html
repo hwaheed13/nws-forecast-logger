@@ -964,38 +964,50 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
 window._recentObservedF = window._recentObservedF ?? null;
 window._sixHourMaxF    = window._sixHourMaxF ?? null;
 
-// Check if overnight high exceeded forecast OR if early morning temp suggests it will
+// --- Detect if overnight high exceeded forecast (full hourly scan) ---
 async function checkEarlyMorningExceedance() {
   const todayISO = nycISODate(0);
-  
-  // Get latest forecast for today
-  const latestForecast = latestPreHighValue(
-    getForecastRowsFor(todayISO, "D0"), 
-    ""
-  );
-  
-  if (!latestForecast) return null;
-  
-  // Check: Do we have 6-hour max or recent observed that exceeds forecast?
-  const sixHourMax = window._sixHourMaxF;
-  const recentObs = window._recentObservedF;
-  
-  const highestSoFar = Math.max(
-    Number.isFinite(sixHourMax) ? sixHourMax : -999,
-    Number.isFinite(recentObs) ? recentObs : -999
-  );
-  
-  if (highestSoFar > -999 && highestSoFar > latestForecast + 0.5) {
+  const latestForecast = latestPreHighValue(getForecastRowsFor(todayISO, "D0"), "");
+  if (!latestForecast || !window._observations?.length) return null;
+
+  // Scan all observed temps between midnight–6 AM ET
+  const overnightObs = window._observations.filter(o => {
+    const hr = new Date(o.timestamp).getHours();
+    return hr >= 0 && hr < 6;  // 12:00–5:59 AM inclusive
+  });
+
+  if (!overnightObs.length) return null;
+  const maxOvernight = Math.max(...overnightObs.map(o => o.tempF));
+
+  if (Number.isFinite(maxOvernight) && maxOvernight > latestForecast + 0.4) {
     return {
-      currentHigh: highestSoFar,
+      currentHigh: maxOvernight,
       forecast: latestForecast,
-      exceedance: highestSoFar - latestForecast,
-      isLive: true
+      exceedance: +(maxOvernight - latestForecast).toFixed(1),
+      time: overnightObs.find(o => o.tempF === maxOvernight)?.timestamp || null
     };
   }
-  
   return null;
 }
+// --- Show overnight exceedance note inside today's Bias-Corrected card ---
+async function handleOvernightExceedanceNote() {
+  const noteEl = document.querySelector("#correctionBoxToday");
+  if (!noteEl) return;
+  const result = await checkEarlyMorningExceedance();
+  const existing = noteEl.querySelector(".overnight-note");
+  if (existing) existing.remove();
+  if (!result) return;
+
+  const time = result.time ? new Date(result.time).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}) : "overnight";
+  const msg = `🌙 Overnight high of ${result.currentHigh.toFixed(1)}°F (${time}) already exceeded today's forecast (${result.forecast.toFixed(1)}°F).`;
+
+  const div = document.createElement("div");
+  div.className = "overnight-note";
+  div.style.cssText = "margin-top:6px;font-size:12px;color:#d97706;font-weight:600;";
+  div.textContent = msg;
+  noteEl.appendChild(div);
+}
+
 function gateForToday() {
   const ro  = Number.isFinite(window._recentObservedF) ? Math.round(window._recentObservedF) : null;
   const six = Number.isFinite(window._sixHourMaxF)     ? Math.round(window._sixHourMaxF)     : null;
@@ -3669,6 +3681,7 @@ async function bootApp() {
 
 
     try { window.pollCsvAndUpdate && window.pollCsvAndUpdate(); } catch {}
+    try { await handleOvernightExceedanceNote(); } catch {}
     setInterval(() => { try { window.updateObservations && window.updateObservations(); } catch {} }, 5 * 60 * 1000);
     setInterval(() => { try { window.updateDSM && window.updateDSM(); } catch {} }, 10 * 60 * 1000);
     setInterval(() => { try { window.updateSixHourMax && window.updateSixHourMax(); } catch {} }, 10 * 60 * 1000);
