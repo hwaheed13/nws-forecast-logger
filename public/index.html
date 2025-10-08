@@ -964,6 +964,47 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
 window._recentObservedF = window._recentObservedF ?? null;
 window._sixHourMaxF    = window._sixHourMaxF ?? null;
 
+// Check if early morning temp already exceeds forecast
+async function checkEarlyMorningExceedance() {
+  const todayISO = nycISODate(0);
+  const now = new Date();
+  const etHour = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    hour: "2-digit",
+    hour12: false
+  }).format(now);
+  
+  const hour = Number(etHour);
+  
+  // Only check between midnight and 6am ET
+  if (hour < 0 || hour >= 6) return null;
+  
+  // Get current observed temp
+  const currentTemp = window._recentObservedF;
+  if (!currentTemp) return null;
+  
+  // Get today's latest forecast
+  const latestForecast = latestPreHighValue(
+    getForecastRowsFor(todayISO, "D0"), 
+    ""
+  );
+  
+  if (!latestForecast) return null;
+  
+  // Check if we've already exceeded the forecast
+  const exceedance = currentTemp - latestForecast;
+  
+  if (exceedance > 0.5) { // Already 0.5°F+ above forecast
+    return {
+      currentTemp,
+      forecast: latestForecast,
+      exceedance,
+      hour
+    };
+  }
+  
+  return null;
+}
 function gateForToday() {
   const ro  = Number.isFinite(window._recentObservedF) ? Math.round(window._recentObservedF) : null;
   const six = Number.isFinite(window._sixHourMaxF)     ? Math.round(window._sixHourMaxF)     : null;
@@ -2758,7 +2799,9 @@ window._predTomorrow = predTomorrow;
       predictionHistory.add('tomorrow', finalTomorrow);
     }
   }
-    
+
+ // Check for early morning exceedance
+    const exceedance = await checkEarlyMorningExceedance();   
 // Check for boundary warnings  
     const todayWarning = predToday?.y
       ? boundaryDetector.getWarning(
@@ -2849,11 +2892,19 @@ window._predTomorrow = predTomorrow;
           : '';
         
 
+const exceedanceNote = exceedance 
+  ? `<div class="boundary-warning" style="background: #dbeafe; border-color: #3b82f6; color: #1e40af;">
+      ℹ️ <strong>Note:</strong> Currently ${exceedance.currentTemp.toFixed(1)}°F at ${exceedance.hour}:00 AM ET — already at/above forecast (${exceedance.forecast.toFixed(1)}°F).
+      High may occur overnight. Forecast reflects expected daytime high.
+    </div>` 
+  : '';
+
 el0.innerHTML = `
   <div class="prediction-value">${val}°F</div>
   <div class="prediction-subtitle">
     <small>Smart ensemble (${Object.keys(builtToday.candidates || {}).length} sources, weights learn daily) ${sign}${bias}°F${kalshiNote}</small>
   </div>
+  ${exceedanceNote}
   ${warningHTML}
   ${historyHTML}
 `;
