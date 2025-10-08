@@ -964,38 +964,72 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
 window._recentObservedF = window._recentObservedF ?? null;
 window._sixHourMaxF    = window._sixHourMaxF ?? null;
 
-// Check if overnight high exceeded forecast OR if early morning temp suggests it will
+// --- Detect if today's high already occurred overnight and exceeded forecast ---
 async function checkEarlyMorningExceedance() {
   const todayISO = nycISODate(0);
-  
-  // Get latest forecast for today
+
+  // Get latest NWS forecast for today (D0)
   const latestForecast = latestPreHighValue(
-    getForecastRowsFor(todayISO, "D0"), 
+    getForecastRowsFor(todayISO, "D0"),
     ""
   );
-  
-  if (!latestForecast) return null;
-  
-  // Check: Do we have 6-hour max or recent observed that exceeds forecast?
-  const sixHourMax = window._sixHourMaxF;
-  const recentObs = window._recentObservedF;
-  
-  const highestSoFar = Math.max(
-    Number.isFinite(sixHourMax) ? sixHourMax : -999,
-    Number.isFinite(recentObs) ? recentObs : -999
-  );
-  
-  if (highestSoFar > -999 && highestSoFar > latestForecast + 0.5) {
+  if (!Number.isFinite(latestForecast)) return null;
+
+  // Collect all hourly observations (DSM or obs feed)
+  const obs = window._observations || [];  // should store {tempF, hourET, timestamp}
+  if (!obs.length) return null;
+
+  // Find the first NWS forecast issuance hour for today
+  const forecastRows = getForecastRowsFor(todayISO, "D0");
+  const firstForecastHour = forecastRows.length
+    ? Math.min(...forecastRows.map(r => new Date(r.timestamp).getHours()))
+    : 6; // fallback if no forecast rows yet
+
+  // Treat all hours before that issuance as "overnight"
+  const overnightObs = obs.filter(o => {
+    const h = o.hourET ?? new Date(o.timestamp).getHours();
+    return h >= 0 && h < firstForecastHour;
+  });
+
+  if (!overnightObs.length) return null;
+
+  // Find the highest overnight temp
+  const overnightHigh = Math.max(...overnightObs.map(o => o.tempF));
+
+  // Check if that high exceeded the forecast
+  if (Number.isFinite(overnightHigh) && overnightHigh > latestForecast + 0.3) {
     return {
-      currentHigh: highestSoFar,
+      overnightHigh,
       forecast: latestForecast,
-      exceedance: highestSoFar - latestForecast,
-      isLive: true
+      exceedance: overnightHigh - latestForecast,
+      occurredOvernight: true,
+      cutoffHour: firstForecastHour
     };
   }
-  
+
   return null;
 }
+// --- Display and persist overnight exceedance note ---
+async function handleOvernightExceedanceNote() {
+  const exceed = await checkEarlyMorningExceedance();
+  const cliAvailable = hasActualFor(nycISODate(0));
+  const box = document.getElementById('box-dsm-note');
+
+  if (exceed && !cliAvailable) {
+    window._overnightHighExceededForecast = true;
+    if (box) {
+      box.innerHTML = `🌙 Overnight high of ${exceed.overnightHigh.toFixed(1)}°F (before ${exceed.cutoffHour}:00 AM) already exceeded today's forecast of ${exceed.forecast.toFixed(1)}°F`;
+    }
+  } else if (cliAvailable) {
+    window._overnightHighExceededForecast = false;
+    if (box) box.innerHTML = '';
+  } else if (window._overnightHighExceededForecast) {
+    if (box && !box.innerHTML.includes('Overnight high')) {
+      box.innerHTML = '🌙 Overnight high already exceeded today’s forecast';
+    }
+  }
+}
+
 function gateForToday() {
   const ro  = Number.isFinite(window._recentObservedF) ? Math.round(window._recentObservedF) : null;
   const six = Number.isFinite(window._sixHourMaxF)     ? Math.round(window._sixHourMaxF)     : null;
@@ -3544,6 +3578,8 @@ stats.innerHTML = `
     window.updateSummaryBoxes = updateSummaryBoxes;
     window.updateCorrectionBoxes = updateCorrectionBoxes;
     window.pollCsvAndUpdate = pollCsvAndUpdate;
+    // Run overnight exceedance check after all major updates
+  handleOvernightExceedanceNote();
   </script>
 
   <!-- Auth + boot (UMD) -->
