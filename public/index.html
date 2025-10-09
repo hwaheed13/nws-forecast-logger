@@ -3261,25 +3261,32 @@ function mapToKalshiRange(temp, kalshiData) {
     });
   }
 
-    async function displayTable() {
+async function displayTable() {
       const tb = document.querySelector("#dataTable tbody");
       if (!tb) return;
       tb.innerHTML = "";
     
-      // Load prediction snapshots
+      // Load prediction snapshots from Supabase
       const predSnapshots = {};
       try {
-        const resp = await fetch('https://raw.githubusercontent.com/hwaheed13/nws-forecast-logger/main/predictions_snapshot.csv');
-        const text = await resp.text();
-        const rows = csvToRows(text);
-        for (let i = 1; i < rows.length; i++) {
-          const [time, date, type, value] = rows[i];
-          if (date && type && value) {
-            predSnapshots[`${date}_${type}`] = parseFloat(value).toFixed(1);
-          }
+        const { data, error } = await supabase
+          .from('forecast_day_summary')
+          .select('target_date, prev_day_latest_value, same_day_earliest_value');
+        
+        if (error) throw error;
+        
+        if (data && data.length > 0) {
+          data.forEach(row => {
+            if (row.prev_day_latest_value) {
+              predSnapshots[`${row.target_date}_night_before`] = parseFloat(row.prev_day_latest_value).toFixed(1);
+            }
+            if (row.same_day_earliest_value) {
+              predSnapshots[`${row.target_date}_morning_of`] = parseFloat(row.same_day_earliest_value).toFixed(1);
+            }
+          });
         }
       } catch (e) {
-        console.log('No prediction snapshots yet');
+        console.log('Could not load prediction snapshots from Supabase:', e);
       }
 
       const dayMap = {};
