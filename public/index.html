@@ -963,53 +963,78 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
 // Gate inputs (populated by updateObservations / updateSixHourMax)
 window._recentObservedF = window._recentObservedF ?? null;
 window._sixHourMaxF    = window._sixHourMaxF ?? null;
+window._overnightHighSoFar = window._overnightHighSoFar ?? null;
+window._overnightHighTime = window._overnightHighTime ?? null;
 
-// --- Detect if overnight high exceeded forecast (full hourly scan) ---
-// Detect if today's high already occurred overnight and exceeded forecast
+// Initialize overnight tracking from localStorage if available
+(function initOvernightTracking() {
+  const todayKey = nycISODate(0);
+  const stored = localStorage.getItem(`overnight_${todayKey}`);
+  if (stored) {
+    try {
+      const data = JSON.parse(stored);
+      window._overnightHighSoFar = data.high;
+      window._overnightHighTime = data.time;
+      console.log(`[Init] Restored overnight high: ${data.high}°F from ${data.time}`);
+    } catch (e) {
+      console.warn("Failed to restore overnight data:", e);
+    }
+  }
+})();
+
+// --- Detect if overnight high exceeded forecast ---
 async function checkEarlyMorningExceedance() {
   const todayISO = nycISODate(0);
-  const latestForecast = latestPreHighValue(getForecastRowsFor(todayISO, "D0"), "");
-  if (!Number.isFinite(latestForecast)) return null;
+  
+  // Get the latest forecast for today
+  const d0Rows = getForecastRowsFor(todayISO, "D0");
+  const latestForecast = latestPreHighValue(d0Rows, "");
+  
+  if (!Number.isFinite(latestForecast)) {
+    console.log("[Exceedance] No forecast available");
+    return null;
+  }
 
-  const overnightHigh = window._overnightHighSoFar;
-  if (!Number.isFinite(overnightHigh)) return null;
+  let overnightHigh = window._overnightHighSoFar;
+  let overnightTime = window._overnightHighTime;
+  
+  // Fallback: use 6-hour max if overnight tracking didn't capture anything
+  if (!Number.isFinite(overnightHigh) && Number.isFinite(window._sixHourMaxF)) {
+    const etHour = new Date().toLocaleString("en-US", {timeZone: "America/New_York"});
+    const hour = new Date(etHour).getHours();
+    
+    // Only use 6hr max as fallback during morning hours (before 10 AM)
+    if (hour >= 0 && hour < 10) {
+      overnightHigh = window._sixHourMaxF;
+      overnightTime = null; // We don't have exact time for 6hr max
+      console.log(`[Exceedance] Using 6-hr max as fallback: ${overnightHigh}°F`);
+    }
+  }
+  
+  if (!Number.isFinite(overnightHigh)) {
+    console.log("[Exceedance] No overnight high available");
+    return null;
+  }
 
+  console.log("[Exceedance] Comparing:", {
+    overnightHigh,
+    latestForecast,
+    diff: overnightHigh - latestForecast
+  });
+
+  // Check if overnight high exceeded forecast by meaningful amount (0.3°F threshold)
   if (overnightHigh > latestForecast + 0.3) {
     return {
-      overnightHigh,
+      currentHigh: overnightHigh,
       forecast: latestForecast,
       exceedance: +(overnightHigh - latestForecast).toFixed(1),
+      time: overnightTime,
       occurredOvernight: true
     };
   }
+  
+  console.log("[Exceedance] No exceedance detected");
   return null;
-}
-// Show overnight exceedance note in Today's Bias-Corrected Prediction card
-async function handleOvernightExceedanceNote() {
-  console.log("[Overnight debug]", await checkEarlyMorningExceedance());
-  const correctionBox = document.getElementById('correctionBoxToday');
-  if (!correctionBox) return;
-
-  let note = correctionBox.querySelector('.overnight-note');
-  if (!note) {
-    note = document.createElement('div');
-    note.className = 'overnight-note';
-    note.style.marginTop = '8px';
-    note.style.fontSize = '12px';
-    note.style.color = '#d97706';
-    note.style.fontWeight = '600';
-    correctionBox.appendChild(note);
-  }
-
-  const cliAvailable = hasActualFor(nycISODate(0));
-  const exceed = await checkEarlyMorningExceedance();
-
-  if (exceed && !cliAvailable) {
-    note.textContent = `Overnight high of ${exceed.overnightHigh.toFixed(1)}°F already exceeded today's forecast (${exceed.forecast.toFixed(1)}°F).`;
-  } else {
-    // remove if no exceedance or once CLI publishes
-    note.remove();
-  }
 }
 
 // --- Show overnight exceedance note inside today's Bias-Corrected card ---
@@ -2590,6 +2615,7 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
         console.error("6HR fetch error:", err);
         note.textContent = "6-Hr Max unavailable";
       }
+    try { handleOvernightExceedanceNote(); } catch {}
     }
 
     // Observations: current temp only
@@ -2602,32 +2628,62 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
          el.textContent = `${Number(cur.currentF).toFixed(1)}°F`;
         window._recentObservedF = Number(cur.currentF);
 
-      // Track overnight high between midnight and 6 AM
+    // Track overnight high between midnight and 7 AM EST
       {
-        const h = new Date().getHours(); // local ET for you
-        if (h >= 0 && h < 6) {
+        const etNow = new Date().toLocaleString("en-US", {timeZone: "America/New_York"});
+        const etDate = new Date(etNow);
+        const etHour = etDate.getHours();
+        const todayKey = nycISODate(0);
+        
+        console.log("[Overnight Tracker]", {
+          hour: etHour,
+          current: window._recentObservedF,
+          overnightSoFar: window._overnightHighSoFar,
+          shouldTrack: etHour >= 0 && etHour < 7,
+          timestamp: cur.atISO
+        });
+        
+        if (etHour >= 0 && etHour < 7) {
           const current = window._recentObservedF;
-          if (current > (window._overnightHighSoFar ?? -Infinity)) {
-            window._overnightHighSoFar = current;
-            console.log(`[Overnight tracker] New overnight high: ${current}°F`);
+          if (Number.isFinite(current)) {
+            if (current > (window._overnightHighSoFar ?? -Infinity)) {
+              window._overnightHighSoFar = current;
+              window._overnightHighTime = cur.atISO;
+              
+              // Persist to localStorage
+              localStorage.setItem(`overnight_${todayKey}`, JSON.stringify({
+                high: current,
+                time: cur.atISO
+              }));
+              
+              console.log(`[Overnight tracker] ✅ New overnight high: ${current}°F at ${new Date(cur.atISO).toLocaleTimeString("en-US", {timeZone: "America/New_York"})}`);
+            }
+          }
+        } else if (etHour === 7) {
+          // Keep data at 7 AM for display
+          if (window._overnightHighSoFar) {
+            console.log(`[Overnight tracker] 🕖 7 AM - Final overnight high: ${window._overnightHighSoFar}°F (keeping for display)`);
+          }
+        } else if (etHour >= 7) {
+          // After 7 AM, keep overnight values until the daily actual (CLI) publishes.
+          // Also clean up yesterday's key to avoid buildup.
+          const todayKey = nycISODate(0);
+          const yesterdayKey = nycISODate(-1);
+
+          try { localStorage.removeItem(`overnight_${yesterdayKey}`); } catch {}
+
+          const published = hasActualFor(todayKey);
+          if (published) {
+            try { localStorage.removeItem(`overnight_${todayKey}`); } catch {}
+            window._overnightHighSoFar = null;
+            window._overnightHighTime  = null;
           }
         }
       }
-          const ts = cur.atISO ? new Date(cur.atISO) : null;
-          const tNY = ts ? new Intl.DateTimeFormat("en-US", {
-            timeZone: "America/New_York",
-            hour: "numeric",
-            minute: "2-digit"
-          }).format(ts) : "";
-          note.textContent = tNY ? `as of ${tNY} ET • station ${cur.station}` : `station ${cur.station}`;
-        } else {
-          el.textContent = "–";
-          note.textContent = "";
-        }
-      });
-    }
+      try { handleOvernightExceedanceNote(); } catch {}
 
     async function updateSummaryBoxes() {
+
       const today = nycISODate(0);
       const tomorrow = nycISODate(1);
       const yesterday = nycISODate(-1);
@@ -3730,6 +3786,8 @@ async function bootApp() {
     setInterval(() => { try { window.updateSixHourMax && window.updateSixHourMax(); } catch {} }, 10 * 60 * 1000);
     setInterval(() => { try { window.updateSummaryBoxes && window.updateSummaryBoxes(); } catch {} }, 60 * 1000);
     setInterval(() => { try { window.updateCorrectionBoxes && window.updateCorrectionBoxes(); } catch {} }, 60 * 1000);
+    // Refresh overnight exceedance note every minute
+    setInterval(() => { try { handleOvernightExceedanceNote(); } catch {} }, 60 * 1000);
     setInterval(() => { try { window.pollCsvAndUpdate && window.pollCsvAndUpdate(); } catch {} }, 60 * 1000);
     // Poll AccuWeather every 2 hours
     if (typeof fetchAccuWeatherForecasts === 'function') {
