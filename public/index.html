@@ -1036,33 +1036,6 @@ async function checkEarlyMorningExceedance() {
   console.log("[Exceedance] No exceedance detected");
   return null;
 }
-// Show overnight exceedance note in Today's Bias-Corrected Prediction card
-async function handleOvernightExceedanceNote() {
-  console.log("[Overnight debug]", await checkEarlyMorningExceedance());
-  const correctionBox = document.getElementById('correctionBoxToday');
-  if (!correctionBox) return;
-
-  let note = correctionBox.querySelector('.overnight-note');
-  if (!note) {
-    note = document.createElement('div');
-    note.className = 'overnight-note';
-    note.style.marginTop = '8px';
-    note.style.fontSize = '12px';
-    note.style.color = '#d97706';
-    note.style.fontWeight = '600';
-    correctionBox.appendChild(note);
-  }
-
-  const cliAvailable = hasActualFor(nycISODate(0));
-  const exceed = await checkEarlyMorningExceedance();
-
-  if (exceed && !cliAvailable) {
-    note.textContent = `Overnight high of ${exceed.overnightHigh.toFixed(1)}°F already exceeded today's forecast (${exceed.forecast.toFixed(1)}°F).`;
-  } else {
-    // remove if no exceedance or once CLI publishes
-    note.remove();
-  }
-}
 
 // --- Show overnight exceedance note inside today's Bias-Corrected card ---
 async function handleOvernightExceedanceNote() {
@@ -3898,7 +3871,7 @@ supabase.auth.onAuthStateChange((_event, session) => {
 });
 
   checkAccess();
-  })();
+
 // ===== Theme: system by default, toggle cycles System → Dark → Light =====
 (function () {
   const KEY = "theme-pref"; // "system" | "dark" | "light"
