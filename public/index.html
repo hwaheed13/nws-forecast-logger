@@ -3824,8 +3824,7 @@ supabase.auth.onAuthStateChange((_event, session) => {
   // If on /login, let the login UI handle it.
 });
 
-  checkAccess();
-  })();
+checkAccess();
 // ===== Theme: system by default, toggle cycles System → Dark → Light =====
 (function () {
   const KEY = "theme-pref"; // "system" | "dark" | "light"
