@@ -986,14 +986,26 @@ window._overnightHighTime = window._overnightHighTime ?? null;
 async function checkEarlyMorningExceedance() {
   const todayISO = nycISODate(0);
   
-  // Get the latest forecast for today
+  // Get the latest forecast for today (prefer D0; fallback to D1 if D0 not issued/ingested yet)
+  let latestForecast = NaN;
+  let forecastSource = "D0";
+
   const d0Rows = getForecastRowsFor(todayISO, "D0");
-  const latestForecast = latestPreHighValue(d0Rows, "");
-  
+  latestForecast = latestPreHighValue(d0Rows, "");
+
   if (!Number.isFinite(latestForecast)) {
-    console.log("[Exceedance] No forecast available");
-    return null;
+    const d1Rows = getForecastRowsFor(todayISO, "D1");
+    latestForecast = latestPreHighValue(d1Rows, "");
+    forecastSource = "D1";
   }
+
+  if (!Number.isFinite(latestForecast)) {
+    console.log("[Exceedance] No forecast available for today (no D0 or D1).");
+    return null;
+  } else {
+    console.log(`[Exceedance] Using ${forecastSource} forecast: ${latestForecast}`);
+  }
+
 
   let overnightHigh = window._overnightHighSoFar;
   let overnightTime = window._overnightHighTime;
