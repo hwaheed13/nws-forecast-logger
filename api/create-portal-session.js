@@ -92,8 +92,9 @@ export default async function handler(req, res) {
     });
 
     return res.status(200).json({ url: portal.url });
-  } catch (e) {
-    console.error("create-portal-session error:", e);
-    return res.status(500).json({ error: "server_error" });
+   } catch (e) {
+    const msg = e?.message || String(e);
+    console.error("create-portal-session error:", msg);
+    return res.status(500).json({ error: msg });
   }
 }
