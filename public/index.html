@@ -970,22 +970,22 @@ function checkEarlyMorningExceedance() {
   const todayISO = nycISODate(0);
 
   // Prefer D0; fallback to D1 if D0 isn't issued/ingested yet
-  let latestForecast = latestPreHighValue(getForecastRowsFor(todayISO, "D0"), "");
+  let latestForecast = Number(latestPreHighValue(getForecastRowsFor(todayISO, "D0"), ""));
   if (!Number.isFinite(latestForecast)) {
-    latestForecast = latestPreHighValue(getForecastRowsFor(todayISO, "D1"), "");
+    latestForecast = Number(latestPreHighValue(getForecastRowsFor(todayISO, "D1"), ""));
   }
   if (!Number.isFinite(latestForecast)) return null;
 
   // Overnight high tracked 12–7am (persisted); fallback to 6-hr max before 10 ET
-  let overnightHigh = window._overnightHighSoFar;
+  let overnightHigh = Number(window._overnightHighSoFar);
   let overnightTime = window._overnightHighTime || null;
 
   const etHour = Number(new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York", hour: "numeric", hour12: false
   }).format(new Date()));
 
-  if (!Number.isFinite(overnightHigh) && Number.isFinite(window._sixHourMaxF) && etHour < 10) {
-    overnightHigh = window._sixHourMaxF;
+  if (!Number.isFinite(overnightHigh) && Number.isFinite(Number(window._sixHourMaxF)) && etHour < 10) {
+    overnightHigh = Number(window._sixHourMaxF);
     overnightTime = null; // unknown within the 6-hr window
   }
 
@@ -2995,6 +2995,9 @@ if (el1) {
         el1.innerHTML = `<div class="prediction-value">—</div><div class="prediction-subtitle">Awaiting forecast data</div>`;
       }
     }
+
+  // Re-apply any overnight exceedance note after the card re-render
+  try { await handleOvernightExceedanceNote(); } catch {}
 
   } catch (e) {
     console.warn("updateCorrectionBoxes() failed", e);
