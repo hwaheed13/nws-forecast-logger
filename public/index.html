@@ -966,78 +966,70 @@ window._sixHourMaxF    = window._sixHourMaxF ?? null;
 
 // --- Detect if overnight high exceeded forecast (full hourly scan) ---
 // Detect if today's high already occurred overnight and exceeded forecast
-async function checkEarlyMorningExceedance() {
+function checkEarlyMorningExceedance() {
   const todayISO = nycISODate(0);
-  const latestForecast = latestPreHighValue(getForecastRowsFor(todayISO, "D0"), "");
+
+  // Prefer D0; fallback to D1 if D0 isn't issued/ingested yet
+  let latestForecast = latestPreHighValue(getForecastRowsFor(todayISO, "D0"), "");
+  if (!Number.isFinite(latestForecast)) {
+    latestForecast = latestPreHighValue(getForecastRowsFor(todayISO, "D1"), "");
+  }
   if (!Number.isFinite(latestForecast)) return null;
 
-  const overnightHigh = window._overnightHighSoFar;
+  // Overnight high tracked 12–7am (persisted); fallback to 6-hr max before 10 ET
+  let overnightHigh = window._overnightHighSoFar;
+  let overnightTime = window._overnightHighTime || null;
+
+  const etHour = Number(new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York", hour: "numeric", hour12: false
+  }).format(new Date()));
+
+  if (!Number.isFinite(overnightHigh) && Number.isFinite(window._sixHourMaxF) && etHour < 10) {
+    overnightHigh = window._sixHourMaxF;
+    overnightTime = null; // unknown within the 6-hr window
+  }
+
   if (!Number.isFinite(overnightHigh)) return null;
 
   if (overnightHigh > latestForecast + 0.3) {
     return {
+      currentHigh: overnightHigh,    // keep both keys so any caller works
       overnightHigh,
       forecast: latestForecast,
+      time: overnightTime,
       exceedance: +(overnightHigh - latestForecast).toFixed(1),
       occurredOvernight: true
     };
   }
   return null;
 }
+
 // Show overnight exceedance note in Today's Bias-Corrected Prediction card
 async function handleOvernightExceedanceNote() {
-  console.log("[Overnight debug]", await checkEarlyMorningExceedance());
-  const correctionBox = document.getElementById('correctionBoxToday');
-  if (!correctionBox) return;
+  const box = document.getElementById('correctionBoxToday');
+  if (!box) return;
 
-  let note = correctionBox.querySelector('.overnight-note');
-  if (!note) {
-    note = document.createElement('div');
-    note.className = 'overnight-note';
-    note.style.marginTop = '8px';
-    note.style.fontSize = '12px';
-    note.style.color = '#d97706';
-    note.style.fontWeight = '600';
-    correctionBox.appendChild(note);
-  }
-
-  const cliAvailable = hasActualFor(nycISODate(0));
-  const exceed = await checkEarlyMorningExceedance();
-
-  if (exceed && !cliAvailable) {
-    note.textContent = `Overnight high of ${exceed.overnightHigh.toFixed(1)}°F already exceeded today's forecast (${exceed.forecast.toFixed(1)}°F).`;
-  } else {
-    // remove if no exceedance or once CLI publishes
-    note.remove();
-  }
-}
-
-// --- Show overnight exceedance note inside today's Bias-Corrected card ---
-async function handleOvernightExceedanceNote() {
-  console.log("[Overnight debug]", await checkEarlyMorningExceedance());
-  const noteEl = document.querySelector("#correctionBoxToday");
-  if (!noteEl) return;
-  const result = await checkEarlyMorningExceedance();
-  const existing = noteEl.querySelector(".overnight-note");
+  // Remove any existing note first
+  const existing = box.querySelector('.overnight-note');
   if (existing) existing.remove();
-  if (!result) return;
 
-  const time = result.time ? new Date(result.time).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}) : "overnight";
-  const msg = `🌙 Overnight high of ${result.currentHigh.toFixed(1)}°F (${time}) already exceeded today's forecast (${result.forecast.toFixed(1)}°F).`;
+  // Do not show once the official CLI “Actual” has published
+  if (hasActualFor(nycISODate(0))) return;
+
+  const res = await checkEarlyMorningExceedance();
+  if (!res) return;
+
+  const timeLabel = res.time
+    ? new Date(res.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+    : "overnight";
 
   const div = document.createElement("div");
   div.className = "overnight-note";
   div.style.cssText = "margin-top:6px;font-size:12px;color:#d97706;font-weight:600;";
-  div.textContent = msg;
-  noteEl.appendChild(div);
+  div.textContent = `Overnight high of ${res.currentHigh.toFixed(1)}°F (${timeLabel}) already exceeded today's forecast (${res.forecast.toFixed(1)}°F).`;
+  box.appendChild(div);
 }
 
-function gateForToday() {
-  const ro  = Number.isFinite(window._recentObservedF) ? Math.round(window._recentObservedF) : null;
-  const six = Number.isFinite(window._sixHourMaxF)     ? Math.round(window._sixHourMaxF)     : null;
-  if (ro == null && six == null) return null;
-  return (ro == null) ? six : (six == null ? ro : Math.max(ro, six));
-}
 
 // --- Helpers: separate NWS vs AccuWeather rows ---
 function getNwsForecastRowsFor(targetISO, kind) {
