@@ -19,14 +19,13 @@ function readRawBody(req) {
 }
 
 // Normalize Stripe subscription status -> profiles.subscription_status
+// (You chose to allow only 'active'/'trialing'; everything else becomes 'inactive')
 function normalizedStatusFromStripe(status) {
-  // allow free trial access
   return status === "active" || status === "trialing" ? status : "inactive";
 }
 
-// pull basic plan info from price
+// plan: "monthly" | "yearly" | null
 function planFromPrice(price) {
-  // You’ve been storing "monthly"/"yearly" — use interval if available
   const interval = price?.recurring?.interval; // "month" | "year" | undefined
   if (interval === "month") return "monthly";
   if (interval === "year") return "yearly";
@@ -35,6 +34,79 @@ function planFromPrice(price) {
 
 function tsOrNull(unix) {
   return typeof unix === "number" ? new Date(unix * 1000).toISOString() : null;
+}
+
+// Resolve your Supabase user id from subscription/customer metadata
+async function resolveSupabaseUserIdFromSub(sub) {
+  if (sub?.metadata?.supabase_user_id) return sub.metadata.supabase_user_id;
+  if (sub?.customer) {
+    const cust = await stripe.customers.retrieve(sub.customer);
+    if (cust?.metadata?.supabase_user_id) return cust.metadata.supabase_user_id;
+  }
+  return null;
+}
+
+// Apply subscription -> profiles patch per your schema
+async function applySubscriptionToProfile(admin, sub, opts = {}) {
+  const statusNorm = normalizedStatusFromStripe(sub.status);
+  const item = sub.items?.data?.[0];
+  const price = item?.price ?? null;
+
+  const plan = planFromPrice(price);
+  const periodEnd = tsOrNull(sub.current_period_end);
+  const trialStart = tsOrNull(sub.trial_start);
+  const trialEnd   = tsOrNull(sub.trial_end);
+  const onTrial = sub.status === "trialing";
+
+  // Find Supabase user id
+  let targetId = await resolveSupabaseUserIdFromSub(sub);
+
+  // Fallback: match by stripe_customer_id if we’ve stored it previously
+  if (!targetId && sub.customer) {
+    const { data: profByCust } = await admin
+      .from("profiles")
+      .select("id")
+      .eq("stripe_customer_id", sub.customer)
+      .maybeSingle();
+    targetId = profByCust?.id || null;
+  }
+
+  if (!targetId) return; // cannot map; ignore safely
+
+  // Ensure stripe_customer_id is persisted (one-time upsert)
+  await admin
+    .from("profiles")
+    .upsert(
+      { id: targetId, stripe_customer_id: sub.customer, updated_at: new Date().toISOString() },
+      { onConflict: "id" }
+    );
+
+  const patch = {
+    stripe_subscription_id: sub.id,
+    subscription_status: statusNorm, // 'active' | 'trialing' | 'inactive'
+    plan,                             // 'monthly' | 'yearly' | null
+    current_period_end: periodEnd,
+    updated_at: new Date().toISOString(),
+  };
+
+  // Trial bookkeeping (write when trial exists)
+  if (trialStart) {
+    patch.free_trial_started_at = trialStart;
+    patch.trial_started_at = trialStart; // you keep both
+  }
+  if (trialEnd) {
+    patch.free_trial_ends_at = trialEnd;
+  }
+  if (onTrial) {
+    patch.free_trial_used = true;   // prevents repeat trials
+    patch.trial_used = true;        // legacy mirror
+    patch.trial_subscription_id = sub.id;
+  }
+
+  // Optional email update if provided via opts
+  if (opts.email) patch.email = opts.email;
+
+  await admin.from("profiles").update(patch).eq("id", targetId);
 }
 
 // ---- handler ---------------------------------------------------------------
@@ -56,153 +128,59 @@ export default async function handler(req, res) {
 
   try {
     switch (event.type) {
-      // Fired after Checkout completes (first time a user subscribes or starts trial)
+      // Fired after Checkout completes (first-time subscribe or re-subscribe)
       case "checkout.session.completed": {
         const session = event.data.object;
 
         if (session.subscription && session.customer) {
+          // Retrieve fresh subscription (status may be 'trialing', 'active', or 'incomplete' pre-payment)
           const [subscription, customer] = await Promise.all([
             stripe.subscriptions.retrieve(session.subscription),
             stripe.customers.retrieve(session.customer),
           ]);
 
-          // Try to get your Supabase user id from metadata (preferred) or customer metadata
-          const supabase_user_id =
-            session.metadata?.supabase_user_id ||
-            customer?.metadata?.supabase_user_id ||
-            null;
-
-          // Read status + plan details
-          const statusNorm = normalizedStatusFromStripe(subscription.status);
-          const item = subscription.items?.data?.[0];
-          const price = item?.price ?? null;
-          const plan = planFromPrice(price);
-          const periodEnd = tsOrNull(subscription.current_period_end);
-
-          // Trial fields (if trialing phase exists)
-          const trialStart = tsOrNull(subscription.trial_start);
-          const trialEnd   = tsOrNull(subscription.trial_end);
-          const onTrial = subscription.status === "trialing";
-
-          if (supabase_user_id) {
-            const payload = {
-              id: supabase_user_id,
-              email: session.customer_details?.email ?? null,
-              stripe_customer_id: customer.id,
-              stripe_subscription_id: subscription.id,
-              subscription_status: statusNorm,      // "active" | "trialing" | "inactive"
-              plan,                                  // "monthly" | "yearly" | null
-              current_period_end: periodEnd,
-              // trial bookkeeping
-              free_trial_used: onTrial ? true : (session.metadata?.ddp_trial === "true" ? true : undefined),
-              free_trial_started_at: trialStart,
-              free_trial_ends_at: trialEnd,
-              // also keep a generic "trial_used" if your schema has it
-              trial_used: onTrial ? true : undefined,
-              trial_subscription_id: onTrial ? subscription.id : undefined,
-              trial_started_at: trialStart,
-              updated_at: new Date().toISOString(),
-            };
-
-            // Upsert on profiles (id PK)
-            const { error } = await admin.from("profiles").upsert(payload, { onConflict: "id" });
-            if (error) {
-              console.error("profiles upsert error (checkout.session.completed):", {
-                message: error.message, details: error.details, hint: error.hint, code: error.code
-              });
-              return res.status(500).json({ error: "DB upsert failed" });
-            }
-          }
+          await applySubscriptionToProfile(admin, subscription, {
+            email: session.customer_details?.email ?? null,
+          });
         }
         break;
       }
 
-      // Subscription life cycle changes (status flips, renewals, cancellations, trial→active, etc.)
+      // Some Checkouts with SCA/async auth confirm after redirect
+      case "checkout.session.async_payment_succeeded": {
+        const session = event.data.object;
+        if (session.subscription) {
+          const sub = await stripe.subscriptions.retrieve(session.subscription);
+          await applySubscriptionToProfile(admin, sub, {
+            email: session.customer_details?.email ?? null,
+          });
+        }
+        break;
+      }
+
+      // Subscription lifecycle (status flips, renewals, cancellations, trial→active, etc.)
       case "customer.subscription.created":
       case "customer.subscription.updated":
       case "customer.subscription.deleted": {
         const sub = event.data.object;
+        await applySubscriptionToProfile(admin, sub);
+        break;
+      }
 
-        const statusNorm = normalizedStatusFromStripe(sub.status);
-        const item = sub.items?.data?.[0];
-        const price = item?.price ?? null;
-
-        const plan = planFromPrice(price);
-        const periodEnd = tsOrNull(sub.current_period_end);
-        const trialStart = tsOrNull(sub.trial_start);
-        const trialEnd   = tsOrNull(sub.trial_end);
-        const onTrial = sub.status === "trialing";
-
-        // Find profile by stripe_customer_id…
-        const { data: profByCust, error: findErr } = await admin
-          .from("profiles")
-          .select("id")
-          .eq("stripe_customer_id", sub.customer)
-          .maybeSingle();
-
-        let targetId = profByCust?.id;
-
-        // …or fall back to customer metadata if needed.
-        if (!targetId) {
-          const cust = await stripe.customers.retrieve(sub.customer);
-          targetId = cust?.metadata?.supabase_user_id ?? null;
-
-          // If we found a Supabase id here, ensure stripe_customer_id is persisted once
-          if (targetId) {
-            await admin
-              .from("profiles")
-              .upsert(
-                {
-                  id: targetId,
-                  stripe_customer_id: sub.customer,
-                  updated_at: new Date().toISOString(),
-                },
-                { onConflict: "id" }
-              );
-          }
-        }
-
-        if (targetId) {
-          const patch = {
-            stripe_subscription_id: sub.id,
-            subscription_status: statusNorm, // preserves "trialing"
-            plan,                             // "monthly" | "yearly" | null
-            current_period_end: periodEnd,
-            updated_at: new Date().toISOString(),
-          };
-
-          // Trial bookkeeping: keep a record of the trial window if present
-          if (trialStart) patch.free_trial_started_at = trialStart;
-          if (trialEnd)   patch.free_trial_ends_at = trialEnd;
-
-          // Mark that a trial has been used (so you can prevent multiple trials)
-          if (onTrial) {
-            patch.free_trial_used = true;
-            patch.trial_used = true; // if you still keep this legacy column
-            patch.trial_subscription_id = sub.id;
-            patch.trial_started_at = trialStart;
-          }
-
-          const { error } = await admin
-            .from("profiles")
-            .update(patch)
-            .eq("id", targetId);
-
-          if (error) {
-            console.error("profiles update error (subscription.*):", {
-              message: error.message, details: error.details, hint: error.hint, code: error.code
-            });
-            return res.status(500).json({ error: "DB update failed" });
-          }
+      // When an invoice is paid (including the first invoice), ensure period_end & status are fresh
+      case "invoice.payment_succeeded": {
+        const invoice = event.data.object;
+        if (invoice.subscription) {
+          const sub = await stripe.subscriptions.retrieve(invoice.subscription);
+          await applySubscriptionToProfile(admin, sub);
         }
         break;
       }
 
-      // Optional — Stripe can send this ~3 days before the trial ends (config dependent)
+      // Optional — notify before trial ends (no DB change required)
       case "customer.subscription.trial_will_end": {
         const sub = event.data.object;
         console.log("Trial will end soon for subscription:", sub.id);
-        // You could email the user here via your own system if desired.
         break;
       }
 
