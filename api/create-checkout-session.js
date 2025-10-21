@@ -97,6 +97,11 @@ export default async function handler(req, res) {
 
     const alreadyTrialed = !!(profile?.free_trial_used || profile?.trial_used);
 
+    // 🚫 Strict guard: block repeat free-trial attempts
+    if (trial === true && alreadyTrialed) {
+      return res.status(403).json({ error: "Free trial already used" });
+    }
+
     // 5) Trial path (first-time only)
     if (trial === true && !alreadyTrialed) {
       if (!PRICES.monthly) {
