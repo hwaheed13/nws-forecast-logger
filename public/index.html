@@ -2577,11 +2577,15 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
           note.textContent = parsed.time ? `as of ${parsed.time} • 6-hr max` : "Latest 6-hr max";
         } else {
           note.textContent = "6-Hr Max not available";
-        }
-      } catch (err) {
-        console.error("6HR fetch error:", err);
-        note.textContent = "6-Hr Max unavailable";
-      }
+            }
+    } catch (err) {
+      console.error("6HR fetch error:", err);
+      note.textContent = "6-Hr Max unavailable";
+    }
+    
+    // Re-evaluate the overnight note after 6-hr max updates
+    try { await handleOvernightExceedanceNote(); } catch {}
+    
     }
 
     // Observations: current temp only
@@ -2594,17 +2598,43 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
          el.textContent = `${Number(cur.currentF).toFixed(1)}°F`;
         window._recentObservedF = Number(cur.currentF);
 
-      // Track overnight high between midnight and 6 AM
-      {
-        const h = new Date().getHours(); // local ET for you
-        if (h >= 0 && h < 6) {
-          const current = window._recentObservedF;
-          if (current > (window._overnightHighSoFar ?? -Infinity)) {
-            window._overnightHighSoFar = current;
-            console.log(`[Overnight tracker] New overnight high: ${current}°F`);
-          }
-        }
+  // Track overnight high between midnight and 7 AM ET, persist until CLI publishes
+  {
+    const etNow  = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
+    const etDate = new Date(etNow);
+    const etHour = etDate.getHours();
+    const todayKey = nycISODate(0);
+  
+    // 0–7 ET: live track and persist
+    if (etHour >= 0 && etHour < 7) {
+      const current = window._recentObservedF;
+      if (Number.isFinite(current) && current > (window._overnightHighSoFar ?? -Infinity)) {
+        window._overnightHighSoFar = current;
+        window._overnightHighTime  = (typeof cur?.atISO === "string") ? cur.atISO : null;
+        try {
+          localStorage.setItem(`overnight_${todayKey}`, JSON.stringify({ high: current, time: window._overnightHighTime }));
+        } catch {}
+        console.log(`[Overnight tracker] ✅ New overnight high: ${current}°F`);
       }
+    } else if (etHour === 7) {
+      // Keep value around for display after the window closes
+      if (window._overnightHighSoFar != null) {
+        console.log(`[Overnight tracker] 🕖 7 AM - holding overnight high: ${window._overnightHighSoFar}°F`);
+      }
+    } else if (etHour > 7) {
+      // After 7 ET: keep the value until the official CLI "actual" publishes, then clear
+      const published = hasActualFor(todayKey);
+      if (published) {
+        try { localStorage.removeItem(`overnight_${todayKey}`); } catch {}
+        window._overnightHighSoFar = null;
+        window._overnightHighTime  = null;
+      }
+    }
+  }
+  
+  // Re-evaluate the note after each observation tick
+  try { handleOvernightExceedanceNote(); } catch {}
+
           const ts = cur.atISO ? new Date(cur.atISO) : null;
           const tNY = ts ? new Intl.DateTimeFormat("en-US", {
             timeZone: "America/New_York",
