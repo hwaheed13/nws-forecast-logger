@@ -749,8 +749,7 @@ if (!window.predictionHistory) {
     getRange(which) {
       if (!this[which].length) return null;
       const values = this[which].map(e => Math.round(e.value * 10) / 10);
-      const uniqueValues = [...new Set(values)];
-      
+      const uniqueValues = Array.from(new Set(values));
       return {
         min: Math.min(...uniqueValues),
         max: Math.max(...uniqueValues),
@@ -970,9 +969,9 @@ function checkEarlyMorningExceedance() {
   const todayISO = nycISODate(0);
 
   // Prefer D0; fallback to D1 if D0 isn't issued/ingested yet
-  let latestForecast = Number(latestPreHighValue(getForecastRowsFor(todayISO, "D0"), ""));
+  let latestForecast = latestPreHighValue(getForecastRowsFor(todayISO, "D0"), "");
   if (!Number.isFinite(latestForecast)) {
-    latestForecast = Number(latestPreHighValue(getForecastRowsFor(todayISO, "D1"), ""));
+    latestForecast = latestPreHighValue(getForecastRowsFor(todayISO, "D1"), "");
   }
   if (!Number.isFinite(latestForecast)) return null;
 
@@ -2941,17 +2940,19 @@ window._predTomorrow = predTomorrow;
             </div>` 
           : '';
         
-        // Add prediction history
-        const historyRange = predictionHistory.getRange('today');
-        const historyHTML = historyRange 
-          ? `<div class="prediction-history">
-              ${historyRange.min === historyRange.max 
-                ? `Stable at ${historyRange.current.toFixed(1)}°F` 
-                : `Range: ${historyRange.min.toFixed(1)}°F - ${historyRange.max.toFixed(1)}°F`} 
-              (${historyRange.changes} updates)
-            </div>`
-          : '';
-        
+    // Add prediction history
+    const historyRange = predictionHistory.getRange('today');
+    const historyHTML = (historyRange
+      && Number.isFinite(historyRange.min)
+      && Number.isFinite(historyRange.max)
+      && Number.isFinite(historyRange.current))
+      ? `<div class="prediction-history">
+          ${historyRange.min === historyRange.max 
+            ? `Stable at ${Number(historyRange.current).toFixed(1)}°F` 
+            : `Range: ${Number(historyRange.min).toFixed(1)}°F - ${Number(historyRange.max).toFixed(1)}°F`} 
+          (${historyRange.changes} updates)
+        </div>`
+      : '';
 
 const exceedanceNote = exceedance 
   ? `<div class="boundary-warning" style="background: #dbeafe; border-color: #3b82f6; color: #1e40af;">
@@ -3002,17 +3003,20 @@ if (el1) {
             </div>` 
           : '';
         
-        // Add prediction history
-        const historyRange = predictionHistory.getRange('tomorrow');
-         const historyHTML = historyRange 
+    // Add prediction history
+    const historyRange = predictionHistory.getRange('tomorrow');
+    const historyHTML = (historyRange
+      && Number.isFinite(historyRange.min)
+      && Number.isFinite(historyRange.max)
+      && Number.isFinite(historyRange.current))
       ? `<div class="prediction-history">
           ${historyRange.min === historyRange.max 
-            ? `Stable at ${historyRange.current.toFixed(1)}°F` 
-            : `Range: ${historyRange.min.toFixed(1)}°F - ${historyRange.max.toFixed(1)}°F`} 
+            ? `Stable at ${Number(historyRange.current).toFixed(1)}°F` 
+            : `Range: ${Number(historyRange.min).toFixed(1)}°F - ${Number(historyRange.max).toFixed(1)}°F`} 
           (${historyRange.changes} updates)
         </div>`
       : '';
-        
+   
   el1.innerHTML = `
       <div class="prediction-value">${val}°F</div>
       <div class="prediction-subtitle">
