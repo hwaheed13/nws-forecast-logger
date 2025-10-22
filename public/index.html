@@ -969,10 +969,9 @@ function checkEarlyMorningExceedance() {
   const todayISO = nycISODate(0);
 
   // Prefer D0; fallback to D1 if D0 isn't issued/ingested yet
-  let latestForecast = latestPreHighValue(getForecastRowsFor(todayISO, "D0"), "");
-  if (!Number.isFinite(latestForecast)) {
-    latestForecast = latestPreHighValue(getForecastRowsFor(todayISO, "D1"), "");
-  }
+  let v = latestPreHighValue(getForecastRowsFor(todayISO, "D0"), "");
+  if (v == null) v = latestPreHighValue(getForecastRowsFor(todayISO, "D1"), "");
+  const latestForecast = Number(v);
   if (!Number.isFinite(latestForecast)) return null;
 
   // Overnight high tracked 12–7am (persisted); fallback to 6-hr max before 10 ET
@@ -2921,12 +2920,16 @@ window._predTomorrow = predTomorrow;
           <div class="prediction-value">—</div>
           <div class="prediction-subtitle">Actual high published for ${todayISO}</div>
         `;
-      } else if (Number.isFinite(predToday?.y)) {
-        const val = predToday.y.toFixed(1);
-        const bias = predToday.bias != null ? predToday.bias.toFixed(2) : "0.00";
-        const sign = Number(bias) >= 0 ? "+" : "";
-        
-        const kalshiNote = todayKalshiRange?.label 
+      } else {
+        const y = Number(predToday?.y);
+        if (Number.isFinite(y)) {
+          const val = y.toFixed(1);
+          const biasNum = Number(predToday?.bias);
+          const bias = Number.isFinite(biasNum) ? biasNum.toFixed(2) : "0.00";
+          const sign = (Number.isFinite(biasNum) && biasNum >= 0) ? "+" : "";
+      
+          const kalshiNote = todayKalshiRange?.label
+
           ? ` • Kalshi: ${todayKalshiRange.label}` 
           : "";
         
@@ -2956,7 +2959,7 @@ window._predTomorrow = predTomorrow;
 
 const exceedanceNote = exceedance 
   ? `<div class="boundary-warning" style="background: #dbeafe; border-color: #3b82f6; color: #1e40af;">
-      ℹ️ <strong>Note:</strong> Currently ${exceedance.currentTemp.toFixed(1)}°F at ${exceedance.hour}:00 AM ET — already at/above forecast (${exceedance.forecast.toFixed(1)}°F).
+      ℹ️ <strong>Note:</strong> Overnight high of ${Number(exceedance.currentHigh).toFixed(1)}°F ${exceedance.time ? `at ${new Date(exceedance.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} ET` : "(overnight)"} already exceeded forecast (${Number(exceedance.forecast).toFixed(1)}°F).
       High may occur overnight. Forecast reflects expected daytime high.
     </div>` 
   : '';
@@ -2974,15 +2977,13 @@ el0.innerHTML = `
         el0.innerHTML = `<div class="prediction-value">—</div><div class="prediction-subtitle">Awaiting forecast data</div>`;
       }
     }
-    
-    
+     
 if (el1) {
-  if (Number.isFinite(predTomorrow?.y)) {
-    const raw = Number(predTomorrow.y);
+  const y = Number(predTomorrow?.y);
+  if (Number.isFinite(y)) {
     const bump = (typeof d1AdjF === "number" && Number.isFinite(d1AdjF)) ? d1AdjF : 0;
-    const final = Math.round((raw + bump) * 10) / 10;
+    const final = Math.round((y + bump) * 10) / 10;
     const val = final.toFixed(1);
-    
 
         const bias = predTomorrow?.bias != null ? Number(predTomorrow.bias).toFixed(2) : "0.00";
         const sign = Number(bias) >= 0 ? "+" : "";
@@ -3016,7 +3017,7 @@ if (el1) {
           (${historyRange.changes} updates)
         </div>`
       : '';
-   
+
   el1.innerHTML = `
       <div class="prediction-value">${val}°F</div>
       <div class="prediction-subtitle">
