@@ -973,7 +973,7 @@ function checkEarlyMorningExceedance() {
   if (!Number.isFinite(latestForecast)) {
     latestForecast = latestPreHighValue(getForecastRowsFor(todayISO, "D1"), "");
   }
-  if (!Number.isFinite(latestForecast)) return null;
+  if (!Number.isFinite(latestForecast) || latestForecast <= 0) return null;
 
   // Overnight high tracked 12–7am (persisted); fallback to 6-hr max before 10 ET
   let overnightHigh = Number(window._overnightHighSoFar);
@@ -2921,11 +2921,13 @@ window._predTomorrow = predTomorrow;
           <div class="prediction-value">—</div>
           <div class="prediction-subtitle">Actual high published for ${todayISO}</div>
         `;
-      } else if (Number.isFinite(predToday?.y)) {
+      } else if (Number.isFinite(predToday?.y) && predToday?.y > 0) {
         const val = predToday.y.toFixed(1);
-        const bias = predToday.bias != null ? predToday.bias.toFixed(2) : "0.00";
+        const bias = Number.isFinite(predToday.bias)
+          ? predToday.bias.toFixed(2)
+          : "0.00";
         const sign = Number(bias) >= 0 ? "+" : "";
-        
+
         const kalshiNote = todayKalshiRange?.label 
           ? ` • Kalshi: ${todayKalshiRange.label}` 
           : "";
