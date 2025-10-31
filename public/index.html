@@ -2932,13 +2932,13 @@ window._predTomorrow = predTomorrow;
           ? ` • Kalshi: ${todayKalshiRange.label}` 
           : "";
         
-        // Add warning if present
+      // Add warning if present
         const warningHTML = todayWarning 
           ? `<div class="boundary-warning ${todayWarning.level}">
               ${todayWarning.message}<br>
               <strong>Recommendation: ${todayWarning.recommendation}</strong>
-              ${todayWarning.details.crossed ? '<br>⚠️ Prediction crossed this boundary today' : ''}
-              ${todayWarning.details.forecastSpread > 1 ? `<br>Forecast spread: ${todayWarning.details.forecastSpread}°F` : ''}
+              ${todayWarning.details?.crossed ? '<br>⚠️ Prediction crossed this boundary today' : ''}
+              ${(todayWarning.details?.forecastSpread && todayWarning.details.forecastSpread > 1) ? `<br>Forecast spread: ${todayWarning.details.forecastSpread}°F` : ''}
             </div>` 
           : '';
         
@@ -2995,13 +2995,13 @@ if (el1) {
             ? ` • Kalshi: ${tomorrowKalshiRange.label}` 
             : "";
         
-        // Add warning if present
+      // Add warning if present
         const warningHTML = tomorrowWarning 
           ? `<div class="boundary-warning ${tomorrowWarning.level}">
               ${tomorrowWarning.message}<br>
               <strong>Recommendation: ${tomorrowWarning.recommendation}</strong>
-              ${tomorrowWarning.details.crossed ? '<br>⚠️ Prediction crossed this boundary today' : ''}
-              ${tomorrowWarning.details.forecastSpread > 1 ? `<br>Forecast spread: ${tomorrowWarning.details.forecastSpread}°F` : ''}
+              ${tomorrowWarning.details?.crossed ? '<br>⚠️ Prediction crossed this boundary today' : ''}
+              ${(tomorrowWarning.details?.forecastSpread && tomorrowWarning.details.forecastSpread > 1) ? `<br>Forecast spread: ${tomorrowWarning.details.forecastSpread}°F` : ''}
             </div>` 
           : '';
         
