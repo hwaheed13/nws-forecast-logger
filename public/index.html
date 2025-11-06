@@ -1038,7 +1038,7 @@ try {
       div.textContent = `Overnight high of ${Number(saved.value).toFixed(1)}°F (${timeLabel}) already exceeded today's forecast (${Number(latestForecast).toFixed(1)}°F).`;
     } else {
       // forecast later rose above the spike — keep a neutral fact note
-      div.textContent = `Today's high occurred ${timeLabel} (earlier ${Number(saved.value).toFixed(1)}°F).`;
+      div.textContent = `Today's high occurred (earlier ${Number(saved.value).toFixed(1)}°F).`;
     }
     box.appendChild(div);
     return;
@@ -1057,6 +1057,7 @@ try {
     div.style.cssText = "margin-top:6px;font-size:12px;color:#b91c1c;font-weight:600;";
     div.textContent = `Overnight high of ${res.currentHigh.toFixed(1)}°F (${timeLabel}) already exceeded today's forecast (${res.forecast.toFixed(1)}°F).`;
     box.appendChild(div);
+    hidePredictionAndBoundary(box);
     return;
   }
 
@@ -1085,6 +1086,19 @@ try {
     div.textContent = `Today's high occurred ${timeLabel}.`;
     box.appendChild(div);
   }
+}
+function hidePredictionAndBoundary(box) {
+  // Hide the big bias-corrected number
+  const pv = box.querySelector('.prediction-value');
+  if (pv) pv.style.display = 'none';
+
+  // Remove any boundary warnings within the card
+  const warns = box.querySelectorAll('.boundary-warning');
+  warns.forEach(el => el.remove());
+
+  // (Optional) Hide the small subtitle row if you have one
+  const sub = box.querySelector('.prediction-subtitle');
+  if (sub) sub.style.display = 'none';
 }
 
 // --- Helpers: separate NWS vs AccuWeather rows ---
