@@ -1015,24 +1015,35 @@ async function handleOvernightExceedanceNote() {
   // Do not show once the official CLI “Actual” has published
   if (hasActualFor(nycISODate(0))) return;
 
-  // If we previously recorded any post-midnight exceedance, show it immediately
-  try {
-    const key = `overnightExceeded_${nycISODate(0)}`;
-    const saved = window._overnightExceeded || JSON.parse(localStorage.getItem(key) || 'null');
-    if (saved && Number.isFinite(Number(saved.value)) && Number.isFinite(Number(saved.forecast))) {
-      const timeLabel = saved.time
-        ? new Date(saved.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
-        : "overnight";
-  
-      const div = document.createElement("div");
-      div.className = "overnight-note";
-      div.style.cssText = "margin-top:6px;font-size:12px;color:#d97706;font-weight:600;";
-      div.textContent = `Overnight high of ${Number(saved.value).toFixed(1)}°F (${timeLabel}) already exceeded today's forecast (${Number(saved.forecast).toFixed(1)}°F).`;
-      box.appendChild(div);
-      return;
+// If we previously recorded any post-midnight exceedance, show it immediately
+try {
+  const todayKey = nycISODate(0);
+  const saved = window._overnightExceeded || JSON.parse(localStorage.getItem(`overnightExceeded_${todayKey}`) || 'null');
+  if (saved && Number.isFinite(Number(saved.value))) {
+    // Recompute the latest forecast now
+    let latestForecast = latestPreHighValue(getForecastRowsFor(todayKey, "D0"), "");
+    if (!Number.isFinite(latestForecast)) {
+      latestForecast = latestPreHighValue(getForecastRowsFor(todayKey, "D1"), "");
     }
-  } catch {}
+    const timeLabel = saved.time
+      ? new Date(saved.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+      : "overnight";
 
+    const div = document.createElement("div");
+    div.className = "overnight-note";
+    div.style.cssText = "margin-top:6px;font-size:12px;color:#d97706;font-weight:600;";
+
+    if (Number.isFinite(latestForecast) && Number(saved.value) > Number(latestForecast)) {
+      // still exceeds the current forecast
+      div.textContent = `Overnight high of ${Number(saved.value).toFixed(1)}°F (${timeLabel}) already exceeded today's forecast (${Number(latestForecast).toFixed(1)}°F).`;
+    } else {
+      // forecast later rose above the spike — keep a neutral fact note
+      div.textContent = `Today's high occurred ${timeLabel} (earlier ${Number(saved.value).toFixed(1)}°F).`;
+    }
+    box.appendChild(div);
+    return;
+  }
+} catch {}
 
   // 1) Existing exceedance path
   const res = await checkEarlyMorningExceedance();
