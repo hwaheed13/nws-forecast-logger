@@ -1015,7 +1015,7 @@ async function handleOvernightExceedanceNote() {
   // Do not show once the official CLI “Actual” has published
   if (hasActualFor(nycISODate(0))) return;
 
-  // 1) Keep existing exceedance behavior
+  // 1) Existing exceedance path
   const res = await checkEarlyMorningExceedance();
   if (res) {
     const timeLabel = res.time
@@ -1030,7 +1030,7 @@ async function handleOvernightExceedanceNote() {
     return;
   }
 
-  // 2) NEW: show a neutral 'occurred overnight' note even without exceedance, before CLI publishes
+  // 2) NEW: neutral 'occurred overnight' note even without exceedance (before CLI publishes)
   const t = window._overnightHighTime || null;
   const v = Number(window._overnightHighSoFar);
 
@@ -1056,19 +1056,6 @@ async function handleOvernightExceedanceNote() {
     box.appendChild(div);
   }
 }
-
-
-  const timeLabel = res.time
-    ? new Date(res.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
-    : "overnight";
-
-  const div = document.createElement("div");
-  div.className = "overnight-note";
-  div.style.cssText = "margin-top:6px;font-size:12px;color:#d97706;font-weight:600;";
-  div.textContent = `Overnight high of ${res.currentHigh.toFixed(1)}°F (${timeLabel}) already exceeded today's forecast (${res.forecast.toFixed(1)}°F).`;
-  box.appendChild(div);
-}
-
 
 // --- Helpers: separate NWS vs AccuWeather rows ---
 function getNwsForecastRowsFor(targetISO, kind) {
