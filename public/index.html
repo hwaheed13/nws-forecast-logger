@@ -965,7 +965,7 @@ window._sixHourMaxF    = window._sixHourMaxF ?? null;
 
 // --- Detect if overnight high exceeded forecast (full hourly scan) ---
 // Detect if today's high already occurred overnight and exceeded forecast
-function checkEarlyMorningExceedance() {
+async function checkEarlyMorningExceedance() {
   const todayISO = nycISODate(0);
 
   // Prefer D0; fallback to D1 if D0 isn't issued/ingested yet
@@ -986,6 +986,24 @@ function checkEarlyMorningExceedance() {
   if (!Number.isFinite(overnightHigh) && Number.isFinite(Number(window._sixHourMaxF)) && etHour < 10) {
     overnightHigh = Number(window._sixHourMaxF);
     overnightTime = null; // unknown within the 6-hr window
+  }
+    // Fallback after 10 ET or on reload: ask server for today's high-so-far
+  if (!Number.isFinite(overnightHigh)) {
+    try {
+      const r = await fetch(`${API_BASE}/nws-high-so-far?station=KNYC`, { cache: "no-store" });
+      if (r.ok) {
+        const j = await r.json();
+        const f = Number(j?.highF);
+        const iso = j?.atISO || null;
+        if (Number.isFinite(f)) {
+          overnightHigh = f;
+          overnightTime = iso;
+          // also stash for the neutral note path
+          window._overnightHighSoFar = f;
+          window._overnightHighTime  = iso;
+        }
+      }
+    } catch {}
   }
 
   if (!Number.isFinite(overnightHigh)) return null;
