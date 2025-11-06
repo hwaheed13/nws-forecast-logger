@@ -34,7 +34,7 @@ export default async function handler(req, res) {
 
     const now = new Date();
     const cutoff = new Date(now.getTime() - 12 * 60 * 60 * 1000); // last 12 hrs
-    const targetHours = new Set([1, 7, 13, 19]); // only the :51 snapshots
+    const targetHours = new Set([0, 6, 12, 18]); // DST shift: :51 at 00/06/12/18
 
     const rows = [];
     $("table tr").each((_, tr) => {
