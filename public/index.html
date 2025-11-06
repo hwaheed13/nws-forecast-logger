@@ -2717,10 +2717,37 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
     }
   } catch (e) { console.debug("overnight exceed check failed", e); }
   
+  // If any post-midnight obs beats today's forecast, set a sticky exceedance flag (kept until CLI posts)
+  try {
+    const etNow  = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
+    const etDate = new Date(etNow);
+    const etHour = etDate.getHours();
+    const todayKey = nycISODate(0);
+  
+    if (!hasActualFor(todayKey) && etHour < 10) {
+      // Use same forecast getter as the exceedance checker
+      let latestForecast = latestPreHighValue(getForecastRowsFor(todayKey, "D0"), "");
+      if (!Number.isFinite(latestForecast)) {
+        latestForecast = latestPreHighValue(getForecastRowsFor(todayKey, "D1"), "");
+      }
+      const current = window._recentObservedF;
+      if (Number.isFinite(current) && Number.isFinite(latestForecast) && current > latestForecast) {
+        const payload = {
+          value: current,
+          forecast: latestForecast,
+          time: (typeof cur?.atISO === "string") ? cur.atISO : null
+        };
+        window._overnightExceeded = payload;
+        try { localStorage.setItem(`overnightExceeded_${todayKey}`, JSON.stringify(payload)); } catch {}
+        console.log(`[Overnight exceed] ✅ ${current}°F > fcst ${latestForecast}°F`);
+      }
+    }
+  } catch (e) { console.debug("overnight exceed check failed", e); }
+  
   // Re-evaluate the note after each observation tick
   try { handleOvernightExceedanceNote(); } catch {}
-  
 
+  
           const ts = cur.atISO ? new Date(cur.atISO) : null;
           const tNY = ts ? new Intl.DateTimeFormat("en-US", {
             timeZone: "America/New_York",
