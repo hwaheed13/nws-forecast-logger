@@ -1031,7 +1031,7 @@ try {
 
     const div = document.createElement("div");
     div.className = "overnight-note";
-    div.style.cssText = "margin-top:6px;font-size:12px;color:#d97706;font-weight:600;";
+    div.style.cssText = "margin-top:6px;font-size:12px;color:#b91c1c;font-weight:600;";
 
     if (Number.isFinite(latestForecast) && Number(saved.value) > Number(latestForecast)) {
       // still exceeds the current forecast
@@ -1054,7 +1054,7 @@ try {
 
     const div = document.createElement("div");
     div.className = "overnight-note";
-    div.style.cssText = "margin-top:6px;font-size:12px;color:#d97706;font-weight:600;";
+    div.style.cssText = "margin-top:6px;font-size:12px;color:#b91c1c;font-weight:600;";
     div.textContent = `Overnight high of ${res.currentHigh.toFixed(1)}°F (${timeLabel}) already exceeded today's forecast (${res.forecast.toFixed(1)}°F).`;
     box.appendChild(div);
     return;
@@ -1081,7 +1081,7 @@ try {
 
     const div = document.createElement("div");
     div.className = "overnight-note";
-    div.style.cssText = "margin-top:6px;font-size:12px;color:#d97706;font-weight:600;";
+    div.style.cssText = "margin-top:6px;font-size:12px;color:#b91c1c;font-weight:600;";
     div.textContent = `Today's high occurred ${timeLabel}.`;
     box.appendChild(div);
   }
