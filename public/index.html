@@ -1015,6 +1015,25 @@ async function handleOvernightExceedanceNote() {
   // Do not show once the official CLI “Actual” has published
   if (hasActualFor(nycISODate(0))) return;
 
+  // If we previously recorded any post-midnight exceedance, show it immediately
+  try {
+    const key = `overnightExceeded_${nycISODate(0)}`;
+    const saved = window._overnightExceeded || JSON.parse(localStorage.getItem(key) || 'null');
+    if (saved && Number.isFinite(Number(saved.value)) && Number.isFinite(Number(saved.forecast))) {
+      const timeLabel = saved.time
+        ? new Date(saved.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+        : "overnight";
+  
+      const div = document.createElement("div");
+      div.className = "overnight-note";
+      div.style.cssText = "margin-top:6px;font-size:12px;color:#d97706;font-weight:600;";
+      div.textContent = `Overnight high of ${Number(saved.value).toFixed(1)}°F (${timeLabel}) already exceeded today's forecast (${Number(saved.forecast).toFixed(1)}°F).`;
+      box.appendChild(div);
+      return;
+    }
+  } catch {}
+
+
   // 1) Existing exceedance path
   const res = await checkEarlyMorningExceedance();
   if (res) {
@@ -1501,7 +1520,20 @@ window.warmOnceForCurrentCSV = warmOnceForCurrentCSV;
       const g = k => parts.find(p => p.type === k).value;
       return `${g('year')}-${g('month')}-${g('day')}`;
     }
-    window.nycISODate = nycISODate;  // Make it globally accessible
+   window.nycISODate = nycISODate;  // Make it globally accessible
+
+    // Restore any saved "overnight exceeded" flag for today
+    (function restoreOvernightExceeded(){
+      try {
+        const key = `overnightExceeded_${nycISODate(0)}`;
+        const saved = JSON.parse(localStorage.getItem(key) || 'null');
+        if (saved && Number.isFinite(Number(saved.value)) && Number.isFinite(Number(saved.forecast))) {
+          window._overnightExceeded = saved;
+          console.log(`[Overnight exceed] ♻️ restored ${saved.value}°F > fcst ${saved.forecast}°F`);
+        }
+      } catch {}
+    })();
+
     
     function kalshiAnchorForISO(dateISO) {
       const [y,m,d] = dateISO.split('-').map(Number);
@@ -2658,8 +2690,36 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
     }
   }
   
+  // If any post-midnight obs beats today's forecast, set a sticky exceedance flag (kept until CLI posts)
+  try {
+    const etNow  = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
+    const etDate = new Date(etNow);
+    const etHour = etDate.getHours();
+    const todayKey = nycISODate(0);
+  
+    if (!hasActualFor(todayKey) && etHour < 10) {
+      // Use same forecast getter as the exceedance checker
+      let latestForecast = latestPreHighValue(getForecastRowsFor(todayKey, "D0"), "");
+      if (!Number.isFinite(latestForecast)) {
+        latestForecast = latestPreHighValue(getForecastRowsFor(todayKey, "D1"), "");
+      }
+      const current = window._recentObservedF;
+      if (Number.isFinite(current) && Number.isFinite(latestForecast) && current > latestForecast) {
+        const payload = {
+          value: current,
+          forecast: latestForecast,
+          time: (typeof cur?.atISO === "string") ? cur.atISO : null
+        };
+        window._overnightExceeded = payload;
+        try { localStorage.setItem(`overnightExceeded_${todayKey}`, JSON.stringify(payload)); } catch {}
+        console.log(`[Overnight exceed] ✅ ${current}°F > fcst ${latestForecast}°F`);
+      }
+    }
+  } catch (e) { console.debug("overnight exceed check failed", e); }
+  
   // Re-evaluate the note after each observation tick
   try { handleOvernightExceedanceNote(); } catch {}
+  
 
           const ts = cur.atISO ? new Date(cur.atISO) : null;
           const tNY = ts ? new Intl.DateTimeFormat("en-US", {
