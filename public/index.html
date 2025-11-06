@@ -2682,6 +2682,8 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
         if (cur && cur.currentF != null) {
          el.textContent = `${Number(cur.currentF).toFixed(1)}°F`;
         window._recentObservedF = Number(cur.currentF);
+        window._recentObservedAtISO = (typeof cur?.atISO === "string") ? cur.atISO : null;
+
 
   // Track overnight high between midnight and 7 AM ET, persist until CLI publishes
   {
@@ -2735,7 +2737,7 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
         const payload = {
           value: current,
           forecast: latestForecast,
-          time: (typeof cur?.atISO === "string") ? cur.atISO : null
+          time: (typeof window._recentObservedAtISO === "string") ? window._recentObservedAtISO : null
         };
         window._overnightExceeded = payload;
         try { localStorage.setItem(`overnightExceeded_${todayKey}`, JSON.stringify(payload)); } catch {}
