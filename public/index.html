@@ -1074,7 +1074,7 @@ try {
 
   const afterMidnight = t ? (new Date(t) >= etStart) : Number.isFinite(v);
 
-  if (beforeTenET && afterMidnight) {
+  if (afterMidnight) {
     const timeLabel = t
       ? new Date(t).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
       : "overnight";
@@ -1531,19 +1531,21 @@ window.warmOnceForCurrentCSV = warmOnceForCurrentCSV;
       const g = k => parts.find(p => p.type === k).value;
       return `${g('year')}-${g('month')}-${g('day')}`;
     }
-   window.nycISODate = nycISODate;  // Make it globally accessible
+  window.nycISODate = nycISODate;  // Make it globally accessible
+  
+  // Restore overnight high saved during 12–7 ET so UI can show the note after 7 ET
+  (function restoreOvernightFromStorage(){
+    try {
+      const key = `overnight_${nycISODate(0)}`;
+      const saved = JSON.parse(localStorage.getItem(key) || 'null');
+      if (saved && Number.isFinite(Number(saved.high))) {
+        window._overnightHighSoFar = Number(saved.high);
+        window._overnightHighTime  = saved.time || null;
+        console.log(`[Overnight tracker] ♻️ restored ${window._overnightHighSoFar}°F`);
+      }
+    } catch {}
+  })();
 
-    // Restore any saved "overnight exceeded" flag for today
-    (function restoreOvernightExceeded(){
-      try {
-        const key = `overnightExceeded_${nycISODate(0)}`;
-        const saved = JSON.parse(localStorage.getItem(key) || 'null');
-        if (saved && Number.isFinite(Number(saved.value)) && Number.isFinite(Number(saved.forecast))) {
-          window._overnightExceeded = saved;
-          console.log(`[Overnight exceed] ♻️ restored ${saved.value}°F > fcst ${saved.forecast}°F`);
-        }
-      } catch {}
-    })();
 
     
     function kalshiAnchorForISO(dateISO) {
