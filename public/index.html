@@ -3083,12 +3083,17 @@ window._predTomorrow = predTomorrow;
         </div>`
       : '';
 
-const exceedanceNote = exceedance 
-  ? `<div class="boundary-warning" style="background: #dbeafe; border-color: #3b82f6; color: #1e40af;">
-      ℹ️ <strong>Note:</strong> Currently ${exceedance.currentTemp.toFixed(1)}°F at ${exceedance.hour}:00 AM ET — already at/above forecast (${exceedance.forecast.toFixed(1)}°F).
+const exceedanceNote = (
+  exceedance &&
+  Number.isFinite(Number(exceedance.currentTemp)) &&
+  Number.isFinite(Number(exceedance.forecast)) &&
+  Number.isFinite(Number(exceedance.hour))
+) ? `<div class="boundary-warning" style="background: #dbeafe; border-color: #3b82f6; color: #1e40af;">
+      ℹ️ <strong>Note:</strong> Currently ${Number(exceedance.currentTemp).toFixed(1)}°F at ${Number(exceedance.hour)}:00 AM ET — already at/above forecast (${Number(exceedance.forecast).toFixed(1)}°F).
       High may occur overnight. Forecast reflects expected daytime high.
-    </div>` 
+    </div>`
   : '';
+
 
 el0.innerHTML = `
   <div class="prediction-value">${val}°F</div>
