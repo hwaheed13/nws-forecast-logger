@@ -1036,7 +1036,9 @@ async function handleOvernightExceedanceNote() {
 // If we previously recorded any post-midnight exceedance, show it immediately
 try {
   const todayKey = nycISODate(0);
-  const saved = window._overnightExceeded || JSON.parse(localStorage.getItem(`overnightExceeded_${todayKey}`) || 'null');
+  const saved = JSON.parse(localStorage.getItem(`overnightExceeded_${todayKey}`) || 'null');
+// If there is no entry for *today*, clear any stale in-memory flag from yesterday
+if (!saved) window._overnightExceeded = null;
   if (saved && Number.isFinite(Number(saved.value))) {
     // Recompute the latest forecast now
     let latestForecast = latestPreHighValue(getForecastRowsFor(todayKey, "D0"), "");
@@ -1079,28 +1081,32 @@ try {
     return;
   }
 
-  // 2) NEW: neutral 'occurred overnight' note even without exceedance (before CLI publishes)
+  // 2) Neutral note only early morning or when we truly exceeded
   const t = window._overnightHighTime || null;
   const v = Number(window._overnightHighSoFar);
-
+  
   // Current ET
-  const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-
+  const etNow  = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const etHour = etNow.getHours();
+  
   // Start of today in ET
   const etStart = new Date(etNow);
   etStart.setHours(0, 0, 0, 0);
-
-  const afterMidnight = t ? (new Date(t) >= etStart) : Number.isFinite(v);
-
-  if (afterMidnight) {
+  
+  const afterMidnight   = t ? (new Date(t) >= etStart) : Number.isFinite(v);
+  const exceededSticky  = !!(window._overnightExceeded && Number.isFinite(Number(window._overnightExceeded.value)));
+  
+  if (afterMidnight && (etHour < 10 || exceededSticky)) {
     const timeLabel = t
       ? new Date(t).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
       : "overnight";
-
+  
     const div = document.createElement("div");
     div.className = "overnight-note";
     div.style.cssText = "margin-top:6px;font-size:12px;color:#b91c1c;font-weight:600;";
-    div.textContent = `Today's high occurred ${timeLabel}.`;
+    div.textContent = exceededSticky
+      ? `Today's high occurred ${timeLabel} (earlier spike exceeded forecast).`
+      : `Today's high occurred ${timeLabel}.`;
     box.appendChild(div);
     hidePredictionAndBoundary(box);
   }
