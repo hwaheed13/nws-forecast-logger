@@ -1081,35 +1081,8 @@ if (!saved) window._overnightExceeded = null;
     return;
   }
 
-  // 2) Neutral note only early morning or when we truly exceeded
-  const t = window._overnightHighTime || null;
-  const v = Number(window._overnightHighSoFar);
-  
-  // Current ET
-  const etNow  = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const etHour = etNow.getHours();
-  
-  // Start of today in ET
-  const etStart = new Date(etNow);
-  etStart.setHours(0, 0, 0, 0);
-  
-  const afterMidnight   = t ? (new Date(t) >= etStart) : Number.isFinite(v);
-  const exceededSticky  = !!(window._overnightExceeded && Number.isFinite(Number(window._overnightExceeded.value)));
-  
-  if (afterMidnight && (etHour < 10 || exceededSticky)) {
-    const timeLabel = t
-      ? new Date(t).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
-      : "overnight";
-  
-    const div = document.createElement("div");
-    div.className = "overnight-note";
-    div.style.cssText = "margin-top:6px;font-size:12px;color:#b91c1c;font-weight:600;";
-    div.textContent = exceededSticky
-      ? `Today's high occurred ${timeLabel} (earlier spike exceeded forecast).`
-      : `Today's high occurred ${timeLabel}.`;
-    box.appendChild(div);
-    hidePredictionAndBoundary(box);
-  }
+// 2) Neutral path disabled to avoid false positives on normal mornings
+
 }
 function hidePredictionAndBoundary(box) {
   // Hide the big bias-corrected number
@@ -1570,6 +1543,18 @@ window.warmOnceForCurrentCSV = warmOnceForCurrentCSV;
       return `${g('year')}-${g('month')}-${g('day')}`;
     }
   window.nycISODate = nycISODate;  // Make it globally accessible
+  // Reset any stale overnight state when the date changes
+(function resetOvernightForToday(){
+  try {
+    const today = nycISODate(0);
+    if (window._overnightDate !== today) {
+      window._overnightHighSoFar = undefined;
+      window._overnightHighTime  = null;
+      window._overnightExceeded  = null;
+      window._overnightDate      = today;
+    }
+  } catch {}
+})();
   
   // Restore overnight high saved during 12–7 ET so UI can show the note after 7 ET
   (function restoreOvernightFromStorage(){
