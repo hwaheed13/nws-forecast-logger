@@ -1577,7 +1577,7 @@ window.warmOnceForCurrentCSV = warmOnceForCurrentCSV;
       const mon = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'][dt.getUTCMonth()];
       const dd = String(dt.getUTCDate()).padStart(2,'0');
       const yy = String(dt.getUTCFullYear()).slice(-2);
-      return `#kxhighny-${yy}${mon}${dd}`;
+      return `/kxhighny-${yy}${mon}${dd}`;
     }
 
     function showSkeleton(rows = 6) {
