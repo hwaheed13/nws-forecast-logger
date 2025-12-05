@@ -964,9 +964,9 @@ window._recentObservedF = window._recentObservedF ?? null;
 window._sixHourMaxF    = window._sixHourMaxF ?? null;
 
 // --- Detect if overnight high exceeded forecast (full hourly scan) ---
-// Detect if today's high already occurred overnight and exceeded forecast
 async function checkEarlyMorningExceedance() {
   const todayISO = nycISODate(0);
+  const OVERNIGHT_CUTOFF_HOUR = 10; // treat 0–9 ET as “overnight”
 
   // Prefer D0; fallback to D1 if D0 isn't issued/ingested yet
   let latestForecast = latestPreHighValue(getForecastRowsFor(todayISO, "D0"), "");
@@ -975,19 +975,24 @@ async function checkEarlyMorningExceedance() {
   }
   if (!Number.isFinite(latestForecast) || latestForecast <= 0) return null;
 
-  // Overnight high tracked 12–7am (persisted); fallback to 6-hr max before 10 ET
   let overnightHigh = Number(window._overnightHighSoFar);
   let overnightTime = window._overnightHighTime || null;
 
-  const etHour = Number(new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York", hour: "numeric", hour12: false
+  const etHourNow = Number(new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    hour12: false
   }).format(new Date()));
 
-  if (!Number.isFinite(overnightHigh) && Number.isFinite(Number(window._sixHourMaxF)) && etHour < 10) {
+  // Use 6-hr max only in the morning window
+  if (!Number.isFinite(overnightHigh) &&
+      Number.isFinite(Number(window._sixHourMaxF)) &&
+      etHourNow < OVERNIGHT_CUTOFF_HOUR) {
     overnightHigh = Number(window._sixHourMaxF);
-    overnightTime = null; // unknown within the 6-hr window
+    overnightTime = null;
   }
-    // Fallback after 10 ET or on reload: ask server for today's high-so-far
+
+  // Fallback: ask server for today's high-so-far
   if (!Number.isFinite(overnightHigh)) {
     try {
       const r = await fetch(`${API_BASE}/nws-high-so-far?station=KNYC`, { cache: "no-store" });
@@ -998,7 +1003,6 @@ async function checkEarlyMorningExceedance() {
         if (Number.isFinite(f)) {
           overnightHigh = f;
           overnightTime = iso;
-          // also stash for the neutral note path
           window._overnightHighSoFar = f;
           window._overnightHighTime  = iso;
         }
@@ -1008,9 +1012,21 @@ async function checkEarlyMorningExceedance() {
 
   if (!Number.isFinite(overnightHigh)) return null;
 
+  // If we know the time of the high, require that it actually happened before 10 ET
+  if (overnightTime) {
+    const etDate = new Date(
+      new Date(overnightTime).toLocaleString("en-US", { timeZone: "America/New_York" })
+    );
+    const hour = etDate.getHours();
+    if (hour >= OVERNIGHT_CUTOFF_HOUR) {
+      // daytime spike – do not label as “overnight exceeded”
+      return null;
+    }
+  }
+
   if (overnightHigh > latestForecast + 0.3) {
     return {
-      currentHigh: overnightHigh,    // keep both keys so any caller works
+      currentHigh: overnightHigh,
       overnightHigh,
       forecast: latestForecast,
       time: overnightTime,
@@ -1020,6 +1036,7 @@ async function checkEarlyMorningExceedance() {
   }
   return null;
 }
+
 
 // Show overnight exceedance note in Today's Bias-Corrected Prediction card
 async function handleOvernightExceedanceNote() {
@@ -2747,33 +2764,6 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
           value: current,
           forecast: latestForecast,
           time: (typeof window._recentObservedAtISO === "string") ? window._recentObservedAtISO : null
-        };
-        window._overnightExceeded = payload;
-        try { localStorage.setItem(`overnightExceeded_${todayKey}`, JSON.stringify(payload)); } catch {}
-        console.log(`[Overnight exceed] ✅ ${current}°F > fcst ${latestForecast}°F`);
-      }
-    }
-  } catch (e) { console.debug("overnight exceed check failed", e); }
-  
-  // If any post-midnight obs beats today's forecast, set a sticky exceedance flag (kept until CLI posts)
-  try {
-    const etNow  = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
-    const etDate = new Date(etNow);
-    const etHour = etDate.getHours();
-    const todayKey = nycISODate(0);
-  
-    if (!hasActualFor(todayKey) && etHour < 10) {
-      // Use same forecast getter as the exceedance checker
-      let latestForecast = latestPreHighValue(getForecastRowsFor(todayKey, "D0"), "");
-      if (!Number.isFinite(latestForecast)) {
-        latestForecast = latestPreHighValue(getForecastRowsFor(todayKey, "D1"), "");
-      }
-      const current = window._recentObservedF;
-      if (Number.isFinite(current) && Number.isFinite(latestForecast) && current > latestForecast) {
-        const payload = {
-          value: current,
-          forecast: latestForecast,
-          time: (typeof cur?.atISO === "string") ? cur.atISO : null
         };
         window._overnightExceeded = payload;
         try { localStorage.setItem(`overnightExceeded_${todayKey}`, JSON.stringify(payload)); } catch {}
