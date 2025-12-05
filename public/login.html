@@ -236,11 +236,10 @@
     <div class="help">Subscribers only. <a class="link" href="/subscribe.html">Go to subscribe</a></div>
   </div>
 
-  <!-- App (module) -->
-  <script type="module">
-    import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-
-    const supabase = createClient(
+  <!-- Supabase client (UMD, same as index.html) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script>
+    const supabase = window.supabase.createClient(
       "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
       "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw",
       { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }
@@ -302,7 +301,8 @@
       const status = profile?.subscription_status ?? "inactive";
       const pref = localStorage.getItem("ddp_prefplan");
       const qs = pref ? `?prefplan=${encodeURIComponent(pref)}` : "";
-      window.location.href = ALLOW.has(status) ? "/" : `/subscribe.html${qs}`;
+      // CHANGED: send subscribed users directly to index.html, not "/"
+      window.location.href = ALLOW.has(status) ? "/index.html" : `/subscribe.html${qs}`;
     }
 
     // ----- Query params / CTA deep-linking -----
@@ -398,7 +398,8 @@
 
       const status = profile?.subscription_status ?? "inactive";
       if (ALLOW.has(status)) {
-        location.replace("/");
+        // CHANGED: go straight to index.html, not "/"
+        location.replace("/index.html");
         return;
       }
 
