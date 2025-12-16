@@ -2257,15 +2257,18 @@ function wmean(xs, ws){
       loggedSig[which] = sig;
       try { localStorage.setItem(`loggedSig_${which}`, sig); } catch {}
     }
-
+    
     // ===== Prediction logging toggle + helpers =====
-    let PREDICTION_LOGGING_ENABLED = false; // off until we detect availability
+    // Fail-open: if the probe endpoint flakes, still attempt POST logging.
+    // Only disable if the endpoint is truly missing (404).
+    let PREDICTION_LOGGING_ENABLED = true;
+    
     async function probeLoggingEndpoint() {
       try {
         const r = await fetch(`${API_BASE}/log-prediction`, { method: "OPTIONS" });
-        PREDICTION_LOGGING_ENABLED = r.ok;
+        PREDICTION_LOGGING_ENABLED = (r.status === 404) ? false : true;
       } catch {
-        PREDICTION_LOGGING_ENABLED = false;
+        PREDICTION_LOGGING_ENABLED = true;
       }
     }
      async function logPrediction(payload){
