@@ -39,7 +39,6 @@
 
     h1 { font-size: 24px; margin: 0 0 20px; text-align: center; font-weight: 700; }
 
-    /* Inputs / labels */
     input[type="email"], input[type="password"] {
       width: 100%;
       padding: 12px;
@@ -55,26 +54,22 @@
       border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.15);
     }
 
-    /* Buttons (blue primary) */
     button {
       width: 100%; padding: 12px; margin-top: 12px; border: none; border-radius: 8px;
       background: #2563eb; color: #fff; font-weight: 600; font-size: 15px; cursor: pointer;
     }
     button:hover { background: #1e40af; }
 
-    /* Tabs */
     .tabs { display: flex; border-bottom: 1px solid var(--border-default); margin-bottom: 20px; }
     .tab { flex: 1; text-align: center; padding: 10px; font-weight: 600; cursor: pointer; border-bottom: 3px solid transparent; }
     .tab.active { color: #2563eb; border-color: #2563eb; }
 
-    /* Helpers */
     .hidden { display: none; }
     .help { font-size: 12px; color: #64748b; margin-top: 8px; text-align: center; }
     .error { background: #fef2f2; border: 1px solid #fecaca; color: #7f1d1d; padding: 10px; border-radius: 8px; font-size: 13px; margin-top: 8px; display: none; }
     .ok { background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; padding: 10px; border-radius: 8px; font-size: 13px; margin-top: 8px; display: none; }
     .link { color: #2563eb; text-decoration: none; }
 
-    /* Spacing blocks */
     .field { margin-bottom: 12px; }
     .pw-block .toggle,
     .remember-block label,
@@ -93,7 +88,6 @@
     .remember-block label { text-align: left; }
     .magic-block a { text-align: left; }
 
-    /* Inline actions under errors (dark-aware) */
     #login-actions, #signup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
     #login-actions button, #signup-actions button {
       width: auto; padding: 10px 12px; font-size: 13px;
@@ -107,7 +101,6 @@
 
     @media (max-width: 480px) { .pw-block .toggle { text-align: left; } }
 
-    /* Floating theme pill for login */
     .theme-switch {
       position: fixed; top: 12px; right: 12px; z-index: 9999;
       display: flex; align-items: center; gap: 6px;
@@ -131,60 +124,59 @@
     .theme-switch input:checked + .slider::before { transform: translateX(16px); }
     .theme-label { min-width: 40px; }
 
-    /* Distinguish Auto (system-follow) from Light */
-  .theme-switch.is-auto .slider {
-    box-shadow: 0 0 6px 2px #2563eb; /* blue glow */
-  }
-/* brand mini styles */
-.brand-mini{
-  display:flex; align-items:center; justify-content:center;
-  gap:12px; margin:0 0 20px;
-}
-.brand-mini .mark{
-  width:36px; height:36px; border-radius:10px;
-  display:block;          /* no grid centering */
-  background:none;        /* remove bg “frame” */
-  box-shadow:none;        /* remove halo */
-}
-.brand-mini .mark svg{ display:block; width:36px; height:36px; }
-.brand-mini .title{
-  font-size:24px; font-weight:800; letter-spacing:.2px; margin:0;
-  color: var(--text-primary);
-}
-.brand-mini .title .thin{ font-weight:600; color: var(--text-secondary); }
+    .theme-switch.is-auto .slider {
+      box-shadow: 0 0 6px 2px #2563eb;
+    }
 
+    .brand-mini{
+      display:flex; align-items:center; justify-content:center;
+      gap:12px; margin:0 0 20px;
+    }
+    .brand-mini .mark{
+      width:36px; height:36px; border-radius:10px;
+      display:block;
+      background:none;
+      box-shadow:none;
+    }
+    .brand-mini .mark svg{ display:block; width:36px; height:36px; }
+    .brand-mini .title{
+      font-size:24px; font-weight:800; letter-spacing:.2px; margin:0;
+      color: var(--text-primary);
+    }
+    .brand-mini .title .thin{ font-weight:600; color: var(--text-secondary); }
   </style>
 </head>
-  <body>
-    <label class="theme-switch" style="position:fixed;top:12px;right:12px;z-index:9999;">
+
+<body>
+  <label class="theme-switch" style="position:fixed;top:12px;right:12px;z-index:9999;">
     <input type="checkbox" id="loginThemeToggle">
     <span class="slider"></span>
     <span class="theme-label">Auto</span>
   </label>
 
   <div class="card">
- <div class="brand-mini" aria-label="Daily Dew Point">
-  <div class="mark" aria-hidden="true">
-<svg viewBox="0 0 64 64" width="30" height="30" role="img">
-  <defs>
-    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#bfdbfe"/>
-      <stop offset="100%" stop-color="#d1fae5"/>
-    </linearGradient>
+    <div class="brand-mini" aria-label="Daily Dew Point">
+      <div class="mark" aria-hidden="true">
+        <svg viewBox="0 0 64 64" width="30" height="30" role="img">
+          <defs>
+            <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#bfdbfe"/>
+              <stop offset="100%" stop-color="#d1fae5"/>
+            </linearGradient>
 
-    <linearGradient id="dropGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#3b82f6"/>
-      <stop offset="100%" stop-color="#059669"/>
-    </linearGradient>
-  </defs>
+            <linearGradient id="dropGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#3b82f6"/>
+              <stop offset="100%" stop-color="#059669"/>
+            </linearGradient>
+          </defs>
 
- <rect x="0" y="0" width="64" height="64" rx="14" ry="14" fill="url(#bgGrad)"/>
-  <path fill="url(#dropGrad)"
-        d="M32 6c6 10 16 18 16 30 0 9.94-8.06 18-18 18s-18-8.06-18-18C12 24 26 16 32 6z"/>
-</svg>
-  </div>
-  <h1 class="title"><span class="thin">Daily</span> Dew&nbsp;Point</h1>
-</div>
+          <rect x="0" y="0" width="64" height="64" rx="14" ry="14" fill="url(#bgGrad)"/>
+          <path fill="url(#dropGrad)"
+                d="M32 6c6 10 16 18 16 30 0 9.94-8.06 18-18 18s-18-8.06-18-18C12 24 26 16 32 6z"/>
+        </svg>
+      </div>
+      <h1 class="title"><span class="thin">Daily</span> Dew&nbsp;Point</h1>
+    </div>
 
     <div id="verified-note" class="notice"></div>
 
@@ -193,7 +185,6 @@
       <div id="tab-signup" class="tab">Sign Up</div>
     </div>
 
-    <!-- Login -->
     <form id="form-login">
       <div class="field">
         <input id="login-email" type="email" placeholder="Email" autocomplete="email" required />
@@ -216,7 +207,6 @@
       <div id="login-error" class="error"></div>
     </form>
 
-    <!-- Signup (no plan UI here) -->
     <form id="form-signup" class="hidden">
       <div class="field">
         <input id="signup-email" type="email" placeholder="Email" autocomplete="email" required />
@@ -236,19 +226,18 @@
     <div class="help">Subscribers only. <a class="link" href="/subscribe.html">Go to subscribe</a></div>
   </div>
 
-  <!-- Supabase client (UMD, same as index.html) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+
   <script>
-    const supabase = window.supabase.createClient(
+    // Supabase client instance. Use "sb" everywhere below (do not use a variable named "supabase").
+    const sb = window.supabase.createClient(
       "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
       "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw",
       { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }
     );
 
-    // DOM helpers
     const $ = (s,p=document)=>p.querySelector(s);
 
-    // Tabs
     const tabLogin  = $("#tab-login");
     const tabSignup = $("#tab-signup");
     const formLogin = $("#form-login");
@@ -269,7 +258,6 @@
     tabLogin.onclick = showLogin;
     tabSignup.onclick= showSignup;
 
-    // Show/hide password toggles
     $("#show-login-pw")?.addEventListener("change", (e)=>{
       $("#login-password").type = e.target.checked ? "text" : "password";
     });
@@ -277,7 +265,6 @@
       $("#signup-password").type = e.target.checked ? "text" : "password";
     });
 
-    // Remember email (optional)
     (function hydrateRemembered(){
       const remembered = localStorage.getItem("remember_email");
       if (remembered) $("#login-email").value = remembered;
@@ -293,32 +280,28 @@
     const ALLOW = new Set(["active", "trialing"]);
 
     async function routeByProfile(userId){
-      const { data: profile } = await supabase
+      const { data: profile } = await sb
         .from("profiles")
         .select("subscription_status")
         .eq("id", userId)
         .maybeSingle();
+
       const status = profile?.subscription_status ?? "inactive";
       const pref = localStorage.getItem("ddp_prefplan");
       const qs = pref ? `?prefplan=${encodeURIComponent(pref)}` : "";
-      // CHANGED: send subscribed users directly to index.html, not "/"
       window.location.href = ALLOW.has(status) ? "/index.html" : `/subscribe.html${qs}`;
     }
 
-    // ----- Query params / CTA deep-linking -----
     const params  = new URLSearchParams(location.search);
     const urlMode = params.get("mode");
-    // Accept BOTH prefplan= (new) and plan= (legacy from CTA)
-    const urlPrefA = params.get("prefplan"); // "3" | "30"
-    const urlPrefB = params.get("plan");     // "3" | "30"
+    const urlPrefA = params.get("prefplan");
+    const urlPrefB = params.get("plan");
     const pick = urlPrefA || urlPrefB;
     if (pick === "3")  localStorage.setItem("ddp_prefplan","monthly");
     if (pick === "30") localStorage.setItem("ddp_prefplan","yearly");
 
-    // If CTA requested signup, show that tab immediately
     if (urlMode === "signup" || pick) showSignup();
 
-    // Magic link / verification notes
     const verifiedNote = $("#verified-note");
     if (params.get("type") === "signup" || params.get("type") === "recovery") {
       verifiedNote.textContent = params.get("type") === "signup"
@@ -327,32 +310,27 @@
       verifiedNote.style.display = "block";
     }
 
-    // Password recovery (hash or query)
     const isRecovery = location.hash.includes("type=recovery") || params.get("type") === "recovery";
     if (isRecovery) {
       verifiedNote.textContent = "Open the link from your email on this device to finish resetting your password.";
       verifiedNote.style.display = "block";
     }
 
-    // ── AUTO-ROUTING (with escape hatch) ─────────────────────────────────────────
     (async () => {
       const stayHere = params.get("stay") === "1";
 
-      // Explicit account switch → sign out, then stay on this page
       if (params.get("switch") === "1") {
-        await supabase.auth.signOut();
+        await sb.auth.signOut();
         localStorage.removeItem("remember_email");
         showLogin();
         return;
       }
 
-      // Already signed in?
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await sb.auth.getSession();
       if (!session?.user?.id) return;
 
-      // If we were asked to "stay", do NOT auto-route. Show inactive banner + actions instead.
       if (stayHere) {
-        await supabase.auth.refreshSession();
+        await sb.auth.refreshSession();
         const email = session.user.email || "this account";
         const note = $("#login-error");
         if (note) {
@@ -376,7 +354,7 @@
             switchBtn.type = "button";
             switchBtn.textContent = "Sign out to switch account";
             switchBtn.onclick = async () => {
-              await supabase.auth.signOut();
+              await sb.auth.signOut();
               localStorage.removeItem("remember_email");
               location.href = "/login.html?stay=1";
             };
@@ -385,12 +363,11 @@
             note.insertAdjacentElement("afterend", actions);
           }
         }
-        return; // stop normal auto-route
+        return;
       }
 
-      // Normal behavior: auto-route based on subscription
-      await supabase.auth.refreshSession();
-      const { data: profile } = await supabase
+      await sb.auth.refreshSession();
+      const { data: profile } = await sb
         .from("profiles")
         .select("subscription_status")
         .eq("id", session.user.id)
@@ -398,12 +375,10 @@
 
       const status = profile?.subscription_status ?? "inactive";
       if (ALLOW.has(status)) {
-        // CHANGED: go straight to index.html, not "/"
         location.replace("/index.html");
         return;
       }
 
-      // Inactive (and not stay=1): nudge and offer sign out
       const note = $("#login-error");
       if (note) {
         note.textContent = "You're signed in but not subscribed. Sign in with a different account or sign out below.";
@@ -414,14 +389,13 @@
       signout.textContent = "Sign out";
       signout.style.marginTop = "8px";
       signout.onclick = async () => {
-        await supabase.auth.signOut();
+        await sb.auth.signOut();
         localStorage.removeItem("remember_email");
         location.reload();
       };
       formLogin?.appendChild(signout);
     })();
 
-    // Login submit
     formLogin.addEventListener("submit", async (e)=>{
       e.preventDefault();
       const errBox = $("#login-error");
@@ -436,7 +410,7 @@
         return;
       }
 
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const { error } = await sb.auth.signInWithPassword({ email, password });
       if (error) {
         const msg = (error.message || "").toLowerCase();
         errBox.textContent = msg.includes("invalid login credentials")
@@ -451,7 +425,7 @@
         reset.type = "button";
         reset.textContent = "Reset Password";
         reset.onclick = async () => {
-          const { error: rErr } = await supabase.auth.resetPasswordForEmail(email, {
+          const { error: rErr } = await sb.auth.resetPasswordForEmail(email, {
             redirectTo: "https://app.dailydewpoint.com/login.html?type=recovery"
           });
           if (rErr) { errBox.textContent = rErr.message; errBox.style.display = "block"; }
@@ -462,7 +436,7 @@
         magic.type = "button";
         magic.textContent = "Send Magic Link";
         magic.onclick = async () => {
-          const { error: otpErr } = await supabase.auth.signInWithOtp({
+          const { error: otpErr } = await sb.auth.signInWithOtp({
             email,
             options: { emailRedirectTo: "https://app.dailydewpoint.com/login.html" }
           });
@@ -477,7 +451,7 @@
           resend.type = "button";
           resend.textContent = "Resend Verification";
           resend.onclick = async () => {
-            const { error: rvErr } = await supabase.auth.resend({ type: "signup", email });
+            const { error: rvErr } = await sb.auth.resend({ type: "signup", email });
             if (rvErr) { errBox.textContent = rvErr.message; errBox.style.display = "block"; }
             else { alert("Verification email resent."); }
           };
@@ -488,9 +462,8 @@
         return;
       }
 
-      // success
       rememberEmailMaybe(email);
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user } } = await sb.auth.getUser();
       if (!user?.id) {
         errBox.textContent = "Sign-in succeeded, but no user session was returned.";
         errBox.style.display = "block";
@@ -499,12 +472,11 @@
       await routeByProfile(user.id);
     });
 
-    // Magic link (login)
     $("#forgot-link")?.addEventListener("click", async (e)=>{
       e.preventDefault();
       const email = $("#login-email").value.trim();
       if (!isValidEmail(email)) return alert("Enter your email first.");
-      const { error } = await supabase.auth.signInWithOtp({
+      const { error } = await sb.auth.signInWithOtp({
         email,
         options: { emailRedirectTo: "https://app.dailydewpoint.com/login.html" }
       });
@@ -512,7 +484,6 @@
       alert("Check your inbox for a magic link.");
     });
 
-    // Signup
     formSignup.addEventListener("submit", async (e)=>{
       e.preventDefault();
       const okBox = $("#signup-ok");
@@ -522,16 +493,20 @@
 
       const email = $("#signup-email").value.trim();
       const password = $("#signup-password").value;
-      if (!isValidEmail(email)) { errBox.textContent = "Please enter a valid email address."; errBox.style.display = "block"; return; }
+      if (!isValidEmail(email)) {
+        errBox.textContent = "Please enter a valid email address.";
+        errBox.style.display = "block";
+        return;
+      }
 
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await sb.auth.getSession();
       if (session?.user?.email && session.user.email.toLowerCase() === email.toLowerCase()) {
         errBox.textContent = "You're already signed in with this email. Use Login or go to Subscribe.";
         errBox.style.display = "block";
         return;
       }
 
-      const { data, error } = await supabase.auth.signUp({
+      const { data, error } = await sb.auth.signUp({
         email,
         password,
         options: { emailRedirectTo: "https://app.dailydewpoint.com/login.html?type=signup" }
@@ -579,7 +554,7 @@
         magic.type = "button";
         magic.textContent = "Send Magic Link";
         magic.onclick = async () => {
-          const { error: otpErr } = await supabase.auth.signInWithOtp({
+          const { error: otpErr } = await sb.auth.signInWithOtp({
             email,
             options: { emailRedirectTo: "https://app.dailydewpoint.com/login.html" }
           });
@@ -591,7 +566,7 @@
         reset.type = "button";
         reset.textContent = "Reset Password";
         reset.onclick = async () => {
-          const { error: rErr } = await supabase.auth.resetPasswordForEmail(email, {
+          const { error: rErr } = await sb.auth.resetPasswordForEmail(email, {
             redirectTo: "https://app.dailydewpoint.com/login.html?type=recovery"
           });
           if (rErr) { errBox.textContent = rErr.message; errBox.style.display = "block"; }
@@ -604,16 +579,15 @@
     }
   </script>
 
-  <!-- Theme (non-module) -->
   <script>
-    // ===== Theme: system by default, toggle cycles System → Dark → Light =====
+    // Theme: system by default, toggle cycles System → Dark → Light
     (function () {
-      const KEY = "theme-pref"; // reuse across pages
+      const KEY = "theme-pref";
       const root = document.documentElement;
       const mql = window.matchMedia("(prefers-color-scheme: dark)");
-    const togg = document.getElementById("loginThemeToggle");
-    const themeLabel = document.querySelector(".theme-label");
-    const switchEl = document.querySelector(".theme-switch");
+      const togg = document.getElementById("loginThemeToggle");
+      const themeLabel = document.querySelector(".theme-label");
+      const switchEl = document.querySelector(".theme-switch");
 
       function currentPref() {
         return localStorage.getItem(KEY) || "system";
@@ -621,23 +595,22 @@
 
       function applyTheme(pref) {
         if (pref === "system") {
-          // Mirror OS explicitly so :root[data-theme="dark"] variables apply
           root.setAttribute("data-theme", mql.matches ? "dark" : "light");
         } else {
-          root.setAttribute("data-theme", pref); // "dark" or "light"
+          root.setAttribute("data-theme", pref);
         }
         updateButton(pref);
       }
 
-    function updateButton(pref) {
-      if (!togg || !themeLabel) return;
-      themeLabel.textContent =
-        pref === "system" ? "Auto" :
-        pref === "dark"   ? "Dark" :
-                            "Light";
-      togg.checked = (pref === "dark");
-      if (switchEl) switchEl.classList.toggle("is-auto", pref === "system");
-    }
+      function updateButton(pref) {
+        if (!togg || !themeLabel) return;
+        themeLabel.textContent =
+          pref === "system" ? "Auto" :
+          pref === "dark"   ? "Dark" :
+                              "Light";
+        togg.checked = (pref === "dark");
+        if (switchEl) switchEl.classList.toggle("is-auto", pref === "system");
+      }
 
       function cycle(pref) {
         return pref === "system" ? "dark" : pref === "dark" ? "light" : "system";
@@ -647,18 +620,17 @@
         const pref = currentPref();
         applyTheme(pref);
 
-        // If following system, react to OS changes
         mql.addEventListener("change", () => {
           if (currentPref() === "system") applyTheme("system");
         });
 
-          if (togg) {
-      togg.addEventListener("change", () => {
-        const next = cycle(currentPref());
-        localStorage.setItem(KEY, next);
-        applyTheme(next);
-      });
-    }
+        if (togg) {
+          togg.addEventListener("change", () => {
+            const next = cycle(currentPref());
+            localStorage.setItem(KEY, next);
+            applyTheme(next);
+          });
+        }
 
         if (!localStorage.getItem(KEY)) localStorage.setItem(KEY, "system");
       }
