@@ -3456,16 +3456,23 @@ async function displayTable() {
         
         if (error) throw error;
         
-        if (data && data.length > 0) {
-          data.forEach(row => {
-            if (row.prev_day_latest_value) {
-              predSnapshots[`${row.target_date}_night_before`] = parseFloat(row.prev_day_latest_value).toFixed(1);
-            }
-            if (row.same_day_earliest_value) {
-              predSnapshots[`${row.target_date}_morning_of`] = parseFloat(row.same_day_earliest_value).toFixed(1);
-            }
-          });
-        }
+      if (data && data.length > 0) {
+        data.forEach(row => {
+          // Normalize target_date to YYYY-MM-DD (Supabase may return timestamps)
+          const td = String(row.target_date || "").slice(0, 10);
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(td)) return;
+      
+          if (row.prev_day_latest_value !== null && row.prev_day_latest_value !== undefined && row.prev_day_latest_value !== "") {
+            const v = Number.parseFloat(row.prev_day_latest_value);
+            if (!Number.isNaN(v)) predSnapshots[`${td}_night_before`] = v.toFixed(1);
+          }
+      
+          if (row.same_day_earliest_value !== null && row.same_day_earliest_value !== undefined && row.same_day_earliest_value !== "") {
+            const v = Number.parseFloat(row.same_day_earliest_value);
+            if (!Number.isNaN(v)) predSnapshots[`${td}_morning_of`] = v.toFixed(1);
+          }
+        });
+      }
       } catch (e) {
         console.log('Could not load prediction snapshots from Supabase:', e);
       }
