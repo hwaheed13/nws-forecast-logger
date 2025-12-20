@@ -3447,42 +3447,42 @@ async function displayTable() {
       if (!tb) return;
       tb.innerHTML = "";
     
-    // Load prediction snapshots from Supabase
-    const predSnapshots = {};
-    
-    const toISODate = (v) => {
-      if (v == null) return "";
-      const s = String(v);
-      const m = s.match(/\d{4}-\d{2}-\d{2}/); // works for 'YYYY-MM-DD' and ISO timestamps
-      return m ? m[0] : "";
-    };
-    
-    try {
-      const { data, error } = await supabase
-        .from('forecast_day_summary')
-        .select('target_date, prev_day_latest_value, same_day_earliest_value');
-    
-      if (error) throw error;
-    
-      if (Array.isArray(data) && data.length) {
-        data.forEach((row) => {
-          const td = toISODate(row.target_date);
-          if (!td) return;
-    
-          const nb = row.prev_day_latest_value;
-          if (nb !== null && nb !== undefined && nb !== "") {
-            predSnapshots[`${td}_night_before`] = Number(nb).toFixed(1);
-          }
-    
-          const mo = row.same_day_earliest_value;
-          if (mo !== null && mo !== undefined && mo !== "") {
-            predSnapshots[`${td}_morning_of`] = Number(mo).toFixed(1);
-          }
-        });
+      // Load prediction snapshots from Supabase
+      const predSnapshots = {};
+
+      const toISODate = (v) => {
+        if (v == null) return "";
+        const s = String(v);
+        const m = s.match(/\d{4}-\d{2}-\d{2}/); // works for 'YYYY-MM-DD' and ISO timestamps
+        return m ? m[0] : "";
+      };
+
+      try {
+        const { data, error } = await supabase
+          .from("forecast_day_summary")
+          .select("target_date, prev_day_latest_value, same_day_earliest_value");
+
+        if (error) throw error;
+
+        if (Array.isArray(data) && data.length) {
+          data.forEach((row) => {
+            const td = toISODate(row.target_date);
+            if (!td) return;
+
+            const nb = row.prev_day_latest_value;
+            if (nb !== null && nb !== undefined && nb !== "") {
+              predSnapshots[`${td}_night_before`] = Number(nb).toFixed(1);
+            }
+
+            const mo = row.same_day_earliest_value;
+            if (mo !== null && mo !== undefined && mo !== "") {
+              predSnapshots[`${td}_morning_of`] = Number(mo).toFixed(1);
+            }
+          });
+        }
+      } catch (e) {
+        console.log("Could not load prediction snapshots from Supabase:", e);
       }
-    } catch (e) {
-      console.log("Could not load prediction snapshots from Supabase:", e);
-    }
 
       const dayMap = {};
       filteredRows.forEach(r => {
