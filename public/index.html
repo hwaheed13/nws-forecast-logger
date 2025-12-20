@@ -3446,21 +3446,21 @@ async function displayTable() {
       if (!tb) return;
       tb.innerHTML = "";
     
-      // Load prediction snapshots from Supabase
+    // Load prediction snapshots from Supabase
       const predSnapshots = {};
-
       const toISODate = (v) => {
         if (v == null) return "";
         const s = String(v);
         const m = s.match(/\d{4}-\d{2}-\d{2}/); // works for 'YYYY-MM-DD' and ISO timestamps
         return m ? m[0] : "";
       };
-
       try {
         const { data, error } = await supabase
           .from("forecast_day_summary")
           .select("target_date, prev_day_latest_value, same_day_earliest_value");
-
+        
+        console.log("📊 Fetched snapshots:", { count: data?.length, sample: data?.[0], error });
+        
         if (error) throw error;
 
         if (Array.isArray(data) && data.length) {
