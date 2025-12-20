@@ -3038,8 +3038,8 @@ window._predTomorrow = predTomorrow;
         })()
       : null;
 
-  // Only log valid predictions after system is fully loaded
-    if (systemFullyLoaded && predToday?.y && predToday.y > 40 && !hasActualFor(todayISO)) {
+// Only log valid predictions after system is fully loaded
+    if (systemFullyLoaded && predToday?.y && predToday.y > 20 && !hasActualFor(todayISO)) {
       const roundedToday = Math.round(predToday.y * 10) / 10;
       if (lastLoggedPredictions.today !== roundedToday) {
         logUIprediction('today', predToday.y, builtToday.candidates, todayWarning, predToday.bias, predToday.pad);
