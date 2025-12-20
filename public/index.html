@@ -3457,10 +3457,10 @@ async function displayTable() {
         return m ? m[0] : "";
       };
 
-      try {
+         try {
         const { data, error } = await supabase
-          .from("forecast_day_summary")
-          .select("target_date, prev_day_latest_value, same_day_earliest_value");
+          .from("prediction_snapshots")
+          .select("target_date, prediction_type, prediction_value");
 
         if (error) throw error;
 
@@ -3469,14 +3469,10 @@ async function displayTable() {
             const td = toISODate(row.target_date);
             if (!td) return;
 
-            const nb = row.prev_day_latest_value;
-            if (nb !== null && nb !== undefined && nb !== "") {
-              predSnapshots[`${td}_night_before`] = Number(nb).toFixed(1);
-            }
-
-            const mo = row.same_day_earliest_value;
-            if (mo !== null && mo !== undefined && mo !== "") {
-              predSnapshots[`${td}_morning_of`] = Number(mo).toFixed(1);
+            const val = row.prediction_value;
+            if (val !== null && val !== undefined && val !== "") {
+              const key = `${td}_${row.prediction_type}`;
+              predSnapshots[key] = Number(val).toFixed(1);
             }
           });
         }
