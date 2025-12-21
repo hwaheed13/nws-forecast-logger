@@ -3047,7 +3047,7 @@ window._predTomorrow = predTomorrow;
       }
     }
     
-    if (systemFullyLoaded && predTomorrow?.y && predTomorrow.y > 40) {
+    if (systemFullyLoaded && predTomorrow?.y && predTomorrow.y > 20) {
       const finalValue = predTomorrow.y + (Number.isFinite(d1AdjF) ? d1AdjF : 0);
       const roundedTomorrow = Math.round(finalValue * 10) / 10;
       if (lastLoggedPredictions.tomorrow !== roundedTomorrow) {
