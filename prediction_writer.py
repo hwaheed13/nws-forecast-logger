@@ -11,7 +11,7 @@ from nws_auto_logger import (
     _float_or_none, compute_today_gate_f,
 )
 
-MODEL_VERSION = os.environ.get("PREDICTION_MODEL_VERSION", "bcp_v1")
+MODEL_VERSION = os.environ.get("PREDICTION_MODEL_VERSION", "bcp_v2")
 
 def _sb_endpoint():
     url = os.environ.get("SUPABASE_URL", "").rstrip("/")
@@ -67,7 +67,8 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         target_date_iso = today_nyc().isoformat()
     rows, _ = _read_all_rows(include_accu=True)
 
-    avg_bias_excl_today = _compute_avg_bias_excluding(rows, target_date_iso)
+    target_month = int(target_date_iso[5:7])
+    avg_bias_excl_today = _compute_avg_bias_excluding(rows, target_date_iso, target_month=target_month)
     today_pre_mean      = _compute_today_pre_high_mean(rows, target_date_iso)
     if avg_bias_excl_today is None or today_pre_mean is None:
         print("⏭️ today_for_today: not enough data (need avg_bias_excl_today & today_pre_mean)."); return
@@ -98,7 +99,8 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
 
     rows, _ = _read_all_rows(include_accu=True)
 
-    avg_bias_all   = _compute_avg_bias_excluding(rows, exclude_date_iso="")
+    target_month = int(tomorrow_iso[5:7])
+    avg_bias_all   = _compute_avg_bias_excluding(rows, exclude_date_iso="", target_month=target_month)
     nws_latest_tm  = _latest_forecast(rows, tomorrow_iso, source=None)
     accu_latest_tm = _latest_forecast(rows, tomorrow_iso, source="accu")
 
