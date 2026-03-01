@@ -64,6 +64,8 @@ FEATURE_COLS = [
     "day_of_year",
     "is_summer",
     "is_winter",
+    "prev_day_nws_error",     # yesterday's (actual - nws_last): autocorrelation signal
+    "rolling_nws_bias_7d",    # 7-day rolling average of (actual - nws_last)
 ]
 
 
@@ -302,6 +304,14 @@ class NYCTemperatureModelTrainer:
                 self.features_df["nws_mean"]
             )
         self.features_df["nws_accu_spread"] = self.features_df["nws_accu_spread"].fillna(0.0)
+
+        # Temporal features: error autocorrelation (how wrong was NWS yesterday/recently?)
+        # These are powerful because NWS biases tend to persist across consecutive days
+        nws_error = self.features_df["actual_high"] - self.features_df["nws_last"]
+        self.features_df["prev_day_nws_error"] = nws_error.shift(1).fillna(0.0)
+        self.features_df["rolling_nws_bias_7d"] = (
+            nws_error.shift(1).rolling(window=7, min_periods=1).mean().fillna(0.0)
+        )
 
         # Basic integrity check
         missing_any = [c for c in FEATURE_COLS if c not in self.features_df.columns]
