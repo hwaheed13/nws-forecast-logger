@@ -151,20 +151,21 @@
     .prediction-value { font-size: 28px; font-weight: 800; color: var(--text-primary); }
     .prediction-subtitle { font-size: 13px; color: var(--text-secondary); }
 
-    /* Bucket-centric prediction display */
-    .bucket-display { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
-    .bucket-range { font-size: 32px; font-weight: 800; color: var(--accent-blue); }
-    .bucket-signal { display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 12px; font-weight: 800; letter-spacing: 0.05em; }
-    .bucket-signal.bet { background: #d1fae5; color: #065f46; }
-    .bucket-signal.lean { background: #fef3c7; color: #92400e; }
-    .bucket-signal.skip { background: #fee2e2; color: #991b1b; }
-    .confidence-bar { height: 6px; border-radius: 3px; background: var(--border-subtle); margin: 6px 0; overflow: hidden; }
-    .confidence-fill { height: 100%; border-radius: 3px; transition: width 0.3s ease; }
-    .confidence-fill.high { background: #059669; }
-    .confidence-fill.med { background: #d97706; }
-    .confidence-fill.low { background: #dc2626; }
-    .confidence-label { font-size: 12px; color: var(--text-muted); font-weight: 600; }
-    .temp-detail { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+    /* Bucket-centric prediction display — 3-tier layout */
+    .bucket-display { display: flex; align-items: center; gap: 14px; margin-bottom: 4px; }
+    .bucket-range { font-size: 32px; font-weight: 800; color: var(--text-primary); }
+    .bucket-signal { display: inline-block; padding: 5px 12px; border-radius: 8px; font-size: 13px; font-weight: 800; letter-spacing: 0.05em; color: #fff; }
+    .bucket-signal.bet { background: #059669; }
+    .bucket-signal.lean { background: #d97706; }
+    .bucket-signal.skip { background: #dc2626; }
+    .probability-value { font-size: 28px; font-weight: 800; margin-left: auto; }
+    .probability-value.bet { color: #059669; }
+    .probability-value.lean { color: #d97706; }
+    .probability-value.skip { color: #dc2626; }
+    .confidence-reason { font-size: 13px; color: var(--text-muted); font-weight: 600; margin-bottom: 6px; }
+    .source-details { margin-top: 4px; }
+    .source-details summary { font-size: 12px; color: var(--text-muted); cursor: pointer; font-weight: 600; }
+    .source-details .detail-content { font-size: 12px; color: var(--text-muted); margin-top: 4px; padding: 8px; background: var(--bg-tertiary); border-radius: 8px; }
 
     .controls-section { background: var(--bg-secondary); border: 1px solid var(--border-subtle);
       border-radius: 16px; padding: 18px; margin-bottom: 22px; }
@@ -254,18 +255,30 @@
       font-weight: 600;
     }
     .ml-badge {
-      font-size: 13px;
-      font-weight: 700;
-      color: var(--accent-blue);
-      margin-left: 8px;
-    }
-    .prediction-history {
-      margin-top: 8px;
-      padding-top: 8px;
-      border-top: 1px solid var(--border-subtle);
       font-size: 11px;
-      color: var(--text-muted);
+      font-weight: 700;
+      color: #fff;
+      background: var(--accent-blue);
+      padding: 2px 7px;
+      border-radius: 6px;
     }
+    /* Track record banner */
+    .track-record {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 14px 20px;
+      margin-bottom: 22px;
+      flex-wrap: wrap;
+    }
+    .track-label { font-size: 13px; color: var(--text-muted); font-weight: 700; }
+    .track-value { font-size: 22px; font-weight: 800; color: var(--accent-blue); }
+    .track-value.highlight { color: #059669; }
+    .track-sep { color: var(--border-default); font-size: 20px; }
 
     .footer { margin-top: 28px; padding: 18px 24px; background: var(--bg-tertiary); border-top: 1px solid var(--border-subtle);
       text-align: center; font-size: 12px; color: var(--text-light); }
@@ -302,6 +315,11 @@
       .metric-label { font-size: 13px; }
       .metric-subtitle { font-size: 12px; }
       .prediction-card { padding: 14px; }
+      .track-record { flex-direction: column; gap: 8px; padding: 10px; }
+      .track-sep { display: none; }
+      .track-value { font-size: 18px; }
+      .bucket-range { font-size: 24px; }
+      .probability-value { font-size: 22px; }
       .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
       .stat-card { padding: 10px; }
       .stat-label { font-size: 11px; }
@@ -610,6 +628,18 @@ input[type="date"] {
       </div>
       </div>
 
+      <!-- Track Record -->
+      <div class="track-record" id="trackRecord">
+        <span class="track-label">Our Bucket Accuracy</span>
+        <span class="track-value highlight" id="ourAccuracy">—%</span>
+        <span class="track-sep">|</span>
+        <span class="track-label">NWS Alone</span>
+        <span class="track-value" id="nwsAccuracy">—%</span>
+        <span class="track-sep">|</span>
+        <span class="track-label">Days Verified</span>
+        <span class="track-value" id="daysVerified">—</span>
+      </div>
+
       <!-- Kalshi -->
       <div class="kalshi-grid">
         <div class="kalshi-card">
@@ -795,7 +825,19 @@ const predictionHistory = window.predictionHistory;
 
 // === Bucket confidence calculator (ML-integrated, replaces separate boundary detector) ===
 // 5-component scoring: ML confidence + boundary distance + source agreement + stability + count
-function computeBucketConfidence(prediction, kalshiRange, candidates, kalshiData, mlPrediction) {
+// Normal CDF approximation (Abramowitz & Stegun)
+function normalCDF(x) {
+  if (x < -8) return 0;
+  if (x > 8) return 1;
+  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741;
+  const a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+  const sign = x < 0 ? -1 : 1;
+  const t = 1 / (1 + p * Math.abs(x));
+  const y = 1 - (((((a5*t + a4)*t) + a3)*t + a2)*t + a1)*t * Math.exp(-x*x/2);
+  return 0.5 * (1 + sign * y);
+}
+
+function computeBucketConfidence(prediction, kalshiRange, candidates, kalshiData, mlPrediction, hedgeRMSE) {
   if (!kalshiRange || !Number.isFinite(prediction)) return { pct: 0, signal: "SKIP", reason: "No data", boundary_warning: false };
 
   const lo = kalshiRange.min ?? (prediction - 5);
@@ -804,60 +846,70 @@ function computeBucketConfidence(prediction, kalshiRange, candidates, kalshiData
   const distFromHi = hi - prediction;
   const minDist = Math.min(distFromLo, distFromHi);
 
-  // 1. ML confidence (0-30 pts) — bucket probability from trained model
-  let mlScore = 0;
-  let mlNote = "";
+  // --- Probabilistic confidence via normal distribution ---
+  // Hedge probability: P(actual falls in this bucket)
+  // hedgeRMSE is the bias-corrected RMSE from the Hedge learner
+  // Default 1.2 if no learned value yet (conservative but not absurdly wide)
+  const std = Math.max(0.8, hedgeRMSE || 1.2);
+  const hedgeProb = normalCDF((hi - prediction) / std) - normalCDF((lo - prediction) / std);
+
+  // ML probability (if available)
   const hasML = mlPrediction && mlPrediction.confidence > 0 && !mlPrediction._stale;
-  if (hasML) {
-    mlScore = Math.round(mlPrediction.confidence * 30);
-    mlNote = `ML ${Math.round(mlPrediction.confidence * 100)}%`;
+  const hasStaleML = mlPrediction && mlPrediction.confidence > 0 && mlPrediction._stale;
+  let mlProb = null;
+  let mlNote = "";
+
+  if (hasML && kalshiRange.label && mlPrediction.bucket === kalshiRange.label) {
+    // ML agrees on bucket — use its probability directly
+    mlProb = mlPrediction.confidence;
+    mlNote = `ML ${Math.round(mlProb * 100)}%`;
+  } else if (hasML && mlPrediction.confidence > 0) {
+    // ML picks a different bucket — its confidence for THIS bucket is lower
+    // Use complement: if ML says 70% for its bucket, this bucket gets ~(1-0.70)/N
+    mlProb = Math.max(0.05, (1 - mlPrediction.confidence) * 0.3);
+    mlNote = `ML favors ${mlPrediction.bucket}`;
+  } else if (hasStaleML && kalshiRange.label && mlPrediction.bucket === kalshiRange.label) {
+    mlProb = mlPrediction.confidence;
+    mlNote = `ML ${Math.round(mlProb * 100)}% (stale)`;
   }
 
-  // 2. Boundary distance (0-25 pts) — how far from bucket edge
-  const boundaryScore = Math.min(25, minDist * 50);
-
-  // 3. Source agreement (0-25 pts) — how many sources land in same bucket
-  const vals = Object.values(candidates || {}).filter(Number.isFinite);
-  let agreeScore = 25;
-  if (vals.length >= 2) {
-    const inSameBucket = vals.filter(v => v >= lo && v < hi).length;
-    let baseAgree = Math.round(15 * (inSameBucket / vals.length));
-    // Bonus: ML bucket matches the Hedge-predicted bucket
-    if (hasML && kalshiRange.label && mlPrediction.bucket === kalshiRange.label) {
-      baseAgree += 10;
-    }
-    agreeScore = Math.min(25, baseAgree);
+  // Blend: 60% ML + 40% Hedge (fresh), 30% ML + 70% Hedge (stale), 100% Hedge (no ML)
+  let blended;
+  if (mlProb !== null && hasML) {
+    blended = 0.6 * mlProb + 0.4 * hedgeProb;
+  } else if (mlProb !== null && hasStaleML) {
+    blended = 0.3 * mlProb + 0.7 * hedgeProb;
+  } else {
+    blended = hedgeProb;
   }
 
-  // 4. Stability (0-15 pts) — tight spread among sources
-  let stabilityScore = 15;
-  if (vals.length >= 2) {
-    const spread = Math.max(...vals) - Math.min(...vals);
-    stabilityScore = Math.max(0, Math.round(15 * (1 - spread / 4)));
-  }
-
-  // 5. Source count (0-5 pts)
-  const countScore = Math.min(5, vals.length);
-
-  const pct = Math.min(95, Math.max(5, mlScore + boundaryScore + agreeScore + stabilityScore + countScore));
+  const pct = Math.min(95, Math.max(5, Math.round(blended * 100)));
   const boundary_warning = minDist < 0.3;
-  const edgeNote = minDist < 0.5 ? `, ${minDist.toFixed(1)}°F from edge` : "";
 
+  // Signal thresholds
   let signal, reason;
-  if (pct >= 70) {
+  if (pct >= 60) {
     signal = "BET";
-    const parts = [hasML ? mlNote : null, "sources agree", !boundary_warning ? null : "near edge"].filter(Boolean);
-    reason = parts.join(", ") || "High confidence";
-  } else if (pct >= 45) {
+    const parts = [];
+    if (mlNote) parts.push(mlNote);
+    if (hedgeProb > 0.5) parts.push("centered in bucket");
+    else parts.push("Hedge agrees");
+    reason = parts.join(" + ");
+  } else if (pct >= 35) {
     signal = "LEAN";
-    const edge = minDist < 0.4 ? "near bucket edge" : "moderate disagreement";
-    reason = [hasML ? mlNote : null, edge].filter(Boolean).join(", ");
+    const parts = [];
+    if (mlNote) parts.push(mlNote);
+    if (minDist < 0.5) parts.push(`${minDist.toFixed(1)}° from edge`);
+    else parts.push(`std ±${std.toFixed(1)}°`);
+    reason = parts.join(", ");
   } else {
     signal = "SKIP";
-    reason = minDist < 0.3 ? "Too close to boundary" : "Sources disagree on bucket";
+    if (minDist < 0.3) reason = "Too close to boundary";
+    else if (std > 2.0) reason = "High uncertainty";
+    else reason = "Low probability for this bucket";
   }
 
-  return { pct: Math.round(pct), signal, reason, minDist: minDist.toFixed(1), boundary_warning, boundaryScore, agreeScore, stabilityScore, mlScore };
+  return { pct, signal, reason, minDist: minDist.toFixed(1), boundary_warning, hedgeProb: Math.round(hedgeProb * 100), mlProb: mlProb !== null ? Math.round(mlProb * 100) : null };
 }
 // Log predictions to Supabase - matches what's on the UI
 async function logUIprediction(which, prediction, candidates, conf, bias, rmse, mlData) {
@@ -1036,12 +1088,31 @@ if (!saved) window._overnightExceeded = null;
     div.className = "overnight-note";
     div.style.cssText = "margin-top:6px;font-size:12px;color:#b91c1c;font-weight:600;";
 
+    // Try to map overnight high to Kalshi bucket + check settlement
+    let bucketNote = "";
+    let settled = false;
+    try {
+      const [todayMkt, settledResult] = await Promise.all([
+        fetchKalshiLiveLeader(todayKey).catch(() => null),
+        getKalshiLabel(todayKey).catch(() => null)
+      ]);
+      if (todayMkt) {
+        const oRange = mapToKalshiRange(Number(saved.value), todayMkt);
+        if (oRange?.label) bucketNote = ` → ${oRange.label}°F bucket`;
+      }
+      if (settledResult?.winning_label) {
+        settled = true;
+        div.style.color = "#059669";
+        div.textContent = `Kalshi settled: ${settledResult.winning_label}°F — actual high ${Number(saved.value).toFixed(1)}°F (${timeLabel}).`;
+        box.appendChild(div);
+        return;
+      }
+    } catch {}
+
     if (Number.isFinite(latestForecast) && Number(saved.value) > Number(latestForecast)) {
-      // still exceeds the current forecast
-      div.textContent = `Overnight high of ${Number(saved.value).toFixed(1)}°F (${timeLabel}) already exceeded today's forecast (${Number(latestForecast).toFixed(1)}°F).`;
+      div.textContent = `High so far: ${Number(saved.value).toFixed(1)}°F${bucketNote} (${timeLabel}) — exceeded forecast (${Number(latestForecast).toFixed(1)}°F).`;
     } else {
-      // forecast later rose above the spike — keep a neutral fact note
-      div.textContent = `Today's high occurred (earlier ${Number(saved.value).toFixed(1)}°F).`;
+      div.textContent = `High so far: ${Number(saved.value).toFixed(1)}°F${bucketNote} (${timeLabel}).`;
     }
     box.appendChild(div);
     return;
@@ -1331,7 +1402,8 @@ if (newNames.length > 0) {
   const y = (y0 == null) ? null : (y0 + bias);
 
   // clamp pad from stored RMSE or provided context
-  const pad = Math.max(2, Number(st.rmse ?? rmseContext ?? 0) || 0);
+  // Floor at 0.8 (not 2.0) — bias correction makes our effective uncertainty much lower than raw NWS RMSE
+  const pad = Math.max(0.8, Number(st.rmse ?? rmseContext ?? 0) || 1.2);
 
   return { y, y0, bias, pad, weights:{...st.w}, key };
 }
@@ -3053,7 +3125,7 @@ window._predTomorrow = predTomorrow;
       const roundedToday = Math.round(predToday.y * 10) / 10;
       if (lastLoggedPredictions.today !== roundedToday) {
         const todayConfForLog = todayKalshiRange
-          ? computeBucketConfidence(predToday.y, todayKalshiRange, builtToday.candidates, todayMarket, mlToday)
+          ? computeBucketConfidence(predToday.y, todayKalshiRange, builtToday.candidates, todayMarket, mlToday, predToday.pad)
           : null;
         logUIprediction('today', predToday.y, builtToday.candidates, todayConfForLog, predToday.bias, predToday.pad, mlToday);
         lastLoggedPredictions.today = roundedToday;
@@ -3065,7 +3137,7 @@ window._predTomorrow = predTomorrow;
       const roundedTomorrow = Math.round(finalValue * 10) / 10;
       if (lastLoggedPredictions.tomorrow !== roundedTomorrow) {
         const tmConfForLog = tomorrowKalshiRange
-          ? computeBucketConfidence(finalValue, tomorrowKalshiRange, builtTomorrow.candidates, tomorrowMarket, mlTomorrow)
+          ? computeBucketConfidence(finalValue, tomorrowKalshiRange, builtTomorrow.candidates, tomorrowMarket, mlTomorrow, predTomorrow.pad)
           : null;
         logUIprediction('tomorrow', finalValue, builtTomorrow.candidates, tmConfForLog, predTomorrow.bias, predTomorrow.pad, mlTomorrow);
         lastLoggedPredictions.tomorrow = roundedTomorrow;
@@ -3092,20 +3164,6 @@ window._predTomorrow = predTomorrow;
           ? ` • Kalshi: ${todayKalshiRange.label}` 
           : "";
         
-    // Add prediction history
-    const historyRange = predictionHistory.getRange('today');
-    const historyHTML = (historyRange
-      && Number.isFinite(historyRange.min)
-      && Number.isFinite(historyRange.max)
-      && Number.isFinite(historyRange.current))
-      ? `<div class="prediction-history">
-          ${historyRange.min === historyRange.max 
-            ? `Stable at ${Number(historyRange.current).toFixed(1)}°F` 
-            : `Range: ${Number(historyRange.min).toFixed(1)}°F - ${Number(historyRange.max).toFixed(1)}°F`} 
-          (${historyRange.changes} updates)
-        </div>`
-      : '';
-
 const exceedanceNote = (
   exceedance &&
   Number.isFinite(Number(exceedance.currentTemp)) &&
@@ -3120,9 +3178,8 @@ const exceedanceNote = (
 
 // Compute bucket confidence (with ML data if available)
 const todayConf = todayKalshiRange
-  ? computeBucketConfidence(predToday.y, todayKalshiRange, builtToday.candidates, todayMarket, mlToday)
+  ? computeBucketConfidence(predToday.y, todayKalshiRange, builtToday.candidates, todayMarket, mlToday, predToday.pad)
   : { pct: 0, signal: "SKIP", reason: "No Kalshi data" };
-const confClass0 = todayConf.pct >= 70 ? "high" : todayConf.pct >= 45 ? "med" : "low";
 const sigClass0 = todayConf.signal.toLowerCase();
 
 const bucketLabel0 = todayKalshiRange?.label || `${Math.floor(predToday.y)}-${Math.floor(predToday.y)+1}`;
@@ -3134,19 +3191,18 @@ srcParts0.push(`Hedge: ${val}°F`);
 if (Number.isFinite(builtToday.candidates?.D0_latest)) srcParts0.push(`NWS: ${builtToday.candidates.D0_latest}°`);
 if (Number.isFinite(builtToday.candidates?.AccuWeather)) srcParts0.push(`Accu: ${builtToday.candidates.AccuWeather}°`);
 
-const mlBadge0 = mlToday ? `<span class="ml-badge">ML ${Math.round(mlToday.confidence*100)}%</span>` : '';
-
 el0.innerHTML = `
   <div class="bucket-display">
     <span class="bucket-range">${bucketLabel0}°F</span>
     <span class="bucket-signal ${sigClass0}">${todayConf.signal}</span>
-    ${mlBadge0}
+    <span class="probability-value ${sigClass0}">${todayConf.pct}%</span>
   </div>
-  <div class="confidence-bar"><div class="confidence-fill ${confClass0}" style="width:${todayConf.pct}%"></div></div>
-  <div class="confidence-label">${todayConf.pct}% — ${todayConf.reason}</div>
-  <div class="temp-detail">${srcParts0.join(' | ')}</div>
+  <div class="confidence-reason">${todayConf.reason}</div>
+  <details class="source-details">
+    <summary>Source details</summary>
+    <div class="detail-content">${srcParts0.join(' | ')}</div>
+  </details>
   ${exceedanceNote}
-  ${historyHTML}
 `;
       } else {
         el0.innerHTML = `<div class="prediction-value">—</div><div class="prediction-subtitle">Awaiting forecast data</div>`;
@@ -3171,25 +3227,10 @@ if (el1) {
             ? ` • Kalshi: ${tomorrowKalshiRange.label}` 
             : "";
         
-    // Add prediction history
-    const historyRange = predictionHistory.getRange('tomorrow');
-    const historyHTML = (historyRange
-      && Number.isFinite(historyRange.min)
-      && Number.isFinite(historyRange.max)
-      && Number.isFinite(historyRange.current))
-      ? `<div class="prediction-history">
-          ${historyRange.min === historyRange.max 
-            ? `Stable at ${Number(historyRange.current).toFixed(1)}°F` 
-            : `Range: ${Number(historyRange.min).toFixed(1)}°F - ${Number(historyRange.max).toFixed(1)}°F`} 
-          (${historyRange.changes} updates)
-        </div>`
-      : '';
-   
   // Compute bucket confidence for tomorrow (with ML data if available)
   const tmConf = tomorrowKalshiRange
-    ? computeBucketConfidence(final, tomorrowKalshiRange, builtTomorrow.candidates, tomorrowMarket, mlTomorrow)
+    ? computeBucketConfidence(final, tomorrowKalshiRange, builtTomorrow.candidates, tomorrowMarket, mlTomorrow, predTomorrow.pad)
     : { pct: 0, signal: "SKIP", reason: "No Kalshi data" };
-  const confClass1 = tmConf.pct >= 70 ? "high" : tmConf.pct >= 45 ? "med" : "low";
   const sigClass1 = tmConf.signal.toLowerCase();
 
   const bucketLabel1 = tomorrowKalshiRange?.label || `${Math.floor(final)}-${Math.floor(final)+1}`;
@@ -3201,18 +3242,17 @@ if (el1) {
   if (Number.isFinite(builtTomorrow.candidates?.D1_latest)) srcParts1.push(`NWS: ${builtTomorrow.candidates.D1_latest}°`);
   if (Number.isFinite(builtTomorrow.candidates?.AccuWeather)) srcParts1.push(`Accu: ${builtTomorrow.candidates.AccuWeather}°`);
 
-  const mlBadge1 = mlTomorrow ? `<span class="ml-badge">ML ${Math.round(mlTomorrow.confidence*100)}%</span>` : '';
-
   el1.innerHTML = `
       <div class="bucket-display">
         <span class="bucket-range">${bucketLabel1}°F</span>
         <span class="bucket-signal ${sigClass1}">${tmConf.signal}</span>
-        ${mlBadge1}
+        <span class="probability-value ${sigClass1}">${tmConf.pct}%</span>
       </div>
-      <div class="confidence-bar"><div class="confidence-fill ${confClass1}" style="width:${tmConf.pct}%"></div></div>
-      <div class="confidence-label">${tmConf.pct}% — ${tmConf.reason}</div>
-      <div class="temp-detail">${srcParts1.join(' | ')}</div>
-      ${historyHTML}
+      <div class="confidence-reason">${tmConf.reason}</div>
+      <details class="source-details">
+        <summary>Source details</summary>
+        <div class="detail-content">${srcParts1.join(' | ')}</div>
+      </details>
     `;
       } else {
         el1.innerHTML = `<div class="prediction-value">—</div><div class="prediction-subtitle">Awaiting forecast data</div>`;
@@ -3719,7 +3759,11 @@ async function displayTable() {
   });
 
   let totalAbsErr = 0, totalBestErr = 0, errCount = 0, bestCount = 0;
-  let totalSignedErr = 0, totalBestSignedErr = 0;  // NEW: track signed errors
+  let totalSignedErr = 0, totalBestSignedErr = 0;
+  let totalBcpErr = 0, bcpErrCount = 0;
+
+  // Bucket accuracy counters
+  let nwsBucketHits = 0, bcpBucketHits = 0, bucketDays = 0;
 
   daysWithActual.forEach(d => {
     const rows = dayMap[d] || [];
@@ -3741,37 +3785,63 @@ async function displayTable() {
       .filter(Number.isFinite);
 
     if (forecasts.length) {
-      const signedErrors = forecasts.map(f => f - actualHigh);  // NEW: keep sign
+      const signedErrors = forecasts.map(f => f - actualHigh);
       const allErrors = forecasts.map(f => Math.abs(f - actualHigh));
-      
+
       const avgErr = allErrors.reduce((a, b) => a + b, 0) / allErrors.length;
-      const avgSignedErr = signedErrors.reduce((a, b) => a + b, 0) / signedErrors.length;  // NEW
-      
+      const avgSignedErr = signedErrors.reduce((a, b) => a + b, 0) / signedErrors.length;
+
       const bestIdx = allErrors.indexOf(Math.min(...allErrors));
       const bestErr = allErrors[bestIdx];
-      const bestSignedErr = signedErrors[bestIdx];  // NEW: signed error of best forecast
-      
+      const bestSignedErr = signedErrors[bestIdx];
+
       totalAbsErr += avgErr;
-      totalSignedErr += avgSignedErr;  // NEW
+      totalSignedErr += avgSignedErr;
       totalBestErr += bestErr;
-      totalBestSignedErr += bestSignedErr;  // NEW
+      totalBestSignedErr += bestSignedErr;
       errCount++;
       bestCount++;
+
+      // Bucket accuracy: use last forecast for the day as "NWS"
+      const nwsLast = forecasts[forecasts.length - 1];
+      const actualBucket = Math.floor(actualHigh);
+      const nwsBucket = Math.floor(nwsLast);
+      if (nwsBucket === actualBucket) nwsBucketHits++;
+
+      // Bias-corrected bucket: apply the running mean bias to NWS
+      // Use cumulative bias up to this point (approximated by overall mean)
+      const bcpVal = nwsLast + (totalSignedErr / errCount);  // running mean bias
+      const bcpBucket = Math.floor(nwsLast - (totalSignedErr / errCount));  // subtract bias since bias = forecast - actual
+      if (bcpBucket === actualBucket) bcpBucketHits++;
+      bucketDays++;
+
+      // BCP error for this day
+      const bcpPred = nwsLast - (totalSignedErr / errCount);
+      totalBcpErr += Math.abs(bcpPred - actualHigh);
+      bcpErrCount++;
     }
   });
 
   const avgAbsErr = errCount > 0 ? (totalAbsErr / errCount).toFixed(1) : "--";
   const avgBestErr = bestCount > 0 ? (totalBestErr / bestCount).toFixed(1) : "--";
-  const meanBias = errCount > 0 ? (totalSignedErr / errCount) : null;  // NEW
-  const bestBias = bestCount > 0 ? (totalBestSignedErr / bestCount) : null;  // NEW
+  const avgBcpErr = bcpErrCount > 0 ? (totalBcpErr / bcpErrCount).toFixed(1) : "--";
+  const meanBias = errCount > 0 ? (totalSignedErr / errCount) : null;
 
-  // Format bias with + or - sign
-  const meanBiasStr = meanBias != null 
+  const meanBiasStr = meanBias != null
     ? (meanBias >= 0 ? "+" : "") + meanBias.toFixed(1) + "°F"
     : "--";
-  const bestBiasStr = bestBias != null
-    ? (bestBias >= 0 ? "+" : "") + bestBias.toFixed(1) + "°F" 
-    : "--";
+
+  // Update track record banner
+  const ourAccEl = document.getElementById('ourAccuracy');
+  const nwsAccEl = document.getElementById('nwsAccuracy');
+  const daysVerEl = document.getElementById('daysVerified');
+  if (bucketDays > 0) {
+    const ourPct = Math.round(100 * bcpBucketHits / bucketDays);
+    const nwsPct = Math.round(100 * nwsBucketHits / bucketDays);
+    if (ourAccEl) ourAccEl.textContent = `${ourPct}%`;
+    if (nwsAccEl) nwsAccEl.textContent = `${nwsPct}%`;
+    if (daysVerEl) daysVerEl.textContent = bucketDays;
+  }
 
 stats.innerHTML = `
   <div class="stat-card">
@@ -3783,21 +3853,28 @@ stats.innerHTML = `
   </div>
   <div class="stat-card">
     <div class="stat-label">
-      Days With Actual
+      Days Verified
       <span class="tip" tabindex="0" data-tip="Days where the actual high was recorded">i</span>
     </div>
     <div class="stat-value">${daysWithActual.length}</div>
   </div>
   <div class="stat-card">
     <div class="stat-label">
-      Avg Absolute Error
-      <span class="tip" tabindex="0" data-tip="Average forecast error magnitude (ignores direction)">i</span>
+      NWS Avg Error
+      <span class="tip" tabindex="0" data-tip="Average NWS forecast error magnitude">i</span>
     </div>
     <div class="stat-value">${avgAbsErr}°F</div>
   </div>
   <div class="stat-card">
     <div class="stat-label">
-      Avg Forecast Bias
+      Our Avg Error
+      <span class="tip" tabindex="0" data-tip="Average error of bias-corrected predictions">i</span>
+    </div>
+    <div class="stat-value" style="color: #059669">${avgBcpErr}°F</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">
+      Forecast Bias
       <span class="tip" tabindex="0" data-tip="Average signed error: + means forecasts run high, - means low">i</span>
     </div>
     <div class="stat-value" style="color: ${meanBias > 0 ? '#d97706' : meanBias < 0 ? '#2563eb' : 'inherit'}">
@@ -3806,19 +3883,10 @@ stats.innerHTML = `
   </div>
   <div class="stat-card">
     <div class="stat-label">
-      Best Absolute Error
+      Best Day Error
       <span class="tip" tabindex="0" data-tip="Average error of each day's most accurate forecast">i</span>
     </div>
     <div class="stat-value">${avgBestErr}°F</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">
-      Best Forecast Bias
-      <span class="tip" tabindex="0" data-tip="Average bias of each day's best forecast">i</span>
-    </div>
-    <div class="stat-value" style="color: ${bestBias > 0 ? '#d97706' : bestBias < 0 ? '#2563eb' : 'inherit'}">
-      ${bestBiasStr}
-    </div>
   </div>
 `;
 }
