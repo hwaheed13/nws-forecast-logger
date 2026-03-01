@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-03-01T09:46:55.480005",
+  "trained_on": "2026-03-01T10:57:30.229920",
   "num_days": 224,
   "date_range": {
     "start": "2025-07-03",
@@ -23,12 +23,14 @@
     "month",
     "day_of_year",
     "is_summer",
-    "is_winter"
+    "is_winter",
+    "prev_day_nws_error",
+    "rolling_nws_bias_7d"
   ],
   "temp_model_type": "GradientBoosting",
   "bucket_model_type": "RandomForest",
   "model_performance": {
-    "temperature_mae": 0.4718643329027489,
-    "bucket_accuracy": 0.9017857142857143
+    "temperature_mae": 0.4318254549907317,
+    "bucket_accuracy": 0.9419642857142857
   }
 }
