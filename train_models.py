@@ -10,40 +10,7 @@ from sklearn.ensemble import GradientBoostingRegressor, RandomForestClassifier
 from sklearn.metrics import accuracy_score, mean_absolute_error
 from sklearn.model_selection import TimeSeriesSplit
 
-from sklearn.preprocessing import LabelEncoder
-
-try:
-    from xgboost import XGBRegressor, XGBClassifier
-    HAS_XGBOOST = True
-except Exception:
-    # ImportError if not installed; XGBoostError on Mac if libomp missing
-    HAS_XGBOOST = False
-
 warnings.filterwarnings("ignore")
-
-
-class _LabelEncodedClassifier:
-    """Wraps a classifier that requires numeric labels (e.g. XGBClassifier)
-    to work transparently with string labels like '72-73'."""
-
-    def __init__(self, base):
-        self.base = base
-        self._le = LabelEncoder()
-
-    def fit(self, X, y):
-        y_enc = self._le.fit_transform(y)
-        self.base.fit(X, y_enc)
-        return self
-
-    def predict(self, X):
-        return self._le.inverse_transform(self.base.predict(X))
-
-    def predict_proba(self, X):
-        return self.base.predict_proba(X)
-
-    @property
-    def classes_(self):
-        return self._le.classes_
 
 FEATURE_COLS = [
     "nws_first",
@@ -58,14 +25,10 @@ FEATURE_COLS = [
     "forecast_velocity",
     "forecast_acceleration",
     "accu_last",
-    "accu_mean",
     "nws_accu_spread",
     "month",
-    "day_of_year",
     "is_summer",
     "is_winter",
-    "prev_day_nws_error",     # yesterday's (actual - nws_last): autocorrelation signal
-    "rolling_nws_bias_7d",    # 7-day rolling average of (actual - nws_last)
 ]
 
 
@@ -113,8 +76,6 @@ class NYCTemperatureModelTrainer:
         self.features_df: pd.DataFrame | None = None
         self.temp_model = None
         self.bucket_model = None
-        self.temp_model_name: str = "GradientBoosting"
-        self.bucket_model_name: str = "RandomForest"
 
     def _require(self, df, needed, name):
         missing = [c for c in needed if c not in df.columns]
@@ -211,21 +172,7 @@ class NYCTemperatureModelTrainer:
 
         nws_values = nws_forecasts["predicted_high"].astype(float).values
 
-        # AccuWeather values
-        accu_values = (
-            accu_forecasts["predicted_high"].astype(float).values
-            if not accu_forecasts.empty
-            else np.array([])
-        )
-
         month = int(target_date.split("-")[1])
-        # day_of_year: captures smooth seasonal curve better than binary is_summer/is_winter
-        try:
-            dt = datetime.strptime(target_date, "%Y-%m-%d")
-            day_of_year = dt.timetuple().tm_yday
-        except Exception:
-            day_of_year = np.nan
-
         features = {
             "nws_first": nws_values[0] if len(nws_values) > 0 else np.nan,
             "nws_last": nws_values[-1] if len(nws_values) > 0 else np.nan,
@@ -239,12 +186,12 @@ class NYCTemperatureModelTrainer:
             "nws_trend": float(nws_values[-1] - nws_values[0]) if len(nws_values) > 1 else 0.0,
             "forecast_velocity": self.calculate_velocity(nws_values),
             "forecast_acceleration": self.calculate_acceleration(nws_values),
-            "accu_last": float(accu_values[-1]) if len(accu_values) > 0 else np.nan,
-            "accu_mean": float(accu_values.mean()) if len(accu_values) > 0 else np.nan,
-            "accu_count": int(len(accu_values)),
+            "accu_last": float(accu_forecasts.iloc[-1]["predicted_high"])
+            if not accu_forecasts.empty
+            else np.nan,
+            "accu_count": int(len(accu_forecasts)),
             "nws_accu_spread": np.nan,  # filled below if both present
             "month": month,
-            "day_of_year": day_of_year,
             "is_summer": int(month in [6, 7, 8]),
             "is_winter": int(month in [12, 1, 2]),
             "actual_high": actual_high,
@@ -294,24 +241,12 @@ class NYCTemperatureModelTrainer:
 
         self.features_df = pd.DataFrame(features_list)
 
-        # Fill NaNs: AccuWeather missing → fall back to NWS equivalent
+        # Fill NaNs for modeling
         if "accu_last" in self.features_df.columns:
             self.features_df["accu_last"] = self.features_df["accu_last"].fillna(
                 self.features_df["nws_last"]
             )
-        if "accu_mean" in self.features_df.columns:
-            self.features_df["accu_mean"] = self.features_df["accu_mean"].fillna(
-                self.features_df["nws_mean"]
-            )
         self.features_df["nws_accu_spread"] = self.features_df["nws_accu_spread"].fillna(0.0)
-
-        # Temporal features: error autocorrelation (how wrong was NWS yesterday/recently?)
-        # These are powerful because NWS biases tend to persist across consecutive days
-        nws_error = self.features_df["actual_high"] - self.features_df["nws_last"]
-        self.features_df["prev_day_nws_error"] = nws_error.shift(1).fillna(0.0)
-        self.features_df["rolling_nws_bias_7d"] = (
-            nws_error.shift(1).rolling(window=7, min_periods=1).mean().fillna(0.0)
-        )
 
         # Basic integrity check
         missing_any = [c for c in FEATURE_COLS if c not in self.features_df.columns]
@@ -321,57 +256,26 @@ class NYCTemperatureModelTrainer:
         print(f"Built features for {len(self.features_df)} days")
         return self.features_df
 
-    def _cv_mae(self, model_factory, X, y, n_splits=3):
-        """Run TimeSeriesSplit CV and return mean MAE."""
-        tscv = TimeSeriesSplit(n_splits=n_splits)
-        scores = []
-        for tr, te in tscv.split(X):
-            m = model_factory()
-            m.fit(X.iloc[tr], y.iloc[tr])
-            scores.append(mean_absolute_error(y.iloc[te], m.predict(X.iloc[te])))
-        return float(np.mean(scores))
-
-    def _cv_acc(self, model_factory, X, y, n_splits=3):
-        """Run TimeSeriesSplit CV and return mean accuracy."""
-        tscv = TimeSeriesSplit(n_splits=n_splits)
-        scores = []
-        for tr, te in tscv.split(X):
-            m = model_factory()
-            m.fit(X.iloc[tr], y.iloc[tr])
-            scores.append(accuracy_score(y.iloc[te], m.predict(X.iloc[te])))
-        return float(np.mean(scores))
-
     def train_temperature_model(self):
         print("\nTraining temperature prediction model...")
         X = self.features_df[FEATURE_COLS]
         y = self.features_df["actual_high"]
 
-        candidates = {
-            "GradientBoosting": lambda: GradientBoostingRegressor(
-                n_estimators=200, max_depth=3, learning_rate=0.05,
-                subsample=0.8, random_state=42
-            ),
-        }
-        if HAS_XGBOOST:
-            candidates["XGBoost"] = lambda: XGBRegressor(
-                n_estimators=200, max_depth=3, learning_rate=0.05,
-                subsample=0.8, colsample_bytree=0.8,
-                random_state=42, verbosity=0
+        tscv = TimeSeriesSplit(n_splits=3)
+        mae_scores = []
+        for tr, te in tscv.split(X):
+            model = GradientBoostingRegressor(
+                n_estimators=100, max_depth=3, learning_rate=0.1, random_state=42
             )
-        else:
-            print("  (xgboost not installed — using GradientBoosting only)")
+            model.fit(X.iloc[tr], y.iloc[tr])
+            pred = model.predict(X.iloc[te])
+            mae_scores.append(mean_absolute_error(y.iloc[te], pred))
 
-        best_name, best_mae, best_factory = None, float("inf"), None
-        for name, factory in candidates.items():
-            mae = self._cv_mae(factory, X, y)
-            print(f"  {name} CV MAE: {mae:.3f}°F")
-            if mae < best_mae:
-                best_mae, best_name, best_factory = mae, name, factory
-
-        print(f"  → Selected: {best_name} (CV MAE {best_mae:.3f}°F)")
-        self.temp_model = best_factory()
+        print(f"Cross-validation MAE: {np.mean(mae_scores):.2f}°F")
+        self.temp_model = GradientBoostingRegressor(
+            n_estimators=100, max_depth=3, learning_rate=0.1, random_state=42
+        )
         self.temp_model.fit(X, y)
-        self.temp_model_name = best_name
         return self.temp_model
 
     def train_bucket_model(self):
@@ -379,32 +283,17 @@ class NYCTemperatureModelTrainer:
         X = self.features_df[FEATURE_COLS]
         y = self.features_df["winning_bucket"]
 
-        candidates = {
-            "RandomForest": lambda: RandomForestClassifier(
-                n_estimators=300, max_depth=6, random_state=42
-            ),
-        }
-        if HAS_XGBOOST:
-            candidates["XGBoost"] = lambda: _LabelEncodedClassifier(
-                XGBClassifier(
-                    n_estimators=200, max_depth=3, learning_rate=0.05,
-                    subsample=0.8, colsample_bytree=0.8,
-                    eval_metric="mlogloss",
-                    random_state=42, verbosity=0
-                )
-            )
+        tscv = TimeSeriesSplit(n_splits=3)
+        acc_scores = []
+        for tr, te in tscv.split(X):
+            model = RandomForestClassifier(n_estimators=200, max_depth=6, random_state=42)
+            model.fit(X.iloc[tr], y.iloc[tr])
+            pred = model.predict(X.iloc[te])
+            acc_scores.append(accuracy_score(y.iloc[te], pred))
 
-        best_name, best_acc, best_factory = None, -1.0, None
-        for name, factory in candidates.items():
-            acc = self._cv_acc(factory, X, y)
-            print(f"  {name} CV accuracy: {acc:.1%}")
-            if acc > best_acc:
-                best_acc, best_name, best_factory = acc, name, factory
-
-        print(f"  → Selected: {best_name} (CV accuracy {best_acc:.1%})")
-        self.bucket_model = best_factory()
+        print(f"Cross-validation accuracy: {np.mean(acc_scores):.1%}")
+        self.bucket_model = RandomForestClassifier(n_estimators=200, max_depth=6, random_state=42)
         self.bucket_model.fit(X, y)
-        self.bucket_model_name = best_name
         return self.bucket_model
 
     def save_models(self):
@@ -427,8 +316,6 @@ class NYCTemperatureModelTrainer:
                 "end": str(self.features_df["target_date"].max()),
             },
             "feature_columns": FEATURE_COLS,
-            "temp_model_type": self.temp_model_name,
-            "bucket_model_type": self.bucket_model_name,
             "model_performance": {
                 "temperature_mae": float(
                     mean_absolute_error(self.features_df["actual_high"], temp_pred_all)
@@ -443,10 +330,8 @@ class NYCTemperatureModelTrainer:
             json.dump(metadata, f, indent=2)
 
         print("Models saved successfully!")
-        print(f"Temperature model: {self.temp_model_name}")
-        print(f"Bucket model: {self.bucket_model_name}")
-        print(f"Temperature MAE (in-sample): {metadata['model_performance']['temperature_mae']:.2f}°F")
-        print(f"Bucket accuracy (in-sample): {metadata['model_performance']['bucket_accuracy']:.1%}")
+        print(f"Temperature MAE: {metadata['model_performance']['temperature_mae']:.2f}°F")
+        print(f"Bucket accuracy: {metadata['model_performance']['bucket_accuracy']:.1%}")
 
     def run(self):
         print("=" * 50)
