@@ -215,6 +215,21 @@ def actual_exists_for_date(target_date: str) -> bool:
 # =========================
 # Bias helpers (shared)
 # =========================
+
+_SEASON_MONTHS = {
+    "winter": {12, 1, 2},
+    "spring": {3, 4, 5},
+    "summer": {6, 7, 8},
+    "fall":   {9, 10, 11},
+}
+
+def _get_season_from_month(month: int) -> str:
+    """Return 'winter', 'spring', 'summer', or 'fall' for a given calendar month (1-12)."""
+    for season, months in _SEASON_MONTHS.items():
+        if month in months:
+            return season
+    return "fall"  # unreachable, but safe default
+
 def _minutes_from_hhmm_ampm(s: str) -> Optional[int]:
     """Parses 'H:MM', 'HH:MM', optionally with ' AM/PM', returns minutes since midnight."""
     if not s:
@@ -309,8 +324,21 @@ def _compute_avg_bias_and_today_mean(rows: List[dict], today_iso: str) -> Tuple[
     avg_bias = (sum(biases) / len(biases)) if biases else None
     return avg_bias, today_mean
 
-def _compute_avg_bias_excluding(rows: List[dict], exclude_date_iso: str) -> Optional[float]:
-    """Average bias across completed days, excluding exclude_date_iso (pass '' to exclude nothing)."""
+def _compute_avg_bias_excluding(
+    rows: List[dict],
+    exclude_date_iso: str,
+    target_month: Optional[int] = None,
+) -> Optional[float]:
+    """
+    Average bias across completed days, excluding exclude_date_iso.
+
+    If target_month is provided, applies seasonal bias correction:
+      - >= 30 matching days in same season → pure seasonal bias
+      - 10-29 days → weighted blend (70% seasonal, 30% global)
+      - < 10 days → falls back to global bias
+
+    Pass exclude_date_iso='' to exclude nothing.
+    """
     by_date: Dict[str, List[dict]] = {}
     for r in rows:
         d = r.get("cli_date") if r.get("forecast_or_actual") == "actual" else r.get("target_date")
@@ -318,7 +346,10 @@ def _compute_avg_bias_excluding(rows: List[dict], exclude_date_iso: str) -> Opti
             continue
         by_date.setdefault(d, []).append(r)
 
-    biases: List[float] = []
+    global_biases: List[float] = []
+    seasonal_biases: List[float] = []
+    target_season = _get_season_from_month(target_month) if target_month is not None else None
+
     for d, rs in by_date.items():
         if exclude_date_iso and d == exclude_date_iso:
             continue
@@ -346,9 +377,35 @@ def _compute_avg_bias_excluding(rows: List[dict], exclude_date_iso: str) -> Opti
 
         if fc_vals:
             mean_fc = sum(fc_vals) / len(fc_vals)
-            biases.append(actual_high - mean_fc)
+            bias = actual_high - mean_fc
+            global_biases.append(bias)
+            # also bucket into seasonal list if target season set
+            if target_season is not None:
+                try:
+                    d_month = int(d.split("-")[1])
+                    if _get_season_from_month(d_month) == target_season:
+                        seasonal_biases.append(bias)
+                except Exception:
+                    pass
 
-    return (sum(biases) / len(biases)) if biases else None
+    global_avg = (sum(global_biases) / len(global_biases)) if global_biases else None
+
+    if target_month is None or target_season is None:
+        return global_avg
+
+    n_seasonal = len(seasonal_biases)
+    if n_seasonal >= 30:
+        # Enough seasonal data — use pure seasonal bias
+        return sum(seasonal_biases) / n_seasonal
+    elif n_seasonal >= 10:
+        # Blend: weight seasonal more heavily but hedge with global
+        seasonal_avg = sum(seasonal_biases) / n_seasonal
+        if global_avg is None:
+            return seasonal_avg
+        return 0.7 * seasonal_avg + 0.3 * global_avg
+    else:
+        # Too few seasonal days — fall back to global
+        return global_avg
 
 def _compute_today_pre_high_mean(rows: List[dict], today_iso: str) -> Optional[float]:
     """Mean of today's forecasts that occurred before today's high time."""
