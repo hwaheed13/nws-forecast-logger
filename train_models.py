@@ -10,6 +10,8 @@ from sklearn.ensemble import GradientBoostingRegressor, RandomForestClassifier
 from sklearn.metrics import accuracy_score, mean_absolute_error
 from sklearn.model_selection import TimeSeriesSplit
 
+from sklearn.preprocessing import LabelEncoder
+
 try:
     from xgboost import XGBRegressor, XGBClassifier
     HAS_XGBOOST = True
@@ -18,6 +20,30 @@ except Exception:
     HAS_XGBOOST = False
 
 warnings.filterwarnings("ignore")
+
+
+class _LabelEncodedClassifier:
+    """Wraps a classifier that requires numeric labels (e.g. XGBClassifier)
+    to work transparently with string labels like '72-73'."""
+
+    def __init__(self, base):
+        self.base = base
+        self._le = LabelEncoder()
+
+    def fit(self, X, y):
+        y_enc = self._le.fit_transform(y)
+        self.base.fit(X, y_enc)
+        return self
+
+    def predict(self, X):
+        return self._le.inverse_transform(self.base.predict(X))
+
+    def predict_proba(self, X):
+        return self.base.predict_proba(X)
+
+    @property
+    def classes_(self):
+        return self._le.classes_
 
 FEATURE_COLS = [
     "nws_first",
@@ -349,11 +375,13 @@ class NYCTemperatureModelTrainer:
             ),
         }
         if HAS_XGBOOST:
-            candidates["XGBoost"] = lambda: XGBClassifier(
-                n_estimators=200, max_depth=3, learning_rate=0.05,
-                subsample=0.8, colsample_bytree=0.8,
-                use_label_encoder=False, eval_metric="mlogloss",
-                random_state=42, verbosity=0
+            candidates["XGBoost"] = lambda: _LabelEncodedClassifier(
+                XGBClassifier(
+                    n_estimators=200, max_depth=3, learning_rate=0.05,
+                    subsample=0.8, colsample_bytree=0.8,
+                    eval_metric="mlogloss",
+                    random_state=42, verbosity=0
+                )
             )
 
         best_name, best_acc, best_factory = None, -1.0, None
