@@ -242,21 +242,22 @@
       background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 4px; }
     @keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
     
-    /* Boundary warning styles */
-    .boundary-warning {
-      background: #fef3c7;
-      border: 1px solid #f59e0b;
-      color: #92400e;
+    /* Info note style (exceedance, etc) */
+    .info-note {
+      background: #dbeafe;
+      border: 1px solid #3b82f6;
+      color: #1e40af;
       padding: 10px 14px;
       border-radius: 10px;
       margin-top: 12px;
       font-size: 13px;
       font-weight: 600;
     }
-    .boundary-warning.critical {
-      background: #fee2e2;
-      border: 1px solid #dc2626;
-      color: #991b1b;
+    .ml-badge {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--accent-blue);
+      margin-left: 8px;
     }
     .prediction-history {
       margin-top: 8px;
@@ -792,206 +793,93 @@ if (!window.predictionHistory) {
 // Use the global object directly
 const predictionHistory = window.predictionHistory;
 
-// Boundary detector for Kalshi bucket warnings
-class KalshiBoundaryDetector {
-  constructor() {
-    this.BOUNDARY_THRESHOLD = 1.0;
-    this.CRITICAL_THRESHOLD = 0.5;
-  }
-  
-getWarning(prediction, ranges, history, candidates) {
-  console.log("Boundary check start:", prediction, ranges);
-  if (!ranges || !ranges.length) return null;
-  
-  // Kalshi buckets: "81° to 82°" means 81.0 to 82.99
-  // So we need to check if prediction falls in any bucket using that logic
-  const actualInBucket = ranges.find(r => {
-    if (r.min === null) return prediction < r.max + 1;  // "X° or less" includes up to X.99
-    if (r.max === null) return prediction >= r.min;     // "X° or more" 
-    return prediction >= r.min && prediction < r.max + 1; // "X° to Y°" includes X.0 to Y.99
-  });
-  
-  const nws = candidates?.D0_latest || candidates?.D1_latest;
-  const accu = candidates?.AccuWeather;
-  
-  // Work with actual prediction value, no rounding
-  // actualInBucket was already defined above with the correct Kalshi logic
-  
-  // If prediction doesn't fall in ANY bucket, check proximity to nearest edge
-  if (!actualInBucket) {
-    // Find closest bucket boundary
-    let closestDist = Infinity;
-    let closestBoundary = null;
-    let boundaryType = '';
-    
-    for (const r of ranges) {
-      if (r.min !== null && prediction < r.min) {
-        const dist = r.min - prediction;
-        if (dist < closestDist) {
-          closestDist = dist;
-          closestBoundary = r.min;
-          boundaryType = 'below';
-        }
-      }
-      if (r.max !== null && prediction > r.max) {
-        const dist = prediction - r.max;
-        if (dist < closestDist) {
-          closestDist = dist;
-          closestBoundary = r.max;
-          boundaryType = 'above';
-        }
-      }
-    }
-    
-    // If very close to a boundary (within 0.3°F), it's a warning
-    if (closestDist <= 0.3) {
-      return {
-        level: 'warning',
-        message: `⚠️ JUST OUTSIDE: ${prediction.toFixed(1)}°F is ${closestDist.toFixed(1)}° ${boundaryType} the ${closestBoundary}° boundary`,
-        recommendation: 'CAUTION - Very close to bucket edge',
-        details: { 
-          forecastSpread: (nws && accu) ? Math.abs(nws - accu).toFixed(1) : '0',
-          forecastsDisagree: nws && accu && Math.round(nws) !== Math.round(accu)
-        }
-      };
-    } else {
-      // Far from any boundary = critical
-      return {
-        level: 'critical',
-        message: `⚠️ BOUNDARY: ${prediction.toFixed(1)}°F falls between buckets (${closestDist.toFixed(1)}° from nearest edge)`,
-        recommendation: 'SKIP - Between Kalshi ranges',
-        details: { 
-          forecastSpread: (nws && accu) ? Math.abs(nws - accu).toFixed(1) : '0',
-          forecastsDisagree: nws && accu && Math.round(nws) !== Math.round(accu)
-        }
-      };
-    }
-  }
-  
-// Check proximity to edges if we're actually IN a bucket
-// For Kalshi buckets like "81° to 82°" which includes 81.0-82.99:
-// - Warn if close to 81.0 (could drop to 80.x and fall into 79-80 bucket)  
-// - Warn if close to 83.0 (could rise to 83.x and fall into 83-84 bucket)
-if (actualInBucket) {
-  // Check distance to lower boundary (e.g., 81.0 for "81° to 82°" bucket)
-  if (actualInBucket.min !== null) {
-    const distToLower = prediction - actualInBucket.min;
-    if (distToLower >= 0 && distToLower <= 0.3) {
-      return {
-        level: 'warning',
-        message: `⚠️ NEAR LOWER EDGE: ${prediction.toFixed(1)}°F is only ${distToLower.toFixed(1)}° above the ${actualInBucket.min}° boundary`,
-        recommendation: 'CAUTION - Close to previous bucket',
-        details: { forecastSpread: '0', forecastsDisagree: false }
-      };
-    }
-  }
-  
-  // Check distance to upper boundary (e.g., 83.0 for "81° to 82°" bucket)
-  // Remember: "81° to 82°" goes up to 82.99, so the boundary is at 83.0
-  if (actualInBucket.max !== null) {
-    const upperBoundary = actualInBucket.max + 1; // 82 -> 83
-    const distToUpper = upperBoundary - prediction;
-    if (distToUpper >= 0 && distToUpper <= 0.4) {
-      return {
-        level: 'warning', 
-        message: `⚠️ NEAR UPPER EDGE: ${prediction.toFixed(1)}°F is only ${distToUpper.toFixed(1)}° below the ${upperBoundary}° boundary`,
-        recommendation: 'CAUTION - Close to next bucket',
-        details: { forecastSpread: '0', forecastsDisagree: false }
-      };
-    }
-  }
-}
+// === Bucket confidence calculator (ML-integrated, replaces separate boundary detector) ===
+// 5-component scoring: ML confidence + boundary distance + source agreement + stability + count
+function computeBucketConfidence(prediction, kalshiRange, candidates, kalshiData, mlPrediction) {
+  if (!kalshiRange || !Number.isFinite(prediction)) return { pct: 0, signal: "SKIP", reason: "No data", boundary_warning: false };
 
-// No warning if safely inside the bucket
-return null;
-
-  }  // This closes the getWarning method
-}  // This closes the KalshiBoundaryDetector class
-const boundaryDetector = new KalshiBoundaryDetector();
-
-// === Bucket confidence calculator ===
-// Computes how confident we are in the predicted Kalshi bucket
-function computeBucketConfidence(prediction, kalshiRange, candidates, kalshiData) {
-  if (!kalshiRange || !Number.isFinite(prediction)) return { pct: 0, signal: "SKIP", reason: "No data" };
-
-  // 1. Distance from boundary (0-40 points)
-  //    Middle of bucket = max points, near edge = near zero
-  const lo = kalshiRange.min ?? (prediction - 5);  // "X or below"
+  const lo = kalshiRange.min ?? (prediction - 5);
   const hi = (kalshiRange.max ?? (prediction + 5)) + 1; // Kalshi "81-82" includes up to 82.99
-  const bucketWidth = hi - lo;
   const distFromLo = prediction - lo;
   const distFromHi = hi - prediction;
   const minDist = Math.min(distFromLo, distFromHi);
-  // Normalize: 0.5°F from edge = ~40pts, 0.1°F from edge = ~8pts
-  const boundaryScore = Math.min(40, minDist * 80);
 
-  // 2. Source agreement (0-30 points)
-  //    All sources in the same bucket = 30, split across buckets = 0
+  // 1. ML confidence (0-30 pts) — bucket probability from trained model
+  let mlScore = 0;
+  let mlNote = "";
+  const hasML = mlPrediction && mlPrediction.confidence > 0 && !mlPrediction._stale;
+  if (hasML) {
+    mlScore = Math.round(mlPrediction.confidence * 30);
+    mlNote = `ML ${Math.round(mlPrediction.confidence * 100)}%`;
+  }
+
+  // 2. Boundary distance (0-25 pts) — how far from bucket edge
+  const boundaryScore = Math.min(25, minDist * 50);
+
+  // 3. Source agreement (0-25 pts) — how many sources land in same bucket
   const vals = Object.values(candidates || {}).filter(Number.isFinite);
-  let agreeScore = 30; // default if only 1 source
+  let agreeScore = 25;
   if (vals.length >= 2) {
     const inSameBucket = vals.filter(v => v >= lo && v < hi).length;
-    agreeScore = Math.round(30 * (inSameBucket / vals.length));
+    let baseAgree = Math.round(15 * (inSameBucket / vals.length));
+    // Bonus: ML bucket matches the Hedge-predicted bucket
+    if (hasML && kalshiRange.label && mlPrediction.bucket === kalshiRange.label) {
+      baseAgree += 10;
+    }
+    agreeScore = Math.min(25, baseAgree);
   }
 
-  // 3. Prediction stability (0-20 points)
-  //    Tight spread among sources = high stability
-  let stabilityScore = 20;
+  // 4. Stability (0-15 pts) — tight spread among sources
+  let stabilityScore = 15;
   if (vals.length >= 2) {
     const spread = Math.max(...vals) - Math.min(...vals);
-    // spread of 0 = 20pts, spread of 4+ = 0pts
-    stabilityScore = Math.max(0, Math.round(20 * (1 - spread / 4)));
+    stabilityScore = Math.max(0, Math.round(15 * (1 - spread / 4)));
   }
 
-  // 4. Source count bonus (0-10 points)
-  //    More sources = more reliable
-  const countScore = Math.min(10, vals.length * 2);
+  // 5. Source count (0-5 pts)
+  const countScore = Math.min(5, vals.length);
 
-  const pct = Math.min(95, Math.max(5, boundaryScore + agreeScore + stabilityScore + countScore));
+  const pct = Math.min(95, Math.max(5, mlScore + boundaryScore + agreeScore + stabilityScore + countScore));
+  const boundary_warning = minDist < 0.3;
+  const edgeNote = minDist < 0.5 ? `, ${minDist.toFixed(1)}°F from edge` : "";
 
-  // Signal based on confidence
   let signal, reason;
   if (pct >= 70) {
     signal = "BET";
-    reason = "High confidence — prediction centered in bucket, sources agree";
+    const parts = [hasML ? mlNote : null, "sources agree", !boundary_warning ? null : "near edge"].filter(Boolean);
+    reason = parts.join(", ") || "High confidence";
   } else if (pct >= 45) {
     signal = "LEAN";
-    const edge = minDist < 0.4 ? "near bucket edge" : "moderate source disagreement";
-    reason = `Moderate confidence — ${edge}`;
+    const edge = minDist < 0.4 ? "near bucket edge" : "moderate disagreement";
+    reason = [hasML ? mlNote : null, edge].filter(Boolean).join(", ");
   } else {
     signal = "SKIP";
     reason = minDist < 0.3 ? "Too close to boundary" : "Sources disagree on bucket";
   }
 
-  return { pct: Math.round(pct), signal, reason, minDist: minDist.toFixed(1), boundaryScore, agreeScore, stabilityScore };
+  return { pct: Math.round(pct), signal, reason, minDist: minDist.toFixed(1), boundary_warning, boundaryScore, agreeScore, stabilityScore, mlScore };
 }
 // Log predictions to Supabase - matches what's on the UI
-async function logUIprediction(which, prediction, candidates, warning, bias, rmse) {
+async function logUIprediction(which, prediction, candidates, conf, bias, rmse, mlData) {
   if (!PREDICTION_LOGGING_ENABLED) return;
-  
+
   const rounded = Math.round(prediction * 10) / 10;
   const targetDate = which === 'today' ? nycISODate(0) : nycISODate(1);
-  
-  // Create unique key combining date + value
+
   const uniqueKey = `${targetDate}|${rounded}`;
   const lastLoggedKey = localStorage.getItem(`lastLoggedKey_${which}`);
-  
-  // ONLY LOG IF THIS EXACT DATE+VALUE COMBO HASN'T BEEN LOGGED
+
   if (lastLoggedKey === uniqueKey) {
     console.log(`Skipping: ${which} already logged ${rounded}°F for ${targetDate}`);
     return;
   }
-  
+
   const now = new Date();
   const minuteTimestamp = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-    now.getHours(),
-    now.getMinutes(),
-    0, 0
+    now.getFullYear(), now.getMonth(), now.getDate(),
+    now.getHours(), now.getMinutes(), 0, 0
   );
-  
+
   const payload = {
     target_date: targetDate,
     lead_used: which === 'today' ? 'D0' : 'D1',
@@ -1008,29 +896,27 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
     forecast_signature: '',
     representative_kind: 'blend',
     timestamp_et: now.toISOString(),
-    // Populate source columns (were always null before)
     nws_d0: Number.isFinite(candidates?.D0_latest) ? candidates.D0_latest : null,
     nws_d1: Number.isFinite(candidates?.D1_latest) ? candidates.D1_latest : null,
     accuweather: Number.isFinite(candidates?.AccuWeather) ? candidates.AccuWeather : null,
-    // Populate warning columns
-    has_boundary_warning: !!(warning),
-    warning_level: warning?.level || null,
-    warning_message: warning?.message || null,
-    recommendation: warning?.recommendation || null,
+    // Derive warning fields from confidence score
+    has_boundary_warning: conf?.boundary_warning || false,
+    warning_level: conf?.pct < 30 ? "critical" : conf?.pct < 45 ? "warning" : null,
+    warning_message: conf?.reason || null,
+    recommendation: conf?.signal || null,
     };
-  
+
   try {
     const r = await fetch(`${API_BASE}/log-prediction`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
-    
+
     if (!r.ok && r.status !== 409) {
       console.error(`API error (${r.status}):`, await r.text());
     } else if (r.ok) {
       console.log(`Successfully logged ${which}: ${rounded}°F for ${targetDate}`);
-      // Store the unique key so we don't log this combo again
       localStorage.setItem(`lastLoggedKey_${which}`, uniqueKey);
       lastLoggedPredictions[which] = rounded;
     }
@@ -1182,15 +1068,8 @@ if (!saved) window._overnightExceeded = null;
 
 }
 function hidePredictionAndBoundary(box) {
-  // Hide the big bias-corrected number
   const pv = box.querySelector('.prediction-value');
   if (pv) pv.style.display = 'none';
-
-  // Remove any boundary warnings within the card
-  const warns = box.querySelectorAll('.boundary-warning');
-  warns.forEach(el => el.remove());
-
-  // (Optional) Hide the small subtitle row if you have one
   const sub = box.querySelector('.prediction-subtitle');
   if (sub) sub.style.display = 'none';
 }
@@ -1706,6 +1585,28 @@ accuRows = [];
 // Keyed by ISO date → { prev_day: number, same_day: number }
 window._bcpFromServer = {};
 
+// Global holder for ML predictions from ml_predictions.json
+window._mlPredictions = null;
+
+async function loadMLPredictions() {
+  try {
+    const r = await fetch('/ml_predictions.json', { cache: 'no-store' });
+    if (!r.ok) return;
+    const data = await r.json();
+    // Staleness check: if > 6 hours old, mark as stale (reduced weight in confidence)
+    const genAt = new Date(data.generated_at);
+    const ageMs = Date.now() - genAt.getTime();
+    if (ageMs > 6 * 3600 * 1000) {
+      console.warn('ML predictions stale, age:', Math.round(ageMs / 3600000), 'hours');
+      data._stale = true;
+    }
+    window._mlPredictions = data;
+    console.log('Loaded ML predictions:', Object.keys(data.predictions || {}).length, 'days');
+  } catch (e) {
+    console.debug('loadMLPredictions failed:', e);
+  }
+}
+
 async function loadServerBCP() {
   try {
     const { data, error } = await supabase
@@ -1763,6 +1664,10 @@ function reloadCSV(opts = {}) {
     // Load server-side BCP values so they can be used as Hedge candidates
     if (typeof loadServerBCP === "function") {
       try { await loadServerBCP(); } catch (e) { console.warn("loadServerBCP failed:", e); }
+    }
+    // Load ML predictions (static JSON from GitHub Actions)
+    if (typeof loadMLPredictions === "function") {
+      try { await loadMLPredictions(); } catch (e) { console.warn("loadMLPredictions failed:", e); }
     }
 
     // Reset + pretrain the learner from the CSVs we just loaded (NWS history + AccuWeather)
@@ -3136,52 +3041,33 @@ window._predTomorrow = predTomorrow;
 
  // Check for early morning exceedance
     const exceedance = await checkEarlyMorningExceedance();   
-// Check for boundary warnings  
-    const todayWarning = predToday?.y
-      ? boundaryDetector.getWarning(
-          predToday.y,
-          todayMarket?.ranges || [{min: Math.floor(predToday.y), max: Math.ceil(predToday.y)}],
-          predictionHistory,
-          builtToday.candidates
-        )
-      : null;
-
-  const tomorrowWarning = predTomorrow?.y
-      ? (() => {
-          const finalTemp = predTomorrow.y + (Number.isFinite(d1AdjF) ? d1AdjF : 0);
-          
-          // Use the actual market ranges from tomorrowMarket, not from the matched range
-          let ranges = tomorrowMarket?.ranges;
-          if (!ranges || ranges.length === 0) {
-            // Create a synthetic range if no market data
-            const floor = Math.floor(finalTemp);
-            ranges = [{min: floor, max: floor + 1}];
-          }
-          
-          return boundaryDetector.getWarning(
-            finalTemp,
-            ranges,
-
-            predictionHistory,
-            builtTomorrow.candidates
-          );
-        })()
-      : null;
+// Get ML predictions for today/tomorrow (from static JSON)
+    const mlToday = window._mlPredictions?.predictions?.[todayISO] || null;
+    const mlTomorrow = window._mlPredictions?.predictions?.[tomorrowISO] || null;
+    // Mark stale if parent is stale
+    if (mlToday && window._mlPredictions?._stale) mlToday._stale = true;
+    if (mlTomorrow && window._mlPredictions?._stale) mlTomorrow._stale = true;
 
 // Only log valid predictions after system is fully loaded
     if (systemFullyLoaded && predToday?.y && predToday.y > 20 && !hasActualFor(todayISO)) {
       const roundedToday = Math.round(predToday.y * 10) / 10;
       if (lastLoggedPredictions.today !== roundedToday) {
-        logUIprediction('today', predToday.y, builtToday.candidates, todayWarning, predToday.bias, predToday.pad);
+        const todayConfForLog = todayKalshiRange
+          ? computeBucketConfidence(predToday.y, todayKalshiRange, builtToday.candidates, todayMarket, mlToday)
+          : null;
+        logUIprediction('today', predToday.y, builtToday.candidates, todayConfForLog, predToday.bias, predToday.pad, mlToday);
         lastLoggedPredictions.today = roundedToday;
       }
     }
-    
+
     if (systemFullyLoaded && predTomorrow?.y && predTomorrow.y > 20) {
       const finalValue = predTomorrow.y + (Number.isFinite(d1AdjF) ? d1AdjF : 0);
       const roundedTomorrow = Math.round(finalValue * 10) / 10;
       if (lastLoggedPredictions.tomorrow !== roundedTomorrow) {
-        logUIprediction('tomorrow', finalValue, builtTomorrow.candidates, tomorrowWarning, predTomorrow.bias, predTomorrow.pad);
+        const tmConfForLog = tomorrowKalshiRange
+          ? computeBucketConfidence(finalValue, tomorrowKalshiRange, builtTomorrow.candidates, tomorrowMarket, mlTomorrow)
+          : null;
+        logUIprediction('tomorrow', finalValue, builtTomorrow.candidates, tmConfForLog, predTomorrow.bias, predTomorrow.pad, mlTomorrow);
         lastLoggedPredictions.tomorrow = roundedTomorrow;
       }
     }
@@ -3206,16 +3092,6 @@ window._predTomorrow = predTomorrow;
           ? ` • Kalshi: ${todayKalshiRange.label}` 
           : "";
         
-      // Add warning if present
-        const warningHTML = todayWarning 
-          ? `<div class="boundary-warning ${todayWarning.level}">
-              ${todayWarning.message}<br>
-              <strong>Recommendation: ${todayWarning.recommendation}</strong>
-              ${todayWarning.details?.crossed ? '<br>⚠️ Prediction crossed this boundary today' : ''}
-              ${(todayWarning.details?.forecastSpread && todayWarning.details.forecastSpread > 1) ? `<br>Forecast spread: ${todayWarning.details.forecastSpread}°F` : ''}
-            </div>` 
-          : '';
-        
     // Add prediction history
     const historyRange = predictionHistory.getRange('today');
     const historyHTML = (historyRange
@@ -3235,32 +3111,41 @@ const exceedanceNote = (
   Number.isFinite(Number(exceedance.currentTemp)) &&
   Number.isFinite(Number(exceedance.forecast)) &&
   Number.isFinite(Number(exceedance.hour))
-) ? `<div class="boundary-warning" style="background: #dbeafe; border-color: #3b82f6; color: #1e40af;">
-      ℹ️ <strong>Note:</strong> Currently ${Number(exceedance.currentTemp).toFixed(1)}°F at ${Number(exceedance.hour)}:00 AM ET — already at/above forecast (${Number(exceedance.forecast).toFixed(1)}°F).
+) ? `<div class="info-note">
+      Currently ${Number(exceedance.currentTemp).toFixed(1)}°F at ${Number(exceedance.hour)}:00 AM ET — already at/above forecast (${Number(exceedance.forecast).toFixed(1)}°F).
       High may occur overnight. Forecast reflects expected daytime high.
     </div>`
   : '';
 
 
-// Compute bucket confidence
+// Compute bucket confidence (with ML data if available)
 const todayConf = todayKalshiRange
-  ? computeBucketConfidence(predToday.y, todayKalshiRange, builtToday.candidates, todayMarket)
+  ? computeBucketConfidence(predToday.y, todayKalshiRange, builtToday.candidates, todayMarket, mlToday)
   : { pct: 0, signal: "SKIP", reason: "No Kalshi data" };
 const confClass0 = todayConf.pct >= 70 ? "high" : todayConf.pct >= 45 ? "med" : "low";
 const sigClass0 = todayConf.signal.toLowerCase();
 
 const bucketLabel0 = todayKalshiRange?.label || `${Math.floor(predToday.y)}-${Math.floor(predToday.y)+1}`;
 
+// Build source detail line
+const srcParts0 = [];
+if (mlToday) srcParts0.push(`ML: ${mlToday.temperature.toFixed(1)}°F → ${mlToday.bucket} (${Math.round(mlToday.confidence*100)}%)`);
+srcParts0.push(`Hedge: ${val}°F`);
+if (Number.isFinite(builtToday.candidates?.D0_latest)) srcParts0.push(`NWS: ${builtToday.candidates.D0_latest}°`);
+if (Number.isFinite(builtToday.candidates?.AccuWeather)) srcParts0.push(`Accu: ${builtToday.candidates.AccuWeather}°`);
+
+const mlBadge0 = mlToday ? `<span class="ml-badge">ML ${Math.round(mlToday.confidence*100)}%</span>` : '';
+
 el0.innerHTML = `
   <div class="bucket-display">
     <span class="bucket-range">${bucketLabel0}°F</span>
     <span class="bucket-signal ${sigClass0}">${todayConf.signal}</span>
+    ${mlBadge0}
   </div>
   <div class="confidence-bar"><div class="confidence-fill ${confClass0}" style="width:${todayConf.pct}%"></div></div>
-  <div class="confidence-label">${todayConf.pct}% confidence — ${todayConf.reason}</div>
-  <div class="temp-detail">Ensemble: ${val}°F (${Object.keys(builtToday.candidates || {}).length} sources, bias ${sign}${bias}°F)</div>
+  <div class="confidence-label">${todayConf.pct}% — ${todayConf.reason}</div>
+  <div class="temp-detail">${srcParts0.join(' | ')}</div>
   ${exceedanceNote}
-  ${warningHTML}
   ${historyHTML}
 `;
       } else {
@@ -3286,16 +3171,6 @@ if (el1) {
             ? ` • Kalshi: ${tomorrowKalshiRange.label}` 
             : "";
         
-      // Add warning if present
-        const warningHTML = tomorrowWarning 
-          ? `<div class="boundary-warning ${tomorrowWarning.level}">
-              ${tomorrowWarning.message}<br>
-              <strong>Recommendation: ${tomorrowWarning.recommendation}</strong>
-              ${tomorrowWarning.details?.crossed ? '<br>⚠️ Prediction crossed this boundary today' : ''}
-              ${(tomorrowWarning.details?.forecastSpread && tomorrowWarning.details.forecastSpread > 1) ? `<br>Forecast spread: ${tomorrowWarning.details.forecastSpread}°F` : ''}
-            </div>` 
-          : '';
-        
     // Add prediction history
     const historyRange = predictionHistory.getRange('tomorrow');
     const historyHTML = (historyRange
@@ -3310,24 +3185,33 @@ if (el1) {
         </div>`
       : '';
    
-  // Compute bucket confidence for tomorrow
+  // Compute bucket confidence for tomorrow (with ML data if available)
   const tmConf = tomorrowKalshiRange
-    ? computeBucketConfidence(final, tomorrowKalshiRange, builtTomorrow.candidates, tomorrowMarket)
+    ? computeBucketConfidence(final, tomorrowKalshiRange, builtTomorrow.candidates, tomorrowMarket, mlTomorrow)
     : { pct: 0, signal: "SKIP", reason: "No Kalshi data" };
   const confClass1 = tmConf.pct >= 70 ? "high" : tmConf.pct >= 45 ? "med" : "low";
   const sigClass1 = tmConf.signal.toLowerCase();
 
   const bucketLabel1 = tomorrowKalshiRange?.label || `${Math.floor(final)}-${Math.floor(final)+1}`;
 
+  // Build source detail line for tomorrow
+  const srcParts1 = [];
+  if (mlTomorrow) srcParts1.push(`ML: ${mlTomorrow.temperature.toFixed(1)}°F → ${mlTomorrow.bucket} (${Math.round(mlTomorrow.confidence*100)}%)`);
+  srcParts1.push(`Hedge: ${val}°F`);
+  if (Number.isFinite(builtTomorrow.candidates?.D1_latest)) srcParts1.push(`NWS: ${builtTomorrow.candidates.D1_latest}°`);
+  if (Number.isFinite(builtTomorrow.candidates?.AccuWeather)) srcParts1.push(`Accu: ${builtTomorrow.candidates.AccuWeather}°`);
+
+  const mlBadge1 = mlTomorrow ? `<span class="ml-badge">ML ${Math.round(mlTomorrow.confidence*100)}%</span>` : '';
+
   el1.innerHTML = `
       <div class="bucket-display">
         <span class="bucket-range">${bucketLabel1}°F</span>
         <span class="bucket-signal ${sigClass1}">${tmConf.signal}</span>
+        ${mlBadge1}
       </div>
       <div class="confidence-bar"><div class="confidence-fill ${confClass1}" style="width:${tmConf.pct}%"></div></div>
-      <div class="confidence-label">${tmConf.pct}% confidence — ${tmConf.reason}</div>
-      <div class="temp-detail">Ensemble: ${val}°F (${Object.keys(builtTomorrow.candidates || {}).length} sources, bias ${sign}${bias}°F${bumpTxt})</div>
-      ${warningHTML}
+      <div class="confidence-label">${tmConf.pct}% — ${tmConf.reason}</div>
+      <div class="temp-detail">${srcParts1.join(' | ')}</div>
       ${historyHTML}
     `;
       } else {
