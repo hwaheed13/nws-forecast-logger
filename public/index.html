@@ -2948,12 +2948,18 @@ window._predTomorrow = predTomorrow;
     // Skip momentum on overnight-high days — the "actual" is the 24hr max
     // (which peaked overnight) while forecasts target daytime highs, so the
     // overshoot is a measurement mismatch, not a real forecast trend.
-    const overnightDay = window._overnightExceeded
-      || JSON.parse(localStorage.getItem(`overnightExceeded_${todayISO}`) || 'null');
+    // Check multiple sources: in-memory flag, localStorage, or detect directly
+    // by comparing actual vs ALL forecast sources (if actual > every source,
+    // it likely peaked overnight before daytime forecasts kicked in).
+    const overnightLS = JSON.parse(localStorage.getItem(`overnightExceeded_${todayISO}`) || 'null');
+    const overnightFlag = window._overnightExceeded || overnightLS;
+    const allSourcesBelow = Number.isFinite(actual) && pool.length > 0
+      && pool.every(v => actual > v + 2);  // actual exceeds every source by >2°F
 
-    if (overnightDay) {
-      console.log("D1 momentum skipped: overnight high already passed for today");
-      window._d1Adj_debug = { skipped: true, reason: "overnight_exceedance" };
+    if (overnightFlag || allSourcesBelow) {
+      const reason = overnightFlag ? "overnight_exceedance_flag" : "actual_exceeds_all_sources";
+      console.log("D1 momentum skipped:", reason, { actual, pool: [...pool] });
+      window._d1Adj_debug = { skipped: true, reason, actual, pool: [...pool] };
     } else if (Number.isFinite(actual) && pool.length && Number.isFinite(predTomorrow?.y)) {
       const base = pool.reduce((a,b)=>a+b,0) / pool.length;
       const overshoot = actual - base;          // ±
