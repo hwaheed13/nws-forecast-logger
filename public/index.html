@@ -832,6 +832,11 @@ if (!window.predictionHistory) {
 // Use the global object directly
 const predictionHistory = window.predictionHistory;
 
+// Strip markdown bold markers from Kalshi labels (API sometimes returns "**text**")
+function cleanKalshiLabel(s) {
+  return typeof s === 'string' ? s.replace(/\*\*/g, '') : s;
+}
+
 // Boundary detector for Kalshi bucket warnings
 class KalshiBoundaryDetector {
   constructor() {
@@ -884,12 +889,15 @@ getWarning(prediction, ranges, history, candidates) {
     }
     
     // If very close to a boundary (within 0.3°F), it's a warning
+    // If no valid boundaries were found (all min/max null), skip warning
+    if (!Number.isFinite(closestDist)) return null;
+
     if (closestDist <= 0.3) {
       return {
         level: 'warning',
         message: `⚠️ JUST OUTSIDE: ${prediction.toFixed(1)}°F is ${closestDist.toFixed(1)}° ${boundaryType} the ${closestBoundary}° boundary`,
         recommendation: 'CAUTION - Very close to bucket edge',
-        details: { 
+        details: {
           forecastSpread: (nws && accu) ? Math.abs(nws - accu).toFixed(1) : '0',
           forecastsDisagree: nws && accu && Math.round(nws) !== Math.round(accu)
         }
@@ -900,7 +908,7 @@ getWarning(prediction, ranges, history, candidates) {
         level: 'critical',
         message: `⚠️ BOUNDARY: ${prediction.toFixed(1)}°F falls between buckets (${closestDist.toFixed(1)}° from nearest edge)`,
         recommendation: 'SKIP - Between Kalshi ranges',
-        details: { 
+        details: {
           forecastSpread: (nws && accu) ? Math.abs(nws - accu).toFixed(1) : '0',
           forecastsDisagree: nws && accu && Math.round(nws) !== Math.round(accu)
         }
@@ -1588,8 +1596,16 @@ const seeds = [
 for (const [k, v] of seeds) {
   const existing = localStorage.getItem(k);
   if (!existing) {
-    localStorage.setItem(k, JSON.stringify(v));
-    console.log(`Seeded ${k} with initial values`);
+    // Check old non-city-keyed format and migrate if found
+    const oldKey = k.replace(`${currentCity}:`, '');
+    const oldState = localStorage.getItem(oldKey);
+    if (oldState) {
+      localStorage.setItem(k, oldState);
+      console.log(`Migrated ${oldKey} → ${k}`);
+    } else {
+      localStorage.setItem(k, JSON.stringify(v));
+      console.log(`Seeded ${k} with initial values`);
+    }
   } else {
     console.log(`Preserving learned state for ${k}`);
   }
@@ -1686,7 +1702,7 @@ window.warmOnceForCurrentCSV = warmOnceForCurrentCSV;
 accuRows = [];
 
 function reloadCSV(opts = {}) {
-  const skipUI = !!opts.skipUI;
+  const skipHedgeTrain = !!opts.skipHedgeTrain;
   showSkeleton();
 
   // Fetch NWS + AccuWeather concurrently
@@ -1715,12 +1731,14 @@ function reloadCSV(opts = {}) {
       }
     }
 
-    // Reset + pretrain the learner from the CSVs we just loaded (NWS history + AccuWeather)
-    if (typeof warmOnceForCurrentCSV === "function") {
-      try { warmOnceForCurrentCSV(); } catch (e) { console.warn("warmOnceForCurrentCSV failed:", e); }
-    }
-    if (typeof pretrainFromHistory === "function") {
-      try { pretrainFromHistory(); } catch (e) { console.warn("pretrainFromHistory failed:", e); }
+    // Warm/pretrain the Hedge learner — skip during city switch to preserve learned state
+    if (!skipHedgeTrain) {
+      if (typeof warmOnceForCurrentCSV === "function") {
+        try { warmOnceForCurrentCSV(); } catch (e) { console.warn("warmOnceForCurrentCSV failed:", e); }
+      }
+      if (typeof pretrainFromHistory === "function") {
+        try { pretrainFromHistory(); } catch (e) { console.warn("pretrainFromHistory failed:", e); }
+      }
     }
 
     // Continue normal boot
@@ -1729,14 +1747,12 @@ function reloadCSV(opts = {}) {
     forecastChanged.today = false;
     forecastChanged.tomorrow = false;
 
-    if (!skipUI) {
-      resetFilter();
-      showMostRecent();
-      updateSummaryBoxes();
-      updateCorrectionBoxes();   // now uses CSV-trained weights/bias
-      updateCorrectionBoxes();
-      updateObservations();
-    }
+    // Always update UI (table, predictions, observations)
+    resetFilter();
+    showMostRecent();
+    updateSummaryBoxes();
+    updateCorrectionBoxes();
+    updateObservations();
 
   })
   .catch(err => {
@@ -2623,11 +2639,10 @@ updateCorrectionBoxes();  // now uses the freshly-trained state
       // Update date display
       showTodayDate();
 
-      // Reload everything
-      reloadCSV();
+      // Reload CSV + full UI refresh (skipHedgeTrain preserves learned Hedge state)
+      reloadCSV({ skipHedgeTrain: true });
       updateDSM();
       updateSixHourMax();
-      updateObservations();
 
       // Reload Supabase data (city-aware)
       if (typeof loadMLPredictions === "function") loadMLPredictions();
@@ -3016,10 +3031,10 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
         // --- TODAY ---
         if (live && live.leadingLabel) {
           const pct = (live.leadingProb != null) ? ` (${Math.round(live.leadingProb * 100)}%)` : "";
-          if (tBox)  tBox.innerHTML  = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${live.leadingLabel}${pct}</a>`;
+          if (tBox)  tBox.innerHTML  = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${cleanKalshiLabel(live.leadingLabel)}${pct}</a>`;
           if (tNote) tNote.textContent = "Live leader (can flip before settlement).";
         } else if (ktoday && ktoday.settled === true && ktoday.label) {
-          if (tBox)  tBox.innerHTML  = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${ktoday.label}</a>`;
+          if (tBox)  tBox.innerHTML  = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${cleanKalshiLabel(ktoday.label)}</a>`;
           if (tNote) tNote.textContent = (ktoday.exactTemp != null) ? `Settled at ${ktoday.exactTemp.toFixed(1)}°F.` : "";
         } else {
           if (tBox)  tBox.innerHTML  = `<span class="kalshi-pending">Pending settlement</span>`;
@@ -3031,7 +3046,7 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
         const yHref = `${KALSHI_BASE_URL}${anchor}`;
         if (kyday && kyday.label) {
           const exact = (kyday.exactTemp != null) ? ` (settled ${kyday.exactTemp.toFixed(1)}°F)` : "";
-          if (yBox)  yBox.innerHTML  = `<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">${kyday.label}${exact}</a>`;
+          if (yBox)  yBox.innerHTML  = `<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">${cleanKalshiLabel(kyday.label)}${exact}</a>`;
           if (yNote) yNote.textContent = "Links directly to yesterday's contract.";
         } else {
           if (yBox)  yBox.innerHTML  = `<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">Open yesterday's market</a>`;
@@ -3334,8 +3349,8 @@ window._predTomorrow = predTomorrow;
           : "0.00";
         const sign = Number(bias) >= 0 ? "+" : "";
 
-        const kalshiNote = todayKalshiRange?.label 
-          ? ` • Kalshi: ${todayKalshiRange.label}` 
+        const kalshiNote = todayKalshiRange?.label
+          ? ` • Kalshi: ${cleanKalshiLabel(todayKalshiRange.label)}`
           : "";
         
       // Add warning if present
@@ -3402,8 +3417,8 @@ if (el1) {
         const showBump = Math.abs(bump) >= 0.05;
         const bumpTxt = showBump ? ` • momentum ${bump >= 0 ? "+" : ""}${bump.toFixed(1)}°` : "";
 
-        const kalshiNote = tomorrowKalshiRange?.label 
-            ? ` • Kalshi: ${tomorrowKalshiRange.label}` 
+        const kalshiNote = tomorrowKalshiRange?.label
+            ? ` • Kalshi: ${cleanKalshiLabel(tomorrowKalshiRange.label)}`
             : "";
         
       // Add warning if present
@@ -3834,7 +3849,7 @@ async function displayTable() {
         const pulled = actual.timestamp || actual.date_pulled || "";
         const actTxt = actual.actual_high ? `${actual.actual_high}°F` : "";
         const k = kalshiByDate[date];
-        const label = k && k.label ? k.label : "";
+        const label = k && k.label ? cleanKalshiLabel(k.label) : "";
         const exact = (k && k.exactTemp != null) ? ` (${k.exactTemp.toFixed(1)}°F)` : "";
       
         let kalshiCell = "—";
@@ -4038,7 +4053,7 @@ async function displayTable() {
 
       // Bucket hit: check Hedge prediction against actual Kalshi winning bucket
       const k = kalshiByDate[d];
-      const bucket = k ? parseKalshiBucket(k.label) : null;
+      const bucket = k ? parseKalshiBucket(cleanKalshiLabel(k.label)) : null;
       if (bucket) {
         bucketDaysChecked++;
         const inBucket = (bucket.max === Infinity)
@@ -4321,18 +4336,11 @@ async function bootApp() {
       try { await fetchAccuWeatherForecasts(); } catch {}
     }
 
-    try { window.reloadCSV && await window.reloadCSV({ skipUI: true }); } catch {}
-    // now paint the UI once, with warmed state
-    try { window.resetFilter && window.resetFilter(); } catch {}
-    try { window.showMostRecent && window.showMostRecent(); } catch {}
-    try { window.updateSummaryBoxes && window.updateSummaryBoxes(); } catch {}
-    try { window.updateCorrectionBoxes && window.updateCorrectionBoxes(); } catch {}
-    try { window.updateObservations && window.updateObservations(); } catch {}
+    // Load CSVs, warm Hedge, and paint all UI in one shot
+    try { window.reloadCSV && await window.reloadCSV(); } catch {}
+    // DSM + 6hr max are separate API calls, not covered by reloadCSV
     try { window.updateDSM && window.updateDSM(); } catch {}
     try { window.updateSixHourMax && window.updateSixHourMax(); } catch {}
-    try { window.updateObservations && window.updateObservations(); } catch {}
-    try { window.updateSummaryBoxes && window.updateSummaryBoxes(); } catch {}
-    try { window.updateCorrectionBoxes && window.updateCorrectionBoxes(); } catch {}
 
 
     try { window.pollCsvAndUpdate && window.pollCsvAndUpdate(); } catch {}
