@@ -1247,24 +1247,30 @@ const RMSE_HALFLIFE_DAYS = 21;            // uncertainty recency for clamp
 
 async function loadState(key){
   const fullKey = `${currentCity}:${ENS_KEY}:${key}`;
+
+  // Prefer localStorage — it always has the freshest state from this session.
+  // Supabase writes are fire-and-forget, so querying Supabase first risks
+  // getting stale pre-pretrain state that overwrites localStorage.
+  const raw = localStorage.getItem(fullKey) || localStorage.getItem(`${ENS_KEY}:${key}`);
+  if (raw) return JSON.parse(raw);
+
+  // Fallback: try Supabase (first load on new device / cleared cache)
   try {
     const { data } = await supabase
       .from('model_states')
       .select('state')
       .eq('key', fullKey)
-      .maybeSingle();   // returns null (not 406) when no row exists
+      .maybeSingle();
 
     if (data?.state) {
       localStorage.setItem(fullKey, JSON.stringify(data.state));
       return data.state;
     }
   } catch (e) {
-    // Expected on first run with new ENS_KEY — falls back to localStorage seeds
+    // Expected on first run with new ENS_KEY
   }
 
-  // Fallback: try old key format (backward compat for NYC)
-  const raw = localStorage.getItem(fullKey) || localStorage.getItem(`${ENS_KEY}:${key}`);
-  return raw ? JSON.parse(raw) : null;
+  return null;
 }
 
 function saveState(key, obj){
@@ -1396,7 +1402,7 @@ async function predictWithHedge(lead, season, candidates, rmseContext){
     if (!st.bias || st.bias === 0 || !st.lastDay || totalObs < MIN_SEASONAL_OBS) {
       const altSeason = season === "warm" ? "cool" : "warm";
       const altKey = contextKey(lead, altSeason);
-      const altSt = loadState(altKey);
+      const altSt = await loadState(altKey);
       if (altSt && altSt.bias != null && altSt.bias !== 0) {
         const reason = !st.lastDay ? "no data yet" : `only ${totalObs} days (need ${MIN_SEASONAL_OBS})`;
         console.log(`${season} bias not ready (${reason}), using ${altSeason} bias: ${altSt.bias}`);
