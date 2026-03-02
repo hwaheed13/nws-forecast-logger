@@ -1726,7 +1726,7 @@ function reloadCSV(opts = {}) {
     fetch(CSV_URL, { cache: "no-store" }).then(r => r.text()),
   fetch(ACCU_URL, { cache: "no-store" }).then(r => r.text()).catch(() => "")
   ])
-  .then(([nwsText, accuText]) => {
+  .then(async ([nwsText, accuText]) => {
     // Parse NWS (UI + ensemble base)
     parseCSV(nwsText);
 
@@ -1747,13 +1747,15 @@ function reloadCSV(opts = {}) {
       }
     }
 
-    // Warm/pretrain the Hedge learner — skip during city switch to preserve learned state
+    // Warm/pretrain the Hedge learner — MUST await so predictions use post-pretrain state
+    // (previously not awaited, so updateCorrectionBoxes ran with seed-only weights
+    //  while pretrain finished in background → different weights on toggle)
     if (!skipHedgeTrain) {
       if (typeof warmOnceForCurrentCSV === "function") {
-        try { warmOnceForCurrentCSV(); } catch (e) { console.warn("warmOnceForCurrentCSV failed:", e); }
+        try { await warmOnceForCurrentCSV(); } catch (e) { console.warn("warmOnceForCurrentCSV failed:", e); }
       }
       if (typeof pretrainFromHistory === "function") {
-        try { pretrainFromHistory(); } catch (e) { console.warn("pretrainFromHistory failed:", e); }
+        try { await pretrainFromHistory(); } catch (e) { console.warn("pretrainFromHistory failed:", e); }
       }
     }
 
