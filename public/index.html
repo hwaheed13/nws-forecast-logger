@@ -3777,7 +3777,7 @@ async function displayTable() {
 
   let totalAbsErr = 0, totalBestErr = 0, errCount = 0, bestCount = 0;
   let totalSignedErr = 0, totalBestSignedErr = 0;
-  let avgWithin2Count = 0;   // days where avg forecast was within ±2°F
+  let avgWithin1Count = 0;   // days where avg forecast was within ±1°F
   let bucketHitCount = 0;    // days where floor(avgForecast) == floor(actual)
 
   daysWithActual.forEach(d => {
@@ -3816,8 +3816,8 @@ async function displayTable() {
       totalBestErr += bestErr;
       totalBestSignedErr += bestSignedErr;
 
-      // Avg forecast within ±2°F
-      if (Math.abs(avgForecast - actualHigh) <= 2.0) avgWithin2Count++;
+      // Avg forecast within ±1°F
+      if (Math.abs(avgForecast - actualHigh) <= 1.0) avgWithin1Count++;
       // Bucket hit: floor(avgForecast) matches floor(actual) — maps to Kalshi 1°F buckets
       if (Math.floor(avgForecast) === Math.floor(actualHigh)) bucketHitCount++;
 
@@ -3828,7 +3828,7 @@ async function displayTable() {
 
   const avgAbsErr = errCount > 0 ? (totalAbsErr / errCount).toFixed(1) : "--";
   const avgBestErr = bestCount > 0 ? (totalBestErr / bestCount).toFixed(1) : "--";
-  const avgAccuracy = errCount > 0 ? (avgWithin2Count / errCount * 100).toFixed(0) : "--";
+  const avgAccuracy = errCount > 0 ? (avgWithin1Count / errCount * 100).toFixed(0) : "--";
   const bucketRate = errCount > 0 ? (bucketHitCount / errCount * 100).toFixed(0) : "--";
   const meanBias = errCount > 0 ? (totalSignedErr / errCount) : null;
   const bestBias = bestCount > 0 ? (totalBestSignedErr / bestCount) : null;
@@ -3890,8 +3890,8 @@ stats.innerHTML = `
   </div>
   <div class="stat-card">
     <div class="stat-label">
-      Avg Fcst ±2°F
-      <span class="tip" tabindex="0" data-tip="% of days where the average forecast was within 2°F of actual">i</span>
+      Avg Fcst ±1°F
+      <span class="tip" tabindex="0" data-tip="% of days where the average forecast was within 1°F of actual">i</span>
     </div>
     <div class="stat-value" style="color:#16a34a">${avgAccuracy}%</div>
   </div>
