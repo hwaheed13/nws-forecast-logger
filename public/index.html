@@ -3758,7 +3758,7 @@ async function displayTable() {
       updateSummaryBoxes();
     }
 
-   function showStats() {
+   async function showStats() {
   const stats = document.getElementById('stats');
   if (!stats) return;
 
@@ -3775,10 +3775,32 @@ async function displayTable() {
     return rows.some(r => r.forecast_or_actual === "actual" && r.actual_high);
   });
 
+  // Fetch Kalshi winning buckets for all days with actuals (uses cache from table)
+  const kalshiByDate = {};
+  await Promise.all(daysWithActual.map(async d => {
+    try { kalshiByDate[d] = await getKalshiLabel(d); }
+    catch { kalshiByDate[d] = null; }
+  }));
+
+  // Parse Kalshi label like "42° to 43°" → {min: 42, max: 43} → range [42, 44)
+  function parseKalshiBucket(label) {
+    if (!label) return null;
+    const m = label.match(/(\d+)°?\s*to\s*(\d+)°?/i);
+    if (m) return { min: Number(m[1]), max: Number(m[2]) };
+    // "X° or less"
+    const mLess = label.match(/(\d+)°?\s*or\s*less/i);
+    if (mLess) return { min: -Infinity, max: Number(mLess[1]) };
+    // "X° or more"
+    const mMore = label.match(/(\d+)°?\s*or\s*more/i);
+    if (mMore) return { min: Number(mMore[1]), max: Infinity };
+    return null;
+  }
+
   let totalAbsErr = 0, totalBestErr = 0, errCount = 0, bestCount = 0;
   let totalSignedErr = 0, totalBestSignedErr = 0;
   let avgWithin1Count = 0;   // days where avg forecast was within ±1°F
-  let bucketHitCount = 0;    // days where floor(avgForecast) == floor(actual)
+  let bucketHitCount = 0;    // days where avg forecast lands in winning Kalshi bucket
+  let bucketDaysChecked = 0; // days where we had Kalshi data to check
 
   daysWithActual.forEach(d => {
     const rows = dayMap[d] || [];
@@ -3818,8 +3840,20 @@ async function displayTable() {
 
       // Avg forecast within ±1°F
       if (Math.abs(avgForecast - actualHigh) <= 1.0) avgWithin1Count++;
-      // Bucket hit: floor(avgForecast) matches floor(actual) — maps to Kalshi 1°F buckets
-      if (Math.floor(avgForecast) === Math.floor(actualHigh)) bucketHitCount++;
+
+      // Bucket hit: check against actual Kalshi winning bucket
+      const k = kalshiByDate[d];
+      const bucket = k ? parseKalshiBucket(k.label) : null;
+      if (bucket) {
+        bucketDaysChecked++;
+        // Kalshi "X° to Y°" covers [X, Y+1), i.e. X.0 to Y.99
+        const inBucket = (bucket.max === Infinity)
+          ? avgForecast >= bucket.min
+          : (bucket.min === -Infinity)
+            ? avgForecast < bucket.max + 1
+            : avgForecast >= bucket.min && avgForecast < bucket.max + 1;
+        if (inBucket) bucketHitCount++;
+      }
 
       errCount++;
       bestCount++;
@@ -3829,7 +3863,7 @@ async function displayTable() {
   const avgAbsErr = errCount > 0 ? (totalAbsErr / errCount).toFixed(1) : "--";
   const avgBestErr = bestCount > 0 ? (totalBestErr / bestCount).toFixed(1) : "--";
   const avgAccuracy = errCount > 0 ? (avgWithin1Count / errCount * 100).toFixed(0) : "--";
-  const bucketRate = errCount > 0 ? (bucketHitCount / errCount * 100).toFixed(0) : "--";
+  const bucketRate = bucketDaysChecked > 0 ? (bucketHitCount / bucketDaysChecked * 100).toFixed(0) : "--";
   const meanBias = errCount > 0 ? (totalSignedErr / errCount) : null;
   const bestBias = bestCount > 0 ? (totalBestSignedErr / bestCount) : null;
 
@@ -3898,7 +3932,7 @@ stats.innerHTML = `
   <div class="stat-card">
     <div class="stat-label">
       Bucket Hit Rate
-      <span class="tip" tabindex="0" data-tip="% of days where floor(avg forecast) matched floor(actual) — maps to Kalshi 1°F buckets">i</span>
+      <span class="tip" tabindex="0" data-tip="% of days where avg forecast fell in the winning Kalshi bucket (${bucketDaysChecked} days with Kalshi data)">i</span>
     </div>
     <div class="stat-value" style="color:#7c3aed">${bucketRate}%</div>
   </div>
