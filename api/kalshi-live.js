@@ -106,12 +106,13 @@ function toKalshiEventTicker(dateISO, series = "KXHIGHNY") {
 
 // NEW FUNCTION: Parse temperature ranges from Kalshi labels
 function parseRangeFromLabel(label) {
-  // Handle "X° to Y°" or "X to Y°" format
-  const rangeMatch = label.match(/(\d+)°?\s*to\s*(\d+)°?/i);
+  // Handle "X° to Y°", "X to Y°", or "X-Y°" (dash) format
+  // Also handles full question text like "...be 68-69° on..."
+  const rangeMatch = label.match(/(\d+)°?\s*(?:to|-|–)\s*(\d+)°?/i);
   if (rangeMatch) {
-    return { 
-      min: parseInt(rangeMatch[1]), 
-      max: parseInt(rangeMatch[2]) 
+    return {
+      min: parseInt(rangeMatch[1]),
+      max: parseInt(rangeMatch[2])
     };
   }
   

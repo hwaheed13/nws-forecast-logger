@@ -832,9 +832,19 @@ if (!window.predictionHistory) {
 // Use the global object directly
 const predictionHistory = window.predictionHistory;
 
-// Strip markdown bold markers from Kalshi labels (API sometimes returns "**text**")
+// Clean Kalshi labels: strip markdown bold markers and extract temperature range
+// from full question text (LAX returns "Will the high temp in LA be 68-69°..."
+// instead of just "68° to 69°")
 function cleanKalshiLabel(s) {
-  return typeof s === 'string' ? s.replace(/\*\*/g, '') : s;
+  if (typeof s !== 'string') return s;
+  let cleaned = s.replace(/\*\*/g, '');
+  // If it looks like a full question ("Will the...be X-Y°"), extract just the range
+  const questionRange = cleaned.match(/be\s+(\d+)\s*[-–]\s*(\d+)°/i);
+  if (questionRange) return `${questionRange[1]}° to ${questionRange[2]}°`;
+  // Also handle "be X° or less/more" in question format
+  const questionBound = cleaned.match(/be\s+(\d+°?\s*or\s*(?:less|more|below|above))/i);
+  if (questionBound) return questionBound[1];
+  return cleaned;
 }
 
 // Boundary detector for Kalshi bucket warnings
@@ -2592,7 +2602,7 @@ updateCorrectionBoxes();  // now uses the freshly-trained state
       }
     }
 
-    function switchCity(cityKey) {
+    async function switchCity(cityKey) {
       if (!CITY_CONFIG[cityKey] || cityKey === currentCity) return;
       currentCity = cityKey;
       localStorage.setItem("selectedCity", cityKey);
@@ -2639,14 +2649,20 @@ updateCorrectionBoxes();  // now uses the freshly-trained state
       // Update date display
       showTodayDate();
 
-      // Reload CSV + full UI refresh (skipHedgeTrain preserves learned Hedge state)
-      reloadCSV({ skipHedgeTrain: true });
+      // Load data sources FIRST so predictions have all candidates ready
+      // (ML predictions, AccuWeather, prediction history all feed into buildCandidatesForDay)
+      await Promise.all([
+        (typeof loadMLPredictions === "function") ? loadMLPredictions().catch(() => {}) : Promise.resolve(),
+        (typeof loadTodaysPredictionHistory === "function") ? loadTodaysPredictionHistory().catch(() => {}) : Promise.resolve(),
+        (typeof fetchAccuWeatherForecasts === "function") ? fetchAccuWeatherForecasts().catch(() => {}) : Promise.resolve(),
+      ]);
+
+      // NOW reload CSV + full UI refresh (predictions will have ML + AccuWeather data)
+      await reloadCSV({ skipHedgeTrain: true });
+
+      // Independent API-only updates (don't affect predictions)
       updateDSM();
       updateSixHourMax();
-
-      // Reload Supabase data (city-aware)
-      if (typeof loadMLPredictions === "function") loadMLPredictions();
-      if (typeof loadTodaysPredictionHistory === "function") loadTodaysPredictionHistory();
 
       console.log(`🏙️ Switched to ${cfg.label} (${cfg.short})`);
     }
