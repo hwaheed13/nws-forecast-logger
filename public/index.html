@@ -2970,6 +2970,76 @@ window._predTomorrow = predTomorrow;
     "bias:", predTomorrow?.bias
   );
 
+  // ─── Hedge Ensemble Diagnostics ───────────────────────────────
+  try {
+    const fmtWeights = (w) => {
+      if (!w || !Object.keys(w).length) return "(no weights)";
+      const total = Object.values(w).reduce((s, v) => s + v, 0) || 1;
+      return Object.entries(w)
+        .map(([k, v]) => [k, (v / total) * 100])
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, pct]) => `${k}: ${pct.toFixed(1)}%`)
+        .join(", ");
+    };
+
+    const mlToday = window.mlPredictions?.today;
+    const mlTomorrow = window.mlPredictions?.tomorrow;
+    const finalTomorrowTemp = predTomorrow?.y != null
+      ? Number(predTomorrow.y) + (Number.isFinite(d1AdjF) ? d1AdjF : 0)
+      : null;
+
+    console.groupCollapsed(
+      `%c📊 Hedge Ensemble [${todayISO}]`,
+      "color: #4CAF50; font-weight: bold; font-size: 12px"
+    );
+
+    // ML status
+    console.log(
+      `%c🤖 ML Model%c → today: ${mlToday != null ? mlToday + '°F' : '⏳ awaiting first run'}`
+      + ` | tomorrow: ${mlTomorrow != null ? mlTomorrow + '°F' : '⏳ awaiting first run'}`,
+      "font-weight: bold", "font-weight: normal"
+    );
+
+    // Today detail
+    console.groupCollapsed(`%c☀️ TODAY (${todayISO}) [${seasonToday}]`, "color: #FF9800; font-weight: bold");
+    console.table(Object.entries(builtToday.candidates).reduce((o, [k, v]) => {
+      o[k] = { "°F": v != null ? Number(v).toFixed(1) : "—",
+               weight: predToday?.weights?.[k] != null
+                 ? ((predToday.weights[k] / (Object.values(predToday.weights).reduce((s,x)=>s+x,0)||1)) * 100).toFixed(1) + "%"
+                 : "—" };
+      return o;
+    }, {}));
+    console.log(`Blend: ${predToday?.y0?.toFixed(1) ?? '—'}°F (raw) + ${(predToday?.bias ?? 0).toFixed(2)} (bias) = ${predToday?.y?.toFixed(1) ?? '—'}°F`);
+    console.groupEnd();
+
+    // Tomorrow detail
+    console.groupCollapsed(`%c🌙 TOMORROW (${tomorrowISO}) [${seasonTomorrow}]`, "color: #2196F3; font-weight: bold");
+    console.table(Object.entries(builtTomorrow.candidates).reduce((o, [k, v]) => {
+      o[k] = { "°F": v != null ? Number(v).toFixed(1) : "—",
+               weight: predTomorrow?.weights?.[k] != null
+                 ? ((predTomorrow.weights[k] / (Object.values(predTomorrow.weights).reduce((s,x)=>s+x,0)||1)) * 100).toFixed(1) + "%"
+                 : "—" };
+      return o;
+    }, {}));
+    console.log(`Blend: ${predTomorrow?.y0?.toFixed(1) ?? '—'}°F (raw) + ${(predTomorrow?.bias ?? 0).toFixed(2)} (bias) + ${(Number.isFinite(d1AdjF) ? d1AdjF : 0).toFixed(2)} (d1 bump) = ${finalTomorrowTemp?.toFixed(1) ?? '—'}°F`);
+    console.groupEnd();
+
+    // Quick summary line
+    console.log(
+      `%cWeights → TODAY: ${fmtWeights(predToday?.weights)}`,
+      "color: #888; font-size: 10px"
+    );
+    console.log(
+      `%cWeights → TMRW:  ${fmtWeights(predTomorrow?.weights)}`,
+      "color: #888; font-size: 10px"
+    );
+
+    console.groupEnd();
+  } catch (diagErr) {
+    console.debug("Hedge diagnostics error:", diagErr);
+  }
+  // ──────────────────────────────────────────────────────────────
+
   // Fetch Kalshi data to map predictions to ranges
     let todayKalshiRange = null;
     let tomorrowKalshiRange = null;
