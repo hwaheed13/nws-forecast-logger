@@ -297,8 +297,8 @@
     const urlPrefA = params.get("prefplan");
     const urlPrefB = params.get("plan");
     const pick = urlPrefA || urlPrefB;
-    if (pick === "3")  localStorage.setItem("ddp_prefplan","monthly");
-    if (pick === "30") localStorage.setItem("ddp_prefplan","yearly");
+    if (pick === "5" || pick === "3")  localStorage.setItem("ddp_prefplan","monthly");
+    if (pick === "50" || pick === "30") localStorage.setItem("ddp_prefplan","yearly");
 
     if (urlMode === "signup" || pick) showSignup();
 
@@ -346,7 +346,7 @@
             toSubscribe.textContent = "Go to Subscribe";
             toSubscribe.onclick = () => {
               const pref = localStorage.getItem("ddp_prefplan");
-              const qs = pref ? `?prefplan=${pref === "yearly" ? "30" : "3"}` : "";
+              const qs = pref ? `?prefplan=${pref === "yearly" ? "50" : "5"}` : "";
               window.location.href = `/subscribe.html${qs}`;
             };
 
