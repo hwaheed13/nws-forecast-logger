@@ -233,7 +233,7 @@ def supabase_upsert(row: dict) -> None:
     endpoint, key = _sb_endpoint()
     data = json.dumps(row, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(
-        f"{endpoint}?on_conflict=target_date,record_type,as_of",
+        f"{endpoint}?on_conflict=idempotency_key",
         data=data, method="POST",
         headers={
             "Content-Type": "application/json",
@@ -245,7 +245,7 @@ def supabase_upsert(row: dict) -> None:
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             _ = resp.read()
-        print("✅ upsert:", {k: row.get(k) for k in ("record_type","target_date","as_of","bcp_f","ml_f")})
+        print("✅ upsert:", {k: row.get(k) for k in ("lead_used","target_date","timestamp","prediction_value","ml_f")})
     except Exception as e:
         if hasattr(e, "read"):
             try: print("❌ supabase:", getattr(e,'code','?'), e.read().decode("utf-8", "ignore"))
@@ -288,19 +288,24 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     # ML model prediction (graceful — returns None if models missing or no data)
     ml = _compute_ml_prediction(rows, target_date_iso)
 
+    ts = now_nyc().isoformat()
+    idem_key = f"{MODEL_VERSION}:today_for_today:{target_date_iso}"
+
     payload = {
-        "as_of": now_nyc().isoformat(),
+        "idempotency_key": idem_key,
+        "timestamp": ts,
+        "timestamp_et": ts,
         "target_date": target_date_iso,
-        "record_type": "today_for_today",
-        "bcp_f": float(f"{bcp:.1f}"),
-        "nws_latest_f": nws_latest,
-        "accu_latest_f": accu_latest,
-        "avg_bias_excl_today": avg_bias_excl_today,
-        "today_pre_mean": today_pre_mean,
-        "gate_f": compute_today_gate_f(),
-        "model_version": MODEL_VERSION,
-        "notes": "frozen at actual time",
-        "source": "nws_auto_logger",
+        "lead_used": "today_for_today",
+        "model_name": MODEL_VERSION,
+        "prediction_value": float(f"{bcp:.1f}"),
+        "nws_d0": nws_latest,
+        "accuweather": accu_latest,
+        "rep_forecast": today_pre_mean,
+        "bias_applied": avg_bias_excl_today,
+        "version": MODEL_VERSION,
+        "recommendation": "frozen at actual time",
+        "source_card": "nws_auto_logger",
     }
     if ml:
         payload["ml_f"] = ml["ml_f"]
@@ -327,19 +332,24 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     # ML model prediction (graceful — returns None if models missing or no data)
     ml = _compute_ml_prediction(rows, tomorrow_iso)
 
+    ts = now_nyc().isoformat()
+    idem_key = f"{MODEL_VERSION}:today_for_tomorrow:{tomorrow_iso}"
+
     payload = {
-        "as_of": now_nyc().isoformat(),
+        "idempotency_key": idem_key,
+        "timestamp": ts,
+        "timestamp_et": ts,
         "target_date": tomorrow_iso,
-        "record_type": "today_for_tomorrow",
-        "bcp_f": bcp_tm,
-        "nws_latest_f": nws_latest_tm,
-        "accu_latest_f": accu_latest_tm,
-        "avg_bias_excl_today": avg_bias_all,
-        "today_pre_mean": None,
-        "gate_f": None,
-        "model_version": MODEL_VERSION,
-        "notes": "snapshot from today",
-        "source": "nws_auto_logger",
+        "lead_used": "today_for_tomorrow",
+        "model_name": MODEL_VERSION,
+        "prediction_value": bcp_tm,
+        "nws_d1": nws_latest_tm,
+        "accuweather": accu_latest_tm,
+        "bias_applied": avg_bias_all,
+        "rep_forecast": None,
+        "version": MODEL_VERSION,
+        "recommendation": "snapshot from today",
+        "source_card": "nws_auto_logger",
     }
     if ml:
         payload["ml_f"] = ml["ml_f"]
