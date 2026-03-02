@@ -3949,30 +3949,30 @@ async function loadMLPredictions() {
   const tomorrow = window.nycISODate(1);
 
   try {
-    // Fetch recent prediction_logs — select * since ml_f column may not
-    // exist in the schema yet (added by prediction_writer.py on first run)
     const { data, error } = await supabase
       .from('prediction_logs')
       .select('*')
       .in('target_date', [today, tomorrow])
-      .order('as_of', { ascending: false });
+      .in('lead_used', ['today_for_today', 'today_for_tomorrow'])
+      .order('timestamp', { ascending: false });
 
     if (error) {
-      // Silently ignore — ml_f column may not exist in Supabase yet
-      console.debug("loadMLPredictions: no ML data yet (expected on first run)");
+      console.debug("loadMLPredictions error:", error.message);
       return;
     }
 
-    // Take the most recent snapshot with ml_f for each target date
+    // Take the most recent row for each target date
+    // Use ml_f if populated, otherwise fall back to prediction_value
     let gotToday = false, gotTomorrow = false;
     for (const row of (data || [])) {
-      if (row.ml_f == null) continue;  // skip rows without ML prediction
+      const mlVal = row.ml_f ?? row.prediction_value;
+      if (mlVal == null) continue;
       if (row.target_date === today && !gotToday) {
-        window.mlPredictions.today = Number(row.ml_f);
+        window.mlPredictions.today = Number(mlVal);
         gotToday = true;
       }
       if (row.target_date === tomorrow && !gotTomorrow) {
-        window.mlPredictions.tomorrow = Number(row.ml_f);
+        window.mlPredictions.tomorrow = Number(mlVal);
         gotTomorrow = true;
       }
       if (gotToday && gotTomorrow) break;
