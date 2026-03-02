@@ -74,20 +74,39 @@ jobs:
           SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
           TZ: America/New_York
         run: python prediction_writer.py both
-        
+
+      # ----- LA data collection -----
+      - name: Run NWS logger (LA)
+        env:
+          TASK: ${{ github.event.inputs.task || 'smart_all' }}
+        run: python run_smart.py --city lax
+
+      - name: Run AccuWeather logger (LA)
+        env:
+          ACCU_API_KEY: ${{ secrets.ACCU_API_KEY }}
+          ACCU_LOCATION_KEY_LAX: ${{ secrets.ACCU_LOCATION_KEY_LAX }}
+        run: python accuweather_logger.py --city lax
+
+      - name: Write Supabase predictions - LA
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+        run: python prediction_writer.py --city lax both
+        continue-on-error: true  # no LA model yet, will skip ML
+
       - name: Remove empty/blank lines
         run: |
-          for f in nws_forecast_log.csv accuweather_log.csv; do
+          for f in nws_forecast_log.csv accuweather_log.csv lax_nws_forecast_log.csv lax_accuweather_log.csv; do
             if [ -f "$f" ]; then
               grep -Ev '^[[:space:]]*(,?[[:space:]]*)*$' "$f" > /tmp/clean.csv || true
               if [ -s /tmp/clean.csv ]; then mv /tmp/clean.csv "$f"; fi
             fi
           done
-          
+
       - name: Commit and push CSV
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add nws_forecast_log.csv accuweather_log.csv || true
+          git add nws_forecast_log.csv accuweather_log.csv lax_nws_forecast_log.csv lax_accuweather_log.csv || true
           git commit -m "Update forecast log [skip ci]" || echo "No changes to commit"
           git push origin main

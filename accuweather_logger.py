@@ -1,40 +1,46 @@
 # accuweather_logger.py
-# Appends AccuWeather forecast rows (D0 today & D1 tomorrow) to accuweather_log.csv
+# Appends AccuWeather forecast rows (D0 today & D1 tomorrow) to the city's accuweather CSV
 # Columns: timestamp,target_date,forecast_or_actual,forecast_time,predicted_high,
 #          forecast_detail,cli_date,actual_high,high_time,bias_corrected_prediction,source
 
-import os, sys, csv, datetime
+import os, sys, csv, datetime, argparse
 import requests
 import pytz
 
-CSV_PATH = "accuweather_log.csv"  # adjust if your CSV is elsewhere
-assert CSV_PATH.endswith("accuweather_log.csv"), "Accu logger must write only to accuweather_log.csv"
-print(f"[Accu logger] CSV_PATH={CSV_PATH}", file=sys.stderr)
+from city_config import get_city_config, DEFAULT_CITY
+
+# ===== City config via --city arg =====
+_parser = argparse.ArgumentParser()
+_parser.add_argument("--city", default=os.environ.get("CITY", DEFAULT_CITY),
+                     help="City key (nyc, lax, etc.)")
+_args, _ = _parser.parse_known_args()
+_CFG = get_city_config(_args.city)
+
+CSV_PATH = _CFG["accu_csv"]
+print(f"[Accu logger] city={_args.city} CSV_PATH={CSV_PATH}", file=sys.stderr)
 
 ACCU_API_KEY = os.environ.get("ACCU_API_KEY")
-ACCU_LOCATION_KEY = os.environ.get("ACCU_LOCATION_KEY")  # e.g. 349727
-TZ_NAME = os.environ.get("TZ", "America/New_York")
+ACCU_LOCATION_KEY = os.environ.get(_CFG["accu_location_key_env"])  # env var name from city config
+TZ_NAME = os.environ.get("TZ", _CFG["timezone"])
 
 if not ACCU_API_KEY or not ACCU_LOCATION_KEY:
-    print("accuweather_logger: Missing ACCU_API_KEY or ACCU_LOCATION_KEY env vars", file=sys.stderr)
+    print(f"accuweather_logger: Missing ACCU_API_KEY or {_CFG['accu_location_key_env']} env vars", file=sys.stderr)
     sys.exit(0)  # don't fail the workflow; just skip
 
 tz = pytz.timezone(TZ_NAME)
 
-# ===== MIDNIGHT-4AM FREEZE CHECK =====
-# Force America/New_York timezone so skip logic always works
-et = pytz.timezone("America/New_York")
-current_time_et = datetime.datetime.now(et)
-current_hour_et = current_time_et.hour
+# ===== MIDNIGHT-4AM FREEZE CHECK (in city's local time) =====
+local_now = datetime.datetime.now(tz)
+local_hour = local_now.hour
 
-if 0 <= current_hour_et < 4:
-    print(f"[Accu logger] Skipping: {current_time_et.strftime('%Y-%m-%d %H:%M %Z')} (midnight–4am ET freeze period)", file=sys.stderr)
-    print("::notice title=AccuWeather Skip::Skipped API pull during midnight–4am ET freeze window")
+if 0 <= local_hour < 4:
+    print(f"[Accu logger] Skipping: {local_now.strftime('%Y-%m-%d %H:%M %Z')} (midnight–4am local freeze period)", file=sys.stderr)
+    print("::notice title=AccuWeather Skip::Skipped API pull during midnight–4am local freeze window")
     sys.exit(0)
 # ===== END FREEZE CHECK =====
 
 
-def now_et():
+def now_local():
     return datetime.datetime.now(tz)
 
 def iso_date(dt):
@@ -86,9 +92,9 @@ def fetch_accuweather():
     return resp.json()
 
 def row_for(day_obj, offset):
-    target_dt = now_et().date() + datetime.timedelta(days=offset)
+    target_dt = now_local().date() + datetime.timedelta(days=offset)
     target_str = target_dt.strftime("%Y-%m-%d")
-    fc_time = now_et().strftime("%Y-%m-%d %H:%M:%S")
+    fc_time = now_local().strftime("%Y-%m-%d %H:%M:%S")
     max_f = day_obj.get("Temperature", {}).get("Maximum", {}).get("Value")
     try:
         max_f = int(round(float(max_f)))
@@ -96,7 +102,7 @@ def row_for(day_obj, offset):
         max_f = ""
     detail = day_obj.get("Day", {}).get("IconPhrase", "")
     return [
-        stamp(now_et()),
+        stamp(now_local()),
         target_str,
         "forecast",
         fc_time,
@@ -107,7 +113,7 @@ def row_for(day_obj, offset):
     ]
 
 def rows_for_today_and_tomorrow():
-    now = now_et()
+    now = now_local()
     daily = fetch_accuweather().get("DailyForecasts", [])
     rows = []
 
@@ -124,7 +130,7 @@ def rows_for_today_and_tomorrow():
     if (
         not is_after_6pm_local(now)
         and not actual_already_logged(CSV_PATH, today_str)
-        and max_f_today != "" 
+        and max_f_today != ""
         and max_f_today not in already_highs_today
     ):
         print(f"Appending new D0 forecast {max_f_today} for {today_str}")

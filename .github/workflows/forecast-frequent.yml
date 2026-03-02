@@ -214,10 +214,27 @@ jobs:
               print("AccuWeather: no changes; nothing appended.")
           PY
 
+      # ----- LA data collection -----
+      - name: Log today's NWS forecast - LA
+        env:
+          TASK: forecast_today
+        run: python run_smart.py --city lax
+
+      - name: Log tomorrow's NWS forecast - LA
+        env:
+          TASK: forecast_tomorrow
+        run: python run_smart.py --city lax
+
+      - name: Log AccuWeather forecasts - LA
+        env:
+          ACCU_API_KEY: ${{ secrets.ACCU_API_KEY }}
+          ACCU_LOCATION_KEY_LAX: ${{ secrets.ACCU_LOCATION_KEY_LAX }}
+        run: python accuweather_logger.py --city lax
+
       # Tidy CSVs
       - name: Remove empty/blank lines
         run: |
-          for f in nws_forecast_log.csv accuweather_log.csv; do
+          for f in nws_forecast_log.csv accuweather_log.csv lax_nws_forecast_log.csv lax_accuweather_log.csv; do
             if [ -f "$f" ]; then
               grep -Ev '^[[:space:]]*(,?[[:space:]]*)*$' "$f" > /tmp/clean.csv || true
               if [ -s /tmp/clean.csv ]; then mv /tmp/clean.csv "$f"; fi
@@ -225,7 +242,7 @@ jobs:
           done
 
       # Write ML + BCP predictions to Supabase (reads CSVs, does NOT modify repo)
-      - name: Write Supabase predictions (BCP + ML)
+      - name: Write Supabase predictions - NYC (BCP + ML)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
@@ -233,12 +250,19 @@ jobs:
         run: python prediction_writer.py both
         continue-on-error: true
 
+      - name: Write Supabase predictions - LA
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+        run: python prediction_writer.py --city lax both
+        continue-on-error: true  # no LA model yet
+
       # Commit & push (safe with rebase)
       - name: Commit and push CSV if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add nws_forecast_log.csv accuweather_log.csv || true
+          git add nws_forecast_log.csv accuweather_log.csv lax_nws_forecast_log.csv lax_accuweather_log.csv || true
           git commit -m "Frequent forecast update [skip ci]" || echo "No changes to commit"
           git fetch origin main
           git rebase origin/main || { echo "Rebase failed; aborting"; git rebase --abort || true; exit 0; }

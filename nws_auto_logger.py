@@ -10,19 +10,36 @@ import requests
 from bs4 import BeautifulSoup
 import pytz
 
+from city_config import get_city_config, DEFAULT_CITY
+
 # =========================
-# Time / Config
+# Time / Config — city-aware
 # =========================
-NYC_TZ = pytz.timezone("America/New_York")
+_CITY_CFG = get_city_config(DEFAULT_CITY)
+
+def set_city(city_key: str) -> None:
+    """Switch all module-level config to a different city."""
+    global _CITY_CFG
+    _CITY_CFG = get_city_config(city_key)
+
+def _tz():
+    return pytz.timezone(_CITY_CFG["timezone"])
 
 def now_nyc() -> datetime.datetime:
-    return datetime.datetime.now(NYC_TZ)
+    """Return current time in the active city's timezone."""
+    return datetime.datetime.now(_tz())
 
 def today_nyc() -> datetime.date:
     return now_nyc().date()
 
-CSV_FILE = "nws_forecast_log.csv"
-NWS_API_ENDPOINT = "https://api.weather.gov/points/40.7834,-73.965"
+def _csv_file():
+    return _CITY_CFG["nws_csv"]
+
+def _accu_csv_file():
+    return _CITY_CFG["accu_csv"]
+
+def _nws_endpoint():
+    return _CITY_CFG["nws_api_endpoint"]
 
 # Only used by optional local loop mode
 FETCH_TIMES = ["19:30", "21:00", "23:00", "05:00", "06:00", "07:00", "09:00",
@@ -37,8 +54,8 @@ BASE_HEADER = [
 ]
 
 def ensure_csv_header() -> None:
-    if not os.path.exists(CSV_FILE):
-        with open(CSV_FILE, mode="w", newline="") as f:
+    if not os.path.exists(_csv_file()):
+        with open(_csv_file(), mode="w", newline="") as f:
             csv.writer(f).writerow(BASE_HEADER)
 
 def _read_all_rows(include_accu: bool = False) -> Tuple[List[dict], List[str]]:
@@ -51,8 +68,8 @@ def _read_all_rows(include_accu: bool = False) -> Tuple[List[dict], List[str]]:
     fieldnames = list(BASE_HEADER)
 
     # Always read NWS
-    if os.path.exists(CSV_FILE):
-        with open(CSV_FILE, newline="", encoding="utf-8") as f:
+    if os.path.exists(_csv_file()):
+        with open(_csv_file(), newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             if reader.fieldnames:
                 for fn in reader.fieldnames:
@@ -62,8 +79,8 @@ def _read_all_rows(include_accu: bool = False) -> Tuple[List[dict], List[str]]:
                 rows.append(r)
 
     # Optionally include AccuWeather (for analytics only)
-    if include_accu and os.path.exists("accuweather_log.csv"):
-        with open("accuweather_log.csv", newline="", encoding="utf-8") as f:
+    if include_accu and os.path.exists(_accu_csv_file()):
+        with open(_accu_csv_file(), newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             if reader.fieldnames:
                 for fn in reader.fieldnames:
@@ -78,7 +95,7 @@ def _read_all_rows(include_accu: bool = False) -> Tuple[List[dict], List[str]]:
 def _write_all_rows(rows: List[dict], fieldnames: List[str]) -> None:
     # Never persist AccuWeather rows into the NWS CSV
     nws_only = [r for r in rows if (r.get("source") or "").lower() != "accuweather"]
-    with open(CSV_FILE, "w", newline="") as f:
+    with open(_csv_file(), "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
         w.writeheader()
         w.writerows(nws_only)
@@ -89,11 +106,11 @@ def _append_row(row: Dict[str, str]) -> None:
     Missing keys will be empty; extra keys are ignored.
     """
     ensure_csv_header()
-    with open(CSV_FILE, newline="") as f:
+    with open(_csv_file(), newline="") as f:
         reader = csv.DictReader(f)
         fns = reader.fieldnames or (BASE_HEADER)
     safe_row = {k: row.get(k, "") for k in fns}
-    with open(CSV_FILE, "a", newline="") as f:
+    with open(_csv_file(), "a", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fns)
         w.writerow(safe_row)
 
@@ -103,10 +120,10 @@ def _append_row(row: Dict[str, str]) -> None:
 def _period_date_local(start_iso: str) -> datetime.date:
     """Convert API period startTime ISO to America/New_York date."""
     dt = datetime.datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
-    return dt.astimezone(NYC_TZ).date()
+    return dt.astimezone(_tz()).date()
 
 def get_forecast_periods() -> List[dict]:
-    r = requests.get(NWS_API_ENDPOINT, headers={"User-Agent": "Mozilla/5.0"})
+    r = requests.get(_nws_endpoint(), headers={"User-Agent": "Mozilla/5.0"})
     r.raise_for_status()
     forecast_url = r.json()["properties"]["forecast"]
     r2 = requests.get(forecast_url, headers={"User-Agent": "Mozilla/5.0"})
@@ -132,13 +149,15 @@ def pick_tomorrow_day_period(periods: List[dict]) -> Optional[dict]:
 # -------------------------
 # Observation gate helpers
 # -------------------------
-OBS_STATION = os.environ.get("NWS_OBS_STATION", "KNYC")  # Central Park
+def _obs_station():
+    return os.environ.get("NWS_OBS_STATION", _CITY_CFG["obs_station"])
 
 def _c_to_f(c: float) -> float:
     return c * 9.0 / 5.0 + 32.0
 
-def _latest_ob_f(station: str = OBS_STATION) -> Optional[int]:
+def _latest_ob_f(station: str = None) -> Optional[int]:
     """Most recent observed temp (°F, int) or None."""
+    station = station or _obs_station()
     try:
         u = f"https://api.weather.gov/stations/{station}/observations?limit=1"
         r = requests.get(u, headers={"User-Agent":"Mozilla/5.0"}, timeout=15)
@@ -153,8 +172,9 @@ def _latest_ob_f(station: str = OBS_STATION) -> Optional[int]:
     except Exception:
         return None
 
-def _six_hour_max_f(station: str = OBS_STATION) -> Optional[int]:
+def _six_hour_max_f(station: str = None) -> Optional[int]:
     """Max observed temp over last 6h (°F, int) or None."""
+    station = station or _obs_station()
     try:
         now = datetime.datetime.utcnow().replace(microsecond=0)
         start = now - datetime.timedelta(hours=6)
@@ -186,10 +206,10 @@ def compute_today_gate_f() -> Optional[int]:
 def _get_last_forecast_row_for_date(target_date: str) -> Optional[dict]:
 
     """Return the last (most recent) forecast row for target_date, or None."""
-    if not os.path.exists(CSV_FILE):
+    if not os.path.exists(_csv_file()):
         return None
     last = None
-    with open(CSV_FILE, newline="") as f:
+    with open(_csv_file(), newline="") as f:
         for row in csv.DictReader(f):
             if row.get("forecast_or_actual") == "forecast" and row.get("target_date") == target_date:
                 last = row
@@ -204,9 +224,9 @@ def forecast_changed_since_last(target_date: str, new_value: str) -> bool:
 
 def actual_exists_for_date(target_date: str) -> bool:
     """True if an actual row for this date already exists (freeze further forecasts)."""
-    if not os.path.exists(CSV_FILE):
+    if not os.path.exists(_csv_file()):
         return False
-    with open(CSV_FILE, newline="") as f:
+    with open(_csv_file(), newline="") as f:
         for row in csv.DictReader(f):
             if row.get("forecast_or_actual") == "actual" and row.get("cli_date") == target_date:
                 return True
@@ -598,8 +618,9 @@ def log_actual_today_if_after_6pm_local() -> None:
         return
 
     try:
-        url = ("https://forecast.weather.gov/product.php"
-               "?site=NWS&issuedby=NYC&product=CLI&format=CI&version=1&glossary=0")
+        url = (f"https://forecast.weather.gov/product.php"
+               f"?site={_CITY_CFG['cli_site']}&issuedby={_CITY_CFG['cli_issuedby']}"
+               f"&product=CLI&format=CI&version=1&glossary=0")
         html = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}).text
         pre = BeautifulSoup(html, "html.parser").find("pre")
         if not pre:
@@ -617,7 +638,7 @@ def log_actual_today_if_after_6pm_local() -> None:
 
         ensure_csv_header()
         actual_already = False
-        with open(CSV_FILE, newline="") as f:
+        with open(_csv_file(), newline="") as f:
             for row in csv.DictReader(f):
                 if row.get("forecast_or_actual") == "actual" and row.get("cli_date") == cli_date:
                     actual_already = True
@@ -691,8 +712,9 @@ def upsert_yesterday_actual_if_morning_local() -> None:
         return
 
     try:
-        url = ("https://forecast.weather.gov/product.php"
-               "?site=NWS&issuedby=NYC&product=CLI&format=CI&version=1&glossary=0")
+        url = (f"https://forecast.weather.gov/product.php"
+               f"?site={_CITY_CFG['cli_site']}&issuedby={_CITY_CFG['cli_issuedby']}"
+               f"&product=CLI&format=CI&version=1&glossary=0")
         html = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}).text
         pre = BeautifulSoup(html, "html.parser").find("pre")
         if not pre:
@@ -728,9 +750,9 @@ def write_today_bcp_snapshot_if_after_6pm() -> None:
 # =========================
 def already_logged(entry_type: str, identifier: str) -> bool:
     """Legacy duplicate check used by local loop mode only."""
-    if not os.path.exists(CSV_FILE):
+    if not os.path.exists(_csv_file()):
         return False
-    with open(CSV_FILE, "r") as f:
+    with open(_csv_file(), "r") as f:
         return any(identifier in line and entry_type in line for line in f)
 
 def main_loop() -> None:
@@ -808,4 +830,10 @@ def debug_bias_preview():
     print(f"🌤️ Tomorrow forecast={new_val}°F → Bias-corrected={bcp_val:.1f}°F")
 
 if __name__ == "__main__":
+    import argparse as _ap
+    _parser = _ap.ArgumentParser()
+    _parser.add_argument("--city", default=DEFAULT_CITY,
+                         help="City key (nyc, lax, etc.)")
+    _args = _parser.parse_args()
+    set_city(_args.city)
     run_all_once()

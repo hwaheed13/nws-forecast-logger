@@ -24,18 +24,21 @@ _ML_MODEL_CACHE: dict = {}
 
 
 def _load_ml_models():
-    """Load temp_model.pkl and bucket_model.pkl once (cached)."""
-    if "temp" not in _ML_MODEL_CACHE:
+    """Load temp_model.pkl and bucket_model.pkl once (cached), using city prefix."""
+    import nws_auto_logger as _nal
+    prefix = _nal._CITY_CFG.get("model_prefix", "")
+    cache_key = f"{prefix}temp"
+    if cache_key not in _ML_MODEL_CACHE:
         try:
-            with open("temp_model.pkl", "rb") as f:
-                _ML_MODEL_CACHE["temp"] = pickle.load(f)
-            with open("bucket_model.pkl", "rb") as f:
-                _ML_MODEL_CACHE["bucket"] = pickle.load(f)
+            with open(f"{prefix}temp_model.pkl", "rb") as f:
+                _ML_MODEL_CACHE[cache_key] = pickle.load(f)
+            with open(f"{prefix}bucket_model.pkl", "rb") as f:
+                _ML_MODEL_CACHE[f"{prefix}bucket"] = pickle.load(f)
         except FileNotFoundError:
-            _ML_MODEL_CACHE["temp"] = None
-            _ML_MODEL_CACHE["bucket"] = None
-            print("⚠️ ML model files not found — ML prediction will be skipped")
-    return _ML_MODEL_CACHE.get("temp"), _ML_MODEL_CACHE.get("bucket")
+            _ML_MODEL_CACHE[cache_key] = None
+            _ML_MODEL_CACHE[f"{prefix}bucket"] = None
+            print(f"⚠️ ML model files not found ({prefix}temp_model.pkl) — ML prediction will be skipped")
+    return _ML_MODEL_CACHE.get(cache_key), _ML_MODEL_CACHE.get(f"{prefix}bucket")
 
 
 def _compute_ml_prediction(
@@ -366,12 +369,21 @@ def write_both_snapshots() -> None:
 
 def _cli():
     import argparse
+    from nws_auto_logger import set_city
+    from city_config import DEFAULT_CITY
+
     p = argparse.ArgumentParser(description="Write prediction snapshots to Supabase.")
+    p.add_argument("--city", default=os.environ.get("CITY", DEFAULT_CITY),
+                   help="City key (nyc, lax, etc.)")
     s = p.add_subparsers(dest="cmd", required=True)
     a = s.add_parser("today_for_today");    a.add_argument("--date")
     b = s.add_parser("today_for_tomorrow"); b.add_argument("--date")
     s.add_parser("both")
     args = p.parse_args()
+
+    set_city(args.city)
+    print(f"[prediction_writer] city={args.city}")
+
     if args.cmd == "today_for_today":    write_today_for_today(args.date)
     elif args.cmd == "today_for_tomorrow": write_today_for_tomorrow(args.date)
     else: write_both_snapshots()
