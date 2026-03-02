@@ -1178,16 +1178,16 @@ async function loadState(key){
       .from('model_states')
       .select('state')
       .eq('key', `${ENS_KEY}:${key}`)
-      .single();
-    
+      .maybeSingle();   // returns null (not 406) when no row exists
+
     if (data?.state) {
       localStorage.setItem(`${ENS_KEY}:${key}`, JSON.stringify(data.state));
       return data.state;
     }
   } catch (e) {
-    console.log("Falling back to localStorage");
+    // Expected on first run with new ENS_KEY — falls back to localStorage seeds
   }
-  
+
   const raw = localStorage.getItem(`${ENS_KEY}:${key}`);
   return raw ? JSON.parse(raw) : null;
 }
@@ -3879,21 +3879,24 @@ async function loadMLPredictions() {
   const tomorrow = window.nycISODate(1);
 
   try {
+    // Fetch recent prediction_logs — filter for ml_f client-side
+    // (the ml_f column may not exist yet if no ML rows have been written)
     const { data, error } = await supabase
       .from('prediction_logs')
       .select('ml_f, ml_bucket, ml_confidence, target_date, record_type, as_of')
       .in('target_date', [today, tomorrow])
-      .not('ml_f', 'is', null)
       .order('as_of', { ascending: false });
 
     if (error) {
-      console.warn("loadMLPredictions error:", error);
+      // Silently ignore — ml_f column may not exist in Supabase yet
+      console.debug("loadMLPredictions: no ML data yet (expected on first run)");
       return;
     }
 
-    // Take the most recent snapshot for each target date
+    // Take the most recent snapshot with ml_f for each target date
     let gotToday = false, gotTomorrow = false;
     for (const row of (data || [])) {
+      if (row.ml_f == null) continue;  // skip rows without ML prediction
       if (row.target_date === today && !gotToday) {
         window.mlPredictions.today = Number(row.ml_f);
         gotToday = true;
@@ -3904,9 +3907,12 @@ async function loadMLPredictions() {
       }
       if (gotToday && gotTomorrow) break;
     }
-    console.log("ML predictions loaded:", window.mlPredictions);
+    if (gotToday || gotTomorrow) {
+      console.log("ML predictions loaded:", window.mlPredictions);
+    }
   } catch (e) {
-    console.warn("loadMLPredictions failed:", e);
+    // Silently handle — ML data will appear after first GitHub Actions run
+    console.debug("loadMLPredictions: not available yet");
   }
 }
 
