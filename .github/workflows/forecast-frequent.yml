@@ -27,7 +27,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4 pytz numpy==1.26.4 pandas scikit-learn==1.6.1
+        run: pip install requests beautifulsoup4 pytz numpy==1.24.3 pandas scikit-learn==1.3.0
 
       # Decide whether to keep polling *today* (ET):
       # - Stop after 6pm ET OR once an "actual" for today exists in the NWS CSV
