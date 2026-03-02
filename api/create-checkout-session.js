@@ -5,8 +5,8 @@ import { createClient } from "@supabase/supabase-js";
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2024-06-20" });
 
 const PRICES = {
-  monthly: process.env.PRICE_ID_MONTHLY, // $3/mo
-  yearly:  process.env.PRICE_ID_YEARLY,  // $30/yr
+  monthly: process.env.PRICE_ID_MONTHLY, // $5/mo
+  yearly:  process.env.PRICE_ID_YEARLY,  // $50/yr
 };
 
 const SUPABASE_URL =
