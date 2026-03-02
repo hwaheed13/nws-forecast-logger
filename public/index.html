@@ -3949,11 +3949,11 @@ async function loadMLPredictions() {
   const tomorrow = window.nycISODate(1);
 
   try {
-    // Fetch recent prediction_logs — filter for ml_f client-side
-    // (the ml_f column may not exist yet if no ML rows have been written)
+    // Fetch recent prediction_logs — select * since ml_f column may not
+    // exist in the schema yet (added by prediction_writer.py on first run)
     const { data, error } = await supabase
       .from('prediction_logs')
-      .select('ml_f, ml_bucket, ml_confidence, target_date, record_type, as_of')
+      .select('*')
       .in('target_date', [today, tomorrow])
       .order('as_of', { ascending: false });
 
