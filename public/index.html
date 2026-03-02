@@ -841,6 +841,12 @@ function cleanKalshiLabel(s) {
   // If it looks like a full question ("Will the...be X-Y°"), extract just the range
   const questionRange = cleaned.match(/be\s+(\d+)\s*[-–]\s*(\d+)°/i);
   if (questionRange) return `${questionRange[1]}° to ${questionRange[2]}°`;
+  // Handle "be <X°" or "be >X°" (LAX format)
+  const ltGt = cleaned.match(/be\s+([<>≤≥])\s*(\d+)°/i);
+  if (ltGt) return ltGt[1] === '<' || ltGt[1] === '≤' ? `${ltGt[2]}° or less` : `${ltGt[2]}° or more`;
+  // Handle standalone "<X°" or ">X°" labels
+  const ltGtShort = cleaned.match(/^[<>≤≥]\s*(\d+)°/);
+  if (ltGtShort) return cleaned.startsWith('<') || cleaned.startsWith('≤') ? `${ltGtShort[1]}° or less` : `${ltGtShort[1]}° or more`;
   // Also handle "be X° or less/more" in question format
   const questionBound = cleaned.match(/be\s+(\d+°?\s*or\s*(?:less|more|below|above))/i);
   if (questionBound) return questionBound[1];
