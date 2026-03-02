@@ -3796,11 +3796,34 @@ async function displayTable() {
     return null;
   }
 
+  // Fetch Hedge ensemble prediction snapshots from Supabase
+  const hedgeByDate = {};
+  try {
+    const { data, error } = await supabase
+      .from("forecast_day_summary")
+      .select("target_date, prev_day_latest_value, same_day_earliest_value");
+    if (!error && Array.isArray(data)) {
+      data.forEach(row => {
+        const td = String(row.target_date || "").match(/\d{4}-\d{2}-\d{2}/)?.[0];
+        if (!td) return;
+        // Prefer morning-of prediction; fall back to night-before
+        const val = row.same_day_earliest_value ?? row.prev_day_latest_value;
+        if (val !== null && val !== undefined && val !== "") {
+          hedgeByDate[td] = Number(val);
+        }
+      });
+    }
+  } catch (e) {
+    console.log("Stats: could not load Hedge snapshots:", e);
+  }
+
+  // NWS forecast stats (existing)
   let totalAbsErr = 0, totalBestErr = 0, errCount = 0, bestCount = 0;
   let totalSignedErr = 0, totalBestSignedErr = 0;
-  let avgWithin1Count = 0;   // days where avg forecast was within ±1°F
-  let bucketHitCount = 0;    // days where avg forecast lands in winning Kalshi bucket
-  let bucketDaysChecked = 0; // days where we had Kalshi data to check
+
+  // Hedge ensemble accuracy stats
+  let hedgeWithin1Count = 0, hedgeDaysChecked = 0;
+  let bucketHitCount = 0, bucketDaysChecked = 0;
 
   daysWithActual.forEach(d => {
     const rows = dayMap[d] || [];
@@ -3827,7 +3850,6 @@ async function displayTable() {
 
       const avgErr = allErrors.reduce((a, b) => a + b, 0) / allErrors.length;
       const avgSignedErr = signedErrors.reduce((a, b) => a + b, 0) / signedErrors.length;
-      const avgForecast = forecasts.reduce((a, b) => a + b, 0) / forecasts.length;
 
       const bestIdx = allErrors.indexOf(Math.min(...allErrors));
       const bestErr = allErrors[bestIdx];
@@ -3837,32 +3859,34 @@ async function displayTable() {
       totalSignedErr += avgSignedErr;
       totalBestErr += bestErr;
       totalBestSignedErr += bestSignedErr;
+      errCount++;
+      bestCount++;
+    }
 
-      // Avg forecast within ±1°F
-      if (Math.abs(avgForecast - actualHigh) <= 1.0) avgWithin1Count++;
+    // Hedge ensemble accuracy — use actual stored predictions
+    const hedgePred = hedgeByDate[d];
+    if (Number.isFinite(hedgePred)) {
+      hedgeDaysChecked++;
+      if (Math.abs(hedgePred - actualHigh) <= 1.0) hedgeWithin1Count++;
 
-      // Bucket hit: check against actual Kalshi winning bucket
+      // Bucket hit: check Hedge prediction against actual Kalshi winning bucket
       const k = kalshiByDate[d];
       const bucket = k ? parseKalshiBucket(k.label) : null;
       if (bucket) {
         bucketDaysChecked++;
-        // Kalshi "X° to Y°" covers [X, Y+1), i.e. X.0 to Y.99
         const inBucket = (bucket.max === Infinity)
-          ? avgForecast >= bucket.min
+          ? hedgePred >= bucket.min
           : (bucket.min === -Infinity)
-            ? avgForecast < bucket.max + 1
-            : avgForecast >= bucket.min && avgForecast < bucket.max + 1;
+            ? hedgePred < bucket.max + 1
+            : hedgePred >= bucket.min && hedgePred < bucket.max + 1;
         if (inBucket) bucketHitCount++;
       }
-
-      errCount++;
-      bestCount++;
     }
   });
 
   const avgAbsErr = errCount > 0 ? (totalAbsErr / errCount).toFixed(1) : "--";
   const avgBestErr = bestCount > 0 ? (totalBestErr / bestCount).toFixed(1) : "--";
-  const avgAccuracy = errCount > 0 ? (avgWithin1Count / errCount * 100).toFixed(0) : "--";
+  const hedgeAccuracy = hedgeDaysChecked > 0 ? (hedgeWithin1Count / hedgeDaysChecked * 100).toFixed(0) : "--";
   const bucketRate = bucketDaysChecked > 0 ? (bucketHitCount / bucketDaysChecked * 100).toFixed(0) : "--";
   const meanBias = errCount > 0 ? (totalSignedErr / errCount) : null;
   const bestBias = bestCount > 0 ? (totalBestSignedErr / bestCount) : null;
@@ -3924,15 +3948,15 @@ stats.innerHTML = `
   </div>
   <div class="stat-card">
     <div class="stat-label">
-      Avg Fcst ±1°F
-      <span class="tip" tabindex="0" data-tip="% of days where the average forecast was within 1°F of actual">i</span>
+      Prediction ±1°F
+      <span class="tip" tabindex="0" data-tip="% of days where the Hedge ensemble prediction was within 1°F of actual (${hedgeDaysChecked} days with predictions)">i</span>
     </div>
-    <div class="stat-value" style="color:#16a34a">${avgAccuracy}%</div>
+    <div class="stat-value" style="color:#16a34a">${hedgeAccuracy}%</div>
   </div>
   <div class="stat-card">
     <div class="stat-label">
       Bucket Hit Rate
-      <span class="tip" tabindex="0" data-tip="% of days where avg forecast fell in the winning Kalshi bucket (${bucketDaysChecked} days with Kalshi data)">i</span>
+      <span class="tip" tabindex="0" data-tip="% of days where the Hedge prediction landed in the winning Kalshi bucket (${bucketDaysChecked} days with Kalshi + prediction data)">i</span>
     </div>
     <div class="stat-value" style="color:#7c3aed">${bucketRate}%</div>
   </div>
