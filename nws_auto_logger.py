@@ -41,6 +41,13 @@ def _accu_csv_file():
 def _nws_endpoint():
     return _CITY_CFG["nws_api_endpoint"]
 
+# Shared headers for all NWS requests — cache-busting to avoid stale CDN responses
+NWS_HEADERS = {
+    "User-Agent": "Mozilla/5.0",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+}
+
 # Only used by optional local loop mode
 FETCH_TIMES = ["19:30", "21:00", "23:00", "05:00", "06:00", "07:00", "09:00",
                "10:00", "10:50", "11:00", "12:00", "13:00", "14:00", "15:00"]
@@ -123,10 +130,10 @@ def _period_date_local(start_iso: str) -> datetime.date:
     return dt.astimezone(_tz()).date()
 
 def get_forecast_periods() -> List[dict]:
-    r = requests.get(_nws_endpoint(), headers={"User-Agent": "Mozilla/5.0"})
+    r = requests.get(_nws_endpoint(), headers=NWS_HEADERS)
     r.raise_for_status()
     forecast_url = r.json()["properties"]["forecast"]
-    r2 = requests.get(forecast_url, headers={"User-Agent": "Mozilla/5.0"})
+    r2 = requests.get(forecast_url, headers=NWS_HEADERS)
     r2.raise_for_status()
     return r2.json()["properties"]["periods"]
 
@@ -160,7 +167,7 @@ def _latest_ob_f(station: str = None) -> Optional[int]:
     station = station or _obs_station()
     try:
         u = f"https://api.weather.gov/stations/{station}/observations?limit=1"
-        r = requests.get(u, headers={"User-Agent":"Mozilla/5.0"}, timeout=15)
+        r = requests.get(u, headers=NWS_HEADERS, timeout=15)
         r.raise_for_status()
         feats = (r.json().get("features") or [])
         if not feats:
@@ -180,7 +187,7 @@ def _six_hour_max_f(station: str = None) -> Optional[int]:
         start = now - datetime.timedelta(hours=6)
         u = (f"https://api.weather.gov/stations/{station}/observations"
              f"?start={start.isoformat()}Z&end={now.isoformat()}Z&limit=100")
-        r = requests.get(u, headers={"User-Agent":"Mozilla/5.0"}, timeout=20)
+        r = requests.get(u, headers=NWS_HEADERS, timeout=20)
         r.raise_for_status()
         feats = r.json().get("features") or []
         vals = []
@@ -621,7 +628,7 @@ def log_actual_today_if_after_6pm_local() -> None:
         url = (f"https://forecast.weather.gov/product.php"
                f"?site={_CITY_CFG['cli_site']}&issuedby={_CITY_CFG['cli_issuedby']}"
                f"&product=CLI&format=CI&version=1&glossary=0")
-        html = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}).text
+        html = requests.get(url, headers=NWS_HEADERS).text
         pre = BeautifulSoup(html, "html.parser").find("pre")
         if not pre:
             print("❌ CLI report not found (v1).")
@@ -715,7 +722,7 @@ def upsert_yesterday_actual_if_morning_local() -> None:
         url = (f"https://forecast.weather.gov/product.php"
                f"?site={_CITY_CFG['cli_site']}&issuedby={_CITY_CFG['cli_issuedby']}"
                f"&product=CLI&format=CI&version=1&glossary=0")
-        html = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}).text
+        html = requests.get(url, headers=NWS_HEADERS).text
         pre = BeautifulSoup(html, "html.parser").find("pre")
         if not pre:
             print("❌ CLI v1 not available")
