@@ -2608,8 +2608,9 @@ updateCorrectionBoxes();  // now uses the freshly-trained state
       window.predictionHistory.today = [];
       window.predictionHistory.tomorrow = [];
 
-      // Clear chart
+      // Clear caches
       if (window._trendChart) { window._trendChart.destroy(); window._trendChart = null; }
+      if (typeof kalshiCache !== 'undefined') kalshiCache.clear();
 
       // Update date display
       showTodayDate();
