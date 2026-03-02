@@ -19,13 +19,14 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).end();
   
   // ----- Input -----
-  const { date } = req.query || {};
+  const { date, series } = req.query || {};
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return res.status(400).json({ error: "Missing or bad ?date=YYYY-MM-DD" });
   }
-  
+  const seriesTicker = (series || "KXHIGHNY").toUpperCase();
+
   const base = "https://api.elections.kalshi.com/trade-api/v2";
-  const eventTicker = toKalshiEventTicker(date);
+  const eventTicker = toKalshiEventTicker(date, seriesTicker);
   
   try {
     // Get all markets for the event (open + others)
@@ -85,10 +86,10 @@ export default async function handler(req, res) {
     
     return res.status(200).json({
       eventTicker,
-      leadingLabel: best.label,                        // UNCHANGED - existing code works
-      leadingProb: Math.round(best.prob * 100) / 100,  // UNCHANGED - existing code works
-      url: "https://kalshi.com/markets/kxhighny",      // UNCHANGED - existing code works
-      ranges                                            // NEW - all market ranges
+      leadingLabel: best.label,
+      leadingProb: Math.round(best.prob * 100) / 100,
+      url: `https://kalshi.com/markets/${seriesTicker.toLowerCase()}`,
+      ranges
     });
   } catch (err) {
     console.error(err);
@@ -96,11 +97,11 @@ export default async function handler(req, res) {
   }
 }
 
-function toKalshiEventTicker(dateISO) {
+function toKalshiEventTicker(dateISO, series = "KXHIGHNY") {
   const [Y, M, D] = dateISO.split("-");
   const yy = Y.slice(-2);
   const mon = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"][Number(M)-1];
-  return `KXHIGHNY-${yy}${mon}${D}`;
+  return `${series}-${yy}${mon}${D}`;
 }
 
 // NEW FUNCTION: Parse temperature ranges from Kalshi labels

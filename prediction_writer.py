@@ -17,6 +17,9 @@ from model_config import FEATURE_COLS, ACCU_NWS_FALLBACK, derive_bucket_probabil
 
 MODEL_VERSION = os.environ.get("PREDICTION_MODEL_VERSION", "bcp_v1")
 
+# Module-level city key — set by _cli() before write functions run
+_CITY_KEY = "nyc"
+
 # ---------------------------------------------------------------------------
 # ML model inference
 # ---------------------------------------------------------------------------
@@ -292,7 +295,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     ml = _compute_ml_prediction(rows, target_date_iso)
 
     ts = now_nyc().isoformat()
-    idem_key = f"{MODEL_VERSION}:today_for_today:{target_date_iso}"
+    idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:today_for_today:{target_date_iso}"
 
     payload = {
         "idempotency_key": idem_key,
@@ -309,6 +312,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         "version": MODEL_VERSION,
         "recommendation": "frozen at actual time",
         "source_card": "nws_auto_logger",
+        "city": _CITY_KEY,
     }
     if ml:
         payload["ml_f"] = ml["ml_f"]
@@ -336,7 +340,7 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     ml = _compute_ml_prediction(rows, tomorrow_iso)
 
     ts = now_nyc().isoformat()
-    idem_key = f"{MODEL_VERSION}:today_for_tomorrow:{tomorrow_iso}"
+    idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:today_for_tomorrow:{tomorrow_iso}"
 
     payload = {
         "idempotency_key": idem_key,
@@ -353,6 +357,7 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
         "version": MODEL_VERSION,
         "recommendation": "snapshot from today",
         "source_card": "nws_auto_logger",
+        "city": _CITY_KEY,
     }
     if ml:
         payload["ml_f"] = ml["ml_f"]
@@ -382,6 +387,8 @@ def _cli():
     args = p.parse_args()
 
     set_city(args.city)
+    global _CITY_KEY
+    _CITY_KEY = args.city
     print(f"[prediction_writer] city={args.city}")
 
     if args.cmd == "today_for_today":    write_today_for_today(args.date)

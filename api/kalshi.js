@@ -22,13 +22,14 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).end();
 
   // ----- Input -----
-  const { date } = req.query || {};
+  const { date, series } = req.query || {};
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return res.status(400).json({ error: "Missing or bad ?date=YYYY-MM-DD" });
   }
+  const seriesTicker = (series || "KXHIGHNY").toUpperCase();
 
   const base = "https://api.elections.kalshi.com/trade-api/v2";
-  const eventTicker = toKalshiEventTicker(date);
+  const eventTicker = toKalshiEventTicker(date, seriesTicker);
 
   try {
     let info = null;
@@ -43,8 +44,8 @@ export default async function handler(req, res) {
       info = winnerToInfo(pickWinner(j0?.event?.markets));
     }
 
-    // Fallback to legacy HIGHNY-*
-    if (!info) {
+    // Fallback to legacy HIGHNY-* (NYC only)
+    if (!info && seriesTicker === "KXHIGHNY") {
       const legacyTicker = eventTicker.replace(/^KXHIGHNY-/, "HIGHNY-");
       r0 = await fetch(
         `${base}/events/${encodeURIComponent(legacyTicker)}?with_nested_markets=true`,
@@ -71,7 +72,7 @@ export default async function handler(req, res) {
     // 3) Series fallback
     if (!info) {
       const r2 = await fetch(
-        `${base}/markets?series_ticker=KXHIGHNY&status=settled`,
+        `${base}/markets?series_ticker=${encodeURIComponent(seriesTicker)}&status=settled`,
         { headers: { Accept: "application/json" } }
       );
       if (r2.ok) {
@@ -84,7 +85,7 @@ export default async function handler(req, res) {
     if (!info) return res.status(204).end();
     return res
       .status(200)
-      .json({ ...info, eventTicker, url: "https://kalshi.com/markets/kxhighny" });
+      .json({ ...info, eventTicker, url: `https://kalshi.com/markets/${seriesTicker.toLowerCase()}` });
 
   } catch (err) {
     console.error(err);
@@ -92,11 +93,11 @@ export default async function handler(req, res) {
   }
 }
 
-function toKalshiEventTicker(dateISO) {
+function toKalshiEventTicker(dateISO, series = "KXHIGHNY") {
   const [Y, M, D] = dateISO.split("-");
   const yy = Y.slice(-2);
   const mon = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"][Number(M)-1];
-  return `KXHIGHNY-${yy}${mon}${D}`;
+  return `${series}-${yy}${mon}${D}`;
 }
 
 function pickWinner(markets) {

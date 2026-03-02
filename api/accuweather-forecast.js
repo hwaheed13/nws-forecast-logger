@@ -4,7 +4,7 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET');
   
   const ACCUWEATHER_KEY = process.env.ACCUWEATHER_API_KEY || 'zpka_171d856fa2e445ed9b2d071bf2446f91_a9e8af6e';
-  const LOCATION = '2627448'; // Central Park
+  const LOCATION = (req.query && req.query.location) || '2627448';
   
   try {
     const response = await fetch(

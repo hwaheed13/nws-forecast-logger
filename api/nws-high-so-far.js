@@ -23,7 +23,7 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).end();
 
   const station = (req.query.station || "KNYC").toUpperCase();
-  const tz = "America/New_York";
+  const tz = req.query.tz || "America/New_York";
 
   const toNYDate = (d) => {
     const parts = new Intl.DateTimeFormat("en-CA", {
