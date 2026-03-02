@@ -1,9 +1,9 @@
-name: Monthly ML Model Retrain
+name: Weekly ML Model Retrain
 
 on:
   schedule:
-    # 1st of every month at 6am ET (11am UTC)
-    - cron: "0 11 1 * *"
+    # Every Monday at 6am ET (11am UTC)
+    - cron: "0 11 * * 1"
   workflow_dispatch:  # manual trigger
 
 jobs:
@@ -47,7 +47,7 @@ jobs:
           else
             git commit -m "Retrain ML models with latest data ($(date +%Y-%m-%d))
 
-          Automated monthly retrain using train_models.py.
+          Automated weekly retrain using train_models.py.
           See model_metadata.json for updated performance metrics."
             git push
           fi
