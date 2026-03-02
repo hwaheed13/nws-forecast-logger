@@ -23,11 +23,15 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).end();
 
   const issuedby = String(req.query.issuedby || "NYC").toUpperCase();
+  const site = String(req.query.site || "NWS").toUpperCase();
+  const product = String(req.query.product || "DSM").toUpperCase();
 
   try {
-    const url = `https://forecast.weather.gov/product.php?site=NWS&issuedby=${encodeURIComponent(
+    const url = `https://forecast.weather.gov/product.php?site=${encodeURIComponent(
+      site
+    )}&issuedby=${encodeURIComponent(
       issuedby
-    )}&product=DSM&format=CI&version=1&glossary=1`;
+    )}&product=${encodeURIComponent(product)}&format=CI&version=1&glossary=1`;
 
     const r = await fetch(url, {
       headers: {

@@ -739,7 +739,7 @@ input[type="date"] {
         accuCsvFile: "accuweather_log.csv",
         kalshiSeries: "KXHIGHNY",
         kalshiUrl: "https://kalshi.com/markets/kxhighny/highest-temperature-in-nyc",
-        dsmIssuedby: "NYC", dsmSite: "NWS",
+        dsmIssuedby: "NYC", dsmSite: "NWS", dsmProduct: "DSM",
         hasDsm: true,
         description: "Central Park",
         hasMLModel: true,
@@ -753,8 +753,8 @@ input[type="date"] {
         accuCsvFile: "lax_accuweather_log.csv",
         kalshiSeries: "KXHIGHLAX",
         kalshiUrl: "https://kalshi.com/markets/kxhighlax/highest-temperature-in-los-angeles",
-        dsmIssuedby: "LAX", dsmSite: "LOX",
-        hasDsm: false,
+        dsmIssuedby: "LAX", dsmSite: "LOX", dsmProduct: "CLI",
+        hasDsm: true,
         description: "LAX area",
         hasMLModel: false,
         accuLocationKey: "347625",
@@ -2580,8 +2580,8 @@ updateCorrectionBoxes();  // now uses the freshly-trained state
       ACCU_URL = `${GITHUB_RAW}/${cfg.accuCsvFile}`;
       KALSHI_BASE_URL = cfg.kalshiUrl;
       NWS_DSM_URLS = [
-        `${API_BASE}/nws-dsm?issuedby=${cfg.dsmIssuedby}`,
-        `https://forecast.weather.gov/product.php?site=${cfg.dsmSite}&issuedby=${cfg.dsmIssuedby}&product=DSM&format=CI&version=1&glossary=1`,
+        `${API_BASE}/nws-dsm?issuedby=${cfg.dsmIssuedby}&site=${cfg.dsmSite}&product=${cfg.dsmProduct || "DSM"}`,
+        `https://forecast.weather.gov/product.php?site=${cfg.dsmSite}&issuedby=${cfg.dsmIssuedby}&product=${CC().dsmProduct || "DSM"}&format=CI&version=1&glossary=1`,
       ];
 
       // Update city switcher buttons
@@ -2641,8 +2641,8 @@ updateCorrectionBoxes();  // now uses the freshly-trained state
     const NWS_HIGH_SO_FAR_URLS= [ `${API_BASE}/nws-high-so-far` ];
     const NWS_CURRENT_TEMP_URLS=[ `${API_BASE}/nws-current-temp` ];
     let NWS_DSM_URLS = [
-      `${API_BASE}/nws-dsm?issuedby=${CC().dsmIssuedby}`,
-      `https://forecast.weather.gov/product.php?site=${CC().dsmSite}&issuedby=${CC().dsmIssuedby}&product=DSM&format=CI&version=1&glossary=1`,
+      `${API_BASE}/nws-dsm?issuedby=${CC().dsmIssuedby}&site=${CC().dsmSite}&product=${CC().dsmProduct || "DSM"}`,
+      `https://forecast.weather.gov/product.php?site=${CC().dsmSite}&issuedby=${CC().dsmIssuedby}&product=${CC().dsmProduct || "DSM"}&format=CI&version=1&glossary=1`,
     ];
     const NWS_6HR_JSON_URLS = [
       `${API_BASE}/nws-6hr-json`,
@@ -2777,6 +2777,39 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
       return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(d);
     }
 
+    // CLI parser (for LAX and other CLI-format stations)
+    function parseCLI(text) {
+      if (!text) return null;
+      const t = text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      // Extract date from header: "CLIMATE SUMMARY FOR MARCH 1 2026"
+      const dateMatch = t.match(/CLIMATE SUMMARY FOR (\w+) (\d{1,2}) (\d{4})/i);
+      if (!dateMatch) return null;
+      const months = { JANUARY:1, FEBRUARY:2, MARCH:3, APRIL:4, MAY:5, JUNE:6,
+        JULY:7, AUGUST:8, SEPTEMBER:9, OCTOBER:10, NOVEMBER:11, DECEMBER:12 };
+      const mon = months[dateMatch[1].toUpperCase()];
+      if (!mon) return null;
+      const dd = String(dateMatch[2]).padStart(2, "0");
+      const mm = String(mon).padStart(2, "0");
+      const year = dateMatch[3];
+      const dayISO = `${year}-${mm}-${dd}`;
+      // Extract max temp: "MAXIMUM    78  11:23 AM"
+      const maxMatch = t.match(/MAXIMUM\s+(\d{1,3})\s+(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+      if (!maxMatch) return null;
+      const tempF = Number(maxMatch[1]);
+      let hh = Number(maxMatch[2]);
+      const mi = maxMatch[3];
+      const ampm = maxMatch[4].toUpperCase();
+      if (ampm === "PM" && hh < 12) hh += 12;
+      if (ampm === "AM" && hh === 12) hh = 0;
+      const hhStr = String(hh).padStart(2, "0");
+      const isoLocal = `${dayISO}T${hhStr}:${mi}:00`;
+      const when = new Date(isoLocal);
+      const fmtTime = new Intl.DateTimeFormat("en-US", {
+        timeZone: CC().timezone, hour: "numeric", minute: "2-digit"
+      }).format(when);
+      return { tempF, timeET: fmtTime, iso: isoLocal, dayISO, raw: `${tempF} at ${fmtTime}` };
+    }
+
     // DSM (single, non-duplicated)
     let lastDSMDay = nycISODate(0);
     function clearDSMOnly() {
@@ -2800,10 +2833,10 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
       el.textContent = "–";
       note.textContent = "";
       const txt = await fetchTEXT(NWS_DSM_URLS);
-      const parsed = parseDSM(txt);
+      const parsed = (CC().dsmProduct === "CLI") ? parseCLI(txt) : parseDSM(txt);
       if (parsed && parsed.dayISO === today) {
         el.textContent = `${parsed.tempF.toFixed(0)}°F`;
-        note.textContent = `${parsed.timeET} ${CC().tzAbbr} • daily summary message`;
+        note.textContent = `${parsed.timeET} ${CC().tzAbbr} • NWS climatological report`;
       } else {
         clearDSMOnly();
       }
