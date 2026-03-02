@@ -1769,7 +1769,7 @@ function reloadCSV(opts = {}) {
     resetFilter();
     showMostRecent();
     updateSummaryBoxes();
-    updateCorrectionBoxes();
+    await updateCorrectionBoxes();
     updateObservations();
 
   })
@@ -2561,14 +2561,14 @@ if (!changedToday && !changedTomorrow && !actualChanged) return;
 
 // Forecasts or actual changed → reset + pretrain so normal/incognito match
   if (typeof warmOnceForCurrentCSV === "function") {
-    try { warmOnceForCurrentCSV(); } catch (e) { console.warn("warmOnceForCurrentCSV failed:", e); }
+    try { await warmOnceForCurrentCSV(); } catch (e) { console.warn("warmOnceForCurrentCSV failed:", e); }
   }
   if (typeof pretrainFromHistory === "function") {
-    try { pretrainFromHistory(); } catch (e) { console.warn("pretrainFromHistory failed:", e); }
+    try { await pretrainFromHistory(); } catch (e) { console.warn("pretrainFromHistory failed:", e); }
   }
 
-// (optional) refresh the bias-corrected cards immediately
-try { updateCorrectionBoxes(); } catch {}
+// refresh the bias-corrected cards with post-pretrain state
+try { await updateCorrectionBoxes(); } catch {}
 
 // Adopt new signatures (we still only *log* on forecast changes)
 lastSig.today    = sigTodayNew;
@@ -2604,7 +2604,7 @@ if (actualChanged) {
 // Refresh UI
 showMostRecent();
 updateSummaryBoxes();
-updateCorrectionBoxes();  // now uses the freshly-trained state
+await updateCorrectionBoxes();  // now uses the freshly-trained state
 
       } catch (e) {
         console.debug("pollCsvAndUpdate error:", e);
@@ -2615,11 +2615,15 @@ updateCorrectionBoxes();  // now uses the freshly-trained state
       if (!CITY_CONFIG[cityKey] || cityKey === currentCity) return;
 
       // Block intermediate updateCorrectionBoxes calls from side-effect callbacks
-      // (e.g. fetchAccuWeatherForecasts triggers updateCorrectionBoxes when values change,
-      // but during a switch allRows is empty so predictions would be garbage)
       _citySwitching = true;
 
       try {
+        // Save current city's API data BEFORE clearing (so toggle-back can restore)
+        _cityDataCache[currentCity] = {
+          accuWeatherData: window.accuWeatherData ? { ...window.accuWeatherData } : null,
+          mlPredictions: window.mlPredictions ? { ...window.mlPredictions } : null,
+        };
+
         currentCity = cityKey;
         localStorage.setItem("selectedCity", cityKey);
         const cfg = CC();
@@ -2653,10 +2657,19 @@ updateCorrectionBoxes();  // now uses the freshly-trained state
         window._overnightHighTime = null;
         window._overnightExceeded = null;
         window._sixHourMaxF = null;
-        window.accuWeatherData = { today: null, tomorrow: null };
-        window.mlPredictions = { today: null, tomorrow: null };
         window.predictionHistory.today = [];
         window.predictionHistory.tomorrow = [];
+
+        // Pre-populate from cache so API failures don't lose candidates
+        const cached = _cityDataCache[cityKey];
+        if (cached) {
+          window.accuWeatherData = cached.accuWeatherData ? { ...cached.accuWeatherData } : { today: null, tomorrow: null };
+          window.mlPredictions = cached.mlPredictions ? { ...cached.mlPredictions } : { today: null, tomorrow: null };
+          console.log(`🔄 Restored cached data for ${cityKey}:`, window.accuWeatherData, window.mlPredictions);
+        } else {
+          window.accuWeatherData = { today: null, tomorrow: null };
+          window.mlPredictions = { today: null, tomorrow: null };
+        }
 
         // Clear DSM box so hasDSMForToday() returns false during AccuWeather fetch
         // (prevents stale DSM value from blocking AccuWeather candidate)
@@ -2685,6 +2698,12 @@ updateCorrectionBoxes();  // now uses the freshly-trained state
 
         // NOW reload CSV + full UI refresh (predictions will have ML + AccuWeather data)
         await reloadCSV({ skipHedgeTrain: true });
+
+        // Update city cache with freshly loaded data
+        _cityDataCache[cityKey] = {
+          accuWeatherData: window.accuWeatherData ? { ...window.accuWeatherData } : null,
+          mlPredictions: window.mlPredictions ? { ...window.mlPredictions } : null,
+        };
 
         // Independent API-only updates (don't affect predictions)
         updateDSM();
@@ -3114,6 +3133,9 @@ function hasActualFor(dateISO) {
     r.actual_high && String(r.actual_high).trim() !== ""
   );
 }
+
+// Per-city data cache — survives across toggles so API failures don't lose candidates
+const _cityDataCache = {};
 
 // Guard: block intermediate updateCorrectionBoxes calls during city switch
 let _citySwitching = false;
@@ -4415,8 +4437,14 @@ async function bootApp() {
       setInterval(() => { try { localStorage.setItem("dashboard_heartbeat", String(Date.now())); } catch {} }, 60 * 1000);
     } catch {}
     
+    // Save boot data to per-city cache so toggle-back can restore if API fails
+    _cityDataCache[currentCity] = {
+      accuWeatherData: window.accuWeatherData ? { ...window.accuWeatherData } : null,
+      mlPredictions: window.mlPredictions ? { ...window.mlPredictions } : null,
+    };
+
     // Mark system as fully loaded after initial data load
-    setTimeout(() => { 
+    setTimeout(() => {
       systemFullyLoaded = true;
       console.log("System fully loaded, logging enabled");
     }, 2000);
