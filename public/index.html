@@ -3777,6 +3777,7 @@ async function displayTable() {
 
   let totalAbsErr = 0, totalBestErr = 0, errCount = 0, bestCount = 0;
   let totalSignedErr = 0, totalBestSignedErr = 0;  // NEW: track signed errors
+  let within2Count = 0;  // days where best forecast was within ±2°F
 
   daysWithActual.forEach(d => {
     const rows = dayMap[d] || [];
@@ -3812,6 +3813,7 @@ async function displayTable() {
       totalSignedErr += avgSignedErr;  // NEW
       totalBestErr += bestErr;
       totalBestSignedErr += bestSignedErr;  // NEW
+      if (bestErr <= 2.0) within2Count++;
       errCount++;
       bestCount++;
     }
@@ -3819,6 +3821,7 @@ async function displayTable() {
 
   const avgAbsErr = errCount > 0 ? (totalAbsErr / errCount).toFixed(1) : "--";
   const avgBestErr = bestCount > 0 ? (totalBestErr / bestCount).toFixed(1) : "--";
+  const accuracy = errCount > 0 ? (within2Count / errCount * 100).toFixed(0) : "--";
   const meanBias = errCount > 0 ? (totalSignedErr / errCount) : null;  // NEW
   const bestBias = bestCount > 0 ? (totalBestSignedErr / bestCount) : null;  // NEW
 
@@ -3876,6 +3879,13 @@ stats.innerHTML = `
     <div class="stat-value" style="color: ${bestBias > 0 ? '#d97706' : bestBias < 0 ? '#2563eb' : 'inherit'}">
       ${bestBiasStr}
     </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">
+      Accuracy (±2°F)
+      <span class="tip" tabindex="0" data-tip="% of days where the best forecast was within 2°F of actual">i</span>
+    </div>
+    <div class="stat-value" style="color:#16a34a">${accuracy}%</div>
   </div>
 `;
 }
