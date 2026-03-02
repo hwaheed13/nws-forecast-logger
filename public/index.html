@@ -2948,20 +2948,22 @@ window._predTomorrow = predTomorrow;
     // Skip momentum on overnight-high days — the "actual" is the 24hr max
     // (which peaked overnight) while forecasts target daytime highs, so the
     // overshoot is a measurement mismatch, not a real forecast trend.
-    // Check multiple sources: in-memory flag, localStorage, or detect directly
-    // by comparing actual vs ALL forecast sources (if actual > every source,
-    // it likely peaked overnight before daytime forecasts kicked in).
     const overnightLS = JSON.parse(localStorage.getItem(`overnightExceeded_${todayISO}`) || 'null');
     const overnightFlag = window._overnightExceeded || overnightLS;
-    const allSourcesBelow = Number.isFinite(actual) && pool.length > 0
-      && pool.every(v => actual > v + 2);  // actual exceeds every source by >2°F
 
-    if (overnightFlag || allSourcesBelow) {
-      const reason = overnightFlag ? "overnight_exceedance_flag" : "actual_exceeds_all_sources";
-      console.log("D1 momentum skipped:", reason, { actual, pool: [...pool] });
-      window._d1Adj_debug = { skipped: true, reason, actual, pool: [...pool] };
+    // Also detect directly: if actual exceeds the pool average by >3°F,
+    // the high likely peaked overnight (NWS D0 forecasts are daytime-focused).
+    const poolAvg = pool.length ? pool.reduce((a,b)=>a+b,0) / pool.length : NaN;
+    const bigOvershoot = Number.isFinite(actual) && Number.isFinite(poolAvg)
+      && (actual - poolAvg) > 3;
+
+    if (overnightFlag || bigOvershoot) {
+      const reason = overnightFlag ? "overnight_exceedance_flag"
+        : `actual_${actual}_exceeds_avg_${poolAvg.toFixed(1)}_by_${(actual-poolAvg).toFixed(1)}`;
+      console.log("D1 momentum skipped:", reason);
+      window._d1Adj_debug = { skipped: true, reason, actual, poolAvg, pool: [...pool] };
     } else if (Number.isFinite(actual) && pool.length && Number.isFinite(predTomorrow?.y)) {
-      const base = pool.reduce((a,b)=>a+b,0) / pool.length;
+      const base = poolAvg;
       const overshoot = actual - base;          // ±
       const BETA = 0.30;                        // tune 0.2–0.4
       const CAP  = 2.0;                         // max |bump|
