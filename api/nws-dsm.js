@@ -37,6 +37,8 @@ export default async function handler(req, res) {
       headers: {
         Accept: "text/html, text/plain",
         "User-Agent": "dailydewpoint (contact: you@example.com)",
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
       },
     });
     if (!r.ok) {

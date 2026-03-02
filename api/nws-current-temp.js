@@ -31,6 +31,8 @@ export default async function handler(req, res) {
       headers: {
         Accept: "application/geo+json, application/json",
         "User-Agent": "dailydewpoint (contact: you@example.com)",
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
         // token: process.env.NWS_API_KEY // optional
       }
     });

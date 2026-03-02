@@ -26,7 +26,13 @@ export default async function handler(req, res) {
   const url = `https://forecast.weather.gov/data/obhistory/${station}.html`;
 
   try {
-    const r = await fetch(url);
+    const r = await fetch(url, {
+      headers: {
+        "User-Agent": "dailydewpoint (contact: you@example.com)",
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
+    });
     if (!r.ok) return res.status(r.status).json({ error: `Upstream error: ${r.statusText}` });
 
     const html = await r.text();
