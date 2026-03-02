@@ -110,16 +110,17 @@
     .pill.live .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-green); animation: pulse 2s infinite; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
     .pill.logout-btn { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-default); }
-    /* City switcher — segmented control */
-    .city-switcher { display: flex; background: var(--bg-tertiary); border-radius: 10px;
-      padding: 3px; gap: 2px; border: 1px solid var(--border-subtle); }
-    .city-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
-      padding: 8px 18px; border: none; border-radius: 8px; cursor: pointer;
-      font-size: 13px; font-weight: 700; letter-spacing: .02em;
-      background: transparent; color: var(--text-muted); transition: all .2s; }
-    .city-btn:hover { color: var(--text-primary); background: var(--bg-secondary); }
-    .city-btn.active { background: var(--accent-blue); color: #fff; box-shadow: 0 1px 4px rgba(37,99,235,.35); }
-    .city-btn .city-station { font-weight: 500; opacity: .7; font-size: 11px; }
+    /* City switcher — dropdown */
+    .city-select-wrap { position: relative; display: inline-flex; align-items: center; }
+    .city-select-main { appearance: none; -webkit-appearance: none; border: 1.5px solid var(--accent-blue);
+      background: var(--accent-blue-light); color: var(--accent-blue); border-radius: 10px;
+      padding: 10px 38px 10px 14px; font-size: 14px; font-weight: 700; cursor: pointer;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='7'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%232563eb' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 12px center; transition: all .15s; }
+    .city-select-main:hover { background-color: var(--accent-blue); color: #fff;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='7'%3E%3Cpath d='M1 1l5 5 5-5' stroke='white' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); }
+    .city-select-main:focus { outline: 2px solid var(--accent-blue); outline-offset: 2px; }
+    .city-select-main option { font-weight: 600; }
 
     .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
 
@@ -534,13 +535,11 @@ input[type="date"] {
     </header>
 
     <div style="max-width:1400px; margin:0 auto; padding:12px 24px 0;">
-      <div id="citySelect" class="city-switcher">
-        <button class="city-btn active" data-city="nyc" onclick="switchCity('nyc')">
-          🏙️ New York City <span class="city-station">KNYC</span>
-        </button>
-        <button class="city-btn" data-city="lax" onclick="switchCity('lax')">
-          🌴 Los Angeles <span class="city-station">KLAX</span>
-        </button>
+      <div class="city-select-wrap">
+        <select id="citySelect" class="city-select-main" onchange="switchCity(this.value)">
+          <option value="nyc">🏙️ New York City (KNYC)</option>
+          <option value="lax">🌴 Los Angeles (KLAX)</option>
+        </select>
       </div>
     </div>
 
@@ -1475,6 +1474,12 @@ async function updateHedgeOnActual(kind, season, candidates, actual, targetISO, 
   saveState(key, st);
 }
   async function pretrainFromHistory() {
+    // Skip if already pretrained for this city (prevents re-training on city switch)
+    const pretrainKey = `${currentCity}:${ENS_KEY}:pretrain_done`;
+    if (localStorage.getItem(pretrainKey)) {
+      console.log(`Pretrain already done for ${currentCity}, skipping`);
+      return;
+    }
     console.log("=== PRETRAIN DEBUG START ===");
     console.log("Total rows in allRows:", allRows.length);
   // Collect which days have an actual
@@ -1527,6 +1532,8 @@ await updateHedgeOnActual("tomorrow", season, candTomorrow, actualF, iso, true);
   console.log("After pretrain - today:warm bias:", todayWarmState?.bias);
   console.log("After pretrain - today:warm rmse:", todayWarmState?.rmse);
   console.log("=== PRETRAIN DEBUG END ===");
+  // Mark pretrain done for this city so it doesn't re-run on city switch
+  localStorage.setItem(`${currentCity}:${ENS_KEY}:pretrain_done`, "1");
 }
 window.pretrainFromHistory = pretrainFromHistory;
 function resetHedgeState(){
@@ -1572,10 +1579,10 @@ const todayCool = {
 
 // Only seed if no prior state exists (so the learner can keep adapting)
 const seeds = [
-  [`${ENS_KEY}:today:warm`,     todayWarm],
-  [`${ENS_KEY}:today:cool`,     todayCool],
-  [`${ENS_KEY}:tomorrow:warm`,  tomorrowWarm],
-  [`${ENS_KEY}:tomorrow:cool`,  tomorrowCool],
+  [`${currentCity}:${ENS_KEY}:today:warm`,     todayWarm],
+  [`${currentCity}:${ENS_KEY}:today:cool`,     todayCool],
+  [`${currentCity}:${ENS_KEY}:tomorrow:warm`,  tomorrowWarm],
+  [`${currentCity}:${ENS_KEY}:tomorrow:cool`,  tomorrowCool],
 ];
 
 for (const [k, v] of seeds) {
@@ -2584,8 +2591,9 @@ updateCorrectionBoxes();  // now uses the freshly-trained state
         `https://forecast.weather.gov/product.php?site=${cfg.dsmSite}&issuedby=${cfg.dsmIssuedby}&product=${CC().dsmProduct || "DSM"}&format=CI&version=1&glossary=1`,
       ];
 
-      // Update city switcher buttons
-      document.querySelectorAll('.city-btn').forEach(b => b.classList.toggle('active', b.dataset.city === cityKey));
+      // Update city dropdown
+      const sel = document.getElementById("citySelect");
+      if (sel) sel.value = cityKey;
 
       // Update UI labels
       const brandSub = document.getElementById("brand-sub");
@@ -4285,8 +4293,9 @@ async function loadMLPredictions() {
   });
 
 async function bootApp() {
-    // Initialize city switcher from localStorage
-    document.querySelectorAll('.city-btn').forEach(b => b.classList.toggle('active', b.dataset.city === currentCity));
+    // Initialize city dropdown from localStorage
+    const citySelectEl = document.getElementById("citySelect");
+    if (citySelectEl) citySelectEl.value = currentCity;
     // Apply initial city labels
     {
       const cfg = CITY_CONFIG[currentCity];
