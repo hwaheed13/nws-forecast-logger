@@ -110,11 +110,16 @@
     .pill.live .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-green); animation: pulse 2s infinite; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
     .pill.logout-btn { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-default); }
-    .city-select { cursor: pointer; appearance: none; -webkit-appearance: none;
-      background: var(--accent-blue-light); color: var(--accent-blue); border-color: transparent;
-      padding-right: 22px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%232563eb'/%3E%3C/svg%3E");
-      background-repeat: no-repeat; background-position: right 8px center; font-weight: 800; }
-    .city-select:focus { outline: 2px solid var(--accent-blue); outline-offset: 1px; }
+    /* City switcher — segmented control */
+    .city-switcher { display: flex; background: var(--bg-tertiary); border-radius: 10px;
+      padding: 3px; gap: 2px; border: 1px solid var(--border-subtle); }
+    .city-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+      padding: 8px 18px; border: none; border-radius: 8px; cursor: pointer;
+      font-size: 13px; font-weight: 700; letter-spacing: .02em;
+      background: transparent; color: var(--text-muted); transition: all .2s; }
+    .city-btn:hover { color: var(--text-primary); background: var(--bg-secondary); }
+    .city-btn.active { background: var(--accent-blue); color: #fff; box-shadow: 0 1px 4px rgba(37,99,235,.35); }
+    .city-btn .city-station { font-weight: 500; opacity: .7; font-size: 11px; }
 
     .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
 
@@ -515,10 +520,6 @@ input[type="date"] {
       <div class="brand-right">
           <div class="pill-group">
             <span class="pill live"><span class="dot"></span> Live</span>
-            <select id="citySelect" class="pill city-select" onchange="switchCity(this.value)">
-              <option value="nyc">NYC</option>
-              <option value="lax">LAX</option>
-            </select>
             <span id="stationPill" class="pill">KNYC</span>
           </div>
              <label class="theme-switch">
@@ -531,6 +532,17 @@ input[type="date"] {
         </div>
       </div>
     </header>
+
+    <div style="max-width:1400px; margin:0 auto; padding:12px 24px 0;">
+      <div id="citySelect" class="city-switcher">
+        <button class="city-btn active" data-city="nyc" onclick="switchCity('nyc')">
+          🏙️ New York City <span class="city-station">KNYC</span>
+        </button>
+        <button class="city-btn" data-city="lax" onclick="switchCity('lax')">
+          🌴 Los Angeles <span class="city-station">KLAX</span>
+        </button>
+      </div>
+    </div>
 
     <div class="container">
       <div class="last-update">
@@ -2572,6 +2584,9 @@ updateCorrectionBoxes();  // now uses the freshly-trained state
         `https://forecast.weather.gov/product.php?site=${cfg.dsmSite}&issuedby=${cfg.dsmIssuedby}&product=DSM&format=CI&version=1&glossary=1`,
       ];
 
+      // Update city switcher buttons
+      document.querySelectorAll('.city-btn').forEach(b => b.classList.toggle('active', b.dataset.city === cityKey));
+
       // Update UI labels
       const brandSub = document.getElementById("brand-sub");
       if (brandSub) brandSub.textContent = `Automatically logs every NWS forecast update for ${cfg.description} and compares to the official daily high`;
@@ -4236,9 +4251,8 @@ async function loadMLPredictions() {
   });
 
 async function bootApp() {
-    // Initialize city selector from localStorage
-    const citySelect = document.getElementById("citySelect");
-    if (citySelect) citySelect.value = currentCity;
+    // Initialize city switcher from localStorage
+    document.querySelectorAll('.city-btn').forEach(b => b.classList.toggle('active', b.dataset.city === currentCity));
     // Apply initial city labels
     {
       const cfg = CITY_CONFIG[currentCity];
