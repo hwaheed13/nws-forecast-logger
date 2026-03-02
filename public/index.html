@@ -2945,7 +2945,16 @@ window._predTomorrow = predTomorrow;
     }
     if (Number.isFinite(cT.AccuWeather)) pool.push(cT.AccuWeather);
   
-    if (Number.isFinite(actual) && pool.length && Number.isFinite(predTomorrow?.y)) {
+    // Skip momentum on overnight-high days — the "actual" is the 24hr max
+    // (which peaked overnight) while forecasts target daytime highs, so the
+    // overshoot is a measurement mismatch, not a real forecast trend.
+    const overnightDay = window._overnightExceeded
+      || JSON.parse(localStorage.getItem(`overnightExceeded_${todayISO}`) || 'null');
+
+    if (overnightDay) {
+      console.log("D1 momentum skipped: overnight high already passed for today");
+      window._d1Adj_debug = { skipped: true, reason: "overnight_exceedance" };
+    } else if (Number.isFinite(actual) && pool.length && Number.isFinite(predTomorrow?.y)) {
       const base = pool.reduce((a,b)=>a+b,0) / pool.length;
       const overshoot = actual - base;          // ±
       const BETA = 0.30;                        // tune 0.2–0.4
