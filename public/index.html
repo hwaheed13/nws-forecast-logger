@@ -3776,8 +3776,9 @@ async function displayTable() {
   });
 
   let totalAbsErr = 0, totalBestErr = 0, errCount = 0, bestCount = 0;
-  let totalSignedErr = 0, totalBestSignedErr = 0;  // NEW: track signed errors
-  let within2Count = 0;  // days where best forecast was within ±2°F
+  let totalSignedErr = 0, totalBestSignedErr = 0;
+  let avgWithin2Count = 0;   // days where avg forecast was within ±2°F
+  let bucketHitCount = 0;    // days where floor(avgForecast) == floor(actual)
 
   daysWithActual.forEach(d => {
     const rows = dayMap[d] || [];
@@ -3799,21 +3800,27 @@ async function displayTable() {
       .filter(Number.isFinite);
 
     if (forecasts.length) {
-      const signedErrors = forecasts.map(f => f - actualHigh);  // NEW: keep sign
+      const signedErrors = forecasts.map(f => f - actualHigh);
       const allErrors = forecasts.map(f => Math.abs(f - actualHigh));
-      
+
       const avgErr = allErrors.reduce((a, b) => a + b, 0) / allErrors.length;
-      const avgSignedErr = signedErrors.reduce((a, b) => a + b, 0) / signedErrors.length;  // NEW
-      
+      const avgSignedErr = signedErrors.reduce((a, b) => a + b, 0) / signedErrors.length;
+      const avgForecast = forecasts.reduce((a, b) => a + b, 0) / forecasts.length;
+
       const bestIdx = allErrors.indexOf(Math.min(...allErrors));
       const bestErr = allErrors[bestIdx];
-      const bestSignedErr = signedErrors[bestIdx];  // NEW: signed error of best forecast
-      
+      const bestSignedErr = signedErrors[bestIdx];
+
       totalAbsErr += avgErr;
-      totalSignedErr += avgSignedErr;  // NEW
+      totalSignedErr += avgSignedErr;
       totalBestErr += bestErr;
-      totalBestSignedErr += bestSignedErr;  // NEW
-      if (bestErr <= 2.0) within2Count++;
+      totalBestSignedErr += bestSignedErr;
+
+      // Avg forecast within ±2°F
+      if (Math.abs(avgForecast - actualHigh) <= 2.0) avgWithin2Count++;
+      // Bucket hit: floor(avgForecast) matches floor(actual) — maps to Kalshi 1°F buckets
+      if (Math.floor(avgForecast) === Math.floor(actualHigh)) bucketHitCount++;
+
       errCount++;
       bestCount++;
     }
@@ -3821,9 +3828,10 @@ async function displayTable() {
 
   const avgAbsErr = errCount > 0 ? (totalAbsErr / errCount).toFixed(1) : "--";
   const avgBestErr = bestCount > 0 ? (totalBestErr / bestCount).toFixed(1) : "--";
-  const accuracy = errCount > 0 ? (within2Count / errCount * 100).toFixed(0) : "--";
-  const meanBias = errCount > 0 ? (totalSignedErr / errCount) : null;  // NEW
-  const bestBias = bestCount > 0 ? (totalBestSignedErr / bestCount) : null;  // NEW
+  const avgAccuracy = errCount > 0 ? (avgWithin2Count / errCount * 100).toFixed(0) : "--";
+  const bucketRate = errCount > 0 ? (bucketHitCount / errCount * 100).toFixed(0) : "--";
+  const meanBias = errCount > 0 ? (totalSignedErr / errCount) : null;
+  const bestBias = bestCount > 0 ? (totalBestSignedErr / bestCount) : null;
 
   // Format bias with + or - sign
   const meanBiasStr = meanBias != null 
@@ -3882,10 +3890,17 @@ stats.innerHTML = `
   </div>
   <div class="stat-card">
     <div class="stat-label">
-      Accuracy (±2°F)
-      <span class="tip" tabindex="0" data-tip="% of days where the best forecast was within 2°F of actual">i</span>
+      Avg Fcst ±2°F
+      <span class="tip" tabindex="0" data-tip="% of days where the average forecast was within 2°F of actual">i</span>
     </div>
-    <div class="stat-value" style="color:#16a34a">${accuracy}%</div>
+    <div class="stat-value" style="color:#16a34a">${avgAccuracy}%</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">
+      Bucket Hit Rate
+      <span class="tip" tabindex="0" data-tip="% of days where floor(avg forecast) matched floor(actual) — maps to Kalshi 1°F buckets">i</span>
+    </div>
+    <div class="stat-value" style="color:#7c3aed">${bucketRate}%</div>
   </div>
 `;
 }
