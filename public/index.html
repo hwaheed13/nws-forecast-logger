@@ -3953,7 +3953,7 @@ async function loadMLPredictions() {
       .from('prediction_logs')
       .select('*')
       .in('target_date', [today, tomorrow])
-      .in('lead_used', ['today_for_today', 'today_for_tomorrow'])
+      .in('lead_used', ['today_for_today', 'today_for_tomorrow', 'D0', 'D1'])
       .order('timestamp', { ascending: false });
 
     if (error) {

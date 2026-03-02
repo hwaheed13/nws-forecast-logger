@@ -53,7 +53,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests beautifulsoup4 pytz numpy pandas scikit-learn==1.6.1
+          pip install requests beautifulsoup4 pytz numpy==1.26.4 pandas scikit-learn==1.6.1
           
       - name: Run (scheduled or manual)
         env:
