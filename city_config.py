@@ -22,7 +22,7 @@ CITIES = {
         "label": "Los Angeles",
         "short_label": "LAX",
         "timezone": "America/Los_Angeles",
-        "nws_api_endpoint": "https://api.weather.gov/points/33.9425,-118.409",
+        "nws_api_endpoint": "https://api.weather.gov/points/33.94,-118.39",
         "obs_station": "KLAX",
         "cli_site": "LOX",
         "cli_issuedby": "LAX",

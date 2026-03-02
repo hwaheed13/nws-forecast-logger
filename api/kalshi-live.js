@@ -104,54 +104,54 @@ function toKalshiEventTicker(dateISO, series = "KXHIGHNY") {
   return `${series}-${yy}${mon}${D}`;
 }
 
-// NEW FUNCTION: Parse temperature ranges from Kalshi labels
+// Parse temperature ranges from Kalshi labels/titles
+// NYC (KXHIGHNY) uses subtitles like "66° to 67°", "66° or less", "80° or more"
+// LAX (KXHIGHLAX) has NO subtitles — falls back to full question titles like:
+//   "Will the **high temp in LA** be <66° on Mar 2, 2026?"
+//   "Will the **high temp in LA** be 68-69° on Mar 2, 2026?"
+//   "Will the **high temp in LA** be >73° on Mar 2, 2026?"
 function parseRangeFromLabel(label) {
+  // Strip markdown bold markers first
+  const clean = label.replace(/\*\*/g, '');
+
   // Handle "X° to Y°", "X to Y°", or "X-Y°" (dash) format
   // Also handles full question text like "...be 68-69° on..."
-  const rangeMatch = label.match(/(\d+)°?\s*(?:to|-|–)\s*(\d+)°?/i);
+  const rangeMatch = clean.match(/(\d+)°?\s*(?:to|-|–)\s*(\d+)°/i);
   if (rangeMatch) {
     return {
       min: parseInt(rangeMatch[1]),
       max: parseInt(rangeMatch[2])
     };
   }
-  
-  // Handle "X° or less" format
-  const lessMatch = label.match(/(\d+)°?\s*or\s*less/i);
+
+  // Handle "<X°" or "≤X°" in question text (LAX format: "be <66° on...")
+  const ltMatch = clean.match(/[<≤]\s*(\d+)°/);
+  if (ltMatch) {
+    // "<66°" means the bucket covers everything below 66, i.e. max = 65
+    // Kalshi semantics: "<66°" = 65° or less (strictly less than 66)
+    return { min: null, max: parseInt(ltMatch[1]) - 1 };
+  }
+
+  // Handle ">X°" or "≥X°" in question text (LAX format: "be >73° on...")
+  const gtMatch = clean.match(/[>≥]\s*(\d+)°/);
+  if (gtMatch) {
+    // ">73°" means the bucket covers everything above 73, i.e. min = 74
+    // Kalshi semantics: ">73°" = 74° or more (strictly greater than 73)
+    return { min: parseInt(gtMatch[1]) + 1, max: null };
+  }
+
+  // Handle "X° or less" format (NYC subtitles)
+  const lessMatch = clean.match(/(\d+)°?\s*or\s*(?:less|below)/i);
   if (lessMatch) {
-    return { 
-      min: null, 
-      max: parseInt(lessMatch[1]) 
-    };
+    return { min: null, max: parseInt(lessMatch[1]) };
   }
-  
-  // Handle "X° or below" format
-  const belowMatch = label.match(/(\d+)°?\s*or\s*below/i);
-  if (belowMatch) {
-    return { 
-      min: null, 
-      max: parseInt(belowMatch[1]) 
-    };
-  }
-  
-  // Handle "X° or more" format
-  const moreMatch = label.match(/(\d+)°?\s*or\s*more/i);
+
+  // Handle "X° or more" / "X° or above" format (NYC subtitles)
+  const moreMatch = clean.match(/(\d+)°?\s*or\s*(?:more|above)/i);
   if (moreMatch) {
-    return { 
-      min: parseInt(moreMatch[1]), 
-      max: null 
-    };
+    return { min: parseInt(moreMatch[1]), max: null };
   }
-  
-  // Handle "X° or above" format
-  const aboveMatch = label.match(/(\d+)°?\s*or\s*above/i);
-  if (aboveMatch) {
-    return { 
-      min: parseInt(aboveMatch[1]), 
-      max: null 
-    };
-  }
-  
+
   // Fallback - couldn't parse
   return { min: null, max: null };
 }

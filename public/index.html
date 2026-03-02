@@ -833,23 +833,32 @@ if (!window.predictionHistory) {
 const predictionHistory = window.predictionHistory;
 
 // Clean Kalshi labels: strip markdown bold markers and extract temperature range
-// from full question text (LAX returns "Will the high temp in LA be 68-69°..."
-// instead of just "68° to 69°")
+// NYC (KXHIGHNY) uses clean subtitles: "66° to 67°", "66° or less"
+// LAX (KXHIGHLAX) has NO subtitles — returns full question titles:
+//   "Will the **high temp in LA** be <66° on Mar 2, 2026?"
+//   "Will the **high temp in LA** be 68-69° on Mar 2, 2026?"
+//   "Will the **high temp in LA** be >73° on Mar 2, 2026?"
 function cleanKalshiLabel(s) {
   if (typeof s !== 'string') return s;
   let cleaned = s.replace(/\*\*/g, '');
-  // If it looks like a full question ("Will the...be X-Y°"), extract just the range
+  // Full question "...be X-Y° on..." → "X° to Y°"
   const questionRange = cleaned.match(/be\s+(\d+)\s*[-–]\s*(\d+)°/i);
   if (questionRange) return `${questionRange[1]}° to ${questionRange[2]}°`;
-  // Handle "be <X°" or "be >X°" (LAX format)
-  const ltGt = cleaned.match(/be\s+([<>≤≥])\s*(\d+)°/i);
-  if (ltGt) return ltGt[1] === '<' || ltGt[1] === '≤' ? `${ltGt[2]}° or less` : `${ltGt[2]}° or more`;
-  // Handle standalone "<X°" or ">X°" labels
-  const ltGtShort = cleaned.match(/^[<>≤≥]\s*(\d+)°/);
-  if (ltGtShort) return cleaned.startsWith('<') || cleaned.startsWith('≤') ? `${ltGtShort[1]}° or less` : `${ltGtShort[1]}° or more`;
-  // Also handle "be X° or less/more" in question format
+  // Full question "...be <X° on..." → "Under X°" (LAX format)
+  const ltQuestion = cleaned.match(/be\s+<\s*(\d+)°/i);
+  if (ltQuestion) return `Under ${ltQuestion[1]}°`;
+  // Full question "...be >X° on..." → "Over X°" (LAX format)
+  const gtQuestion = cleaned.match(/be\s+>\s*(\d+)°/i);
+  if (gtQuestion) return `Over ${gtQuestion[1]}°`;
+  // Standalone "<X°" or ">X°"
+  const ltShort = cleaned.match(/^<\s*(\d+)°/);
+  if (ltShort) return `Under ${ltShort[1]}°`;
+  const gtShort = cleaned.match(/^>\s*(\d+)°/);
+  if (gtShort) return `Over ${gtShort[1]}°`;
+  // Full question "...be X° or less/more..."
   const questionBound = cleaned.match(/be\s+(\d+°?\s*or\s*(?:less|more|below|above))/i);
   if (questionBound) return questionBound[1];
+  // Already clean NYC subtitle format — pass through
   return cleaned;
 }
 
