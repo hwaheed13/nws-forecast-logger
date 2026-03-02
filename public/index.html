@@ -931,7 +931,7 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
     bias_applied: bias || 0,
     prediction_value: rounded,
     uncertainty_rmse: rmse || 2.0,
-    model_name: 'hedge_v4',
+    model_name: 'hedge_v5',
     version: '4.1',
     forecast_signature: '',
     representative_kind: 'blend',
@@ -1164,7 +1164,7 @@ function getNwsForecastRowsFor(targetISO, kind) {
 
 
     // === Online ensemble (Hedge) + Bias EWMA (self-learning) =====================
-const ENS_KEY = "hedge_v4";               // bump to reset everything
+const ENS_KEY = "hedge_v5";               // bump to reset everything (v5: added ML_bias_corrected)
 const CLIENT_LEARNING = false;
 const ETA = 0.25;                         // learning rate per °F (Hedge)
 const MIX_GAMMA = 0.02;                   // uniform mix-in to avoid collapse
@@ -1286,7 +1286,15 @@ const parseTs = (t) => {
   }
   
   console.log("FINAL AccuWeather value after if/else:", candidates.AccuWeather);
-  
+
+  // ML bias-corrected model prediction (from Supabase via prediction_writer.py)
+  if (window.mlPredictions) {
+    if (targetISO === todayISO && window.mlPredictions.today != null) {
+      candidates.ML_bias_corrected = Number(window.mlPredictions.today);
+    } else if (targetISO === tomorrowISO && window.mlPredictions.tomorrow != null) {
+      candidates.ML_bias_corrected = Number(window.mlPredictions.tomorrow);
+    }
+  }
 
   // envelope + latest issuance (unchanged)
   const vals = [];
@@ -1485,21 +1493,21 @@ async function warmOnceForCurrentCSV() {
 // === SEEDS (production deterministic defaults) ===
 // Today (D0): mirror D1 scheme — Accu dominant, NWS as light sanity check
 const todayWarm = {
-  w: { D0_latest: 0.03, D0_trimmed: 0.02, series_rep: 0.02, AccuWeather: 0.93 },
+  w: { D0_latest: 0.03, D0_trimmed: 0.02, series_rep: 0.02, AccuWeather: 0.83, ML_bias_corrected: 0.10 },
   bias: 0.0, rmse: 1.9, lastDay: null, learnCounts: {}
 };
 const todayCool = {
-  w: { D0_latest: 0.04, D0_trimmed: 0.03, series_rep: 0.03, AccuWeather: 0.90 },
+  w: { D0_latest: 0.03, D0_trimmed: 0.02, series_rep: 0.02, AccuWeather: 0.83, ML_bias_corrected: 0.10 },
   bias: 0.0, rmse: 2.0, lastDay: null, learnCounts: {}
 };
 
-  // Tomorrow (D1): make AccuWeather dominant; NWS as light sanity check
+  // Tomorrow (D1): make AccuWeather dominant; NWS + ML as secondary signals
   const tomorrowWarm = {
-    w: { D1_latest: 0.03, D1_trimmed: 0.02, series_rep: 0.02, AccuWeather: 0.93 },
+    w: { D1_latest: 0.03, D1_trimmed: 0.02, series_rep: 0.02, AccuWeather: 0.83, ML_bias_corrected: 0.10 },
     bias: 0.0, rmse: 2.4, lastDay: null, learnCounts: {}
   };
   const tomorrowCool = {
-    w: { D1_latest: 0.04, D1_trimmed: 0.03, series_rep: 0.03, AccuWeather: 0.90 },
+    w: { D1_latest: 0.03, D1_trimmed: 0.02, series_rep: 0.02, AccuWeather: 0.83, ML_bias_corrected: 0.10 },
     bias: 0.0, rmse: 2.5, lastDay: null, learnCounts: {}
   };
 
@@ -3861,6 +3869,47 @@ async function loadTodaysPredictionHistory() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// ML predictions from Supabase (written by prediction_writer.py)
+// ---------------------------------------------------------------------------
+window.mlPredictions = { today: null, tomorrow: null };
+
+async function loadMLPredictions() {
+  const today = window.nycISODate(0);
+  const tomorrow = window.nycISODate(1);
+
+  try {
+    const { data, error } = await supabase
+      .from('prediction_logs')
+      .select('ml_f, ml_bucket, ml_confidence, target_date, record_type, as_of')
+      .in('target_date', [today, tomorrow])
+      .not('ml_f', 'is', null)
+      .order('as_of', { ascending: false });
+
+    if (error) {
+      console.warn("loadMLPredictions error:", error);
+      return;
+    }
+
+    // Take the most recent snapshot for each target date
+    let gotToday = false, gotTomorrow = false;
+    for (const row of (data || [])) {
+      if (row.target_date === today && !gotToday) {
+        window.mlPredictions.today = Number(row.ml_f);
+        gotToday = true;
+      }
+      if (row.target_date === tomorrow && !gotTomorrow) {
+        window.mlPredictions.tomorrow = Number(row.ml_f);
+        gotTomorrow = true;
+      }
+      if (gotToday && gotTomorrow) break;
+    }
+    console.log("ML predictions loaded:", window.mlPredictions);
+  } catch (e) {
+    console.warn("loadMLPredictions failed:", e);
+  }
+}
+
   const gate = document.getElementById("gate");
   function gateMsg(msg){
     const sub = gate && gate.querySelector(".gate-sub");
@@ -3890,9 +3939,10 @@ async function loadTodaysPredictionHistory() {
   });
 
 async function bootApp() {
-    // Load today's prediction history first
+    // Load today's prediction history + ML predictions from Supabase
     try { await loadTodaysPredictionHistory(); } catch {}
-    
+    try { await loadMLPredictions(); } catch {}
+
     // light, defensive calls
     try { window.showTodayDate && window.showTodayDate(); } catch {}
     try { window.scheduleMidnightUpdate && window.scheduleMidnightUpdate(); } catch {}
@@ -3930,6 +3980,8 @@ async function bootApp() {
       fetchAccuWeatherForecasts();
       setInterval(fetchAccuWeatherForecasts, 2 * 60 * 60 * 1000);
     }
+    // Refresh ML predictions every 30 min (matches prediction_writer schedule)
+    setInterval(() => { try { loadMLPredictions(); } catch {} }, 30 * 60 * 1000);
 
   try {
       localStorage.setItem("dashboard_heartbeat", String(Date.now()));

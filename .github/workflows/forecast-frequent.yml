@@ -27,7 +27,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4 pytz
+        run: pip install requests beautifulsoup4 pytz numpy pandas scikit-learn
 
       # Decide whether to keep polling *today* (ET):
       # - Stop after 6pm ET OR once an "actual" for today exists in the NWS CSV
@@ -223,6 +223,15 @@ jobs:
               if [ -s /tmp/clean.csv ]; then mv /tmp/clean.csv "$f"; fi
             fi
           done
+
+      # Write ML + BCP predictions to Supabase (reads CSVs, does NOT modify repo)
+      - name: Write Supabase predictions (BCP + ML)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+          TZ: America/New_York
+        run: python prediction_writer.py both
+        continue-on-error: true
 
       # Commit & push (safe with rebase)
       - name: Commit and push CSV if changed

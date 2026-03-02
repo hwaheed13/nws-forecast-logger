@@ -1,8 +1,11 @@
 # prediction_writer.py
 from __future__ import annotations
-import os, json, argparse, urllib.request
-from datetime import timedelta
+import os, json, argparse, pickle, math, urllib.request
+from datetime import datetime, timedelta
 from typing import Optional
+
+import numpy as np
+import pandas as pd
 
 # reuse your existing helpers from nws_auto_logger.py (leave that file alone)
 from nws_auto_logger import (
@@ -10,8 +13,214 @@ from nws_auto_logger import (
     _compute_avg_bias_excluding, _compute_today_pre_high_mean,
     _float_or_none, compute_today_gate_f,
 )
+from model_config import FEATURE_COLS, ACCU_NWS_FALLBACK, derive_bucket_probabilities
 
 MODEL_VERSION = os.environ.get("PREDICTION_MODEL_VERSION", "bcp_v1")
+
+# ---------------------------------------------------------------------------
+# ML model inference
+# ---------------------------------------------------------------------------
+_ML_MODEL_CACHE: dict = {}
+
+
+def _load_ml_models():
+    """Load temp_model.pkl and bucket_model.pkl once (cached)."""
+    if "temp" not in _ML_MODEL_CACHE:
+        try:
+            with open("temp_model.pkl", "rb") as f:
+                _ML_MODEL_CACHE["temp"] = pickle.load(f)
+            with open("bucket_model.pkl", "rb") as f:
+                _ML_MODEL_CACHE["bucket"] = pickle.load(f)
+        except FileNotFoundError:
+            _ML_MODEL_CACHE["temp"] = None
+            _ML_MODEL_CACHE["bucket"] = None
+            print("⚠️ ML model files not found — ML prediction will be skipped")
+    return _ML_MODEL_CACHE.get("temp"), _ML_MODEL_CACHE.get("bucket")
+
+
+def _compute_ml_prediction(
+    rows: list[dict], target_date_iso: str
+) -> Optional[dict]:
+    """
+    Compute ML bias-corrected prediction for *target_date_iso* using the
+    same 30 features as train_models.py (NWS stats, AccuWeather stats,
+    cross-source, rolling bias, temporal).
+
+    Returns {"ml_f": float, "ml_bucket": str, "ml_confidence": float}
+    or None if insufficient data or models missing.
+    """
+    temp_model, bucket_info = _load_ml_models()
+    if temp_model is None:
+        return None
+
+    # --- 1. Collect NWS forecasts for target_date ---
+    nws_fc = []
+    for r in rows:
+        if r.get("forecast_or_actual") != "forecast":
+            continue
+        if r.get("target_date") != target_date_iso:
+            continue
+        src = (r.get("source") or "").lower()
+        if src == "accuweather":
+            continue
+        ph = _float_or_none(r.get("predicted_high"))
+        if ph is None:
+            continue
+        ts = r.get("timestamp") or r.get("forecast_time") or ""
+        nws_fc.append((ts, ph))
+
+    if not nws_fc:
+        print(f"⚠️ ML: no NWS forecasts for {target_date_iso}")
+        return None
+
+    nws_fc.sort(key=lambda x: x[0])
+    nws_vals = np.array([v for _, v in nws_fc])
+
+    # --- 2. Collect AccuWeather forecasts for target_date ---
+    accu_fc = []
+    for r in rows:
+        if r.get("forecast_or_actual") != "forecast":
+            continue
+        if r.get("target_date") != target_date_iso:
+            continue
+        src = (r.get("source") or "").lower()
+        if src != "accuweather":
+            continue
+        ph = _float_or_none(r.get("predicted_high"))
+        if ph is None:
+            continue
+        ts = r.get("timestamp") or r.get("forecast_time") or ""
+        accu_fc.append((ts, ph))
+
+    accu_fc.sort(key=lambda x: x[0])
+    accu_vals = np.array([v for _, v in accu_fc]) if accu_fc else np.array([])
+    has_accu = len(accu_vals) > 0
+
+    # --- 3. NWS features ---
+    features: dict = {
+        "nws_first": float(nws_vals[0]),
+        "nws_last": float(nws_vals[-1]),
+        "nws_max": float(nws_vals.max()),
+        "nws_min": float(nws_vals.min()),
+        "nws_mean": float(nws_vals.mean()),
+        "nws_spread": float(nws_vals.max() - nws_vals.min()),
+        "nws_std": float(nws_vals.std()) if len(nws_vals) > 1 else 0.0,
+        "nws_trend": float(nws_vals[-1] - nws_vals[0]) if len(nws_vals) > 1 else 0.0,
+        "nws_count": len(nws_vals),
+        "forecast_velocity": float(np.diff(nws_vals).mean()) if len(nws_vals) > 1 else 0.0,
+        "forecast_acceleration": (
+            float(np.diff(np.diff(nws_vals)).mean()) if len(nws_vals) > 2 else 0.0
+        ),
+    }
+
+    # --- 4. AccuWeather features ---
+    if has_accu:
+        features.update({
+            "accu_first": float(accu_vals[0]),
+            "accu_last": float(accu_vals[-1]),
+            "accu_max": float(accu_vals.max()),
+            "accu_min": float(accu_vals.min()),
+            "accu_mean": float(accu_vals.mean()),
+            "accu_spread": float(accu_vals.max() - accu_vals.min()),
+            "accu_std": float(accu_vals.std()) if len(accu_vals) > 1 else 0.0,
+            "accu_trend": float(accu_vals[-1] - accu_vals[0]) if len(accu_vals) > 1 else 0.0,
+            "accu_count": len(accu_vals),
+        })
+    else:
+        features.update({
+            "accu_first": np.nan, "accu_last": np.nan,
+            "accu_max": np.nan, "accu_min": np.nan, "accu_mean": np.nan,
+            "accu_spread": 0.0, "accu_std": 0.0, "accu_trend": 0.0,
+            "accu_count": 0,
+        })
+
+    # --- 5. Cross-source features ---
+    if has_accu:
+        features["nws_accu_spread"] = abs(features["nws_last"] - features["accu_last"])
+        features["nws_accu_mean_diff"] = features["nws_mean"] - features["accu_mean"]
+    else:
+        features["nws_accu_spread"] = 0.0
+        features["nws_accu_mean_diff"] = 0.0
+
+    # --- 6. Temporal features ---
+    doy = datetime.strptime(target_date_iso, "%Y-%m-%d").timetuple().tm_yday
+    month = int(target_date_iso.split("-")[1])
+    features["day_of_year_sin"] = math.sin(2 * math.pi * doy / 365)
+    features["day_of_year_cos"] = math.cos(2 * math.pi * doy / 365)
+    features["month"] = month
+    features["is_summer"] = int(month in (6, 7, 8))
+    features["is_winter"] = int(month in (12, 1, 2))
+
+    # --- 7. Rolling bias from strictly prior completed days ---
+    by_date: dict[str, list[dict]] = {}
+    for r in rows:
+        d = r.get("cli_date") if r.get("forecast_or_actual") == "actual" else r.get("target_date")
+        if d:
+            by_date.setdefault(d, []).append(r)
+
+    daily_biases: list[float] = []
+    for d in sorted(by_date.keys()):
+        if d >= target_date_iso:
+            continue  # strictly prior days only
+        rs = by_date[d]
+        # find actual
+        actual_high = None
+        for x in rs:
+            if x.get("forecast_or_actual") == "actual":
+                actual_high = _float_or_none(x.get("actual_high"))
+                if actual_high is not None:
+                    break
+        if actual_high is None:
+            continue
+        # NWS forecast mean for this day
+        fc_vals = []
+        for x in rs:
+            if x.get("forecast_or_actual") != "forecast":
+                continue
+            src = (x.get("source") or "").lower()
+            if src == "accuweather":
+                continue
+            ph = _float_or_none(x.get("predicted_high"))
+            if ph is not None:
+                fc_vals.append(ph)
+        if fc_vals:
+            daily_biases.append(actual_high - sum(fc_vals) / len(fc_vals))
+
+    features["rolling_bias_7d"] = float(np.mean(daily_biases[-7:])) if daily_biases else 0.0
+    features["rolling_bias_21d"] = float(np.mean(daily_biases[-21:])) if daily_biases else 0.0
+
+    # --- 8. Data availability flag ---
+    features["has_accu_data"] = int(has_accu)
+
+    # --- 9. Build DataFrame, fill NaN AccuWeather with NWS fallbacks ---
+    X = pd.DataFrame([features])[FEATURE_COLS]
+    for accu_col, nws_col in ACCU_NWS_FALLBACK.items():
+        if pd.isna(X.loc[0, accu_col]):
+            X.loc[0, accu_col] = X.loc[0, nws_col]
+
+    # --- 10. Predict (base = AccuWeather if available, else NWS) ---
+    predicted_bias = float(temp_model.predict(X)[0])
+    base = features["accu_last"] if has_accu else features["nws_last"]
+    base_src = "accu" if has_accu else "nws"
+    ml_temp = base + predicted_bias
+
+    residual_std = 2.0
+    if isinstance(bucket_info, dict) and "residual_std" in bucket_info:
+        residual_std = bucket_info["residual_std"]
+
+    bucket_dict = derive_bucket_probabilities(ml_temp, residual_std)
+    best_bucket = max(bucket_dict, key=bucket_dict.get)
+    confidence = bucket_dict[best_bucket]
+
+    print(f"🤖 ML prediction for {target_date_iso}: {ml_temp:.1f}°F "
+          f"(base={base_src}={base:.0f}, bias={predicted_bias:+.2f}, "
+          f"bucket={best_bucket}, conf={confidence:.2%})")
+
+    return {
+        "ml_f": round(ml_temp, 1),
+        "ml_bucket": best_bucket,
+        "ml_confidence": round(confidence, 4),
+    }
 
 def _sb_endpoint():
     url = os.environ.get("SUPABASE_URL", "").rstrip("/")
@@ -36,7 +245,7 @@ def supabase_upsert(row: dict) -> None:
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             _ = resp.read()
-        print("✅ upsert:", {k: row.get(k) for k in ("record_type","target_date","as_of","bcp_f")})
+        print("✅ upsert:", {k: row.get(k) for k in ("record_type","target_date","as_of","bcp_f","ml_f")})
     except Exception as e:
         if hasattr(e, "read"):
             try: print("❌ supabase:", getattr(e,'code','?'), e.read().decode("utf-8", "ignore"))
@@ -76,7 +285,10 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     nws_latest  = _latest_forecast(rows, target_date_iso, source=None)
     accu_latest = _latest_forecast(rows, target_date_iso, source="accu")
 
-    supabase_upsert({
+    # ML model prediction (graceful — returns None if models missing or no data)
+    ml = _compute_ml_prediction(rows, target_date_iso)
+
+    payload = {
         "as_of": now_nyc().isoformat(),
         "target_date": target_date_iso,
         "record_type": "today_for_today",
@@ -89,7 +301,13 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         "model_version": MODEL_VERSION,
         "notes": "frozen at actual time",
         "source": "nws_auto_logger",
-    })
+    }
+    if ml:
+        payload["ml_f"] = ml["ml_f"]
+        payload["ml_bucket"] = ml["ml_bucket"]
+        payload["ml_confidence"] = ml["ml_confidence"]
+
+    supabase_upsert(payload)
 
 def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     # default to local tomorrow if not provided
@@ -106,7 +324,10 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     if nws_latest_tm is not None and avg_bias_all is not None:
         bcp_tm = float(f"{(nws_latest_tm + avg_bias_all):.1f}")
 
-    supabase_upsert({
+    # ML model prediction (graceful — returns None if models missing or no data)
+    ml = _compute_ml_prediction(rows, tomorrow_iso)
+
+    payload = {
         "as_of": now_nyc().isoformat(),
         "target_date": tomorrow_iso,
         "record_type": "today_for_tomorrow",
@@ -119,7 +340,13 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
         "model_version": MODEL_VERSION,
         "notes": "snapshot from today",
         "source": "nws_auto_logger",
-    })
+    }
+    if ml:
+        payload["ml_f"] = ml["ml_f"]
+        payload["ml_bucket"] = ml["ml_bucket"]
+        payload["ml_confidence"] = ml["ml_confidence"]
+
+    supabase_upsert(payload)
 
 def write_both_snapshots() -> None:
     try: write_today_for_today()
