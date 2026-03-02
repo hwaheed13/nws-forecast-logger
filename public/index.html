@@ -2518,6 +2518,7 @@ function actualSignatureFor(rows) {
     }
 
     async function pollCsvAndUpdate() {
+      if (_citySwitching) return; // don't poll during city switch
       try {
         const txt = await fetch(CSV_URL + "?" + Date.now(), { cache: "no-cache", mode: "cors" }).then(r => r.text());
 
@@ -2604,67 +2605,81 @@ updateCorrectionBoxes();  // now uses the freshly-trained state
 
     async function switchCity(cityKey) {
       if (!CITY_CONFIG[cityKey] || cityKey === currentCity) return;
-      currentCity = cityKey;
-      localStorage.setItem("selectedCity", cityKey);
-      const cfg = CC();
 
-      // Update mutable URL constants
-      CSV_URL = `${GITHUB_RAW}/${cfg.csvFile}`;
-      ACCU_URL = `${GITHUB_RAW}/${cfg.accuCsvFile}`;
-      KALSHI_BASE_URL = cfg.kalshiUrl;
-      NWS_DSM_URLS = [
-        `${API_BASE}/nws-dsm?issuedby=${cfg.dsmIssuedby}&site=${cfg.dsmSite}&product=${cfg.dsmProduct || "DSM"}`,
-        `https://forecast.weather.gov/product.php?site=${cfg.dsmSite}&issuedby=${cfg.dsmIssuedby}&product=${CC().dsmProduct || "DSM"}&format=CI&version=1&glossary=1`,
-      ];
+      // Block intermediate updateCorrectionBoxes calls from side-effect callbacks
+      // (e.g. fetchAccuWeatherForecasts triggers updateCorrectionBoxes when values change,
+      // but during a switch allRows is empty so predictions would be garbage)
+      _citySwitching = true;
 
-      // Update city dropdown
-      const sel = document.getElementById("citySelect");
-      if (sel) sel.value = cityKey;
+      try {
+        currentCity = cityKey;
+        localStorage.setItem("selectedCity", cityKey);
+        const cfg = CC();
 
-      // Update UI labels
-      const brandSub = document.getElementById("brand-sub");
-      if (brandSub) brandSub.textContent = `Automatically logs every NWS forecast update for ${cfg.description} and compares to the official daily high`;
-      const stationPill = document.getElementById("stationPill");
-      if (stationPill) stationPill.textContent = cfg.station;
-      const tzBadge = document.getElementById("tz-badge");
-      if (tzBadge) tzBadge.textContent = `All times and day boundary are ${cfg.tzLong} (aligned with NWS)`;
+        // Update mutable URL constants
+        CSV_URL = `${GITHUB_RAW}/${cfg.csvFile}`;
+        ACCU_URL = `${GITHUB_RAW}/${cfg.accuCsvFile}`;
+        KALSHI_BASE_URL = cfg.kalshiUrl;
+        NWS_DSM_URLS = [
+          `${API_BASE}/nws-dsm?issuedby=${cfg.dsmIssuedby}&site=${cfg.dsmSite}&product=${cfg.dsmProduct || "DSM"}`,
+          `https://forecast.weather.gov/product.php?site=${cfg.dsmSite}&issuedby=${cfg.dsmIssuedby}&product=${CC().dsmProduct || "DSM"}&format=CI&version=1&glossary=1`,
+        ];
 
-      // Clear state
-      allRows = [];
-      accuRows = [];
-      filteredRows = [];
-      window._overnightHighSoFar = null;
-      window._overnightHighTime = null;
-      window._overnightExceeded = null;
-      window._sixHourMaxF = null;
-      window.accuWeatherData = { today: null, tomorrow: null };
-      window.mlPredictions = { today: null, tomorrow: null };
-      window.predictionHistory.today = [];
-      window.predictionHistory.tomorrow = [];
+        // Update city dropdown
+        const sel = document.getElementById("citySelect");
+        if (sel) sel.value = cityKey;
 
-      // Clear caches
-      if (window._trendChart) { window._trendChart.destroy(); window._trendChart = null; }
-      if (typeof kalshiCache !== 'undefined') kalshiCache.clear();
+        // Update UI labels
+        const brandSub = document.getElementById("brand-sub");
+        if (brandSub) brandSub.textContent = `Automatically logs every NWS forecast update for ${cfg.description} and compares to the official daily high`;
+        const stationPill = document.getElementById("stationPill");
+        if (stationPill) stationPill.textContent = cfg.station;
+        const tzBadge = document.getElementById("tz-badge");
+        if (tzBadge) tzBadge.textContent = `All times and day boundary are ${cfg.tzLong} (aligned with NWS)`;
 
-      // Update date display
-      showTodayDate();
+        // Clear state
+        allRows = [];
+        accuRows = [];
+        filteredRows = [];
+        window._overnightHighSoFar = null;
+        window._overnightHighTime = null;
+        window._overnightExceeded = null;
+        window._sixHourMaxF = null;
+        window.accuWeatherData = { today: null, tomorrow: null };
+        window.mlPredictions = { today: null, tomorrow: null };
+        window.predictionHistory.today = [];
+        window.predictionHistory.tomorrow = [];
 
-      // Load data sources FIRST so predictions have all candidates ready
-      // (ML predictions, AccuWeather, prediction history all feed into buildCandidatesForDay)
-      await Promise.all([
-        (typeof loadMLPredictions === "function") ? loadMLPredictions().catch(() => {}) : Promise.resolve(),
-        (typeof loadTodaysPredictionHistory === "function") ? loadTodaysPredictionHistory().catch(() => {}) : Promise.resolve(),
-        (typeof fetchAccuWeatherForecasts === "function") ? fetchAccuWeatherForecasts().catch(() => {}) : Promise.resolve(),
-      ]);
+        // Clear caches
+        if (window._trendChart) { window._trendChart.destroy(); window._trendChart = null; }
+        if (typeof kalshiCache !== 'undefined') kalshiCache.clear();
 
-      // NOW reload CSV + full UI refresh (predictions will have ML + AccuWeather data)
-      await reloadCSV({ skipHedgeTrain: true });
+        // Update date display
+        showTodayDate();
 
-      // Independent API-only updates (don't affect predictions)
-      updateDSM();
-      updateSixHourMax();
+        // Load data sources FIRST so predictions have all candidates ready
+        // (ML predictions, AccuWeather, prediction history all feed into buildCandidatesForDay)
+        await Promise.all([
+          (typeof loadMLPredictions === "function") ? loadMLPredictions().catch(() => {}) : Promise.resolve(),
+          (typeof loadTodaysPredictionHistory === "function") ? loadTodaysPredictionHistory().catch(() => {}) : Promise.resolve(),
+          (typeof fetchAccuWeatherForecasts === "function") ? fetchAccuWeatherForecasts().catch(() => {}) : Promise.resolve(),
+        ]);
 
-      console.log(`🏙️ Switched to ${cfg.label} (${cfg.short})`);
+        // Unblock predictions — reloadCSV will do the single authoritative updateCorrectionBoxes
+        _citySwitching = false;
+
+        // NOW reload CSV + full UI refresh (predictions will have ML + AccuWeather data)
+        await reloadCSV({ skipHedgeTrain: true });
+
+        // Independent API-only updates (don't affect predictions)
+        updateDSM();
+        updateSixHourMax();
+
+        console.log(`🏙️ Switched to ${cfg.label} (${cfg.short})`);
+      } catch (e) {
+        console.error("switchCity error:", e);
+        _citySwitching = false;
+      }
     }
     window.switchCity = switchCity;
 
@@ -3085,7 +3100,12 @@ function hasActualFor(dateISO) {
   );
 }
 
+// Guard: block intermediate updateCorrectionBoxes calls during city switch
+let _citySwitching = false;
+
 async function updateCorrectionBoxes() {
+  // During city switch, only the final reloadCSV call should trigger predictions
+  if (_citySwitching) { console.debug("updateCorrectionBoxes skipped (city switch in progress)"); return; }
   try {
     const todayISO = nycISODate(0);
     const tomorrowISO = nycISODate(1);
