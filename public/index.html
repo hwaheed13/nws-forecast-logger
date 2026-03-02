@@ -2656,6 +2656,13 @@ updateCorrectionBoxes();  // now uses the freshly-trained state
         window.predictionHistory.today = [];
         window.predictionHistory.tomorrow = [];
 
+        // Clear DSM box so hasDSMForToday() returns false during AccuWeather fetch
+        // (prevents stale DSM value from blocking AccuWeather candidate)
+        const dsmBox = document.getElementById("box-dsm-max");
+        if (dsmBox) dsmBox.textContent = "—";
+        const dsmNote = document.getElementById("box-dsm-note");
+        if (dsmNote) dsmNote.textContent = "";
+
         // Clear caches
         if (window._trendChart) { window._trendChart.destroy(); window._trendChart = null; }
         if (typeof kalshiCache !== 'undefined') kalshiCache.clear();
