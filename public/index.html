@@ -254,6 +254,16 @@
       border: 1px solid #dc2626;
       color: #991b1b;
     }
+    .limited-data-banner {
+      background: #fef3c7;
+      border: 1px solid #f59e0b;
+      color: #92400e;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 13px;
+      margin-bottom: 8px;
+      text-align: center;
+    }
     .prediction-history {
       margin-top: 8px;
       padding-top: 8px;
@@ -457,6 +467,11 @@ input[type="date"] {
 }
 :root[data-theme="dark"] #btn-billing:hover {
   background: var(--bg-accent);
+}
+:root[data-theme="dark"] .limited-data-banner {
+  background: #451a03;
+  border-color: #b45309;
+  color: #fcd34d;
 }
 .theme-switch {
   display: flex; align-items: center; gap: 6px;
@@ -3327,6 +3342,19 @@ window._predTomorrow = predTomorrow;
   }
   // ──────────────────────────────────────────────────────────────
 
+  // Check for limited data (new city with insufficient history)
+  const MIN_DAYS_THRESHOLD = 30;
+  const uniqueActualDates = new Set(
+    allRows
+      .filter(r => r.forecast_or_actual === "actual" && r.actual_high)
+      .map(r => r.cli_date || r.target_date)
+  );
+  const daysWithActualCount = uniqueActualDates.size;
+  const isLimitedData = daysWithActualCount < MIN_DAYS_THRESHOLD;
+  const limitedDataHTML = isLimitedData
+    ? `<div class="limited-data-banner">⚠️ Limited data — only ${daysWithActualCount} day(s) of history. Predictions and accuracy improve as more data accumulates.</div>`
+    : '';
+
   // Fetch Kalshi data to map predictions to ranges
     let todayKalshiRange = null;
     let tomorrowKalshiRange = null;
@@ -3478,6 +3506,7 @@ const exceedanceNote = (
 
 
 el0.innerHTML = `
+  ${limitedDataHTML}
   <div class="prediction-value">${val}°F</div>
   <div class="prediction-subtitle">
     <small>Smart ensemble (${Object.keys(builtToday.candidates || {}).length} sources, weights learn daily) ${sign}${bias}°F${kalshiNote}</small>
@@ -3534,6 +3563,7 @@ if (el1) {
       : '';
    
   el1.innerHTML = `
+      ${limitedDataHTML}
       <div class="prediction-value">${val}°F</div>
       <div class="prediction-subtitle">
         <small>Smart ensemble (${Object.keys(builtTomorrow.candidates || {}).length} sources, weights learn daily) ${sign}${bias}°F${bumpTxt}${kalshiNote}</small>
@@ -4230,6 +4260,11 @@ stats.innerHTML = `
     </div>
     <div class="stat-value" style="color:#7c3aed">${bucketRate}%</div>
   </div>
+  ${daysWithActual.length < 30
+    ? `<div class="limited-data-banner" style="margin-top:12px; grid-column: 1 / -1;">
+         ⚠️ Only ${daysWithActual.length} day(s) of data collected — accuracy metrics are preliminary and will become more meaningful after 30+ days.
+       </div>`
+    : ''}
 `;
 }
     // Expose necessary functions globally for auth script

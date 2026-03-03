@@ -53,8 +53,17 @@ def _normalize_date_col(df: pd.DataFrame, col: str):
         df[col] = coerced.astype("string")  # keeps 'YYYY-MM-DD' or <NA>
 
 
+MIN_DAYS_FOR_TRAINING = 60  # minimum days with actual data before training is viable
+
+
 class NYCTemperatureModelTrainer:
-    def __init__(self):
+    def __init__(self, city_key: str = "nyc"):
+        from city_config import get_city_config
+        self.city_key = city_key
+        self.city_cfg = get_city_config(city_key)
+        self.nws_csv = self.city_cfg["nws_csv"]
+        self.accu_csv = self.city_cfg["accu_csv"]
+        self.model_prefix = self.city_cfg.get("model_prefix", "")
         self.nws_df: pd.DataFrame | None = None
         self.accu_df: pd.DataFrame | None = None
         self.features_df: pd.DataFrame | None = None
@@ -69,9 +78,9 @@ class NYCTemperatureModelTrainer:
             raise ValueError(f"{name} missing columns: {', '.join(missing)}")
 
     def load_data(self):
-        print("Loading CSV files...")
+        print(f"Loading CSV files for {self.city_cfg['label']}...")
         # NWS file required
-        self.nws_df = pd.read_csv("nws_forecast_log.csv")
+        self.nws_df = pd.read_csv(self.nws_csv)
         self._require(
             self.nws_df,
             [
@@ -82,17 +91,17 @@ class NYCTemperatureModelTrainer:
                 "cli_date",
                 "actual_high",
             ],
-            "nws_forecast_log.csv",
+            self.nws_csv,
         )
 
         # AccuWeather optional
         try:
-            self.accu_df = pd.read_csv("accuweather_log.csv")
+            self.accu_df = pd.read_csv(self.accu_csv)
             if not self.accu_df.empty:
                 self._require(
                     self.accu_df,
                     ["timestamp", "forecast_or_actual", "predicted_high", "target_date"],
-                    "accuweather_log.csv",
+                    self.accu_csv,
                 )
         except FileNotFoundError:
             print("AccuWeather file not found, proceeding with NWS only")
@@ -415,10 +424,10 @@ class NYCTemperatureModelTrainer:
         return self.temp_model
 
     def save_models(self):
-        print("\nSaving models...")
+        print(f"\nSaving models (prefix='{self.model_prefix}')...")
 
         # Save temperature model
-        with open("temp_model.pkl", "wb") as f:
+        with open(f"{self.model_prefix}temp_model.pkl", "wb") as f:
             pickle.dump(self.temp_model, f)
 
         # Save bucket info (residual_std for Gaussian bucket derivation)
@@ -426,7 +435,7 @@ class NYCTemperatureModelTrainer:
             "residual_std": self.residual_std,
             "method": "gaussian_from_regression",
         }
-        with open("bucket_model.pkl", "wb") as f:
+        with open(f"{self.model_prefix}bucket_model.pkl", "wb") as f:
             pickle.dump(bucket_info, f)
 
         # In-sample metrics: model predicts bias, final temp = base + bias
@@ -494,7 +503,7 @@ class NYCTemperatureModelTrainer:
             },
         }
 
-        with open("model_metadata.json", "w") as f:
+        with open(f"{self.model_prefix}model_metadata.json", "w") as f:
             json.dump(metadata, f, indent=2)
 
         print("Models saved successfully!")
@@ -505,10 +514,23 @@ class NYCTemperatureModelTrainer:
         print(f"\n  Top features: {', '.join(n for n, _ in top_features[:5])}")
 
     def run(self):
+        label = self.city_cfg["label"]
         print("=" * 60)
-        print("NYC Temperature Model Training (v2 — full-year, Gaussian buckets)")
+        print(f"{label} Temperature Model Training (v2 — full-year, Gaussian buckets)")
         print("=" * 60)
         self.load_data()
+
+        # Check minimum data threshold
+        actual_days = self.nws_df[
+            (self.nws_df["forecast_or_actual"] == "actual")
+            & self.nws_df["actual_high"].notna()
+            & (self.nws_df["actual_high"] != "")
+        ]["cli_date"].nunique()
+        if actual_days < MIN_DAYS_FOR_TRAINING:
+            print(f"\n⚠️  Only {actual_days} days with actual data for {label}.")
+            print(f"    Need at least {MIN_DAYS_FOR_TRAINING} days before training is viable. Skipping.")
+            return
+
         self.build_feature_matrix()
         self.train_temperature_model()
         self.save_models()
@@ -516,5 +538,20 @@ class NYCTemperatureModelTrainer:
 
 
 if __name__ == "__main__":
-    trainer = NYCTemperatureModelTrainer()
-    trainer.run()
+    import argparse
+    parser = argparse.ArgumentParser(description="Train temperature prediction model")
+    parser.add_argument("--city", default="nyc", help="City key (nyc, lax, etc.)")
+    parser.add_argument("--all", action="store_true", help="Train all cities")
+    args = parser.parse_args()
+
+    if args.all:
+        from city_config import CITIES
+        for city_key in CITIES:
+            print(f"\n{'#' * 60}")
+            print(f"# Training: {city_key}")
+            print(f"{'#' * 60}\n")
+            trainer = NYCTemperatureModelTrainer(city_key=city_key)
+            trainer.run()
+    else:
+        trainer = NYCTemperatureModelTrainer(city_key=args.city)
+        trainer.run()
