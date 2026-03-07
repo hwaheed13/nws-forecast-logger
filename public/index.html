@@ -3927,19 +3927,22 @@ async function displayTable() {
             .from("prediction_logs")
             .select("target_date, prediction_value, lead_used, timestamp")
             .eq("city", currentCity)
-            .in("lead_used", ["today_for_today", "today_for_tomorrow"])
+            .in("lead_used", ["today_for_today", "today_for_tomorrow", "D0", "D1"])
             .order("timestamp", { ascending: false });
           if (!error && data) {
-            // Group by target_date: latest today_for_today = morning_of, latest today_for_tomorrow = night_before
+            // Group by target_date: latest same-day (D0/today_for_today) = morning_of,
+            // latest prior-day (D1/today_for_tomorrow) = night_before
             const byDate = {};
+            const isMorning = (lu) => lu === "today_for_today" || lu === "D0";
+            const isNight   = (lu) => lu === "today_for_tomorrow" || lu === "D1";
             for (const row of data) {
               const td = toISODate(row.target_date);
               if (!td || row.prediction_value == null) continue;
               if (!byDate[td]) byDate[td] = {};
-              if (row.lead_used === "today_for_today" && !byDate[td].morning_of) {
+              if (isMorning(row.lead_used) && !byDate[td].morning_of) {
                 byDate[td].morning_of = Number(row.prediction_value);
               }
-              if (row.lead_used === "today_for_tomorrow" && !byDate[td].night_before) {
+              if (isNight(row.lead_used) && !byDate[td].night_before) {
                 byDate[td].night_before = Number(row.prediction_value);
               }
             }
@@ -4201,7 +4204,7 @@ async function displayTable() {
         .from("prediction_logs")
         .select("target_date, prediction_value, lead_used")
         .eq("city", currentCity)
-        .eq("lead_used", "today_for_today")
+        .in("lead_used", ["today_for_today", "D0"])
         .order("timestamp", { ascending: false });
       if (!error && data) {
         // Deduplicate: keep only the latest per target_date
