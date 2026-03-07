@@ -3441,19 +3441,41 @@ window._predTomorrow = predTomorrow;
         fetchKalshiLiveLeader(tomorrowISO).catch(() => null)
       ]);
 
-      // Bucket = prediction. The ensemble already blends AccuWeather (83%),
-      // NWS, ML, etc. One number, one bucket. No separate system.
+      // Bucket clamping: use ensemble temp, but never let it cross AccuWeather's bucket.
+      // AccuWeather alone has 74-83% bucket hit rate vs ensemble's 57%.
+      let todayClamped = false;
+      let tomorrowClamped = false;
 
       if (todayMarket && Number.isFinite(predToday?.y)) {
-        todayKalshiRange = mapToKalshiRange(predToday.y, todayMarket);
-        console.log(`[Bucket] Today: prediction=${predToday.y.toFixed(1)} → ${todayKalshiRange?.label || "?"}`);
+        const accuToday = builtToday.candidates?.AccuWeather;
+        const accuBucket = (accuToday != null) ? mapToKalshiRange(accuToday, todayMarket) : null;
+        const hedgeBucket = mapToKalshiRange(predToday.y, todayMarket);
+
+        let todayBucketTemp = predToday.y;
+        if (accuBucket && hedgeBucket && accuBucket.label !== hedgeBucket.label) {
+          todayBucketTemp = accuToday;
+          todayClamped = true;
+          console.log(`[Bucket Clamp] Today: ensemble ${predToday.y.toFixed(1)}→${hedgeBucket.label}, snapping to AccuWeather ${accuToday}→${accuBucket.label}`);
+        }
+        todayKalshiRange = mapToKalshiRange(todayBucketTemp, todayMarket);
+        console.log(`[Bucket] Today: temp=${todayBucketTemp.toFixed(1)} → ${todayKalshiRange?.label || "?"}${todayClamped ? " (clamped)" : ""}`);
       }
 
       if (tomorrowMarket) {
         const finalTemp = predTomorrow?.y ? predTomorrow.y + (Number.isFinite(d1AdjF) ? d1AdjF : 0) : null;
         if (Number.isFinite(finalTemp)) {
-          tomorrowKalshiRange = mapToKalshiRange(finalTemp, tomorrowMarket);
-          console.log(`[Bucket] Tomorrow: prediction=${finalTemp.toFixed(1)} → ${tomorrowKalshiRange?.label || "?"}`);
+          const accuTomorrow = builtTomorrow.candidates?.AccuWeather;
+          const accuBucket = (accuTomorrow != null) ? mapToKalshiRange(accuTomorrow, tomorrowMarket) : null;
+          const hedgeBucket = mapToKalshiRange(finalTemp, tomorrowMarket);
+
+          let tomorrowBucketTemp = finalTemp;
+          if (accuBucket && hedgeBucket && accuBucket.label !== hedgeBucket.label) {
+            tomorrowBucketTemp = accuTomorrow;
+            tomorrowClamped = true;
+            console.log(`[Bucket Clamp] Tomorrow: ensemble ${finalTemp.toFixed(1)}→${hedgeBucket.label}, snapping to AccuWeather ${accuTomorrow}→${accuBucket.label}`);
+          }
+          tomorrowKalshiRange = mapToKalshiRange(tomorrowBucketTemp, tomorrowMarket);
+          console.log(`[Bucket] Tomorrow: temp=${tomorrowBucketTemp.toFixed(1)} → ${tomorrowKalshiRange?.label || "?"}${tomorrowClamped ? " (clamped)" : ""}`);
         }
       }
     } catch (e) {
@@ -3546,11 +3568,14 @@ window._predTomorrow = predTomorrow;
           : "0.00";
         const sign = Number(bias) >= 0 ? "+" : "";
 
-        // Kalshi bucket — directly from prediction (one number, one bucket)
+        // Kalshi bucket — clamped to AccuWeather's bucket when ensemble crosses
         let kalshiNote = "";
         if (todayKalshiRange?.label) {
           const bucketLabel = cleanKalshiLabel(todayKalshiRange.label);
-          kalshiNote = ` • Kalshi: <span style="color:#16a34a;font-weight:700">${bucketLabel}</span>`;
+          const clampTag = todayClamped
+            ? ` <span style="color:#d97706;font-size:0.85em">(AccuWeather)</span>`
+            : "";
+          kalshiNote = ` • Kalshi: <span style="color:#16a34a;font-weight:700">${bucketLabel}</span>${clampTag}`;
         }
 
       // Add warning if present
@@ -3618,11 +3643,14 @@ if (el1) {
         const showBump = Math.abs(bump) >= 0.05;
         const bumpTxt = showBump ? ` • momentum ${bump >= 0 ? "+" : ""}${bump.toFixed(1)}°` : "";
 
-        // Kalshi bucket — directly from prediction
+        // Kalshi bucket — clamped to AccuWeather's bucket when ensemble crosses
         let kalshiNote = "";
         if (tomorrowKalshiRange?.label) {
           const bucketLabel = cleanKalshiLabel(tomorrowKalshiRange.label);
-          kalshiNote = ` • Kalshi: <span style="color:#16a34a;font-weight:700">${bucketLabel}</span>`;
+          const clampTag = tomorrowClamped
+            ? ` <span style="color:#d97706;font-size:0.85em">(AccuWeather)</span>`
+            : "";
+          kalshiNote = ` • Kalshi: <span style="color:#16a34a;font-weight:700">${bucketLabel}</span>${clampTag}`;
         }
 
       // Add warning if present
