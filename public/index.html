@@ -3582,14 +3582,33 @@ window._predTomorrow = predTomorrow;
           : "0.00";
         const sign = Number(bias) >= 0 ? "+" : "";
 
-        // Kalshi bucket — clamped to AccuWeather's bucket when ensemble crosses
+        // Kalshi bucket with probability confidence
+        const ACCU_STD = window.accuMAE || 0.89;
+        const todayBucketTemp = todayClamped ? (builtToday.candidates?.AccuWeather ?? predToday.y) : predToday.y;
+        const todayBucketProbs = (todayMarket?.ranges)
+          ? computeBucketProbabilities(todayBucketTemp, todayMarket.ranges, ACCU_STD)
+          : [];
+        const todayTopProb = todayBucketProbs[0]?.prob;
+        const todayConfPct = todayTopProb ? Math.round(todayTopProb * 100) : null;
+        const todayConfColor = todayConfPct >= 60 ? "#16a34a" : todayConfPct >= 40 ? "#d97706" : "#dc2626";
+
         let kalshiNote = "";
         if (todayKalshiRange?.label) {
           const bucketLabel = cleanKalshiLabel(todayKalshiRange.label);
-          const clampTag = todayClamped
-            ? ` <span style="color:#d97706;font-size:0.85em">(AccuWeather)</span>`
+          const confTag = todayConfPct
+            ? ` <span style="color:${todayConfColor};font-size:0.85em">(${todayConfPct}%)</span>`
             : "";
-          kalshiNote = ` • Kalshi: <span style="color:#16a34a;font-weight:700">${bucketLabel}</span>${clampTag}`;
+          const clampTag = todayClamped
+            ? ` <span style="color:#d97706;font-size:0.85em">AccuWeather</span>`
+            : "";
+          kalshiNote = ` • Kalshi: <span style="color:#16a34a;font-weight:700">${bucketLabel}</span>${confTag}${clampTag}`;
+
+          // If close call (<60%), show runner-up bucket
+          if (todayConfPct && todayConfPct < 60 && todayBucketProbs[1]) {
+            const runnerLabel = cleanKalshiLabel(todayBucketProbs[1].range.label);
+            const runnerPct = Math.round(todayBucketProbs[1].prob * 100);
+            kalshiNote += ` <span style="color:#6b7280;font-size:0.85em">/ ${runnerLabel} (${runnerPct}%)</span>`;
+          }
         }
 
       // Add warning if present
@@ -3657,14 +3676,32 @@ if (el1) {
         const showBump = Math.abs(bump) >= 0.05;
         const bumpTxt = showBump ? ` • momentum ${bump >= 0 ? "+" : ""}${bump.toFixed(1)}°` : "";
 
-        // Kalshi bucket — clamped to AccuWeather's bucket when ensemble crosses
+        // Kalshi bucket with probability confidence
+        const tmrwBucketTemp = tomorrowClamped ? (builtTomorrow.candidates?.AccuWeather ?? final) : final;
+        const tmrwBucketProbs = (tomorrowMarket?.ranges)
+          ? computeBucketProbabilities(tmrwBucketTemp, tomorrowMarket.ranges, window.accuMAE || 0.89)
+          : [];
+        const tmrwTopProb = tmrwBucketProbs[0]?.prob;
+        const tmrwConfPct = tmrwTopProb ? Math.round(tmrwTopProb * 100) : null;
+        const tmrwConfColor = tmrwConfPct >= 60 ? "#16a34a" : tmrwConfPct >= 40 ? "#d97706" : "#dc2626";
+
         let kalshiNote = "";
         if (tomorrowKalshiRange?.label) {
           const bucketLabel = cleanKalshiLabel(tomorrowKalshiRange.label);
-          const clampTag = tomorrowClamped
-            ? ` <span style="color:#d97706;font-size:0.85em">(AccuWeather)</span>`
+          const confTag = tmrwConfPct
+            ? ` <span style="color:${tmrwConfColor};font-size:0.85em">(${tmrwConfPct}%)</span>`
             : "";
-          kalshiNote = ` • Kalshi: <span style="color:#16a34a;font-weight:700">${bucketLabel}</span>${clampTag}`;
+          const clampTag = tomorrowClamped
+            ? ` <span style="color:#d97706;font-size:0.85em">AccuWeather</span>`
+            : "";
+          kalshiNote = ` • Kalshi: <span style="color:#16a34a;font-weight:700">${bucketLabel}</span>${confTag}${clampTag}`;
+
+          // If close call (<60%), show runner-up bucket
+          if (tmrwConfPct && tmrwConfPct < 60 && tmrwBucketProbs[1]) {
+            const runnerLabel = cleanKalshiLabel(tmrwBucketProbs[1].range.label);
+            const runnerPct = Math.round(tmrwBucketProbs[1].prob * 100);
+            kalshiNote += ` <span style="color:#6b7280;font-size:0.85em">/ ${runnerLabel} (${runnerPct}%)</span>`;
+          }
         }
 
       // Add warning if present
@@ -3736,6 +3773,37 @@ function mapToKalshiRange(temp, kalshiData) {
   }
   
   return null;
+}
+
+// --- Bucket probability math ---
+// Gaussian error function (Abramowitz & Stegun approximation)
+function _erf(x) {
+  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741;
+  const a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+  const sign = x < 0 ? -1 : 1;
+  x = Math.abs(x);
+  const t = 1 / (1 + p * x);
+  const y = 1 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+  return sign * y;
+}
+
+function normalCDF(x, mu, sigma) {
+  return 0.5 * (1 + _erf((x - mu) / (sigma * Math.SQRT2)));
+}
+
+function computeBucketProbabilities(temp, kalshiRanges, stdDev) {
+  // For each Kalshi bucket, compute P(actual lands in this bucket)
+  // using Gaussian CDF centered on temp with stdDev from historical MAE
+  if (!kalshiRanges || !Array.isArray(kalshiRanges)) return [];
+  const results = [];
+  for (const range of kalshiRanges) {
+    const lo = range.min ?? (range.max - 10);   // open-ended lower bound
+    const hi = (range.max != null) ? range.max + 1 : (range.min + 10); // open-ended upper
+    const p = normalCDF(hi, temp, stdDev) - normalCDF(lo, temp, stdDev);
+    if (p > 0.01) results.push({ range, prob: p });
+  }
+  results.sort((a, b) => b.prob - a.prob);
+  return results;
 }
 
   function showChart() {
@@ -4247,8 +4315,9 @@ async function displayTable() {
   let hedgeWithin1Count = 0, hedgeDaysChecked = 0;
   let bucketHitCount = 0, bucketDaysChecked = 0;
 
-  // AccuWeather bucket accuracy tracking (for comparison)
+  // AccuWeather accuracy tracking (bucket hit + MAE for probability calibration)
   let accuBucketHitCount = 0, accuBucketDaysChecked = 0;
+  let accuAbsErrors = [];
   // Build last AccuWeather forecast per target_date for bucket comparison
   const accuLastByDate = {};
   for (const r of accuRows) {
@@ -4317,9 +4386,11 @@ async function displayTable() {
       }
     }
 
-    // AccuWeather bucket accuracy — check if AccuWeather alone would have hit the winning bucket
+    // AccuWeather accuracy — MAE for probability calibration + bucket hit check
     const accuPred = accuLastByDate[d];
     if (Number.isFinite(accuPred)) {
+      accuAbsErrors.push(Math.abs(accuPred - actualHigh));
+
       const k2 = kalshiByDate[d];
       const bucket2 = k2 ? parseKalshiBucket(cleanKalshiLabel(k2.label)) : null;
       if (bucket2) {
@@ -4333,6 +4404,12 @@ async function displayTable() {
       }
     }
   });
+
+  // Expose AccuWeather MAE for bucket probability calibration
+  if (accuAbsErrors.length > 0) {
+    window.accuMAE = accuAbsErrors.reduce((a, b) => a + b, 0) / accuAbsErrors.length;
+    console.log(`[Stats] AccuWeather MAE: ${window.accuMAE.toFixed(2)}°F (${accuAbsErrors.length} days)`);
+  }
 
   const avgAbsErr = errCount > 0 ? (totalAbsErr / errCount).toFixed(1) : "--";
   const avgBestErr = bestCount > 0 ? (totalBestErr / bestCount).toFixed(1) : "--";
