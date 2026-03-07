@@ -3434,6 +3434,8 @@ window._predTomorrow = predTomorrow;
     let tomorrowKalshiRange = null;
     let todayMarket = null;
     let tomorrowMarket = null;
+    let todayClamped = false;
+    let tomorrowClamped = false;
 
     try {
       [todayMarket, tomorrowMarket] = await Promise.all([
@@ -3443,8 +3445,6 @@ window._predTomorrow = predTomorrow;
 
       // Bucket clamping: use ensemble temp, but never let it cross AccuWeather's bucket.
       // AccuWeather alone has 74-83% bucket hit rate vs ensemble's 57%.
-      let todayClamped = false;
-      let tomorrowClamped = false;
 
       if (todayMarket && Number.isFinite(predToday?.y)) {
         const accuToday = builtToday.candidates?.AccuWeather;
