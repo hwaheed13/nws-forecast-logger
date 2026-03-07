@@ -3920,43 +3920,13 @@ async function displayTable() {
         return m ? m[0] : "";
       };
       try {
-        // Use forecast_day_summary (pre-aggregated, accurate predictions per day)
-        // Falls back to prediction_logs for non-NYC cities
+        // Use server-side API to query prediction_logs filtered by city
+        // (anon key can't filter on city column — service role key can)
         let snapshotData = null;
-        if (currentCity === "nyc") {
-          const { data, error } = await supabase
-            .from("forecast_day_summary")
-            .select("target_date, prev_day_latest_value, same_day_earliest_value");
-          if (!error && data) snapshotData = data;
-        }
-        if (!snapshotData) {
-          const { data, error } = await supabase
-            .from("prediction_logs")
-            .select("target_date, prediction_value, lead_used, timestamp")
-            .in("lead_used", ["today_for_today", "today_for_tomorrow", "D0", "D1"])
-            .order("timestamp", { ascending: false });
-          if (!error && data) {
-            const byDate = {};
-            const isMorning = (lu) => lu === "today_for_today" || lu === "D0";
-            const isNight   = (lu) => lu === "today_for_tomorrow" || lu === "D1";
-            for (const row of data) {
-              const td = toISODate(row.target_date);
-              if (!td || row.prediction_value == null) continue;
-              if (!byDate[td]) byDate[td] = {};
-              if (isMorning(row.lead_used) && !byDate[td].morning_of) {
-                byDate[td].morning_of = Number(row.prediction_value);
-              }
-              if (isNight(row.lead_used) && !byDate[td].night_before) {
-                byDate[td].night_before = Number(row.prediction_value);
-              }
-            }
-            snapshotData = Object.entries(byDate).map(([td, vals]) => ({
-              target_date: td,
-              same_day_earliest_value: vals.morning_of ?? null,
-              prev_day_latest_value: vals.night_before ?? null,
-            }));
-          }
-        }
+        try {
+          const resp = await fetch(`${API_BASE}/prediction-snapshots?city=${currentCity}&mode=table`);
+          if (resp.ok) snapshotData = await resp.json();
+        } catch (e) { console.debug("prediction-snapshots API failed:", e); }
 
         console.log("📊 Fetched snapshots:", { count: snapshotData?.length, sample: snapshotData?.[0] });
 
@@ -4202,33 +4172,12 @@ async function displayTable() {
   const hedgeByDate = {};
   try {
     // Use forecast_day_summary for NYC (curated predictions), fall back to prediction_logs
+    // Use server-side API for city-filtered prediction snapshots
     let hedgeData = null;
-    if (currentCity === "nyc") {
-      const { data, error } = await supabase
-        .from("forecast_day_summary")
-        .select("target_date, prev_day_latest_value, same_day_earliest_value");
-      if (!error && data) hedgeData = data;
-    }
-    if (!hedgeData) {
-      const { data, error } = await supabase
-        .from("prediction_logs")
-        .select("target_date, prediction_value, lead_used")
-        .in("lead_used", ["today_for_today", "D0"])
-        .order("timestamp", { ascending: false });
-      if (!error && data) {
-        const seen = new Set();
-        hedgeData = data.filter(row => {
-          const td = String(row.target_date || "").match(/\d{4}-\d{2}-\d{2}/)?.[0];
-          if (!td || seen.has(td)) return false;
-          seen.add(td);
-          return true;
-        }).map(row => ({
-          target_date: row.target_date,
-          same_day_earliest_value: row.prediction_value,
-          prev_day_latest_value: null,
-        }));
-      }
-    }
+    try {
+      const resp = await fetch(`${API_BASE}/prediction-snapshots?city=${currentCity}&mode=stats`);
+      if (resp.ok) hedgeData = await resp.json();
+    } catch (e) { console.debug("prediction-snapshots stats API failed:", e); }
     if (Array.isArray(hedgeData)) {
       hedgeData.forEach(row => {
         const td = String(row.target_date || "").match(/\d{4}-\d{2}-\d{2}/)?.[0];
