@@ -71,12 +71,11 @@ export default async function handler(req, res) {
       representative_kind: p.representative_kind ?? 'blend',
       source_card: p.source_card ?? null,
       user_id: p.user_id ?? null,
-      // NOTE: city column does not exist on prediction_logs table yet.
-      // When added, uncomment: city: p.city ?? 'nyc',
+      city: p.city ?? 'nyc',
 
       // keeping this field is fine, but DB uniqueness is enforced by the composite key
       idempotency_key: [
-        p.target_date, p.lead_used, p.issuance_iso || '', p.model_name || '', p.version || ''
+        p.city || 'nyc', p.target_date, p.lead_used, p.issuance_iso || '', p.model_name || '', p.version || ''
       ].join('|')
     };
 
@@ -84,7 +83,7 @@ export default async function handler(req, res) {
        const { error } = await supabase
       .from('prediction_logs')
       .upsert(row, {
-        onConflict: 'target_date,lead_used,issuance_iso,model_name,version'
+        onConflict: 'target_date,lead_used,issuance_iso,model_name,version,city'
       });
 
     if (error) {

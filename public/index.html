@@ -3920,15 +3920,13 @@ async function displayTable() {
         return m ? m[0] : "";
       };
       try {
-        // Use forecast_day_summary for prediction snapshots
-        // Note: this view lacks a city column — a DB migration is needed
-        // to add one. For now, data is effectively NYC-only since that's
-        // where the bulk of prediction_logs entries originate.
+        // Use forecast_day_summary for prediction snapshots (city-filtered)
         let snapshotData = null;
         {
           const { data, error } = await supabase
             .from("forecast_day_summary")
-            .select("target_date, prev_day_latest_value, same_day_earliest_value");
+            .select("target_date, prev_day_latest_value, same_day_earliest_value")
+            .eq("city", currentCity);
           if (!error && data) snapshotData = data;
         }
 
@@ -4175,12 +4173,13 @@ async function displayTable() {
   // Fetch Hedge ensemble prediction snapshots from Supabase (city-aware)
   const hedgeByDate = {};
   try {
-    // Use forecast_day_summary for prediction snapshots (stats)
+    // Use forecast_day_summary for prediction snapshots (stats, city-filtered)
     let hedgeData = null;
     {
       const { data, error } = await supabase
         .from("forecast_day_summary")
-        .select("target_date, prev_day_latest_value, same_day_earliest_value");
+        .select("target_date, prev_day_latest_value, same_day_earliest_value")
+        .eq("city", currentCity);
       if (!error && data) hedgeData = data;
     }
     if (Array.isArray(hedgeData)) {
@@ -4404,14 +4403,13 @@ async function loadTodaysPredictionHistory() {
   const today = window.nycISODate(0);
   console.log("Loading predictions for:", today, "city:", currentCity);
 
-  const { data: rawData, error } = await supabase
+  const { data, error } = await supabase
     .from('prediction_logs')
     .select('prediction_value, timestamp')
     .eq('target_date', today)
     .eq('lead_used', 'D0')
+    .eq('city', currentCity)
     .order('timestamp', { ascending: true });
-  // Client-side city filter (city column may not be filterable server-side)
-  const data = rawData ? rawData.filter(row => !row.city || row.city === currentCity) : null;
     
   if (error) {
     console.error("Error loading predictions:", error);
@@ -4466,20 +4464,18 @@ async function loadMLPredictions() {
   const tomorrow = window.nycISODate(1);
 
   try {
-    const { data: rawData, error } = await supabase
+    const { data, error } = await supabase
       .from('prediction_logs')
       .select('*')
       .in('target_date', [today, tomorrow])
       .in('lead_used', ['today_for_today', 'today_for_tomorrow'])
+      .eq('city', currentCity)
       .order('timestamp', { ascending: false });
 
     if (error) {
       console.debug("loadMLPredictions error:", error.message);
       return;
     }
-
-    // Client-side city filter
-    const data = (rawData || []).filter(row => !row.city || row.city === currentCity);
 
     // Take the most recent row for each target date
     // Use ml_f if populated, otherwise fall back to prediction_value
