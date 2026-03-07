@@ -3925,7 +3925,7 @@ async function displayTable() {
         {
           const { data, error } = await supabase
             .from("prediction_logs")
-            .select("target_date, prediction_value, lead_used, timestamp, city")
+            .select("target_date, prediction_value, lead_used, timestamp")
             .in("lead_used", ["today_for_today", "today_for_tomorrow", "D0", "D1"])
             .order("timestamp", { ascending: false });
           if (!error && data) {
@@ -4203,7 +4203,7 @@ async function displayTable() {
     {
       const { data, error } = await supabase
         .from("prediction_logs")
-        .select("target_date, prediction_value, lead_used, city")
+        .select("target_date, prediction_value, lead_used")
         .in("lead_used", ["today_for_today", "D0"])
         .order("timestamp", { ascending: false });
       if (!error && data) {
@@ -4446,7 +4446,7 @@ async function loadTodaysPredictionHistory() {
 
   const { data: rawData, error } = await supabase
     .from('prediction_logs')
-    .select('prediction_value, timestamp, city')
+    .select('prediction_value, timestamp')
     .eq('target_date', today)
     .eq('lead_used', 'D0')
     .order('timestamp', { ascending: true });
