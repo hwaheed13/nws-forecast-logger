@@ -3446,6 +3446,10 @@ window._predTomorrow = predTomorrow;
       // Bucket clamping: use ensemble temp, but never let it cross AccuWeather's bucket.
       // AccuWeather alone has 74-83% bucket hit rate vs ensemble's 57%.
 
+      // Clamp threshold: only snap to AccuWeather's bucket when divergence is small.
+      // If ensemble diverges 2°F+, other sources are signaling something real — trust the ensemble.
+      const CLAMP_MAX_DIVERGENCE = 2.0;
+
       if (todayMarket && Number.isFinite(predToday?.y)) {
         const accuToday = builtToday.candidates?.AccuWeather;
         const accuBucket = (accuToday != null) ? mapToKalshiRange(accuToday, todayMarket) : null;
@@ -3453,9 +3457,14 @@ window._predTomorrow = predTomorrow;
 
         let todayBucketTemp = predToday.y;
         if (accuBucket && hedgeBucket && accuBucket.label !== hedgeBucket.label) {
-          todayBucketTemp = accuToday;
-          todayClamped = true;
-          console.log(`[Bucket Clamp] Today: ensemble ${predToday.y.toFixed(1)}→${hedgeBucket.label}, snapping to AccuWeather ${accuToday}→${accuBucket.label}`);
+          const divergence = Math.abs(predToday.y - accuToday);
+          if (divergence <= CLAMP_MAX_DIVERGENCE) {
+            todayBucketTemp = accuToday;
+            todayClamped = true;
+            console.log(`[Bucket Clamp] Today: ensemble ${predToday.y.toFixed(1)}→${hedgeBucket.label}, snapping to AccuWeather ${accuToday}→${accuBucket.label} (divergence ${divergence.toFixed(1)}°F)`);
+          } else {
+            console.log(`[Bucket Override] Today: ensemble ${predToday.y.toFixed(1)}→${hedgeBucket.label} overrides AccuWeather ${accuToday}→${accuBucket.label} (divergence ${divergence.toFixed(1)}°F > ${CLAMP_MAX_DIVERGENCE}°F)`);
+          }
         }
         todayKalshiRange = mapToKalshiRange(todayBucketTemp, todayMarket);
         console.log(`[Bucket] Today: temp=${todayBucketTemp.toFixed(1)} → ${todayKalshiRange?.label || "?"}${todayClamped ? " (clamped)" : ""}`);
@@ -3470,9 +3479,14 @@ window._predTomorrow = predTomorrow;
 
           let tomorrowBucketTemp = finalTemp;
           if (accuBucket && hedgeBucket && accuBucket.label !== hedgeBucket.label) {
-            tomorrowBucketTemp = accuTomorrow;
-            tomorrowClamped = true;
-            console.log(`[Bucket Clamp] Tomorrow: ensemble ${finalTemp.toFixed(1)}→${hedgeBucket.label}, snapping to AccuWeather ${accuTomorrow}→${accuBucket.label}`);
+            const divergence = Math.abs(finalTemp - accuTomorrow);
+            if (divergence <= CLAMP_MAX_DIVERGENCE) {
+              tomorrowBucketTemp = accuTomorrow;
+              tomorrowClamped = true;
+              console.log(`[Bucket Clamp] Tomorrow: ensemble ${finalTemp.toFixed(1)}→${hedgeBucket.label}, snapping to AccuWeather ${accuTomorrow}→${accuBucket.label} (divergence ${divergence.toFixed(1)}°F)`);
+            } else {
+              console.log(`[Bucket Override] Tomorrow: ensemble ${finalTemp.toFixed(1)}→${hedgeBucket.label} overrides AccuWeather ${accuTomorrow}→${accuBucket.label} (divergence ${divergence.toFixed(1)}°F > ${CLAMP_MAX_DIVERGENCE}°F)`);
+            }
           }
           tomorrowKalshiRange = mapToKalshiRange(tomorrowBucketTemp, tomorrowMarket);
           console.log(`[Bucket] Tomorrow: temp=${tomorrowBucketTemp.toFixed(1)} → ${tomorrowKalshiRange?.label || "?"}${tomorrowClamped ? " (clamped)" : ""}`);
