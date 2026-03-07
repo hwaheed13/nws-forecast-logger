@@ -1014,22 +1014,22 @@ return null;
 }  // This closes the KalshiBoundaryDetector class
 const boundaryDetector = new KalshiBoundaryDetector();
 // Log predictions to Supabase - matches what's on the UI
-async function logUIprediction(which, prediction, candidates, warning, bias, rmse) {
+async function logUIprediction(which, prediction, candidates, warning, bias, rmse, bucketInfo) {
   if (!PREDICTION_LOGGING_ENABLED) return;
-  
+
   const rounded = Math.round(prediction * 10) / 10;
   const targetDate = which === 'today' ? nycISODate(0) : nycISODate(1);
-  
+
   // Create unique key combining date + value
   const uniqueKey = `${targetDate}|${rounded}`;
   const lastLoggedKey = localStorage.getItem(`${currentCity}:lastLoggedKey_${which}`);
-  
+
   // ONLY LOG IF THIS EXACT DATE+VALUE COMBO HASN'T BEEN LOGGED
   if (lastLoggedKey === uniqueKey) {
     console.log(`Skipping: ${which} already logged ${rounded}°F for ${targetDate}`);
     return;
   }
-  
+
   const now = new Date();
   const minuteTimestamp = new Date(
     now.getFullYear(),
@@ -1039,7 +1039,7 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
     now.getMinutes(),
     0, 0
   );
-  
+
   const payload = {
     target_date: targetDate,
     lead_used: which === 'today' ? 'D0' : 'D1',
@@ -1056,7 +1056,10 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
     forecast_signature: '',
     representative_kind: 'blend',
     timestamp_et: now.toISOString(),
-    city: currentCity
+    city: currentCity,
+    kalshi_bucket: bucketInfo?.label || null,
+    kalshi_confidence: bucketInfo?.confidence || null,
+    kalshi_clamped: bucketInfo?.clamped || false
     };
   
   try {
@@ -3496,6 +3499,24 @@ window._predTomorrow = predTomorrow;
       console.debug("Kalshi range mapping failed:", e);
     }
 
+    // Compute bucket confidence for logging and display
+    const _accuStd = window.accuMAE || 0.89;
+    let todayConfPctFinal = null;
+    let tomorrowConfPctFinal = null;
+
+    if (todayKalshiRange && todayMarket?.ranges && Number.isFinite(predToday?.y)) {
+      const bTemp = todayClamped ? (builtToday.candidates?.AccuWeather ?? predToday.y) : predToday.y;
+      const probs = computeBucketProbabilities(bTemp, todayMarket.ranges, _accuStd);
+      todayConfPctFinal = probs[0]?.prob ? Math.round(probs[0].prob * 100) : null;
+    }
+
+    if (tomorrowKalshiRange && tomorrowMarket?.ranges && Number.isFinite(predTomorrow?.y)) {
+      const fTemp = predTomorrow.y + (Number.isFinite(d1AdjF) ? d1AdjF : 0);
+      const bTemp = tomorrowClamped ? (builtTomorrow.candidates?.AccuWeather ?? fTemp) : fTemp;
+      const probs = computeBucketProbabilities(bTemp, tomorrowMarket.ranges, _accuStd);
+      tomorrowConfPctFinal = probs[0]?.prob ? Math.round(probs[0].prob * 100) : null;
+    }
+
     // Format predictions with proper display
   // Track predictions - only add if different from last value
   if (predToday?.y) {
@@ -3552,7 +3573,11 @@ window._predTomorrow = predTomorrow;
     if (systemFullyLoaded && predToday?.y && predToday.y > 20 && !hasActualFor(todayISO)) {
       const roundedToday = Math.round(predToday.y * 10) / 10;
       if (lastLoggedPredictions.today !== roundedToday) {
-        logUIprediction('today', predToday.y, builtToday.candidates, todayWarning, predToday.bias, predToday.pad);
+        logUIprediction('today', predToday.y, builtToday.candidates, todayWarning, predToday.bias, predToday.pad, {
+          label: todayKalshiRange ? cleanKalshiLabel(todayKalshiRange.label) : null,
+          confidence: todayConfPctFinal,
+          clamped: todayClamped
+        });
         lastLoggedPredictions.today = roundedToday;
       }
     }
@@ -3561,7 +3586,11 @@ window._predTomorrow = predTomorrow;
       const finalValue = predTomorrow.y + (Number.isFinite(d1AdjF) ? d1AdjF : 0);
       const roundedTomorrow = Math.round(finalValue * 10) / 10;
       if (lastLoggedPredictions.tomorrow !== roundedTomorrow) {
-        logUIprediction('tomorrow', finalValue, builtTomorrow.candidates, tomorrowWarning, predTomorrow.bias, predTomorrow.pad);
+        logUIprediction('tomorrow', finalValue, builtTomorrow.candidates, tomorrowWarning, predTomorrow.bias, predTomorrow.pad, {
+          label: tomorrowKalshiRange ? cleanKalshiLabel(tomorrowKalshiRange.label) : null,
+          confidence: tomorrowConfPctFinal,
+          clamped: tomorrowClamped
+        });
         lastLoggedPredictions.tomorrow = roundedTomorrow;
       }
     }
@@ -4484,9 +4513,9 @@ stats.innerHTML = `
   <div class="stat-card">
     <div class="stat-label">
       Bucket Hit Rate
-      <span class="tip" tabindex="0" data-tip="% of days where the prediction landed in the winning Kalshi bucket (${bucketDaysChecked} days). Ensemble: ${bucketRate}% • AccuWeather: ${accuBucketRate}% (${accuBucketDaysChecked} days)">i</span>
+      <span class="tip" tabindex="0" data-tip="% of days where the prediction landed in the winning Kalshi bucket. AccuWeather-clamped: ${accuBucketRate}% (${accuBucketDaysChecked} days) • Old ensemble: ${bucketRate}% (${bucketDaysChecked} days)">i</span>
     </div>
-    <div class="stat-value" style="color:#7c3aed">${bucketRate}%</div>
+    <div class="stat-value" style="color:#7c3aed">${accuBucketDaysChecked > 0 ? accuBucketRate : bucketRate}%</div>
   </div>
   ${daysWithActual.length < 30
     ? `<div class="limited-data-banner" style="margin-top:12px; grid-column: 1 / -1;">

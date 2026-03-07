@@ -72,6 +72,9 @@ export default async function handler(req, res) {
       source_card: p.source_card ?? null,
       user_id: p.user_id ?? null,
       city: p.city ?? 'nyc',
+      kalshi_bucket: p.kalshi_bucket ?? null,
+      kalshi_confidence: num(p.kalshi_confidence),
+      kalshi_clamped: p.kalshi_clamped ?? false,
 
       // keeping this field is fine, but DB uniqueness is enforced by the composite key
       idempotency_key: [
