@@ -71,7 +71,8 @@ export default async function handler(req, res) {
       representative_kind: p.representative_kind ?? 'blend',
       source_card: p.source_card ?? null,
       user_id: p.user_id ?? null,
-      city: p.city ?? 'nyc',                        // city key (nyc, lax, etc.)
+      // NOTE: city column does not exist on prediction_logs table yet.
+      // When added, uncomment: city: p.city ?? 'nyc',
 
       // keeping this field is fine, but DB uniqueness is enforced by the composite key
       idempotency_key: [
