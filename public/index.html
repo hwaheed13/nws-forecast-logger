@@ -3920,13 +3920,17 @@ async function displayTable() {
         return m ? m[0] : "";
       };
       try {
-        // Use server-side API to query prediction_logs filtered by city
-        // (anon key can't filter on city column — service role key can)
+        // Use forecast_day_summary for prediction snapshots
+        // Note: this view lacks a city column — a DB migration is needed
+        // to add one. For now, data is effectively NYC-only since that's
+        // where the bulk of prediction_logs entries originate.
         let snapshotData = null;
-        try {
-          const resp = await fetch(`${API_BASE}/prediction-snapshots?city=${currentCity}&mode=table`);
-          if (resp.ok) snapshotData = await resp.json();
-        } catch (e) { console.debug("prediction-snapshots API failed:", e); }
+        {
+          const { data, error } = await supabase
+            .from("forecast_day_summary")
+            .select("target_date, prev_day_latest_value, same_day_earliest_value");
+          if (!error && data) snapshotData = data;
+        }
 
         console.log("📊 Fetched snapshots:", { count: snapshotData?.length, sample: snapshotData?.[0] });
 
@@ -4171,13 +4175,14 @@ async function displayTable() {
   // Fetch Hedge ensemble prediction snapshots from Supabase (city-aware)
   const hedgeByDate = {};
   try {
-    // Use forecast_day_summary for NYC (curated predictions), fall back to prediction_logs
-    // Use server-side API for city-filtered prediction snapshots
+    // Use forecast_day_summary for prediction snapshots (stats)
     let hedgeData = null;
-    try {
-      const resp = await fetch(`${API_BASE}/prediction-snapshots?city=${currentCity}&mode=stats`);
-      if (resp.ok) hedgeData = await resp.json();
-    } catch (e) { console.debug("prediction-snapshots stats API failed:", e); }
+    {
+      const { data, error } = await supabase
+        .from("forecast_day_summary")
+        .select("target_date, prev_day_latest_value, same_day_earliest_value");
+      if (!error && data) hedgeData = data;
+    }
     if (Array.isArray(hedgeData)) {
       hedgeData.forEach(row => {
         const td = String(row.target_date || "").match(/\d{4}-\d{2}-\d{2}/)?.[0];
