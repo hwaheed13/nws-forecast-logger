@@ -1930,89 +1930,6 @@ function reloadCSV(opts = {}) {
       return d.toISOString().slice(0,10);
     }
 
-    function prevISOby(iso, n) {
-      if (!iso || typeof iso !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
-      const d = new Date(iso + "T12:00:00");
-      if (isNaN(d)) return null;
-      d.setDate(d.getDate() - n);
-      return d.toISOString().slice(0, 10);
-    }
-
-    /**
-     * Compute a rolling bias correction for AccuWeather bucket picks.
-     * Uses the last WINDOW days of (actual_high - AccuWeather_last_forecast).
-     * This tells us if AccuWeather is systematically over/under-predicting recently.
-     */
-    function computeBucketBias() {
-      const WINDOW = 14;
-      const todayISO = nycISODate(0);
-      const offsets = [];
-
-      // Build a map of last AccuWeather forecast per target_date
-      const accuByDate = {};
-      for (const r of accuRows) {
-        if ((r.forecast_or_actual || "").trim() !== "forecast") continue;
-        const td = (r.target_date || "").trim();
-        const ph = r.predicted_high;
-        if (!td || !ph) continue;
-        try { accuByDate[td] = Number(ph); } catch {}
-      }
-
-      // Build a map of actuals (with high_time for overnight detection)
-      const actualByDate = {};
-      for (const r of allRows) {
-        if ((r.forecast_or_actual || "").trim() !== "actual") continue;
-        const cd = (r.cli_date || "").trim();
-        const ah = r.actual_high;
-        if (!cd || !ah) continue;
-        try {
-          actualByDate[cd] = {
-            high: Number(ah),
-            highTime: (r.high_time || "").trim()
-          };
-        } catch {}
-      }
-
-      // Gather recent offsets (actual - AccuWeather) going backwards
-      // EXCLUDE overnight highs: if high_time is before 7 AM, it's an overnight
-      // peak (measurement mismatch — NWS forecasts target daytime highs).
-      // These outliers (+5-10°F) would skew the 14-day bias significantly.
-      let overnightSkipped = 0;
-      for (let i = 1; i <= 90 && offsets.length < WINDOW; i++) {
-        const d = prevISOby(todayISO, i);
-        if (!d) continue;
-        const act = actualByDate[d];
-        const accu = accuByDate[d];
-        if (!act || !Number.isFinite(act.high) || !Number.isFinite(accu)) continue;
-
-        // Check if high occurred overnight (before 7 AM local)
-        if (act.highTime) {
-          const hhmm = act.highTime.match(/(\d{1,2}):(\d{2})/);
-          if (hhmm) {
-            const hour = Number(hhmm[1]);
-            if (hour < 7) {
-              overnightSkipped++;
-              continue; // skip overnight highs — they'd corrupt the bias
-            }
-          }
-        }
-
-        offsets.push(act.high - accu);
-      }
-      if (overnightSkipped) {
-        console.log(`[BucketBias] Skipped ${overnightSkipped} overnight-high day(s)`);
-      }
-
-      if (offsets.length < 3) {
-        console.log("[BucketBias] Not enough data:", offsets.length, "days");
-        return 0;
-      }
-
-      const bias = offsets.reduce((a, b) => a + b, 0) / offsets.length;
-      console.log(`[BucketBias] ${offsets.length}-day rolling bias: ${bias >= 0 ? "+" : ""}${bias.toFixed(2)}°F (AccuWeather tends to be ${bias > 0 ? "low" : "high"})`);
-      return bias;
-    }
-
     function monthNum(iso){ return Number((iso||"").split("-")[1]||"0"); }
     function isWarmSeason(iso){ const m=monthNum(iso); return m>=5 && m<=9; }
 
@@ -2948,34 +2865,42 @@ function hasDSMForToday() {
 } 
 async function fetchAccuWeatherForecasts() {
   try {
+    // Capture city at call time to detect city switch during await
+    const calledForCity = currentCity;
     const response = await fetch(`/api/accuweather-forecast?location=${CC().accuLocationKey}`);
     if (!response.ok) return null;
-    
+
     const data = await response.json();
-    
+
+    // If city changed while we were fetching, discard — this is stale data
+    if (currentCity !== calledForCity) {
+      console.warn(`AccuWeather: discarding stale response for ${calledForCity} (now on ${currentCity})`);
+      return null;
+    }
+
     // Initialize if it doesn't exist
     if (!window.accuWeatherData) {
       window.accuWeatherData = { today: null, tomorrow: null };
     }
-    
+
     const oldToday = window.accuWeatherData.today;
     const oldTomorrow = window.accuWeatherData.tomorrow;
-    
+
     // Only update today's AccuWeather if DSM hasn't been published
     if (!hasDSMForToday()) {
       window.accuWeatherData.today = Math.round(data.DailyForecasts[0].Temperature.Maximum.Value);
     }
     window.accuWeatherData.tomorrow = Math.round(data.DailyForecasts[1].Temperature.Maximum.Value);
-    
+
     console.log(`AccuWeather: Today ${window.accuWeatherData.today}°F, Tomorrow ${window.accuWeatherData.tomorrow}°F`);
-    
+
     // If values changed, update the prediction boxes
     if (oldToday !== window.accuWeatherData.today || oldTomorrow !== window.accuWeatherData.tomorrow) {
       if (typeof updateCorrectionBoxes === 'function') {
         updateCorrectionBoxes();
       }
     }
-    
+
     return window.accuWeatherData;
   } catch (error) {
     console.error('AccuWeather error:', error);
@@ -3509,10 +3434,6 @@ window._predTomorrow = predTomorrow;
     let tomorrowKalshiRange = null;
     let todayMarket = null;
     let tomorrowMarket = null;
-    let todayBucketSource = "ensemble";
-    let tomorrowBucketSource = "ensemble";
-    let todayHedgeBucket = null;
-    let tomorrowHedgeBucket = null;
 
     try {
       [todayMarket, tomorrowMarket] = await Promise.all([
@@ -3520,73 +3441,19 @@ window._predTomorrow = predTomorrow;
         fetchKalshiLiveLeader(tomorrowISO).catch(() => null)
       ]);
 
-      // Bucket pick strategy:
-      // AccuWeather has 74-83% bucket accuracy vs Hedge's 57%.
-      // But when AccuWeather diverges wildly from Hedge (>2°F), showing
-      // e.g. "51.5°F prediction" with "49° or below bucket" looks broken.
-      // Fix: when they diverge by >2°F, blend them (70% Accu / 30% Hedge)
-      // to keep AccuWeather's edge while preventing jarring contradictions.
-      const _bucketBias = computeBucketBias();
-      const DIVERGE_THRESHOLD = 2.0; // °F — beyond this, blend instead of pure Accu
-      const ACCU_BLEND_WEIGHT = 0.70;
+      // Bucket = prediction. The ensemble already blends AccuWeather (83%),
+      // NWS, ML, etc. One number, one bucket. No separate system.
 
-      if (todayMarket) {
-        const accuToday = builtToday.candidates?.AccuWeather;
-        const hedgeToday = predToday?.y;
-
-        if (Number.isFinite(accuToday) && Number.isFinite(hedgeToday)) {
-          const gap = Math.abs(accuToday - hedgeToday);
-          let bucketTemp;
-          if (gap <= DIVERGE_THRESHOLD) {
-            // Close agreement → trust AccuWeather fully
-            bucketTemp = accuToday + _bucketBias;
-            todayBucketSource = "AccuWeather";
-            console.log(`[Bucket] Today: AccuWeather=${accuToday} + bias=${_bucketBias.toFixed(2)} → ${bucketTemp.toFixed(1)} (gap ${gap.toFixed(1)}°F ≤ ${DIVERGE_THRESHOLD} → pure Accu)`);
-          } else {
-            // Significant divergence → blend to prevent jarring mismatch
-            bucketTemp = (ACCU_BLEND_WEIGHT * accuToday + (1 - ACCU_BLEND_WEIGHT) * hedgeToday) + _bucketBias;
-            todayBucketSource = "blended";
-            console.log(`[Bucket] Today: blend(Accu=${accuToday}, Hedge=${hedgeToday.toFixed(1)}, w=${ACCU_BLEND_WEIGHT}) + bias=${_bucketBias.toFixed(2)} → ${bucketTemp.toFixed(1)} (gap ${gap.toFixed(1)}°F > ${DIVERGE_THRESHOLD})`);
-          }
-          todayKalshiRange = mapToKalshiRange(bucketTemp, todayMarket);
-        } else if (Number.isFinite(accuToday)) {
-          todayKalshiRange = mapToKalshiRange(accuToday + _bucketBias, todayMarket);
-          todayBucketSource = "AccuWeather";
-        } else if (Number.isFinite(hedgeToday)) {
-          todayKalshiRange = mapToKalshiRange(hedgeToday, todayMarket);
-        }
-        // Also compute Hedge bucket for confidence comparison
-        if (Number.isFinite(hedgeToday)) {
-          todayHedgeBucket = mapToKalshiRange(hedgeToday, todayMarket);
-        }
+      if (todayMarket && Number.isFinite(predToday?.y)) {
+        todayKalshiRange = mapToKalshiRange(predToday.y, todayMarket);
+        console.log(`[Bucket] Today: prediction=${predToday.y.toFixed(1)} → ${todayKalshiRange?.label || "?"}`);
       }
 
       if (tomorrowMarket) {
-        const accuTomorrow = builtTomorrow.candidates?.AccuWeather;
         const finalTemp = predTomorrow?.y ? predTomorrow.y + (Number.isFinite(d1AdjF) ? d1AdjF : 0) : null;
-
-        if (Number.isFinite(accuTomorrow) && Number.isFinite(finalTemp)) {
-          const gap = Math.abs(accuTomorrow - finalTemp);
-          let bucketTemp;
-          if (gap <= DIVERGE_THRESHOLD) {
-            bucketTemp = accuTomorrow + _bucketBias;
-            tomorrowBucketSource = "AccuWeather";
-            console.log(`[Bucket] Tomorrow: AccuWeather=${accuTomorrow} + bias=${_bucketBias.toFixed(2)} → ${bucketTemp.toFixed(1)} (gap ${gap.toFixed(1)}°F ≤ ${DIVERGE_THRESHOLD} → pure Accu)`);
-          } else {
-            bucketTemp = (ACCU_BLEND_WEIGHT * accuTomorrow + (1 - ACCU_BLEND_WEIGHT) * finalTemp) + _bucketBias;
-            tomorrowBucketSource = "blended";
-            console.log(`[Bucket] Tomorrow: blend(Accu=${accuTomorrow}, Hedge=${finalTemp.toFixed(1)}, w=${ACCU_BLEND_WEIGHT}) + bias=${_bucketBias.toFixed(2)} → ${bucketTemp.toFixed(1)} (gap ${gap.toFixed(1)}°F > ${DIVERGE_THRESHOLD})`);
-          }
-          tomorrowKalshiRange = mapToKalshiRange(bucketTemp, tomorrowMarket);
-        } else if (Number.isFinite(accuTomorrow)) {
-          tomorrowKalshiRange = mapToKalshiRange(accuTomorrow + _bucketBias, tomorrowMarket);
-          tomorrowBucketSource = "AccuWeather";
-        } else if (Number.isFinite(finalTemp)) {
-          tomorrowKalshiRange = mapToKalshiRange(finalTemp, tomorrowMarket);
-        }
-        // Also compute Hedge bucket for confidence comparison
         if (Number.isFinite(finalTemp)) {
-          tomorrowHedgeBucket = mapToKalshiRange(finalTemp, tomorrowMarket);
+          tomorrowKalshiRange = mapToKalshiRange(finalTemp, tomorrowMarket);
+          console.log(`[Bucket] Tomorrow: prediction=${finalTemp.toFixed(1)} → ${tomorrowKalshiRange?.label || "?"}`);
         }
       }
     } catch (e) {
@@ -3679,15 +3546,11 @@ window._predTomorrow = predTomorrow;
           : "0.00";
         const sign = Number(bias) >= 0 ? "+" : "";
 
-        // Kalshi bucket note — unified recommendation
-        // Color: green if all sources agree, purple default, amber if sources split
+        // Kalshi bucket — directly from prediction (one number, one bucket)
         let kalshiNote = "";
         if (todayKalshiRange?.label) {
           const bucketLabel = cleanKalshiLabel(todayKalshiRange.label);
-          const hedgeLabel = todayHedgeBucket ? cleanKalshiLabel(todayHedgeBucket.label) : null;
-          const agree = !hedgeLabel || hedgeLabel === bucketLabel;
-          const confColor = agree ? "#16a34a" : "#7c3aed";
-          kalshiNote = ` • Kalshi: <span style="color:${confColor};font-weight:700">${bucketLabel}</span>`;
+          kalshiNote = ` • Kalshi: <span style="color:#16a34a;font-weight:700">${bucketLabel}</span>`;
         }
 
       // Add warning if present
@@ -3755,14 +3618,11 @@ if (el1) {
         const showBump = Math.abs(bump) >= 0.05;
         const bumpTxt = showBump ? ` • momentum ${bump >= 0 ? "+" : ""}${bump.toFixed(1)}°` : "";
 
-        // Kalshi bucket note — unified recommendation
+        // Kalshi bucket — directly from prediction
         let kalshiNote = "";
         if (tomorrowKalshiRange?.label) {
           const bucketLabel = cleanKalshiLabel(tomorrowKalshiRange.label);
-          const hedgeLabel = tomorrowHedgeBucket ? cleanKalshiLabel(tomorrowHedgeBucket.label) : null;
-          const agree = !hedgeLabel || hedgeLabel === bucketLabel;
-          const confColor = agree ? "#16a34a" : "#7c3aed";
-          kalshiNote = ` • Kalshi: <span style="color:${confColor};font-weight:700">${bucketLabel}</span>`;
+          kalshiNote = ` • Kalshi: <span style="color:#16a34a;font-weight:700">${bucketLabel}</span>`;
         }
 
       // Add warning if present
@@ -4060,17 +3920,9 @@ async function displayTable() {
         return m ? m[0] : "";
       };
       try {
-        // Try forecast_day_summary first (NYC, has pre-aggregated snapshots)
-        // Fall back to prediction_logs for all cities
+        // Query prediction_logs with city filter (forecast_day_summary lacks city column)
         let snapshotData = null;
-        if (currentCity === "nyc") {
-          const { data, error } = await supabase
-            .from("forecast_day_summary")
-            .select("target_date, prev_day_latest_value, same_day_earliest_value");
-          if (!error && data) snapshotData = data;
-        }
-        if (!snapshotData) {
-          // Query prediction_logs directly for this city
+        {
           const { data, error } = await supabase
             .from("prediction_logs")
             .select("target_date, prediction_value, lead_used, timestamp")
@@ -4097,7 +3949,7 @@ async function displayTable() {
               prev_day_latest_value: vals.night_before ?? null,
             }));
           }
-        }
+        } // end prediction_logs block
 
         console.log("📊 Fetched snapshots:", { count: snapshotData?.length, sample: snapshotData?.[0] });
 
@@ -4342,15 +4194,9 @@ async function displayTable() {
   // Fetch Hedge ensemble prediction snapshots from Supabase (city-aware)
   const hedgeByDate = {};
   try {
+    // Always use prediction_logs with city filter (forecast_day_summary lacks city column)
     let hedgeData = null;
-    if (currentCity === "nyc") {
-      const { data, error } = await supabase
-        .from("forecast_day_summary")
-        .select("target_date, prev_day_latest_value, same_day_earliest_value");
-      if (!error && data) hedgeData = data;
-    }
-    if (!hedgeData) {
-      // Fall back to prediction_logs for non-NYC cities
+    {
       const { data, error } = await supabase
         .from("prediction_logs")
         .select("target_date, prediction_value, lead_used")
@@ -4590,18 +4436,14 @@ window.supabase = window.supabase.createClient(
 // Rest of the auth code continues here, but WITHOUT re-declaring supabase
 
 async function loadTodaysPredictionHistory() {
-  // Supabase prediction_logs doesn't have a city column yet — only NYC data exists
-  if (currentCity !== "nyc") {
-    console.log("Skipping prediction history load for non-NYC city");
-    return;
-  }
   const today = window.nycISODate(0);
-  console.log("Loading predictions for:", today);
+  console.log("Loading predictions for:", today, "city:", currentCity);
 
   const { data, error } = await supabase
     .from('prediction_logs')
     .select('prediction_value, timestamp')
     .eq('target_date', today)
+    .eq('city', currentCity)
     .eq('lead_used', 'D0')
     .order('timestamp', { ascending: true });
     
