@@ -1912,6 +1912,65 @@ function reloadCSV(opts = {}) {
       return d.toISOString().slice(0,10);
     }
 
+    function prevISOby(iso, n) {
+      if (!iso || typeof iso !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+      const d = new Date(iso + "T12:00:00");
+      if (isNaN(d)) return null;
+      d.setDate(d.getDate() - n);
+      return d.toISOString().slice(0, 10);
+    }
+
+    /**
+     * Compute a rolling bias correction for AccuWeather bucket picks.
+     * Uses the last WINDOW days of (actual_high - AccuWeather_last_forecast).
+     * This tells us if AccuWeather is systematically over/under-predicting recently.
+     */
+    function computeBucketBias() {
+      const WINDOW = 14;
+      const todayISO = nycISODate(0);
+      const offsets = [];
+
+      // Build a map of last AccuWeather forecast per target_date
+      const accuByDate = {};
+      for (const r of accuRows) {
+        if ((r.forecast_or_actual || "").trim() !== "forecast") continue;
+        const td = (r.target_date || "").trim();
+        const ph = r.predicted_high;
+        if (!td || !ph) continue;
+        try { accuByDate[td] = Number(ph); } catch {}
+      }
+
+      // Build a map of actuals
+      const actualByDate = {};
+      for (const r of allRows) {
+        if ((r.forecast_or_actual || "").trim() !== "actual") continue;
+        const cd = (r.cli_date || "").trim();
+        const ah = r.actual_high;
+        if (!cd || !ah) continue;
+        try { actualByDate[cd] = Number(ah); } catch {}
+      }
+
+      // Gather recent offsets (actual - AccuWeather) going backwards
+      for (let i = 1; i <= 90 && offsets.length < WINDOW; i++) {
+        const d = prevISOby(todayISO, i);
+        if (!d) continue;
+        const actual = actualByDate[d];
+        const accu = accuByDate[d];
+        if (Number.isFinite(actual) && Number.isFinite(accu)) {
+          offsets.push(actual - accu);
+        }
+      }
+
+      if (offsets.length < 3) {
+        console.log("[BucketBias] Not enough data:", offsets.length, "days");
+        return 0;
+      }
+
+      const bias = offsets.reduce((a, b) => a + b, 0) / offsets.length;
+      console.log(`[BucketBias] ${offsets.length}-day rolling bias: ${bias >= 0 ? "+" : ""}${bias.toFixed(2)}°F (AccuWeather tends to be ${bias > 0 ? "low" : "high"})`);
+      return bias;
+    }
+
     function monthNum(iso){ return Number((iso||"").split("-")[1]||"0"); }
     function isWarmSeason(iso){ const m=monthNum(iso); return m>=5 && m<=9; }
 
@@ -3411,13 +3470,48 @@ window._predTomorrow = predTomorrow;
         fetchKalshiLiveLeader(tomorrowISO).catch(() => null)
       ]);
       
-      if (todayMarket && predToday?.y) {
-        todayKalshiRange = mapToKalshiRange(predToday.y, todayMarket);
+      // Bucket pick: use AccuWeather + rolling bias (74-83% bucket accuracy)
+      // instead of Hedge ensemble (57% bucket accuracy). Hedge blend adds
+      // NWS noise that pushes predictions across 2°F bucket boundaries.
+      // The bias is computed from NWS actuals history (250+ days).
+      const _bucketBias = computeBucketBias();
+      let todayBucketSource = "ensemble";
+      let tomorrowBucketSource = "ensemble";
+      let todayHedgeBucket = null;
+      let tomorrowHedgeBucket = null;
+
+      if (todayMarket) {
+        // AccuWeather-primary bucket (with bias correction from NWS actuals)
+        const accuToday = builtToday.candidates?.AccuWeather;
+        if (Number.isFinite(accuToday)) {
+          const adjusted = accuToday + _bucketBias;
+          todayKalshiRange = mapToKalshiRange(adjusted, todayMarket);
+          todayBucketSource = "AccuWeather";
+          console.log(`[Bucket] Today: AccuWeather=${accuToday} + bias=${_bucketBias.toFixed(2)} → ${adjusted.toFixed(1)} → ${todayKalshiRange?.label || "?"}`);
+        } else if (predToday?.y) {
+          todayKalshiRange = mapToKalshiRange(predToday.y, todayMarket);
+        }
+        // Also compute Hedge bucket for confidence comparison
+        if (predToday?.y) {
+          todayHedgeBucket = mapToKalshiRange(predToday.y, todayMarket);
+        }
       }
-      
-      if (tomorrowMarket && predTomorrow?.y) {
-        const finalTemp = predTomorrow.y + (Number.isFinite(d1AdjF) ? d1AdjF : 0);
-        tomorrowKalshiRange = mapToKalshiRange(finalTemp, tomorrowMarket);
+
+      if (tomorrowMarket) {
+        const accuTomorrow = builtTomorrow.candidates?.AccuWeather;
+        const finalTemp = predTomorrow?.y ? predTomorrow.y + (Number.isFinite(d1AdjF) ? d1AdjF : 0) : null;
+        if (Number.isFinite(accuTomorrow)) {
+          const adjusted = accuTomorrow + _bucketBias;
+          tomorrowKalshiRange = mapToKalshiRange(adjusted, tomorrowMarket);
+          tomorrowBucketSource = "AccuWeather";
+          console.log(`[Bucket] Tomorrow: AccuWeather=${accuTomorrow} + bias=${_bucketBias.toFixed(2)} → ${adjusted.toFixed(1)} → ${tomorrowKalshiRange?.label || "?"}`);
+        } else if (finalTemp) {
+          tomorrowKalshiRange = mapToKalshiRange(finalTemp, tomorrowMarket);
+        }
+        // Also compute Hedge bucket for confidence comparison
+        if (finalTemp) {
+          tomorrowHedgeBucket = mapToKalshiRange(finalTemp, tomorrowMarket);
+        }
       }
     } catch (e) {
       console.debug("Kalshi range mapping failed:", e);
@@ -3509,10 +3603,17 @@ window._predTomorrow = predTomorrow;
           : "0.00";
         const sign = Number(bias) >= 0 ? "+" : "";
 
-        const kalshiNote = todayKalshiRange?.label
-          ? ` • Kalshi: ${cleanKalshiLabel(todayKalshiRange.label)}`
-          : "";
-        
+        // Kalshi bucket note — unified recommendation
+        // Color: green if all sources agree, purple default, amber if sources split
+        let kalshiNote = "";
+        if (todayKalshiRange?.label) {
+          const bucketLabel = cleanKalshiLabel(todayKalshiRange.label);
+          const hedgeLabel = todayHedgeBucket ? cleanKalshiLabel(todayHedgeBucket.label) : null;
+          const agree = !hedgeLabel || hedgeLabel === bucketLabel;
+          const confColor = agree ? "#16a34a" : "#7c3aed";
+          kalshiNote = ` • Kalshi: <span style="color:${confColor};font-weight:700">${bucketLabel}</span>`;
+        }
+
       // Add warning if present
         const warningHTML = todayWarning 
           ? `<div class="boundary-warning ${todayWarning.level}">
@@ -3578,10 +3679,16 @@ if (el1) {
         const showBump = Math.abs(bump) >= 0.05;
         const bumpTxt = showBump ? ` • momentum ${bump >= 0 ? "+" : ""}${bump.toFixed(1)}°` : "";
 
-        const kalshiNote = tomorrowKalshiRange?.label
-            ? ` • Kalshi: ${cleanKalshiLabel(tomorrowKalshiRange.label)}`
-            : "";
-        
+        // Kalshi bucket note — unified recommendation
+        let kalshiNote = "";
+        if (tomorrowKalshiRange?.label) {
+          const bucketLabel = cleanKalshiLabel(tomorrowKalshiRange.label);
+          const hedgeLabel = tomorrowHedgeBucket ? cleanKalshiLabel(tomorrowHedgeBucket.label) : null;
+          const agree = !hedgeLabel || hedgeLabel === bucketLabel;
+          const confColor = agree ? "#16a34a" : "#7c3aed";
+          kalshiNote = ` • Kalshi: <span style="color:${confColor};font-weight:700">${bucketLabel}</span>`;
+        }
+
       // Add warning if present
         const warningHTML = tomorrowWarning 
           ? `<div class="boundary-warning ${tomorrowWarning.level}">
@@ -4229,6 +4336,18 @@ async function displayTable() {
   let hedgeWithin1Count = 0, hedgeDaysChecked = 0;
   let bucketHitCount = 0, bucketDaysChecked = 0;
 
+  // AccuWeather bucket accuracy tracking (for comparison)
+  let accuBucketHitCount = 0, accuBucketDaysChecked = 0;
+  // Build last AccuWeather forecast per target_date for bucket comparison
+  const accuLastByDate = {};
+  for (const r of accuRows) {
+    if ((r.forecast_or_actual || "").trim() !== "forecast") continue;
+    const td = (r.target_date || "").trim();
+    const ph = r.predicted_high;
+    if (!td || !ph) continue;
+    try { accuLastByDate[td] = Number(ph); } catch {}
+  }
+
   daysWithActual.forEach(d => {
     const rows = dayMap[d] || [];
     const actual = rows.find(r => r.forecast_or_actual === "actual" && r.actual_high);
@@ -4286,12 +4405,29 @@ async function displayTable() {
         if (inBucket) bucketHitCount++;
       }
     }
+
+    // AccuWeather bucket accuracy — check if AccuWeather alone would have hit the winning bucket
+    const accuPred = accuLastByDate[d];
+    if (Number.isFinite(accuPred)) {
+      const k2 = kalshiByDate[d];
+      const bucket2 = k2 ? parseKalshiBucket(cleanKalshiLabel(k2.label)) : null;
+      if (bucket2) {
+        accuBucketDaysChecked++;
+        const accuInBucket = (bucket2.max === Infinity)
+          ? accuPred >= bucket2.min
+          : (bucket2.min === -Infinity)
+            ? accuPred < bucket2.max + 1
+            : accuPred >= bucket2.min && accuPred < bucket2.max + 1;
+        if (accuInBucket) accuBucketHitCount++;
+      }
+    }
   });
 
   const avgAbsErr = errCount > 0 ? (totalAbsErr / errCount).toFixed(1) : "--";
   const avgBestErr = bestCount > 0 ? (totalBestErr / bestCount).toFixed(1) : "--";
   const hedgeAccuracy = hedgeDaysChecked > 0 ? (hedgeWithin1Count / hedgeDaysChecked * 100).toFixed(0) : "--";
   const bucketRate = bucketDaysChecked > 0 ? (bucketHitCount / bucketDaysChecked * 100).toFixed(0) : "--";
+  const accuBucketRate = accuBucketDaysChecked > 0 ? (accuBucketHitCount / accuBucketDaysChecked * 100).toFixed(0) : "--";
   const meanBias = errCount > 0 ? (totalSignedErr / errCount) : null;
   const bestBias = bestCount > 0 ? (totalBestSignedErr / bestCount) : null;
 
@@ -4360,7 +4496,7 @@ stats.innerHTML = `
   <div class="stat-card">
     <div class="stat-label">
       Bucket Hit Rate
-      <span class="tip" tabindex="0" data-tip="% of days where the Hedge prediction landed in the winning Kalshi bucket (${bucketDaysChecked} days with Kalshi + prediction data)">i</span>
+      <span class="tip" tabindex="0" data-tip="% of days where the prediction landed in the winning Kalshi bucket (${bucketDaysChecked} days). Ensemble: ${bucketRate}% • AccuWeather: ${accuBucketRate}% (${accuBucketDaysChecked} days)">i</span>
     </div>
     <div class="stat-value" style="color:#7c3aed">${bucketRate}%</div>
   </div>
