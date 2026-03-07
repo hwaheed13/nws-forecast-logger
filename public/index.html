@@ -3920,22 +3920,23 @@ async function displayTable() {
         return m ? m[0] : "";
       };
       try {
-        // Query prediction_logs with city filter (forecast_day_summary lacks city column)
+        // Query prediction_logs (city column may not be queryable via anon key)
         let snapshotData = null;
         {
           const { data, error } = await supabase
             .from("prediction_logs")
-            .select("target_date, prediction_value, lead_used, timestamp")
-            .eq("city", currentCity)
+            .select("target_date, prediction_value, lead_used, timestamp, city")
             .in("lead_used", ["today_for_today", "today_for_tomorrow", "D0", "D1"])
             .order("timestamp", { ascending: false });
           if (!error && data) {
+            // Client-side city filter (column may not be filterable server-side)
+            const cityFiltered = data.filter(row => !row.city || row.city === currentCity);
             // Group by target_date: latest same-day (D0/today_for_today) = morning_of,
             // latest prior-day (D1/today_for_tomorrow) = night_before
             const byDate = {};
             const isMorning = (lu) => lu === "today_for_today" || lu === "D0";
             const isNight   = (lu) => lu === "today_for_tomorrow" || lu === "D1";
-            for (const row of data) {
+            for (const row of cityFiltered) {
               const td = toISODate(row.target_date);
               if (!td || row.prediction_value == null) continue;
               if (!byDate[td]) byDate[td] = {};
@@ -4197,19 +4198,20 @@ async function displayTable() {
   // Fetch Hedge ensemble prediction snapshots from Supabase (city-aware)
   const hedgeByDate = {};
   try {
-    // Always use prediction_logs with city filter (forecast_day_summary lacks city column)
+    // Query prediction_logs (city column may not be queryable server-side)
     let hedgeData = null;
     {
       const { data, error } = await supabase
         .from("prediction_logs")
-        .select("target_date, prediction_value, lead_used")
-        .eq("city", currentCity)
+        .select("target_date, prediction_value, lead_used, city")
         .in("lead_used", ["today_for_today", "D0"])
         .order("timestamp", { ascending: false });
       if (!error && data) {
+        // Client-side city filter
+        const cityFiltered = data.filter(row => !row.city || row.city === currentCity);
         // Deduplicate: keep only the latest per target_date
         const seen = new Set();
-        hedgeData = data.filter(row => {
+        hedgeData = cityFiltered.filter(row => {
           const td = String(row.target_date || "").match(/\d{4}-\d{2}-\d{2}/)?.[0];
           if (!td || seen.has(td)) return false;
           seen.add(td);
@@ -4442,13 +4444,14 @@ async function loadTodaysPredictionHistory() {
   const today = window.nycISODate(0);
   console.log("Loading predictions for:", today, "city:", currentCity);
 
-  const { data, error } = await supabase
+  const { data: rawData, error } = await supabase
     .from('prediction_logs')
-    .select('prediction_value, timestamp')
+    .select('prediction_value, timestamp, city')
     .eq('target_date', today)
-    .eq('city', currentCity)
     .eq('lead_used', 'D0')
     .order('timestamp', { ascending: true });
+  // Client-side city filter (city column may not be filterable server-side)
+  const data = rawData ? rawData.filter(row => !row.city || row.city === currentCity) : null;
     
   if (error) {
     console.error("Error loading predictions:", error);
@@ -4503,10 +4506,9 @@ async function loadMLPredictions() {
   const tomorrow = window.nycISODate(1);
 
   try {
-    const { data, error } = await supabase
+    const { data: rawData, error } = await supabase
       .from('prediction_logs')
       .select('*')
-      .eq('city', currentCity)
       .in('target_date', [today, tomorrow])
       .in('lead_used', ['today_for_today', 'today_for_tomorrow'])
       .order('timestamp', { ascending: false });
@@ -4516,10 +4518,13 @@ async function loadMLPredictions() {
       return;
     }
 
+    // Client-side city filter
+    const data = (rawData || []).filter(row => !row.city || row.city === currentCity);
+
     // Take the most recent row for each target date
     // Use ml_f if populated, otherwise fall back to prediction_value
     let gotToday = false, gotTomorrow = false;
-    for (const row of (data || [])) {
+    for (const row of data) {
       const mlVal = row.ml_f ?? row.prediction_value;
       if (mlVal == null) continue;
       if (row.target_date === today && !gotToday) {
