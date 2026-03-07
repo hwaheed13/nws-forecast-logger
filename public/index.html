@@ -1038,7 +1038,8 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
     version: '4.1',
     forecast_signature: '',
     representative_kind: 'blend',
-    timestamp_et: now.toISOString()
+    timestamp_et: now.toISOString(),
+    city: currentCity
     };
   
   try {
@@ -1155,9 +1156,24 @@ async function handleOvernightExceedanceNote() {
 // If we previously recorded any post-midnight exceedance, show it immediately
 try {
   const todayKey = nycISODate(0);
-  const saved = JSON.parse(localStorage.getItem(`overnightExceeded_${todayKey}`) || 'null');
+  let saved = JSON.parse(localStorage.getItem(`overnightExceeded_${todayKey}`) || 'null');
 // If there is no entry for *today*, clear any stale in-memory flag from yesterday
 if (!saved) window._overnightExceeded = null;
+  // Validate saved entry is actually from today (reject stale entries from previous sessions)
+  if (saved && saved.time) {
+    try {
+      const savedDate = new Date(saved.time);
+      const savedISO = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit'
+      }).format(savedDate);
+      if (savedISO !== todayKey) {
+        console.log(`[Overnight exceed] 🗑️ Removing stale exceedance from ${savedISO} (today is ${todayKey})`);
+        localStorage.removeItem(`overnightExceeded_${todayKey}`);
+        window._overnightExceeded = null;
+        saved = null;
+      }
+    } catch {}
+  }
   if (saved && Number.isFinite(Number(saved.value))) {
     // Recompute the latest forecast now
     let latestForecast = latestPreHighValue(getForecastRowsFor(todayKey, "D0"), "");
@@ -2557,6 +2573,19 @@ function actualSignatureFor(rows) {
 
     async function pollCsvAndUpdate() {
       if (_citySwitching) return; // don't poll during city switch
+
+      // Detect date rollover (midnight crossing) and clear stale overnight state
+      const currentDate = nycISODate(0);
+      if (window._lastPolledDate && window._lastPolledDate !== currentDate) {
+        console.log(`[Overnight tracker] 🌅 Date changed from ${window._lastPolledDate} to ${currentDate} — clearing overnight state`);
+        window._overnightHighSoFar = null;
+        window._overnightHighTime  = null;
+        window._overnightExceeded  = null;
+        try { localStorage.removeItem(`overnight_${window._lastPolledDate}`); } catch {}
+        try { localStorage.removeItem(`overnightExceeded_${window._lastPolledDate}`); } catch {}
+      }
+      window._lastPolledDate = currentDate;
+
       try {
         const txt = await fetch(CSV_URL + "?" + Date.now(), { cache: "no-cache", mode: "cors" }).then(r => r.text());
 
@@ -2686,7 +2715,11 @@ await updateCorrectionBoxes();  // now uses the freshly-trained state
         window._overnightHighSoFar = null;
         window._overnightHighTime = null;
         window._overnightExceeded = null;
+        window._lastPolledDate = null;
         window._sixHourMaxF = null;
+        // Clear overnight localStorage keys to prevent stale data across cities
+        try { localStorage.removeItem(`overnight_${nycISODate(0)}`); } catch {}
+        try { localStorage.removeItem(`overnightExceeded_${nycISODate(0)}`); } catch {}
         window.predictionHistory.today = [];
         window.predictionHistory.tomorrow = [];
 
@@ -3026,8 +3059,10 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
       const published = hasActualFor(todayKey);
       if (published) {
         try { localStorage.removeItem(`overnight_${todayKey}`); } catch {}
+        try { localStorage.removeItem(`overnightExceeded_${todayKey}`); } catch {}
         window._overnightHighSoFar = null;
         window._overnightHighTime  = null;
+        window._overnightExceeded  = null;
       }
     }
   }
@@ -3841,7 +3876,7 @@ async function displayTable() {
       if (!tb) return;
       tb.innerHTML = "";
     
-    // Load prediction snapshots from Supabase (NYC only — no city column yet)
+    // Load prediction snapshots from Supabase (city-aware via prediction_logs)
       const predSnapshots = {};
       const toISODate = (v) => {
         if (v == null) return "";
@@ -3849,17 +3884,50 @@ async function displayTable() {
         const m = s.match(/\d{4}-\d{2}-\d{2}/); // works for 'YYYY-MM-DD' and ISO timestamps
         return m ? m[0] : "";
       };
-      if (currentCity === "nyc") try {
-        const { data, error } = await supabase
-          .from("forecast_day_summary")
-          .select("target_date, prev_day_latest_value, same_day_earliest_value");
-        
-        console.log("📊 Fetched snapshots:", { count: data?.length, sample: data?.[0], error });
-        
-        if (error) throw error;
+      try {
+        // Try forecast_day_summary first (NYC, has pre-aggregated snapshots)
+        // Fall back to prediction_logs for all cities
+        let snapshotData = null;
+        if (currentCity === "nyc") {
+          const { data, error } = await supabase
+            .from("forecast_day_summary")
+            .select("target_date, prev_day_latest_value, same_day_earliest_value");
+          if (!error && data) snapshotData = data;
+        }
+        if (!snapshotData) {
+          // Query prediction_logs directly for this city
+          const { data, error } = await supabase
+            .from("prediction_logs")
+            .select("target_date, prediction_value, lead_used, timestamp")
+            .eq("city", currentCity)
+            .in("lead_used", ["today_for_today", "today_for_tomorrow"])
+            .order("timestamp", { ascending: false });
+          if (!error && data) {
+            // Group by target_date: latest today_for_today = morning_of, latest today_for_tomorrow = night_before
+            const byDate = {};
+            for (const row of data) {
+              const td = toISODate(row.target_date);
+              if (!td || row.prediction_value == null) continue;
+              if (!byDate[td]) byDate[td] = {};
+              if (row.lead_used === "today_for_today" && !byDate[td].morning_of) {
+                byDate[td].morning_of = Number(row.prediction_value);
+              }
+              if (row.lead_used === "today_for_tomorrow" && !byDate[td].night_before) {
+                byDate[td].night_before = Number(row.prediction_value);
+              }
+            }
+            snapshotData = Object.entries(byDate).map(([td, vals]) => ({
+              target_date: td,
+              same_day_earliest_value: vals.morning_of ?? null,
+              prev_day_latest_value: vals.night_before ?? null,
+            }));
+          }
+        }
 
-        if (Array.isArray(data) && data.length) {
-          data.forEach((row) => {
+        console.log("📊 Fetched snapshots:", { count: snapshotData?.length, sample: snapshotData?.[0] });
+
+        if (Array.isArray(snapshotData) && snapshotData.length) {
+          snapshotData.forEach((row) => {
             const td = toISODate(row.target_date);
             if (!td) return;
 
@@ -4096,14 +4164,41 @@ async function displayTable() {
     return null;
   }
 
-  // Fetch Hedge ensemble prediction snapshots from Supabase (NYC only — no city column yet)
+  // Fetch Hedge ensemble prediction snapshots from Supabase (city-aware)
   const hedgeByDate = {};
-  if (currentCity === "nyc") try {
-    const { data, error } = await supabase
-      .from("forecast_day_summary")
-      .select("target_date, prev_day_latest_value, same_day_earliest_value");
-    if (!error && Array.isArray(data)) {
-      data.forEach(row => {
+  try {
+    let hedgeData = null;
+    if (currentCity === "nyc") {
+      const { data, error } = await supabase
+        .from("forecast_day_summary")
+        .select("target_date, prev_day_latest_value, same_day_earliest_value");
+      if (!error && data) hedgeData = data;
+    }
+    if (!hedgeData) {
+      // Fall back to prediction_logs for non-NYC cities
+      const { data, error } = await supabase
+        .from("prediction_logs")
+        .select("target_date, prediction_value, lead_used")
+        .eq("city", currentCity)
+        .eq("lead_used", "today_for_today")
+        .order("timestamp", { ascending: false });
+      if (!error && data) {
+        // Deduplicate: keep only the latest per target_date
+        const seen = new Set();
+        hedgeData = data.filter(row => {
+          const td = String(row.target_date || "").match(/\d{4}-\d{2}-\d{2}/)?.[0];
+          if (!td || seen.has(td)) return false;
+          seen.add(td);
+          return true;
+        }).map(row => ({
+          target_date: row.target_date,
+          same_day_earliest_value: row.prediction_value,
+          prev_day_latest_value: null,
+        }));
+      }
+    }
+    if (Array.isArray(hedgeData)) {
+      hedgeData.forEach(row => {
         const td = String(row.target_date || "").match(/\d{4}-\d{2}-\d{2}/)?.[0];
         if (!td) return;
         // Prefer morning-of prediction; fall back to night-before
@@ -4355,12 +4450,6 @@ async function loadTodaysPredictionHistory() {
 window.mlPredictions = { today: null, tomorrow: null };
 
 async function loadMLPredictions() {
-  // Supabase prediction_logs doesn't have a city column yet — only NYC data exists
-  if (currentCity !== "nyc") {
-    window.mlPredictions = { today: null, tomorrow: null };
-    console.log("Skipping ML predictions load for non-NYC city");
-    return;
-  }
   const today = window.nycISODate(0);
   const tomorrow = window.nycISODate(1);
 
@@ -4368,6 +4457,7 @@ async function loadMLPredictions() {
     const { data, error } = await supabase
       .from('prediction_logs')
       .select('*')
+      .eq('city', currentCity)
       .in('target_date', [today, tomorrow])
       .in('lead_used', ['today_for_today', 'today_for_tomorrow'])
       .order('timestamp', { ascending: false });
