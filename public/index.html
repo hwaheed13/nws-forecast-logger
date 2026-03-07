@@ -3487,22 +3487,22 @@ window._predTomorrow = predTomorrow;
     let tomorrowKalshiRange = null;
     let todayMarket = null;
     let tomorrowMarket = null;
-    
+    let todayBucketSource = "ensemble";
+    let tomorrowBucketSource = "ensemble";
+    let todayHedgeBucket = null;
+    let tomorrowHedgeBucket = null;
+
     try {
       [todayMarket, tomorrowMarket] = await Promise.all([
         fetchKalshiLiveLeader(todayISO).catch(() => null),
         fetchKalshiLiveLeader(tomorrowISO).catch(() => null)
       ]);
-      
+
       // Bucket pick: use AccuWeather + rolling bias (74-83% bucket accuracy)
       // instead of Hedge ensemble (57% bucket accuracy). Hedge blend adds
       // NWS noise that pushes predictions across 2°F bucket boundaries.
       // The bias is computed from NWS actuals history (250+ days).
       const _bucketBias = computeBucketBias();
-      let todayBucketSource = "ensemble";
-      let tomorrowBucketSource = "ensemble";
-      let todayHedgeBucket = null;
-      let tomorrowHedgeBucket = null;
 
       if (todayMarket) {
         // AccuWeather-primary bucket (with bias correction from NWS actuals)
