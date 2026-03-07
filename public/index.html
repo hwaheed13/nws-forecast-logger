@@ -3632,8 +3632,8 @@ window._predTomorrow = predTomorrow;
             : "";
           kalshiNote = ` • Kalshi: <span style="color:#16a34a;font-weight:700">${bucketLabel}</span>${confTag}${clampTag}`;
 
-          // If close call (<60%), show runner-up bucket
-          if (todayConfPct && todayConfPct < 60 && todayBucketProbs[1]) {
+          // Always show runner-up bucket so user sees both options
+          if (todayBucketProbs[1]) {
             const runnerLabel = cleanKalshiLabel(todayBucketProbs[1].range.label);
             const runnerPct = Math.round(todayBucketProbs[1].prob * 100);
             kalshiNote += ` <span style="color:#6b7280;font-size:0.85em">/ ${runnerLabel} (${runnerPct}%)</span>`;
@@ -3725,8 +3725,8 @@ if (el1) {
             : "";
           kalshiNote = ` • Kalshi: <span style="color:#16a34a;font-weight:700">${bucketLabel}</span>${confTag}${clampTag}`;
 
-          // If close call (<60%), show runner-up bucket
-          if (tmrwConfPct && tmrwConfPct < 60 && tmrwBucketProbs[1]) {
+          // Always show runner-up bucket so user sees both options
+          if (tmrwBucketProbs[1]) {
             const runnerLabel = cleanKalshiLabel(tmrwBucketProbs[1].range.label);
             const runnerPct = Math.round(tmrwBucketProbs[1].prob * 100);
             kalshiNote += ` <span style="color:#6b7280;font-size:0.85em">/ ${runnerLabel} (${runnerPct}%)</span>`;
