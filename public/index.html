@@ -3920,23 +3920,26 @@ async function displayTable() {
         return m ? m[0] : "";
       };
       try {
-        // Query prediction_logs (city column may not be queryable via anon key)
+        // Use forecast_day_summary (pre-aggregated, accurate predictions per day)
+        // Falls back to prediction_logs for non-NYC cities
         let snapshotData = null;
-        {
+        if (currentCity === "nyc") {
+          const { data, error } = await supabase
+            .from("forecast_day_summary")
+            .select("target_date, prev_day_latest_value, same_day_earliest_value");
+          if (!error && data) snapshotData = data;
+        }
+        if (!snapshotData) {
           const { data, error } = await supabase
             .from("prediction_logs")
             .select("target_date, prediction_value, lead_used, timestamp")
             .in("lead_used", ["today_for_today", "today_for_tomorrow", "D0", "D1"])
             .order("timestamp", { ascending: false });
           if (!error && data) {
-            // Client-side city filter (column may not be filterable server-side)
-            const cityFiltered = data.filter(row => !row.city || row.city === currentCity);
-            // Group by target_date: latest same-day (D0/today_for_today) = morning_of,
-            // latest prior-day (D1/today_for_tomorrow) = night_before
             const byDate = {};
             const isMorning = (lu) => lu === "today_for_today" || lu === "D0";
             const isNight   = (lu) => lu === "today_for_tomorrow" || lu === "D1";
-            for (const row of cityFiltered) {
+            for (const row of data) {
               const td = toISODate(row.target_date);
               if (!td || row.prediction_value == null) continue;
               if (!byDate[td]) byDate[td] = {};
@@ -3953,7 +3956,7 @@ async function displayTable() {
               prev_day_latest_value: vals.night_before ?? null,
             }));
           }
-        } // end prediction_logs block
+        }
 
         console.log("📊 Fetched snapshots:", { count: snapshotData?.length, sample: snapshotData?.[0] });
 
@@ -4198,20 +4201,23 @@ async function displayTable() {
   // Fetch Hedge ensemble prediction snapshots from Supabase (city-aware)
   const hedgeByDate = {};
   try {
-    // Query prediction_logs (city column may not be queryable server-side)
+    // Use forecast_day_summary for NYC (curated predictions), fall back to prediction_logs
     let hedgeData = null;
-    {
+    if (currentCity === "nyc") {
+      const { data, error } = await supabase
+        .from("forecast_day_summary")
+        .select("target_date, prev_day_latest_value, same_day_earliest_value");
+      if (!error && data) hedgeData = data;
+    }
+    if (!hedgeData) {
       const { data, error } = await supabase
         .from("prediction_logs")
         .select("target_date, prediction_value, lead_used")
         .in("lead_used", ["today_for_today", "D0"])
         .order("timestamp", { ascending: false });
       if (!error && data) {
-        // Client-side city filter
-        const cityFiltered = data.filter(row => !row.city || row.city === currentCity);
-        // Deduplicate: keep only the latest per target_date
         const seen = new Set();
-        hedgeData = cityFiltered.filter(row => {
+        hedgeData = data.filter(row => {
           const td = String(row.target_date || "").match(/\d{4}-\d{2}-\d{2}/)?.[0];
           if (!td || seen.has(td)) return false;
           seen.add(td);
