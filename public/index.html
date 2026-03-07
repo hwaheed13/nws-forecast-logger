@@ -1940,25 +1940,49 @@ function reloadCSV(opts = {}) {
         try { accuByDate[td] = Number(ph); } catch {}
       }
 
-      // Build a map of actuals
+      // Build a map of actuals (with high_time for overnight detection)
       const actualByDate = {};
       for (const r of allRows) {
         if ((r.forecast_or_actual || "").trim() !== "actual") continue;
         const cd = (r.cli_date || "").trim();
         const ah = r.actual_high;
         if (!cd || !ah) continue;
-        try { actualByDate[cd] = Number(ah); } catch {}
+        try {
+          actualByDate[cd] = {
+            high: Number(ah),
+            highTime: (r.high_time || "").trim()
+          };
+        } catch {}
       }
 
       // Gather recent offsets (actual - AccuWeather) going backwards
+      // EXCLUDE overnight highs: if high_time is before 7 AM, it's an overnight
+      // peak (measurement mismatch — NWS forecasts target daytime highs).
+      // These outliers (+5-10°F) would skew the 14-day bias significantly.
+      let overnightSkipped = 0;
       for (let i = 1; i <= 90 && offsets.length < WINDOW; i++) {
         const d = prevISOby(todayISO, i);
         if (!d) continue;
-        const actual = actualByDate[d];
+        const act = actualByDate[d];
         const accu = accuByDate[d];
-        if (Number.isFinite(actual) && Number.isFinite(accu)) {
-          offsets.push(actual - accu);
+        if (!act || !Number.isFinite(act.high) || !Number.isFinite(accu)) continue;
+
+        // Check if high occurred overnight (before 7 AM local)
+        if (act.highTime) {
+          const hhmm = act.highTime.match(/(\d{1,2}):(\d{2})/);
+          if (hhmm) {
+            const hour = Number(hhmm[1]);
+            if (hour < 7) {
+              overnightSkipped++;
+              continue; // skip overnight highs — they'd corrupt the bias
+            }
+          }
         }
+
+        offsets.push(act.high - accu);
+      }
+      if (overnightSkipped) {
+        console.log(`[BucketBias] Skipped ${overnightSkipped} overnight-high day(s)`);
       }
 
       if (offsets.length < 3) {
