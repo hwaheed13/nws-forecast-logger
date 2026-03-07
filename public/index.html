@@ -1544,11 +1544,20 @@ async function updateHedgeOnActual(kind, season, candidates, actual, targetISO, 
   saveState(key, st);
 }
   async function pretrainFromHistory() {
-    // Skip if already pretrained for this city (prevents re-training on city switch)
+    // Re-pretrain when new actuals arrive (count actuals as a signature)
     const pretrainKey = `${currentCity}:${ENS_KEY}:pretrain_done`;
-    if (localStorage.getItem(pretrainKey)) {
-      console.log(`Pretrain already done for ${currentCity}, skipping`);
+    const actualsCount = allRows.filter(r => r.forecast_or_actual === "actual" && r.actual_high).length;
+    const pretrainSig = `${actualsCount}`;
+    const savedSig = localStorage.getItem(pretrainKey);
+    if (savedSig && savedSig === pretrainSig) {
+      console.log(`Pretrain up-to-date for ${currentCity} (${actualsCount} actuals), skipping`);
       return;
+    }
+    if (savedSig) {
+      console.log(`Pretrain stale for ${currentCity}: had ${savedSig} actuals, now ${actualsCount} — re-training`);
+      // Reset hedge state before re-pretraining so weights start fresh
+      resetHedgeState();
+      warmOnceForCurrentCSV();
     }
     console.log("=== PRETRAIN DEBUG START ===");
     console.log("Total rows in allRows:", allRows.length);
@@ -1602,8 +1611,8 @@ await updateHedgeOnActual("tomorrow", season, candTomorrow, actualF, iso, true);
   console.log("After pretrain - today:warm bias:", todayWarmState?.bias);
   console.log("After pretrain - today:warm rmse:", todayWarmState?.rmse);
   console.log("=== PRETRAIN DEBUG END ===");
-  // Mark pretrain done for this city so it doesn't re-run on city switch
-  localStorage.setItem(`${currentCity}:${ENS_KEY}:pretrain_done`, "1");
+  // Mark pretrain done with actuals count so it re-runs when new actuals arrive
+  localStorage.setItem(`${currentCity}:${ENS_KEY}:pretrain_done`, pretrainSig);
 }
 window.pretrainFromHistory = pretrainFromHistory;
 function resetHedgeState(){
