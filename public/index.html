@@ -3437,62 +3437,26 @@ window._predTomorrow = predTomorrow;
     let tomorrowKalshiRange = null;
     let todayMarket = null;
     let tomorrowMarket = null;
-    let todayClamped = false;
-    let tomorrowClamped = false;
-
     try {
       [todayMarket, tomorrowMarket] = await Promise.all([
         fetchKalshiLiveLeader(todayISO).catch(() => null),
         fetchKalshiLiveLeader(tomorrowISO).catch(() => null)
       ]);
 
-      // Bucket clamping: use ensemble temp, but never let it cross AccuWeather's bucket.
-      // AccuWeather alone has 74-83% bucket hit rate vs ensemble's 57%.
-
-      // Clamp threshold: only snap to AccuWeather's bucket when divergence is small.
-      // If ensemble diverges 2°F+, other sources are signaling something real — trust the ensemble.
-      const CLAMP_MAX_DIVERGENCE = 2.0;
+      // Ensemble drives the bucket directly. The ensemble already weights AccuWeather
+      // at ~83% — it IS mostly AccuWeather, but smoothed by NWS/ML consensus.
+      // Probabilities + runner-up give users honest confidence information.
 
       if (todayMarket && Number.isFinite(predToday?.y)) {
-        const accuToday = builtToday.candidates?.AccuWeather;
-        const accuBucket = (accuToday != null) ? mapToKalshiRange(accuToday, todayMarket) : null;
-        const hedgeBucket = mapToKalshiRange(predToday.y, todayMarket);
-
-        let todayBucketTemp = predToday.y;
-        if (accuBucket && hedgeBucket && accuBucket.label !== hedgeBucket.label) {
-          const divergence = Math.abs(predToday.y - accuToday);
-          if (divergence <= CLAMP_MAX_DIVERGENCE) {
-            todayBucketTemp = accuToday;
-            todayClamped = true;
-            console.log(`[Bucket Clamp] Today: ensemble ${predToday.y.toFixed(1)}→${hedgeBucket.label}, snapping to AccuWeather ${accuToday}→${accuBucket.label} (divergence ${divergence.toFixed(1)}°F)`);
-          } else {
-            console.log(`[Bucket Override] Today: ensemble ${predToday.y.toFixed(1)}→${hedgeBucket.label} overrides AccuWeather ${accuToday}→${accuBucket.label} (divergence ${divergence.toFixed(1)}°F > ${CLAMP_MAX_DIVERGENCE}°F)`);
-          }
-        }
-        todayKalshiRange = mapToKalshiRange(todayBucketTemp, todayMarket);
-        console.log(`[Bucket] Today: temp=${todayBucketTemp.toFixed(1)} → ${todayKalshiRange?.label || "?"}${todayClamped ? " (clamped)" : ""}`);
+        todayKalshiRange = mapToKalshiRange(predToday.y, todayMarket);
+        console.log(`[Bucket] Today: prediction=${predToday.y.toFixed(1)} → ${todayKalshiRange?.label || "?"}`);
       }
 
       if (tomorrowMarket) {
         const finalTemp = predTomorrow?.y ? predTomorrow.y + (Number.isFinite(d1AdjF) ? d1AdjF : 0) : null;
         if (Number.isFinite(finalTemp)) {
-          const accuTomorrow = builtTomorrow.candidates?.AccuWeather;
-          const accuBucket = (accuTomorrow != null) ? mapToKalshiRange(accuTomorrow, tomorrowMarket) : null;
-          const hedgeBucket = mapToKalshiRange(finalTemp, tomorrowMarket);
-
-          let tomorrowBucketTemp = finalTemp;
-          if (accuBucket && hedgeBucket && accuBucket.label !== hedgeBucket.label) {
-            const divergence = Math.abs(finalTemp - accuTomorrow);
-            if (divergence <= CLAMP_MAX_DIVERGENCE) {
-              tomorrowBucketTemp = accuTomorrow;
-              tomorrowClamped = true;
-              console.log(`[Bucket Clamp] Tomorrow: ensemble ${finalTemp.toFixed(1)}→${hedgeBucket.label}, snapping to AccuWeather ${accuTomorrow}→${accuBucket.label} (divergence ${divergence.toFixed(1)}°F)`);
-            } else {
-              console.log(`[Bucket Override] Tomorrow: ensemble ${finalTemp.toFixed(1)}→${hedgeBucket.label} overrides AccuWeather ${accuTomorrow}→${accuBucket.label} (divergence ${divergence.toFixed(1)}°F > ${CLAMP_MAX_DIVERGENCE}°F)`);
-            }
-          }
-          tomorrowKalshiRange = mapToKalshiRange(tomorrowBucketTemp, tomorrowMarket);
-          console.log(`[Bucket] Tomorrow: temp=${tomorrowBucketTemp.toFixed(1)} → ${tomorrowKalshiRange?.label || "?"}${tomorrowClamped ? " (clamped)" : ""}`);
+          tomorrowKalshiRange = mapToKalshiRange(finalTemp, tomorrowMarket);
+          console.log(`[Bucket] Tomorrow: prediction=${finalTemp.toFixed(1)} → ${tomorrowKalshiRange?.label || "?"}`);
         }
       }
     } catch (e) {
@@ -3505,15 +3469,13 @@ window._predTomorrow = predTomorrow;
     let tomorrowConfPctFinal = null;
 
     if (todayKalshiRange && todayMarket?.ranges && Number.isFinite(predToday?.y)) {
-      const bTemp = todayClamped ? (builtToday.candidates?.AccuWeather ?? predToday.y) : predToday.y;
-      const probs = computeBucketProbabilities(bTemp, todayMarket.ranges, _accuStd);
+      const probs = computeBucketProbabilities(predToday.y, todayMarket.ranges, _accuStd);
       todayConfPctFinal = probs[0]?.prob ? Math.round(probs[0].prob * 100) : null;
     }
 
     if (tomorrowKalshiRange && tomorrowMarket?.ranges && Number.isFinite(predTomorrow?.y)) {
       const fTemp = predTomorrow.y + (Number.isFinite(d1AdjF) ? d1AdjF : 0);
-      const bTemp = tomorrowClamped ? (builtTomorrow.candidates?.AccuWeather ?? fTemp) : fTemp;
-      const probs = computeBucketProbabilities(bTemp, tomorrowMarket.ranges, _accuStd);
+      const probs = computeBucketProbabilities(fTemp, tomorrowMarket.ranges, _accuStd);
       tomorrowConfPctFinal = probs[0]?.prob ? Math.round(probs[0].prob * 100) : null;
     }
 
@@ -3576,7 +3538,7 @@ window._predTomorrow = predTomorrow;
         logUIprediction('today', predToday.y, builtToday.candidates, todayWarning, predToday.bias, predToday.pad, {
           label: todayKalshiRange ? cleanKalshiLabel(todayKalshiRange.label) : null,
           confidence: todayConfPctFinal,
-          clamped: todayClamped
+          clamped: false
         });
         lastLoggedPredictions.today = roundedToday;
       }
@@ -3589,7 +3551,7 @@ window._predTomorrow = predTomorrow;
         logUIprediction('tomorrow', finalValue, builtTomorrow.candidates, tomorrowWarning, predTomorrow.bias, predTomorrow.pad, {
           label: tomorrowKalshiRange ? cleanKalshiLabel(tomorrowKalshiRange.label) : null,
           confidence: tomorrowConfPctFinal,
-          clamped: tomorrowClamped
+          clamped: false
         });
         lastLoggedPredictions.tomorrow = roundedTomorrow;
       }
@@ -3613,9 +3575,8 @@ window._predTomorrow = predTomorrow;
 
         // Kalshi bucket with probability confidence
         const ACCU_STD = window.accuMAE || 0.89;
-        const todayBucketTemp = todayClamped ? (builtToday.candidates?.AccuWeather ?? predToday.y) : predToday.y;
         const todayBucketProbs = (todayMarket?.ranges)
-          ? computeBucketProbabilities(todayBucketTemp, todayMarket.ranges, ACCU_STD)
+          ? computeBucketProbabilities(predToday.y, todayMarket.ranges, ACCU_STD)
           : [];
         const todayTopProb = todayBucketProbs[0]?.prob;
         const todayConfPct = todayTopProb ? Math.round(todayTopProb * 100) : null;
@@ -3627,10 +3588,7 @@ window._predTomorrow = predTomorrow;
           const confTag = todayConfPct
             ? ` <span style="color:${todayConfColor};font-size:0.85em">(${todayConfPct}%)</span>`
             : "";
-          const clampTag = todayClamped
-            ? ` <span style="color:#d97706;font-size:0.85em">AccuWeather</span>`
-            : "";
-          kalshiNote = ` • Kalshi: <span style="color:#16a34a;font-weight:700">${bucketLabel}</span>${confTag}${clampTag}`;
+          kalshiNote = ` • Kalshi: <span style="color:#16a34a;font-weight:700">${bucketLabel}</span>${confTag}`;
 
           // Always show runner-up bucket so user sees both options
           if (todayBucketProbs[1]) {
@@ -3706,9 +3664,8 @@ if (el1) {
         const bumpTxt = showBump ? ` • momentum ${bump >= 0 ? "+" : ""}${bump.toFixed(1)}°` : "";
 
         // Kalshi bucket with probability confidence
-        const tmrwBucketTemp = tomorrowClamped ? (builtTomorrow.candidates?.AccuWeather ?? final) : final;
         const tmrwBucketProbs = (tomorrowMarket?.ranges)
-          ? computeBucketProbabilities(tmrwBucketTemp, tomorrowMarket.ranges, window.accuMAE || 0.89)
+          ? computeBucketProbabilities(final, tomorrowMarket.ranges, window.accuMAE || 0.89)
           : [];
         const tmrwTopProb = tmrwBucketProbs[0]?.prob;
         const tmrwConfPct = tmrwTopProb ? Math.round(tmrwTopProb * 100) : null;
@@ -3720,10 +3677,7 @@ if (el1) {
           const confTag = tmrwConfPct
             ? ` <span style="color:${tmrwConfColor};font-size:0.85em">(${tmrwConfPct}%)</span>`
             : "";
-          const clampTag = tomorrowClamped
-            ? ` <span style="color:#d97706;font-size:0.85em">AccuWeather</span>`
-            : "";
-          kalshiNote = ` • Kalshi: <span style="color:#16a34a;font-weight:700">${bucketLabel}</span>${confTag}${clampTag}`;
+          kalshiNote = ` • Kalshi: <span style="color:#16a34a;font-weight:700">${bucketLabel}</span>${confTag}`;
 
           // Always show runner-up bucket so user sees both options
           if (tmrwBucketProbs[1]) {
