@@ -13,7 +13,7 @@ from nws_auto_logger import (
     _compute_avg_bias_excluding, _compute_today_pre_high_mean,
     _float_or_none, compute_today_gate_f,
 )
-from model_config import FEATURE_COLS, ACCU_NWS_FALLBACK, derive_bucket_probabilities
+from model_config import FEATURE_COLS, FEATURE_COLS_V2, ACCU_NWS_FALLBACK, derive_bucket_probabilities
 
 MODEL_VERSION = os.environ.get("PREDICTION_MODEL_VERSION", "bcp_v1")
 
@@ -42,6 +42,58 @@ def _load_ml_models():
             _ML_MODEL_CACHE[f"{prefix}bucket"] = None
             print(f"⚠️ ML model files not found ({prefix}temp_model.pkl) — ML prediction will be skipped")
     return _ML_MODEL_CACHE.get(cache_key), _ML_MODEL_CACHE.get(f"{prefix}bucket")
+
+
+def _load_v2_models():
+    """Load v2 regression model and bucket classifier (cached)."""
+    import nws_auto_logger as _nal
+    prefix = _nal._CITY_CFG.get("model_prefix", "")
+    cache_key = f"{prefix}v2_temp"
+    if cache_key not in _ML_MODEL_CACHE:
+        try:
+            with open(f"{prefix}temp_model_v2.pkl", "rb") as f:
+                _ML_MODEL_CACHE[cache_key] = pickle.load(f)
+            with open(f"{prefix}bucket_model_v2.pkl", "rb") as f:
+                _ML_MODEL_CACHE[f"{prefix}v2_bucket_info"] = pickle.load(f)
+            # Load bucket classifier
+            from train_classifier import BucketClassifier
+            _ML_MODEL_CACHE[f"{prefix}v2_classifier"] = BucketClassifier.load(
+                f"{prefix}bucket_classifier.pkl"
+            )
+            print(f"✅ Loaded v2 models (prefix='{prefix}')")
+        except FileNotFoundError:
+            _ML_MODEL_CACHE[cache_key] = None
+            _ML_MODEL_CACHE[f"{prefix}v2_bucket_info"] = None
+            _ML_MODEL_CACHE[f"{prefix}v2_classifier"] = None
+        except Exception as e:
+            print(f"⚠️ v2 model load error: {e}")
+            _ML_MODEL_CACHE[cache_key] = None
+            _ML_MODEL_CACHE[f"{prefix}v2_bucket_info"] = None
+            _ML_MODEL_CACHE[f"{prefix}v2_classifier"] = None
+    return (
+        _ML_MODEL_CACHE.get(cache_key),
+        _ML_MODEL_CACHE.get(f"{prefix}v2_bucket_info"),
+        _ML_MODEL_CACHE.get(f"{prefix}v2_classifier"),
+    )
+
+
+def _fetch_atmospheric_features(target_date_iso: str) -> dict:
+    """Fetch atmospheric features from Open-Meteo for today/tomorrow."""
+    try:
+        import nws_auto_logger as _nal
+        cfg = _nal._CITY_CFG
+        from open_meteo_client import get_atmospheric_features_live
+        lat = cfg.get("open_meteo_lat", 40.7834)
+        lon = cfg.get("open_meteo_lon", -73.965)
+        tz = cfg.get("timezone", "America/New_York")
+        features = get_atmospheric_features_live(lat, lon, target_date_iso, tz)
+        n_valid = sum(1 for v in features.values()
+                      if v is not None and not (isinstance(v, float) and math.isnan(v)))
+        print(f"🌤️ Atmospheric features: {n_valid} valid values for {target_date_iso}")
+        return features
+    except Exception as e:
+        print(f"⚠️ Atmospheric features fetch failed: {e}")
+        return {}
 
 
 def _compute_ml_prediction(
@@ -218,15 +270,70 @@ def _compute_ml_prediction(
     best_bucket = max(bucket_dict, key=bucket_dict.get)
     confidence = bucket_dict[best_bucket]
 
-    print(f"🤖 ML prediction for {target_date_iso}: {ml_temp:.1f}°F "
+    print(f"🤖 ML v1 prediction for {target_date_iso}: {ml_temp:.1f}°F "
           f"(base={base_src}={base:.0f}, bias={predicted_bias:+.2f}, "
           f"bucket={best_bucket}, conf={confidence:.2%})")
 
-    return {
+    result = {
         "ml_f": round(ml_temp, 1),
         "ml_bucket": best_bucket,
         "ml_confidence": round(confidence, 4),
     }
+
+    # --- 11. Try v2 models (atmospheric + classifier) ---
+    v2_temp_model, v2_bucket_info, v2_classifier = _load_v2_models()
+    if v2_temp_model is not None and v2_classifier is not None:
+        try:
+            # Fetch atmospheric features
+            atm_features = _fetch_atmospheric_features(target_date_iso)
+
+            # Merge atmospheric features into the feature dict
+            v2_features = dict(features)
+            v2_features.update(atm_features)
+
+            # Build v2 feature DataFrame
+            X_v2 = pd.DataFrame([v2_features])
+            # Add any missing v2 columns as NaN
+            for col in FEATURE_COLS_V2:
+                if col not in X_v2.columns:
+                    X_v2[col] = np.nan
+            X_v2 = X_v2[FEATURE_COLS_V2]
+            # Fill AccuWeather fallbacks
+            for accu_col, nws_col in ACCU_NWS_FALLBACK.items():
+                if pd.isna(X_v2.loc[0, accu_col]):
+                    X_v2.loc[0, accu_col] = X_v2.loc[0, nws_col]
+
+            # v2 regression prediction
+            v2_bias = float(v2_temp_model.predict(X_v2)[0])
+            v2_temp = base + v2_bias
+
+            # v2 classifier bucket prediction
+            bucket_probs = v2_classifier.predict_bucket_probs(
+                features=v2_features,
+                center_temp=v2_temp,
+                accu_last=features.get("accu_last") if has_accu else None,
+                nws_last=features.get("nws_last"),
+            )
+
+            if bucket_probs:
+                v2_best = bucket_probs[0]
+                result["ml_f"] = round(v2_temp, 1)
+                result["ml_bucket"] = v2_best["bucket"]
+                result["ml_confidence"] = v2_best["probability"]
+                result["ml_bucket_probs"] = json.dumps(
+                    {bp["bucket"]: bp["probability"] for bp in bucket_probs[:5]}
+                )
+                result["ml_version"] = "v2_atm_classifier"
+
+                print(f"🧠 ML v2 prediction for {target_date_iso}: {v2_temp:.1f}°F "
+                      f"→ bucket={v2_best['bucket']} ({v2_best['probability']:.0%})")
+                if len(bucket_probs) > 1:
+                    runner = bucket_probs[1]
+                    print(f"   Runner-up: {runner['bucket']} ({runner['probability']:.0%})")
+        except Exception as e:
+            print(f"⚠️ v2 prediction failed, using v1: {e}")
+
+    return result
 
 def _sb_endpoint():
     url = os.environ.get("SUPABASE_URL", "").rstrip("/")
@@ -318,6 +425,10 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         payload["ml_f"] = ml["ml_f"]
         payload["ml_bucket"] = ml["ml_bucket"]
         payload["ml_confidence"] = ml["ml_confidence"]
+        if ml.get("ml_bucket_probs"):
+            payload["ml_bucket_probs"] = ml["ml_bucket_probs"]
+        if ml.get("ml_version"):
+            payload["ml_version"] = ml["ml_version"]
 
     supabase_upsert(payload)
 
@@ -363,6 +474,10 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
         payload["ml_f"] = ml["ml_f"]
         payload["ml_bucket"] = ml["ml_bucket"]
         payload["ml_confidence"] = ml["ml_confidence"]
+        if ml.get("ml_bucket_probs"):
+            payload["ml_bucket_probs"] = ml["ml_bucket_probs"]
+        if ml.get("ml_version"):
+            payload["ml_version"] = ml["ml_version"]
 
     supabase_upsert(payload)
 

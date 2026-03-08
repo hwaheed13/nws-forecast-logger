@@ -17,6 +17,9 @@ CITIES = {
         "accu_csv": "accuweather_log.csv",
         "model_prefix": "",        # backward compat: temp_model.pkl
         "has_dsm": True,
+        # Open-Meteo coordinates (same as NWS API endpoint)
+        "open_meteo_lat": 40.7834,
+        "open_meteo_lon": -73.965,
     },
     "lax": {
         "label": "Los Angeles",
@@ -33,6 +36,9 @@ CITIES = {
         "accu_csv": "lax_accuweather_log.csv",
         "model_prefix": "lax_",    # lax_temp_model.pkl
         "has_dsm": False,
+        # Open-Meteo coordinates (same as NWS API endpoint)
+        "open_meteo_lat": 33.94,
+        "open_meteo_lon": -118.39,
     },
 }
 

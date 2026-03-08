@@ -1,8 +1,11 @@
 # model_config.py — single source of truth for ML model feature columns
-# Imported by train_models.py, predict.py, and api.py
+# Imported by train_models.py, predict.py, prediction_writer.py, and api.py
 
 import math
 
+# ═══════════════════════════════════════════════════════════════════════
+# v1 features (30 columns) — backward compatible, used by existing models
+# ═══════════════════════════════════════════════════════════════════════
 FEATURE_COLS = [
     # NWS forecast statistics
     "nws_first", "nws_last", "nws_max", "nws_min", "nws_mean",
@@ -31,6 +34,65 @@ ACCU_NWS_FALLBACK = {
     "accu_mean": "nws_mean",
 }
 
+# ═══════════════════════════════════════════════════════════════════════
+# v2 atmospheric features (24 columns) — from Open-Meteo APIs
+# ═══════════════════════════════════════════════════════════════════════
+
+# Observed atmospheric conditions (15 features)
+# Source: Open-Meteo archive (historical) or forecast API (live)
+ATMOSPHERIC_COLS = [
+    "atm_wind_max",           # Max wind speed (mph) — high wind = temp moderation
+    "atm_wind_mean",          # Mean wind speed (mph)
+    "atm_wind_dir_sin",       # Wind direction sin — onshore vs offshore
+    "atm_wind_dir_cos",       # Wind direction cos
+    "atm_humidity_mean",      # Mean relative humidity (%) — dry air = volatile temps
+    "atm_humidity_min",       # Min humidity (%) — afternoon dryness
+    "atm_dewpoint_mean",      # Mean dewpoint (°F) — moisture content
+    "atm_pressure_mean",      # Mean surface pressure (hPa)
+    "atm_pressure_change",    # Pressure change over day (hPa) — falling = approaching system
+    "atm_cloud_cover_mean",   # Mean cloud cover (%) — clouds cap heating
+    "atm_cloud_cover_max",    # Max cloud cover (%)
+    "atm_precip_total",       # Total precipitation (inches) — rain caps daytime high
+    "atm_temp_range",         # Daily temp range (°F) — volatility proxy
+    "atm_overnight_min",      # Overnight minimum (midnight-8am) — baseline
+    "atm_morning_temp_6am",   # Temperature at 6am — starting point
+]
+
+# Ensemble uncertainty features (5 features)
+# Source: Open-Meteo ECMWF 51-member ensemble (live forecast only, NaN for historical)
+ENSEMBLE_COLS = [
+    "ens_spread",             # Max - min daily high across 51 members
+    "ens_std",                # Std dev across members — uncertainty width
+    "ens_iqr",                # IQR (p75 - p25) — robust spread
+    "ens_mean",               # Mean of ensemble members
+    "ens_skew",               # Skewness — asymmetric risk
+]
+
+# Multi-model cross-comparison features (4 features)
+# Source: Open-Meteo ECMWF, GFS, ICON, GEM models (live forecast only, NaN for historical)
+MULTIMODEL_COLS = [
+    "mm_spread",              # Max model - min model daily high
+    "mm_std",                 # Std dev across models
+    "mm_mean",                # Multi-model mean consensus
+    "mm_ecmwf_gfs_diff",      # ECMWF - GFS difference — persistent model bias
+]
+
+# Combined v2 feature list (54 total: 30 original + 24 atmospheric)
+FEATURE_COLS_V2 = FEATURE_COLS + ATMOSPHERIC_COLS + ENSEMBLE_COLS + MULTIMODEL_COLS
+
+# Additional features added per-candidate-bucket during classification (4)
+# These are NOT in FEATURE_COLS_V2 because they vary per candidate bucket, not per day
+BUCKET_POSITION_COLS = [
+    "bucket_center",          # Center temperature of candidate bucket
+    "dist_from_prediction",   # Distance from regression prediction to bucket center
+    "dist_from_accu",         # Distance from AccuWeather forecast to bucket center
+    "dist_from_nws",          # Distance from NWS forecast to bucket center
+]
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Probability functions
+# ═══════════════════════════════════════════════════════════════════════
 
 def norm_cdf(x, mu, sigma):
     """Gaussian CDF using math.erf (no scipy dependency)."""
@@ -55,3 +117,15 @@ def derive_bucket_probabilities(predicted_temp, residual_std, spread=8):
         if p > 0.001:
             buckets[f"{low}-{high}"] = round(p, 4)
     return buckets
+
+
+def temp_to_bucket_label(temp_f: float) -> str:
+    """Convert temperature to Kalshi bucket label like '48-49'."""
+    low = int(math.floor(temp_f))
+    return f"{low}-{low + 1}"
+
+
+def get_candidate_buckets(center_temp: float, n_neighbors: int = 3) -> list[str]:
+    """Return list of bucket labels around center_temp (2*n+1 buckets)."""
+    center = int(round(center_temp))
+    return [f"{b}-{b + 1}" for b in range(center - n_neighbors, center + n_neighbors + 1)]

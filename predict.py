@@ -1,4 +1,7 @@
-# predict.py
+# predict.py — ML inference for temperature and bucket prediction
+# Called from Node.js via: python predict.py '{"nws_last": 50, ...}'
+# Returns JSON with temperature, bucket probabilities, and classifier predictions.
+
 import sys
 import json
 import pickle
@@ -7,22 +10,43 @@ import pandas as pd
 import warnings
 from datetime import datetime
 
-from model_config import FEATURE_COLS, ACCU_NWS_FALLBACK, derive_bucket_probabilities
+from model_config import (
+    FEATURE_COLS, FEATURE_COLS_V2,
+    ACCU_NWS_FALLBACK,
+    derive_bucket_probabilities,
+)
 
 warnings.filterwarnings('ignore')
 
 
-def load_models():
+def load_models(prefix=""):
     """Load trained temperature model and bucket info from disk."""
-    with open('temp_model.pkl', 'rb') as f:
+    with open(f'{prefix}temp_model.pkl', 'rb') as f:
         temp_model = pickle.load(f)
-    with open('bucket_model.pkl', 'rb') as f:
+    with open(f'{prefix}bucket_model.pkl', 'rb') as f:
         bucket_info = pickle.load(f)
     return temp_model, bucket_info
 
 
-def prepare_features(raw_features):
+def load_v2_models(prefix=""):
+    """Load v2 models if available. Returns (regressor, bucket_info, classifier) or Nones."""
+    try:
+        with open(f'{prefix}temp_model_v2.pkl', 'rb') as f:
+            v2_regressor = pickle.load(f)
+        with open(f'{prefix}bucket_model_v2.pkl', 'rb') as f:
+            v2_bucket_info = pickle.load(f)
+        from train_classifier import BucketClassifier
+        v2_classifier = BucketClassifier.load(f'{prefix}bucket_classifier.pkl')
+        return v2_regressor, v2_bucket_info, v2_classifier
+    except (FileNotFoundError, Exception):
+        return None, None, None
+
+
+def prepare_features(raw_features, feature_cols=None):
     """Convert raw features from JS/caller to model input DataFrame."""
+    if feature_cols is None:
+        feature_cols = FEATURE_COLS
+
     m = int(raw_features.get('month', 1))
 
     # Compute day-of-year cyclical features from target_date if available
@@ -79,13 +103,22 @@ def prepare_features(raw_features):
         'has_accu_data': raw_features.get('has_accu_data', int(raw_features.get('accu_last') is not None)),
     }
 
+    # Add atmospheric features if present in raw_features
+    from model_config import FEATURE_COLS_V2
+    for col in FEATURE_COLS_V2:
+        if col not in features and col in raw_features:
+            features[col] = raw_features[col]
+        elif col not in features:
+            features[col] = np.nan
+
     # Create DataFrame with correct column order
-    X = pd.DataFrame([features])[FEATURE_COLS]
+    X = pd.DataFrame([features])[feature_cols]
 
     # Fill NaN AccuWeather values with NWS equivalents
     for accu_col, nws_col in ACCU_NWS_FALLBACK.items():
-        if pd.isna(X.loc[0, accu_col]):
-            X.loc[0, accu_col] = X.loc[0, nws_col]
+        if accu_col in X.columns and nws_col in X.columns:
+            if pd.isna(X.loc[0, accu_col]):
+                X.loc[0, accu_col] = X.loc[0, nws_col]
 
     return X
 
@@ -94,11 +127,11 @@ def main():
     # Parse input from Node.js
     raw_features = json.loads(sys.argv[1])
 
-    # Load models
+    # Load v1 models (always available)
     temp_model, bucket_info = load_models()
 
     # Prepare features
-    X = prepare_features(raw_features)
+    X = prepare_features(raw_features, feature_cols=FEATURE_COLS)
 
     # Model predicts bias (actual - best_base); base = AccuWeather if available, else NWS
     predicted_bias = float(temp_model.predict(X)[0])
@@ -113,7 +146,6 @@ def main():
     if isinstance(bucket_info, dict) and 'residual_std' in bucket_info:
         residual_std = bucket_info['residual_std']
     else:
-        # Backward compat: if bucket_model.pkl is an old-style classifier
         residual_std = 2.0
 
     bucket_dict = derive_bucket_probabilities(temperature, residual_std)
@@ -127,7 +159,40 @@ def main():
         'best_bucket': best_bucket,
         'confidence': round(confidence, 4),
         'should_bet': confidence > 0.15,
+        'version': 'v1',
     }
+
+    # Try v2 models
+    v2_regressor, v2_bucket_info, v2_classifier = load_v2_models()
+    if v2_regressor is not None and v2_classifier is not None:
+        try:
+            X_v2 = prepare_features(raw_features, feature_cols=FEATURE_COLS_V2)
+            v2_bias = float(v2_regressor.predict(X_v2)[0])
+            v2_temp = base + v2_bias
+
+            bucket_probs = v2_classifier.predict_bucket_probs(
+                features=raw_features,
+                center_temp=v2_temp,
+                accu_last=accu_last,
+                nws_last=raw_features.get('nws_last'),
+            )
+
+            if bucket_probs:
+                v2_best = bucket_probs[0]
+                result['temperature'] = round(v2_temp, 1)
+                result['best_bucket'] = v2_best['bucket']
+                result['confidence'] = v2_best['probability']
+                result['bucket_probabilities'] = {
+                    bp['bucket']: bp['probability'] for bp in bucket_probs
+                }
+                result['should_bet'] = v2_best['probability'] > 0.15
+                result['version'] = 'v2_atm_classifier'
+
+                if v2_bucket_info and 'residual_std' in v2_bucket_info:
+                    result['residual_std'] = round(v2_bucket_info['residual_std'], 2)
+        except Exception as e:
+            # Fall back to v1 results (already in result dict)
+            result['v2_error'] = str(e)
 
     print(json.dumps(result))
 

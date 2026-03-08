@@ -1,4 +1,6 @@
 # train_models.py
+from __future__ import annotations
+
 import json
 import pickle
 import warnings
@@ -11,7 +13,7 @@ from sklearn.inspection import permutation_importance
 from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import TimeSeriesSplit
 
-from model_config import FEATURE_COLS, ACCU_NWS_FALLBACK
+from model_config import FEATURE_COLS, FEATURE_COLS_V2, ACCU_NWS_FALLBACK
 
 warnings.filterwarnings("ignore")
 
@@ -513,10 +515,189 @@ class NYCTemperatureModelTrainer:
         print(f"  Residual Std: {self.residual_std:.2f}°F")
         print(f"\n  Top features: {', '.join(n for n, _ in top_features[:5])}")
 
-    def run(self):
+    # ═══════════════════════════════════════════════════════════════════
+    # v2 training: atmospheric features + bucket classifier
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _load_atmospheric_features(self) -> pd.DataFrame | None:
+        """Load atmospheric features CSV if it exists."""
+        prefix = self.model_prefix
+        atm_csv = f"{prefix}atmospheric_data.csv"
+        try:
+            df = pd.read_csv(atm_csv)
+            print(f"  Loaded {len(df)} atmospheric feature rows from {atm_csv}")
+            return df
+        except FileNotFoundError:
+            print(f"  ⚠️ No atmospheric data file: {atm_csv}")
+            print(f"     Run: python backfill_atmospheric.py --city {self.city_key}")
+            return None
+
+    def _merge_atmospheric_features(self, atm_df: pd.DataFrame) -> None:
+        """Merge atmospheric features into self.features_df by target_date."""
+        if atm_df is None or self.features_df is None:
+            return
+
+        # Ensure target_date is string in both
+        atm_df["target_date"] = atm_df["target_date"].astype(str)
+
+        # Drop non-feature columns from atmospheric data before merge
+        drop_cols = ["city", "target_date"]
+        atm_feature_cols = [c for c in atm_df.columns if c not in drop_cols]
+
+        # Merge on target_date
+        merged = self.features_df.merge(
+            atm_df[["target_date"] + atm_feature_cols],
+            on="target_date",
+            how="left",
+        )
+
+        # Count how many atmospheric features were matched
+        sample_col = atm_feature_cols[0] if atm_feature_cols else None
+        if sample_col:
+            matched = merged[sample_col].notna().sum()
+            print(f"  Matched atmospheric data for {matched}/{len(merged)} days")
+
+        self.features_df = merged
+
+    def train_v2(self) -> None:
+        """
+        Train the v2 enhanced pipeline:
+        1. Load and merge atmospheric features
+        2. Train enhanced regression model with FEATURE_COLS_V2
+        3. Train bucket classifier
+        4. Save all models
+        """
+        from train_classifier import BucketClassifier
+
+        print(f"\n{'═'*60}")
+        print(f"v2 Training: Atmospheric Features + Bucket Classifier")
+        print(f"{'═'*60}")
+
+        # Load atmospheric features
+        atm_df = self._load_atmospheric_features()
+        if atm_df is not None:
+            self._merge_atmospheric_features(atm_df)
+
+        # Determine which v2 columns are actually available
+        available_v2_cols = [c for c in FEATURE_COLS_V2 if c in self.features_df.columns]
+        missing_v2 = [c for c in FEATURE_COLS_V2 if c not in self.features_df.columns]
+        if missing_v2:
+            print(f"  Missing v2 columns (will be NaN): {missing_v2[:5]}{'...' if len(missing_v2) > 5 else ''}")
+            # Add missing columns as NaN (HistGradientBoosting handles NaN)
+            for col in missing_v2:
+                self.features_df[col] = np.nan
+
+        print(f"  Using {len(FEATURE_COLS_V2)} v2 features ({len(available_v2_cols)} with data, "
+              f"{len(missing_v2)} NaN)")
+
+        # --- Train enhanced regression model with v2 features ---
+        X_v2 = self.features_df[FEATURE_COLS_V2]
+        y_actual = self.features_df["actual_high"]
+        nws_last = self.features_df["nws_last"]
+        accu_last = self.features_df["accu_last"]
+
+        base = accu_last.copy()
+        base[base.isna()] = nws_last[base.isna()]
+        y_bias = y_actual - base
+
+        print(f"\nTraining v2 regression model ({len(FEATURE_COLS_V2)} features)...")
+
+        tscv = TimeSeriesSplit(n_splits=5)
+        mae_scores_v2 = []
+        bucket_acc_v2 = []
+        all_residuals_v2 = []
+
+        for tr, te in tscv.split(X_v2):
+            model = HistGradientBoostingRegressor(
+                max_iter=300, max_depth=3, learning_rate=0.03,
+                min_samples_leaf=20, l2_regularization=1.0,
+                max_leaf_nodes=15, random_state=42,
+            )
+            model.fit(X_v2.iloc[tr], y_bias.iloc[tr])
+            pred_bias = model.predict(X_v2.iloc[te])
+            pred_temp = base.iloc[te].values + pred_bias
+
+            mae_scores_v2.append(mean_absolute_error(y_actual.iloc[te], pred_temp))
+            all_residuals_v2.extend((y_actual.iloc[te].values - pred_temp).tolist())
+
+            pred_buckets = [f"{int(p)}-{int(p)+1}" for p in pred_temp]
+            actual_buckets = [f"{int(a)}-{int(a)+1}" for a in y_actual.iloc[te]]
+            correct = sum(1 for pb, ab in zip(pred_buckets, actual_buckets) if pb == ab)
+            bucket_acc_v2.append(correct / len(actual_buckets))
+
+        residual_std_v2 = float(np.std(all_residuals_v2))
+        print(f"  v2 Regression CV MAE: {np.mean(mae_scores_v2):.2f}°F "
+              f"(v1: {np.mean(self.cv_mae_scores):.2f}°F)")
+        print(f"  v2 Regression CV Bucket Acc: {np.mean(bucket_acc_v2):.1%} "
+              f"(v1: {np.mean(self.cv_bucket_acc_scores):.1%})")
+        print(f"  v2 Residual Std: {residual_std_v2:.2f}°F")
+
+        # Train final v2 regression model on all data
+        v2_regressor = HistGradientBoostingRegressor(
+            max_iter=300, max_depth=3, learning_rate=0.03,
+            min_samples_leaf=20, l2_regularization=1.0,
+            max_leaf_nodes=15, random_state=42,
+        )
+        v2_regressor.fit(X_v2, y_bias)
+
+        # Add regression predictions to features_df for classifier training
+        self.features_df["_regression_pred"] = base.values + v2_regressor.predict(X_v2)
+
+        # Save v2 regression model
+        with open(f"{self.model_prefix}temp_model_v2.pkl", "wb") as f:
+            pickle.dump(v2_regressor, f)
+        with open(f"{self.model_prefix}bucket_model_v2.pkl", "wb") as f:
+            pickle.dump({
+                "residual_std": residual_std_v2,
+                "method": "gaussian_from_v2_regression",
+            }, f)
+        print(f"  Saved v2 regression model")
+
+        # --- Train bucket classifier ---
+        classifier = BucketClassifier()
+        classifier.train(self.features_df, feature_cols=FEATURE_COLS_V2)
+        classifier.save(f"{self.model_prefix}bucket_classifier.pkl")
+
+        # --- Save v2 metadata ---
+        v2_metadata = {
+            "trained_on": datetime.now().isoformat(),
+            "version": "v2_atmospheric_classifier",
+            "num_days": int(len(self.features_df)),
+            "date_range": {
+                "start": str(self.features_df["target_date"].min()),
+                "end": str(self.features_df["target_date"].max()),
+            },
+            "v1_performance": {
+                "cv_mae": round(float(np.mean(self.cv_mae_scores)), 2),
+                "cv_bucket_accuracy": round(float(np.mean(self.cv_bucket_acc_scores)), 4),
+            },
+            "v2_regression": {
+                "cv_mae": round(float(np.mean(mae_scores_v2)), 2),
+                "cv_bucket_accuracy": round(float(np.mean(bucket_acc_v2)), 4),
+                "residual_std": round(residual_std_v2, 2),
+                "num_features": len(FEATURE_COLS_V2),
+            },
+            "v2_classifier": classifier.training_stats,
+            "feature_columns_v2": FEATURE_COLS_V2,
+        }
+
+        with open(f"{self.model_prefix}model_metadata_v2.json", "w") as f:
+            json.dump(v2_metadata, f, indent=2)
+        print(f"\n  Saved v2 metadata to {self.model_prefix}model_metadata_v2.json")
+
+        # Print comparison summary
+        print(f"\n{'─'*50}")
+        print(f"COMPARISON: v1 vs v2")
+        print(f"{'─'*50}")
+        print(f"  Regression MAE:       v1={np.mean(self.cv_mae_scores):.2f}°F → v2={np.mean(mae_scores_v2):.2f}°F")
+        print(f"  Regression Bucket:    v1={np.mean(self.cv_bucket_acc_scores):.1%} → v2={np.mean(bucket_acc_v2):.1%}")
+        print(f"  Classifier Bucket:    {classifier.cv_bucket_accuracy:.1%}")
+        print(f"{'─'*50}")
+
+    def run(self, v2: bool = False):
         label = self.city_cfg["label"]
         print("=" * 60)
-        print(f"{label} Temperature Model Training (v2 — full-year, Gaussian buckets)")
+        print(f"{label} Temperature Model Training")
         print("=" * 60)
         self.load_data()
 
@@ -532,8 +713,12 @@ class NYCTemperatureModelTrainer:
             return
 
         self.build_feature_matrix()
-        self.train_temperature_model()
+        self.train_temperature_model()  # always train v1 (backward compat)
         self.save_models()
+
+        if v2:
+            self.train_v2()
+
         print("\nTraining complete.")
 
 
@@ -542,6 +727,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train temperature prediction model")
     parser.add_argument("--city", default="nyc", help="City key (nyc, lax, etc.)")
     parser.add_argument("--all", action="store_true", help="Train all cities")
+    parser.add_argument("--v2", action="store_true",
+                        help="Also train v2 (atmospheric features + bucket classifier)")
     args = parser.parse_args()
 
     if args.all:
@@ -551,7 +738,7 @@ if __name__ == "__main__":
             print(f"# Training: {city_key}")
             print(f"{'#' * 60}\n")
             trainer = NYCTemperatureModelTrainer(city_key=city_key)
-            trainer.run()
+            trainer.run(v2=args.v2)
     else:
         trainer = NYCTemperatureModelTrainer(city_key=args.city)
-        trainer.run()
+        trainer.run(v2=args.v2)
