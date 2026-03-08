@@ -194,6 +194,27 @@ def main():
             # Fall back to v1 results (already in result dict)
             result['v2_error'] = str(e)
 
+    # Compute bet signal if market_probs provided in input
+    market_probs = raw_features.get('market_probs', {})
+    if market_probs and result.get('best_bucket'):
+        ml_conf = result['confidence']
+        ml_bucket = result['best_bucket']
+        market_prob = market_probs.get(ml_bucket, 0)
+        edge = ml_conf - market_prob
+
+        if ml_conf >= 0.55 and edge >= 0.10:
+            signal = "STRONG_BET"
+        elif ml_conf >= 0.40 and edge >= 0.05:
+            signal = "BET"
+        elif ml_conf >= 0.30:
+            signal = "LEAN"
+        else:
+            signal = "SKIP"
+
+        result['bet_signal'] = signal
+        result['ml_edge'] = round(edge, 4)
+        result['market_prob'] = round(market_prob, 4)
+
     print(json.dumps(result))
 
 

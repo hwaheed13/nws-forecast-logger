@@ -263,16 +263,19 @@ class NYCTemperatureModelTrainer:
         df = self.features_df.sort_values("target_date").reset_index(drop=True)
 
         # Per-day bias: actual_high - nws_mean
+        # For multi-year rows where nws_mean is NaN, daily_bias will be NaN too
         daily_bias = (df["actual_high"] - df["nws_mean"]).values
 
         rolling_7 = []
         rolling_21 = []
         for i in range(len(df)):
-            # Strictly prior days only
-            prior_7 = daily_bias[max(0, i - 7):i]
-            rolling_7.append(float(np.mean(prior_7)) if len(prior_7) > 0 else 0.0)
-            prior_21 = daily_bias[max(0, i - 21):i]
-            rolling_21.append(float(np.mean(prior_21)) if len(prior_21) > 0 else 0.0)
+            # Strictly prior days only, skip NaN biases
+            prior_7 = [b for b in daily_bias[max(0, i - 7):i]
+                        if not np.isnan(b)]
+            rolling_7.append(float(np.mean(prior_7)) if prior_7 else 0.0)
+            prior_21 = [b for b in daily_bias[max(0, i - 21):i]
+                         if not np.isnan(b)]
+            rolling_21.append(float(np.mean(prior_21)) if prior_21 else 0.0)
 
         df["rolling_bias_7d"] = rolling_7
         df["rolling_bias_21d"] = rolling_21
@@ -519,6 +522,100 @@ class NYCTemperatureModelTrainer:
     # v2 training: atmospheric features + bucket classifier
     # ═══════════════════════════════════════════════════════════════════
 
+    def _load_multiyear_data(self) -> pd.DataFrame | None:
+        """
+        Load multi-year atmospheric data for training expansion.
+
+        These rows have actual_high + atmospheric features but NO forecast data.
+        All forecast features (nws_*, accu_*) will be NaN — HistGradientBoosting
+        handles this natively.
+        """
+        prefix = self.model_prefix
+        csv_path = f"{prefix}multiyear_atmospheric.csv"
+        try:
+            df = pd.read_csv(csv_path)
+            print(f"  Loaded {len(df)} multi-year rows from {csv_path}")
+            return df
+        except FileNotFoundError:
+            print(f"  No multi-year data file: {csv_path}")
+            print(f"     Run: python backfill_multiyear.py --city {self.city_key}")
+            return None
+
+    def _build_multiyear_features(self, multiyear_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Convert multi-year atmospheric data into feature rows compatible with
+        features_df format. Forecast features are NaN, temporal features computed
+        from date, atmospheric features from the data.
+        """
+        rows = []
+        for _, row in multiyear_df.iterrows():
+            target_date = str(row["target_date"])
+            actual_high = float(row["actual_high"])
+
+            try:
+                dt = datetime.strptime(target_date, "%Y-%m-%d")
+            except ValueError:
+                continue
+
+            doy = dt.timetuple().tm_yday
+            month = dt.month
+
+            features = {
+                # Forecast features — all NaN for multi-year data
+                "nws_first": np.nan, "nws_last": np.nan,
+                "nws_max": np.nan, "nws_min": np.nan, "nws_mean": np.nan,
+                "nws_spread": np.nan, "nws_std": np.nan, "nws_trend": np.nan,
+                "nws_count": np.nan,
+                "forecast_velocity": np.nan, "forecast_acceleration": np.nan,
+                "accu_first": np.nan, "accu_last": np.nan,
+                "accu_max": np.nan, "accu_min": np.nan, "accu_mean": np.nan,
+                "accu_spread": np.nan, "accu_std": np.nan, "accu_trend": np.nan,
+                "accu_count": np.nan,
+                "nws_accu_spread": np.nan, "nws_accu_mean_diff": np.nan,
+                "rolling_bias_7d": np.nan, "rolling_bias_21d": np.nan,
+                "has_accu_data": 0,
+
+                # Temporal features — computed from date
+                "day_of_year_sin": np.sin(2 * np.pi * doy / 365),
+                "day_of_year_cos": np.cos(2 * np.pi * doy / 365),
+                "month": month,
+                "is_summer": int(month in [6, 7, 8]),
+                "is_winter": int(month in [12, 1, 2]),
+
+                # Target
+                "actual_high": actual_high,
+                "winning_bucket": f"{int(actual_high)}-{int(actual_high)+1}",
+                "target_date": target_date,
+            }
+
+            # Atmospheric features — from the multi-year data
+            from model_config import ATMOSPHERIC_COLS
+            for col in ATMOSPHERIC_COLS:
+                features[col] = row.get(col, np.nan)
+
+            # Ensemble and multimodel — NaN for historical
+            from model_config import ENSEMBLE_COLS, MULTIMODEL_COLS
+            for col in ENSEMBLE_COLS + MULTIMODEL_COLS:
+                features[col] = np.nan
+
+            rows.append(features)
+
+        result = pd.DataFrame(rows)
+        print(f"  Built {len(result)} multi-year feature rows")
+
+        # Show seasonal distribution
+        if len(result) > 0:
+            months = result["month"].value_counts().sort_index()
+            season_counts = {
+                "winter": int(result["is_winter"].sum()),
+                "spring": int(result["month"].isin([3, 4, 5]).sum()),
+                "summer": int(result["is_summer"].sum()),
+                "fall": int(result["month"].isin([9, 10, 11]).sum()),
+            }
+            print(f"  Season distribution: {season_counts}")
+
+        return result
+
     def _load_atmospheric_features(self) -> pd.DataFrame | None:
         """Load atmospheric features CSV if it exists."""
         prefix = self.model_prefix
@@ -573,10 +670,32 @@ class NYCTemperatureModelTrainer:
         print(f"v2 Training: Atmospheric Features + Bucket Classifier")
         print(f"{'═'*60}")
 
-        # Load atmospheric features
+        # Load atmospheric features for existing dates
         atm_df = self._load_atmospheric_features()
         if atm_df is not None:
             self._merge_atmospheric_features(atm_df)
+
+        # Load multi-year historical data for training expansion
+        multiyear_df = self._load_multiyear_data()
+        if multiyear_df is not None:
+            multiyear_features = self._build_multiyear_features(multiyear_df)
+            if len(multiyear_features) > 0:
+                # Exclude multi-year dates that overlap with existing data
+                existing_dates = set(self.features_df["target_date"].astype(str).tolist())
+                multiyear_features = multiyear_features[
+                    ~multiyear_features["target_date"].isin(existing_dates)
+                ]
+                print(f"  After excluding overlaps: {len(multiyear_features)} new rows")
+
+                # Concatenate with existing features
+                original_count = len(self.features_df)
+                self.features_df = pd.concat(
+                    [self.features_df, multiyear_features],
+                    ignore_index=True,
+                )
+                # Sort by date for proper temporal cross-validation
+                self.features_df = self.features_df.sort_values("target_date").reset_index(drop=True)
+                print(f"  Training data expanded: {original_count} → {len(self.features_df)} days")
 
         # Determine which v2 columns are actually available
         available_v2_cols = [c for c in FEATURE_COLS_V2 if c in self.features_df.columns]
@@ -591,37 +710,46 @@ class NYCTemperatureModelTrainer:
               f"{len(missing_v2)} NaN)")
 
         # --- Train enhanced regression model with v2 features ---
-        X_v2 = self.features_df[FEATURE_COLS_V2]
-        y_actual = self.features_df["actual_high"]
-        nws_last = self.features_df["nws_last"]
-        accu_last = self.features_df["accu_last"]
+        # Regression only works on rows WITH forecast data (need a base for bias).
+        # Multi-year rows (no forecasts) are excluded from regression but
+        # included in classifier training below.
+        has_forecast_mask = self.features_df["nws_last"].notna()
+        forecast_df = self.features_df[has_forecast_mask].copy()
+        n_forecast = len(forecast_df)
+        n_total = len(self.features_df)
+        print(f"\n  Regression: {n_forecast} rows with forecasts (of {n_total} total)")
 
-        base = accu_last.copy()
-        base[base.isna()] = nws_last[base.isna()]
-        y_bias = y_actual - base
+        X_v2_reg = forecast_df[FEATURE_COLS_V2]
+        y_actual_reg = forecast_df["actual_high"]
+        nws_last_reg = forecast_df["nws_last"]
+        accu_last_reg = forecast_df["accu_last"]
 
-        print(f"\nTraining v2 regression model ({len(FEATURE_COLS_V2)} features)...")
+        base_reg = accu_last_reg.copy()
+        base_reg[base_reg.isna()] = nws_last_reg[base_reg.isna()]
+        y_bias_reg = y_actual_reg - base_reg
+
+        print(f"Training v2 regression model ({len(FEATURE_COLS_V2)} features, {n_forecast} rows)...")
 
         tscv = TimeSeriesSplit(n_splits=5)
         mae_scores_v2 = []
         bucket_acc_v2 = []
         all_residuals_v2 = []
 
-        for tr, te in tscv.split(X_v2):
+        for tr, te in tscv.split(X_v2_reg):
             model = HistGradientBoostingRegressor(
                 max_iter=300, max_depth=3, learning_rate=0.03,
                 min_samples_leaf=20, l2_regularization=1.0,
                 max_leaf_nodes=15, random_state=42,
             )
-            model.fit(X_v2.iloc[tr], y_bias.iloc[tr])
-            pred_bias = model.predict(X_v2.iloc[te])
-            pred_temp = base.iloc[te].values + pred_bias
+            model.fit(X_v2_reg.iloc[tr], y_bias_reg.iloc[tr])
+            pred_bias = model.predict(X_v2_reg.iloc[te])
+            pred_temp = base_reg.iloc[te].values + pred_bias
 
-            mae_scores_v2.append(mean_absolute_error(y_actual.iloc[te], pred_temp))
-            all_residuals_v2.extend((y_actual.iloc[te].values - pred_temp).tolist())
+            mae_scores_v2.append(mean_absolute_error(y_actual_reg.iloc[te], pred_temp))
+            all_residuals_v2.extend((y_actual_reg.iloc[te].values - pred_temp).tolist())
 
             pred_buckets = [f"{int(p)}-{int(p)+1}" for p in pred_temp]
-            actual_buckets = [f"{int(a)}-{int(a)+1}" for a in y_actual.iloc[te]]
+            actual_buckets = [f"{int(a)}-{int(a)+1}" for a in y_actual_reg.iloc[te]]
             correct = sum(1 for pb, ab in zip(pred_buckets, actual_buckets) if pb == ab)
             bucket_acc_v2.append(correct / len(actual_buckets))
 
@@ -632,16 +760,20 @@ class NYCTemperatureModelTrainer:
               f"(v1: {np.mean(self.cv_bucket_acc_scores):.1%})")
         print(f"  v2 Residual Std: {residual_std_v2:.2f}°F")
 
-        # Train final v2 regression model on all data
+        # Train final v2 regression model on all forecast rows
         v2_regressor = HistGradientBoostingRegressor(
             max_iter=300, max_depth=3, learning_rate=0.03,
             min_samples_leaf=20, l2_regularization=1.0,
             max_leaf_nodes=15, random_state=42,
         )
-        v2_regressor.fit(X_v2, y_bias)
+        v2_regressor.fit(X_v2_reg, y_bias_reg)
 
-        # Add regression predictions to features_df for classifier training
-        self.features_df["_regression_pred"] = base.values + v2_regressor.predict(X_v2)
+        # Add regression predictions for rows that have forecasts.
+        # For multi-year rows without forecasts, _regression_pred stays NaN.
+        self.features_df["_regression_pred"] = np.nan
+        self.features_df.loc[has_forecast_mask, "_regression_pred"] = (
+            base_reg.values + v2_regressor.predict(X_v2_reg)
+        )
 
         # Save v2 regression model
         with open(f"{self.model_prefix}temp_model_v2.pkl", "wb") as f:

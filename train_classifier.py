@@ -70,7 +70,8 @@ def build_classification_dataset(
         actual_high = row["actual_high"]
         winning_bucket = temp_to_bucket_label(actual_high)
 
-        # Center prediction: use best available forecast
+        # Center prediction: use best available forecast, or actual_high for
+        # multi-year rows that have no forecast data
         accu_last = row.get("accu_last")
         nws_last = row.get("nws_last")
         if pd.notna(accu_last):
@@ -78,7 +79,12 @@ def build_classification_dataset(
         elif pd.notna(nws_last):
             center = float(nws_last)
         else:
-            continue  # skip if no forecast
+            # No forecast data (multi-year backfill rows).
+            # Use actual_high as center — this teaches the model atmospheric
+            # patterns without forecast context. The bucket-position features
+            # will be relative to the actual, so the model learns "given these
+            # conditions, which bucket around the actual wins?"
+            center = float(actual_high)
 
         # Also get the regression prediction if available
         regression_pred = row.get("_regression_pred")

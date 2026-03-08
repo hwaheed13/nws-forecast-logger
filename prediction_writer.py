@@ -17,6 +17,9 @@ from model_config import FEATURE_COLS, FEATURE_COLS_V2, ACCU_NWS_FALLBACK, deriv
 
 MODEL_VERSION = os.environ.get("PREDICTION_MODEL_VERSION", "bcp_v1")
 
+# Kalshi API base URL (public, no auth needed)
+KALSHI_API_BASE = "https://api.elections.kalshi.com/trade-api/v2"
+
 # Module-level city key — set by _cli() before write functions run
 _CITY_KEY = "nyc"
 
@@ -94,6 +97,138 @@ def _fetch_atmospheric_features(target_date_iso: str) -> dict:
     except Exception as e:
         print(f"⚠️ Atmospheric features fetch failed: {e}")
         return {}
+
+
+def _fetch_kalshi_market_probs(target_date_iso: str) -> dict:
+    """
+    Fetch current Kalshi market probabilities for a target date.
+
+    Returns dict like {"48-49": 0.32, "49-50": 0.41, ...} mapping
+    bucket labels to market-implied probabilities (0-1).
+    Returns empty dict on failure.
+    """
+    try:
+        import nws_auto_logger as _nal
+        cfg = _nal._CITY_CFG
+        series = cfg.get("kalshi_series", "KXHIGHNY")
+
+        # Build event ticker: KXHIGHNY-26MAR07
+        dt = datetime.strptime(target_date_iso, "%Y-%m-%d")
+        yy = dt.strftime("%y")
+        mon = ["JAN","FEB","MAR","APR","MAY","JUN",
+               "JUL","AUG","SEP","OCT","NOV","DEC"][dt.month - 1]
+        dd = dt.strftime("%d")
+        event_ticker = f"{series}-{yy}{mon}{dd}"
+
+        url = f"{KALSHI_API_BASE}/markets?event_ticker={event_ticker}"
+        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        markets = data.get("markets", [])
+        if not markets:
+            return {}
+
+        # Filter for open/trading markets
+        active = [m for m in markets
+                  if str(m.get("status", "")).lower() in ("open", "trading", "active")]
+        if not active:
+            active = markets
+
+        result = {}
+        for m in active:
+            # Compute implied probability from bid/ask midpoint
+            bid = _parse_kalshi_price(m.get("yes_bid"))
+            ask = _parse_kalshi_price(m.get("yes_ask"))
+            if bid is not None and ask is not None:
+                prob = (bid + ask) / 2
+            elif bid is not None:
+                prob = bid
+            elif ask is not None:
+                prob = ask
+            else:
+                continue
+
+            # Parse bucket label from subtitle or title
+            label = m.get("subtitle") or m.get("title") or ""
+            bucket = _parse_kalshi_bucket(label)
+            if bucket:
+                result[bucket] = round(prob, 4)
+
+        if result:
+            print(f"📊 Kalshi market: {len(result)} buckets for {target_date_iso}")
+            # Show top 3
+            top = sorted(result.items(), key=lambda x: x[1], reverse=True)[:3]
+            for b, p in top:
+                print(f"   {b}: {p:.0%}")
+
+        return result
+
+    except Exception as e:
+        print(f"⚠️ Kalshi market fetch failed: {e}")
+        return {}
+
+
+def _parse_kalshi_price(raw) -> Optional[float]:
+    """Parse a Kalshi price to 0-1 probability."""
+    if raw is None:
+        return None
+    try:
+        v = float(raw)
+        if v > 1 and v <= 100:
+            v = v / 100
+        if 0 <= v <= 1:
+            return v
+    except (ValueError, TypeError):
+        pass
+    return None
+
+
+def _parse_kalshi_bucket(label: str) -> Optional[str]:
+    """
+    Parse a Kalshi market label into our bucket format "48-49".
+    Handles formats like:
+      "48° to 49°" → "48-49"
+      "47° or less" → None (skip edge buckets)
+      "50° or more" → None (skip edge buckets)
+    """
+    import re
+    clean = label.replace("**", "")
+
+    # Range: "48° to 49°" or "48-49°"
+    m = re.match(r".*?(\d+)°?\s*(?:to|-|–)\s*(\d+)°", clean)
+    if m:
+        return f"{m.group(1)}-{m.group(2)}"
+
+    # Edge buckets — skip for now (our model doesn't predict these well)
+    return None
+
+
+def _compute_bet_signal(
+    ml_confidence: float,
+    ml_bucket: str,
+    market_probs: dict,
+) -> tuple[str, float]:
+    """
+    Compute bet signal by comparing model confidence vs market pricing.
+
+    Returns (signal, edge) where:
+      signal: "STRONG_BET" / "BET" / "LEAN" / "SKIP"
+      edge: model confidence - market probability (positive = model sees value)
+    """
+    market_prob = market_probs.get(ml_bucket, 0.0)
+    edge = ml_confidence - market_prob
+
+    if ml_confidence >= 0.55 and edge >= 0.10:
+        signal = "STRONG_BET"
+    elif ml_confidence >= 0.40 and edge >= 0.05:
+        signal = "BET"
+    elif ml_confidence >= 0.30:
+        signal = "LEAN"
+    else:
+        signal = "SKIP"
+
+    return signal, round(edge, 4)
 
 
 def _compute_ml_prediction(
@@ -430,6 +565,18 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         if ml.get("ml_version"):
             payload["ml_version"] = ml["ml_version"]
 
+    # Fetch Kalshi market odds + compute bet signal
+    market_probs = _fetch_kalshi_market_probs(target_date_iso)
+    if market_probs:
+        payload["kalshi_market_snapshot"] = json.dumps(market_probs)
+    if ml and market_probs:
+        signal, edge = _compute_bet_signal(
+            ml["ml_confidence"], ml["ml_bucket"], market_probs
+        )
+        payload["bet_signal"] = signal
+        payload["ml_edge"] = edge
+        print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
+
     supabase_upsert(payload)
 
 def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
@@ -478,6 +625,18 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
             payload["ml_bucket_probs"] = ml["ml_bucket_probs"]
         if ml.get("ml_version"):
             payload["ml_version"] = ml["ml_version"]
+
+    # Fetch Kalshi market odds + compute bet signal
+    market_probs = _fetch_kalshi_market_probs(tomorrow_iso)
+    if market_probs:
+        payload["kalshi_market_snapshot"] = json.dumps(market_probs)
+    if ml and market_probs:
+        signal, edge = _compute_bet_signal(
+            ml["ml_confidence"], ml["ml_bucket"], market_probs
+        )
+        payload["bet_signal"] = signal
+        payload["ml_edge"] = edge
+        print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
 
     supabase_upsert(payload)
 

@@ -644,6 +644,20 @@ input[type="date"] {
         </div>
       </div>
 
+      <!-- ML Bet Signal -->
+      <div class="kalshi-grid" id="ml-bet-signal-grid" style="display:none;">
+        <div class="kalshi-card" style="border-left:4px solid var(--border-subtle);" id="ml-signal-today-card">
+          <div class="metric-label">ML Bucket Pick (Today)</div>
+          <div id="ml-signal-today" class="metric-value" style="font-size:18px;">Loading...</div>
+          <div id="ml-signal-today-detail" class="kalshi-note"></div>
+        </div>
+        <div class="kalshi-card" style="border-left:4px solid var(--border-subtle);" id="ml-signal-tomorrow-card">
+          <div class="metric-label">ML Bucket Pick (Tomorrow)</div>
+          <div id="ml-signal-tomorrow" class="metric-value" style="font-size:18px;">Loading...</div>
+          <div id="ml-signal-tomorrow-detail" class="kalshi-note"></div>
+        </div>
+      </div>
+
       <!-- Controls -->
       <div class="controls-section">
         <div class="controls-title">Filter Data</div>
@@ -3231,7 +3245,93 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
         if (yBox)  yBox.innerHTML  = `<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">Open yesterday's market</a>`;
         if (yNote) yNote.textContent = "Proxy error; using anchor link.";
       }
+
+      // ===== ML Bet Signal Display =====
+      renderMLBetSignal();
     }
+
+function renderMLBetSignal() {
+  const ml = window.mlPredictions || {};
+  const grid = document.getElementById("ml-bet-signal-grid");
+  if (!grid) return;
+
+  const hasToday = ml.todayMLBucket || ml.todayBetSignal;
+  const hasTomorrow = ml.tomorrowMLBucket || ml.tomorrowBetSignal;
+
+  if (!hasToday && !hasTomorrow) {
+    grid.style.display = "none";
+    return;
+  }
+  grid.style.display = "";
+
+  // Signal styling
+  const signalStyle = (sig) => {
+    switch (sig) {
+      case "STRONG_BET": return { color: "#059669", bg: "#ecfdf5", border: "#059669", label: "STRONG BET", icon: "" };
+      case "BET":        return { color: "#16a34a", bg: "#f0fdf4", border: "#16a34a", label: "BET", icon: "" };
+      case "LEAN":       return { color: "#d97706", bg: "#fffbeb", border: "#d97706", label: "LEAN", icon: "" };
+      case "SKIP":       return { color: "#dc2626", bg: "#fef2f2", border: "#dc2626", label: "SKIP", icon: "" };
+      default:           return { color: "#6b7280", bg: "#f9fafb", border: "#d1d5db", label: sig || "---", icon: "" };
+    }
+  };
+
+  // Render a signal card
+  const renderCard = (prefix, bucket, signal, confidence, edge, marketSnapshot) => {
+    const el = document.getElementById(`ml-signal-${prefix}`);
+    const detail = document.getElementById(`ml-signal-${prefix}-detail`);
+    const card = document.getElementById(`ml-signal-${prefix}-card`);
+    if (!el) return;
+
+    if (!bucket) {
+      el.innerHTML = '<span style="color:#9ca3af;">Awaiting ML prediction</span>';
+      if (detail) detail.textContent = "Prediction not yet available for this date.";
+      if (card) card.style.borderLeftColor = "var(--border-subtle)";
+      return;
+    }
+
+    const s = signalStyle(signal);
+    if (card) card.style.borderLeftColor = s.border;
+
+    // Format bucket label (e.g., "48-49" → "48-49°F")
+    const bucketDisplay = bucket.includes("-") ? bucket + "\u00B0F" : bucket;
+
+    // Signal badge
+    const signalBadge = signal
+      ? `<span style="background:${s.bg};color:${s.color};padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid ${s.border};">${s.icon} ${s.label}</span>`
+      : '';
+
+    // Bucket display
+    el.innerHTML = `
+      <span style="font-weight:700;color:#16a34a;">${bucketDisplay}</span>
+      ${signalBadge}
+    `;
+
+    // Detail line: ML confidence vs market probability
+    let detailText = '';
+    if (confidence != null) {
+      detailText += `ML: ${Math.round(confidence * 100)}%`;
+    }
+    if (edge != null) {
+      const edgePct = Math.round(edge * 100);
+      const edgeColor = edgePct > 0 ? "#059669" : "#dc2626";
+      detailText += ` | Edge: <span style="color:${edgeColor};font-weight:600;">${edgePct > 0 ? '+' : ''}${edgePct}%</span>`;
+    }
+    // Show market prob for the ML bucket if snapshot available
+    if (marketSnapshot && bucket) {
+      try {
+        const mkt = typeof marketSnapshot === 'string' ? JSON.parse(marketSnapshot) : marketSnapshot;
+        const mktProb = mkt[bucket];
+        if (mktProb != null) {
+          detailText += ` | Market: ${Math.round(mktProb * 100)}%`;
+        }
+      } catch {}
+    }
+    if (detail) detail.innerHTML = detailText || "ML bucket classifier prediction";
+  };
+
+  renderCard("today", ml.todayMLBucket, ml.todayBetSignal, ml.todayMLConfidence, ml.todayEdge, ml.todayMarketSnapshot);
+  renderCard("tomorrow", ml.tomorrowMLBucket, ml.tomorrowBetSignal, ml.tomorrowMLConfidence, ml.tomorrowEdge, ml.tomorrowMarketSnapshot);
+}
 
 function hasActualFor(dateISO) {
   return allRows.some(r =>
@@ -4587,10 +4687,22 @@ async function loadMLPredictions() {
       if (mlVal == null) continue;
       if (row.target_date === today && !gotToday) {
         window.mlPredictions.today = Number(mlVal);
+        window.mlPredictions.todayBetSignal = row.bet_signal || null;
+        window.mlPredictions.todayEdge = row.ml_edge != null ? Number(row.ml_edge) : null;
+        window.mlPredictions.todayMLBucket = row.ml_bucket || null;
+        window.mlPredictions.todayMLConfidence = row.ml_confidence != null ? Number(row.ml_confidence) : null;
+        window.mlPredictions.todayMarketSnapshot = row.kalshi_market_snapshot || null;
+        window.mlPredictions.todayMLVersion = row.ml_version || null;
         gotToday = true;
       }
       if (row.target_date === tomorrow && !gotTomorrow) {
         window.mlPredictions.tomorrow = Number(mlVal);
+        window.mlPredictions.tomorrowBetSignal = row.bet_signal || null;
+        window.mlPredictions.tomorrowEdge = row.ml_edge != null ? Number(row.ml_edge) : null;
+        window.mlPredictions.tomorrowMLBucket = row.ml_bucket || null;
+        window.mlPredictions.tomorrowMLConfidence = row.ml_confidence != null ? Number(row.ml_confidence) : null;
+        window.mlPredictions.tomorrowMarketSnapshot = row.kalshi_market_snapshot || null;
+        window.mlPredictions.tomorrowMLVersion = row.ml_version || null;
         gotTomorrow = true;
       }
       if (gotToday && gotTomorrow) break;
