@@ -255,7 +255,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
         run: python prediction_writer.py --city lax both
-        continue-on-error: true  # no LA model yet
+        continue-on-error: true
 
       # Commit & push (safe with rebase)
       - name: Commit and push CSV if changed

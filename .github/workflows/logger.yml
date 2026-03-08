@@ -92,7 +92,6 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
         run: python prediction_writer.py --city lax both
-        continue-on-error: true  # no LA model yet, will skip ML
 
       - name: Remove empty/blank lines
         run: |
