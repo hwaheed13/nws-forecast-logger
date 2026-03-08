@@ -287,7 +287,10 @@ def _compute_ml_prediction(
     or None if insufficient data or models missing.
     """
     temp_model, bucket_info = _load_ml_models()
-    if temp_model is None:
+    v2_temp_model_check, _, v2_classifier_check = _load_v2_models()
+
+    # Need at least v1 OR v2 models
+    if temp_model is None and v2_classifier_check is None:
         return None
 
     # --- 1. Collect NWS forecasts for target_date ---
@@ -435,33 +438,37 @@ def _compute_ml_prediction(
         if pd.isna(X.loc[0, accu_col]):
             X.loc[0, accu_col] = X.loc[0, nws_col]
 
-    # --- 10. Predict (base = AccuWeather if available, else NWS) ---
-    predicted_bias = float(temp_model.predict(X)[0])
+    # Base forecast: best available source
     base = features["accu_last"] if has_accu else features["nws_last"]
     base_src = "accu" if has_accu else "nws"
-    ml_temp = base + predicted_bias
 
-    residual_std = 2.0
-    if isinstance(bucket_info, dict) and "residual_std" in bucket_info:
-        residual_std = bucket_info["residual_std"]
+    # --- 10. v1 regression prediction (if v1 models available) ---
+    result = {}
+    if temp_model is not None:
+        predicted_bias = float(temp_model.predict(X)[0])
+        ml_temp = base + predicted_bias
 
-    bucket_dict = derive_bucket_probabilities(ml_temp, residual_std)
-    best_bucket = max(bucket_dict, key=bucket_dict.get)
-    confidence = bucket_dict[best_bucket]
+        residual_std = 2.0
+        if isinstance(bucket_info, dict) and "residual_std" in bucket_info:
+            residual_std = bucket_info["residual_std"]
 
-    print(f"🤖 ML v1 prediction for {target_date_iso}: {ml_temp:.1f}°F "
-          f"(base={base_src}={base:.0f}, bias={predicted_bias:+.2f}, "
-          f"bucket={best_bucket}, conf={confidence:.2%})")
+        bucket_dict = derive_bucket_probabilities(ml_temp, residual_std)
+        best_bucket = max(bucket_dict, key=bucket_dict.get)
+        confidence = bucket_dict[best_bucket]
 
-    result = {
-        "ml_f": round(ml_temp, 1),
-        "ml_bucket": best_bucket,
-        "ml_confidence": round(confidence, 4),
-    }
+        print(f"🤖 ML v1 prediction for {target_date_iso}: {ml_temp:.1f}°F "
+              f"(base={base_src}={base:.0f}, bias={predicted_bias:+.2f}, "
+              f"bucket={best_bucket}, conf={confidence:.2%})")
+
+        result = {
+            "ml_f": round(ml_temp, 1),
+            "ml_bucket": best_bucket,
+            "ml_confidence": round(confidence, 4),
+        }
 
     # --- 11. Try v2 models (atmospheric + classifier) ---
     v2_temp_model, v2_bucket_info, v2_classifier = _load_v2_models()
-    if v2_temp_model is not None and v2_classifier is not None:
+    if v2_classifier is not None:
         try:
             # Fetch atmospheric features
             atm_features = _fetch_atmospheric_features(target_date_iso)
@@ -482,9 +489,13 @@ def _compute_ml_prediction(
                 if pd.isna(X_v2.loc[0, accu_col]):
                     X_v2.loc[0, accu_col] = X_v2.loc[0, nws_col]
 
-            # v2 regression prediction
-            v2_bias = float(v2_temp_model.predict(X_v2)[0])
-            v2_temp = base + v2_bias
+            # v2 regression prediction (if v2 regression model available)
+            if v2_temp_model is not None:
+                v2_bias = float(v2_temp_model.predict(X_v2)[0])
+                v2_temp = base + v2_bias
+            else:
+                # No regression model — use raw forecast as center
+                v2_temp = float(base)
 
             # v2 classifier bucket prediction
             # Use 11 candidates (±5) to cover Kalshi's full range
@@ -572,15 +583,18 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
 
     avg_bias_excl_today = _compute_avg_bias_excluding(rows, target_date_iso)
     today_pre_mean      = _compute_today_pre_high_mean(rows, target_date_iso)
-    if avg_bias_excl_today is None or today_pre_mean is None:
-        print("⏭️ today_for_today: not enough data (need avg_bias_excl_today & today_pre_mean)."); return
-
-    bcp = today_pre_mean + avg_bias_excl_today
     nws_latest  = _latest_forecast(rows, target_date_iso, source=None)
     accu_latest = _latest_forecast(rows, target_date_iso, source="accu")
 
+    bcp = None
+    if avg_bias_excl_today is not None and today_pre_mean is not None:
+        bcp = today_pre_mean + avg_bias_excl_today
+
     # ML model prediction (graceful — returns None if models missing or no data)
     ml = _compute_ml_prediction(rows, target_date_iso)
+
+    if bcp is None and ml is None:
+        print("⏭️ today_for_today: no BCP data and no ML prediction available."); return
 
     ts = now_nyc().isoformat()
     idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:today_for_today:{target_date_iso}"
@@ -592,7 +606,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         "target_date": target_date_iso,
         "lead_used": "today_for_today",
         "model_name": MODEL_VERSION,
-        "prediction_value": float(f"{bcp:.1f}"),
+        "prediction_value": float(f"{bcp:.1f}") if bcp is not None else None,
         "nws_d0": nws_latest,
         "accuweather": accu_latest,
         "rep_forecast": today_pre_mean,
