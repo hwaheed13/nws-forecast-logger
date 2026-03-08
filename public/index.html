@@ -3255,14 +3255,10 @@ function renderMLBetSignal() {
   const grid = document.getElementById("ml-bet-signal-grid");
   if (!grid) return;
 
-  const todayISO = nycISODate(0);
-  const todaySettled = hasActualFor(todayISO);
-
   const hasToday = ml.todayMLBucket || ml.todayBetSignal;
   const hasTomorrow = ml.tomorrowMLBucket || ml.tomorrowBetSignal;
 
-  // Hide entire grid only if nothing to show at all
-  if ((!hasToday || todaySettled) && !hasTomorrow) {
+  if (!hasToday && !hasTomorrow) {
     grid.style.display = "none";
     return;
   }
@@ -3279,25 +3275,12 @@ function renderMLBetSignal() {
     }
   };
 
-  // Render a settled card (day is over, show result)
-  const renderSettledCard = (prefix) => {
-    const el = document.getElementById(`ml-signal-${prefix}`);
-    const detail = document.getElementById(`ml-signal-${prefix}-detail`);
-    const card = document.getElementById(`ml-signal-${prefix}-card`);
-    if (!el) return;
-    // Hide the today card entirely once settled
-    if (card) card.style.display = "none";
-  };
-
   // Render a signal card
   const renderCard = (prefix, bucket, signal, confidence, edge, marketSnapshot) => {
     const el = document.getElementById(`ml-signal-${prefix}`);
     const detail = document.getElementById(`ml-signal-${prefix}-detail`);
     const card = document.getElementById(`ml-signal-${prefix}-card`);
     if (!el) return;
-
-    // Make sure card is visible (may have been hidden by settlement)
-    if (card) card.style.display = "";
 
     if (!bucket) {
       el.innerHTML = '<span style="color:#9ca3af;">Awaiting ML prediction</span>';
@@ -3350,12 +3333,7 @@ function renderMLBetSignal() {
     if (detail) detail.innerHTML = (detailText || "ML bucket classifier prediction") + versionBadge;
   };
 
-  // Today: hide once settled (actual high published)
-  if (todaySettled) {
-    renderSettledCard("today");
-  } else {
-    renderCard("today", ml.todayMLBucket, ml.todayBetSignal, ml.todayMLConfidence, ml.todayEdge, ml.todayMarketSnapshot);
-  }
+  renderCard("today", ml.todayMLBucket, ml.todayBetSignal, ml.todayMLConfidence, ml.todayEdge, ml.todayMarketSnapshot);
   renderCard("tomorrow", ml.tomorrowMLBucket, ml.tomorrowBetSignal, ml.tomorrowMLConfidence, ml.tomorrowEdge, ml.tomorrowMarketSnapshot);
 }
 
