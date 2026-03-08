@@ -3333,7 +3333,24 @@ function renderMLBetSignal() {
     if (detail) detail.innerHTML = (detailText || "ML bucket classifier prediction") + versionBadge;
   };
 
-  renderCard("today", ml.todayMLBucket, ml.todayBetSignal, ml.todayMLConfidence, ml.todayEdge, ml.todayMarketSnapshot);
+  // Today: show "Settled" once actual high is published
+  const todayISO = nycISODate(0);
+  if (hasActualFor(todayISO)) {
+    const el = document.getElementById("ml-signal-today");
+    const detail = document.getElementById("ml-signal-today-detail");
+    const card = document.getElementById("ml-signal-today-card");
+    if (el) {
+      const bucketDisplay = ml.todayMLBucket ? (ml.todayMLBucket.includes("-") ? ml.todayMLBucket + "\u00B0F" : ml.todayMLBucket) : "";
+      el.innerHTML = `
+        <span style="font-weight:700;color:#6b7280;">${bucketDisplay}</span>
+        <span style="background:#f3f4f6;color:#6b7280;padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid #d1d5db;">SETTLED</span>
+      `;
+    }
+    if (detail) detail.innerHTML = '<span style="color:#9ca3af;">Market settled — actual high published</span>';
+    if (card) card.style.borderLeftColor = "#d1d5db";
+  } else {
+    renderCard("today", ml.todayMLBucket, ml.todayBetSignal, ml.todayMLConfidence, ml.todayEdge, ml.todayMarketSnapshot);
+  }
   renderCard("tomorrow", ml.tomorrowMLBucket, ml.tomorrowBetSignal, ml.tomorrowMLConfidence, ml.tomorrowEdge, ml.tomorrowMarketSnapshot);
 }
 
