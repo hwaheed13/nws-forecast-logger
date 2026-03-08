@@ -48,31 +48,44 @@ def _load_ml_models():
 
 
 def _load_v2_models():
-    """Load v2 regression model and bucket classifier (cached)."""
+    """Load v2 regression model and bucket classifier (cached).
+    Regression model is optional — classifier can work alone."""
     import nws_auto_logger as _nal
     prefix = _nal._CITY_CFG.get("model_prefix", "")
     cache_key = f"{prefix}v2_temp"
     if cache_key not in _ML_MODEL_CACHE:
+        # Initialize all to None
+        _ML_MODEL_CACHE[cache_key] = None
+        _ML_MODEL_CACHE[f"{prefix}v2_bucket_info"] = None
+        _ML_MODEL_CACHE[f"{prefix}v2_classifier"] = None
+
+        # v2 regression model (optional)
         try:
             with open(f"{prefix}temp_model_v2.pkl", "rb") as f:
                 _ML_MODEL_CACHE[cache_key] = pickle.load(f)
             with open(f"{prefix}bucket_model_v2.pkl", "rb") as f:
                 _ML_MODEL_CACHE[f"{prefix}v2_bucket_info"] = pickle.load(f)
-            # Load bucket classifier
+        except FileNotFoundError:
+            pass  # regression model optional
+
+        # Bucket classifier (the important one)
+        try:
             from train_classifier import BucketClassifier
             _ML_MODEL_CACHE[f"{prefix}v2_classifier"] = BucketClassifier.load(
                 f"{prefix}bucket_classifier.pkl"
             )
-            print(f"✅ Loaded v2 models (prefix='{prefix}')")
         except FileNotFoundError:
-            _ML_MODEL_CACHE[cache_key] = None
-            _ML_MODEL_CACHE[f"{prefix}v2_bucket_info"] = None
-            _ML_MODEL_CACHE[f"{prefix}v2_classifier"] = None
+            pass
         except Exception as e:
-            print(f"⚠️ v2 model load error: {e}")
-            _ML_MODEL_CACHE[cache_key] = None
-            _ML_MODEL_CACHE[f"{prefix}v2_bucket_info"] = None
-            _ML_MODEL_CACHE[f"{prefix}v2_classifier"] = None
+            print(f"⚠️ v2 classifier load error: {e}")
+
+        loaded = []
+        if _ML_MODEL_CACHE[cache_key] is not None:
+            loaded.append("regression")
+        if _ML_MODEL_CACHE[f"{prefix}v2_classifier"] is not None:
+            loaded.append("classifier")
+        if loaded:
+            print(f"✅ Loaded v2 models: {', '.join(loaded)} (prefix='{prefix}')")
     return (
         _ML_MODEL_CACHE.get(cache_key),
         _ML_MODEL_CACHE.get(f"{prefix}v2_bucket_info"),
@@ -606,7 +619,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         "target_date": target_date_iso,
         "lead_used": "today_for_today",
         "model_name": MODEL_VERSION,
-        "prediction_value": float(f"{bcp:.1f}") if bcp is not None else None,
+        "prediction_value": float(f"{bcp:.1f}") if bcp is not None else (ml["ml_f"] if ml else 0.0),
         "nws_d0": nws_latest,
         "accuweather": accu_latest,
         "rep_forecast": today_pre_mean,
