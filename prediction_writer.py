@@ -204,6 +204,50 @@ def _parse_kalshi_bucket(label: str) -> Optional[str]:
     return None
 
 
+def _map_ml_to_kalshi_buckets(
+    ml_bucket_probs: dict,
+    kalshi_buckets: dict,
+) -> tuple[Optional[str], float, dict]:
+    """
+    Aggregate ML 1°F bucket probabilities into Kalshi's actual bucket structure.
+
+    Our ML predicts 1°F buckets (e.g., "65-66" = [65, 66)°F).
+    Kalshi uses 2°F buckets (e.g., "64-65" covers temps 64° AND 65°).
+
+    For Kalshi bucket "X-Y": sum ML probs for 1°F buckets X→X+1, X+1→X+2, ..., Y→Y+1.
+
+    Returns (best_kalshi_bucket, aggregated_confidence, kalshi_aligned_probs).
+    """
+    if not ml_bucket_probs or not kalshi_buckets:
+        return None, 0.0, {}
+
+    kalshi_aligned = {}
+    for kalshi_label in kalshi_buckets:
+        parts = kalshi_label.split("-")
+        if len(parts) != 2:
+            continue
+        try:
+            lo = int(parts[0])
+            hi = int(parts[1])
+        except ValueError:
+            continue
+
+        # Sum ML probs for 1°F buckets within this Kalshi range
+        # Kalshi "64-65" covers integer temps 64 and 65 → our "64-65" + "65-66"
+        agg_prob = 0.0
+        for t in range(lo, hi + 1):
+            ml_key = f"{t}-{t + 1}"
+            agg_prob += ml_bucket_probs.get(ml_key, 0.0)
+
+        kalshi_aligned[kalshi_label] = round(agg_prob, 4)
+
+    if not kalshi_aligned:
+        return None, 0.0, {}
+
+    best = max(kalshi_aligned, key=kalshi_aligned.get)
+    return best, kalshi_aligned[best], kalshi_aligned
+
+
 def _compute_bet_signal(
     ml_confidence: float,
     ml_bucket: str,
@@ -443,11 +487,13 @@ def _compute_ml_prediction(
             v2_temp = base + v2_bias
 
             # v2 classifier bucket prediction
+            # Use 11 candidates (±5) to cover Kalshi's full range
             bucket_probs = v2_classifier.predict_bucket_probs(
                 features=v2_features,
                 center_temp=v2_temp,
                 accu_last=features.get("accu_last") if has_accu else None,
                 nws_last=features.get("nws_last"),
+                n_candidates=11,
             )
 
             if bucket_probs:
@@ -456,7 +502,7 @@ def _compute_ml_prediction(
                 result["ml_bucket"] = v2_best["bucket"]
                 result["ml_confidence"] = v2_best["probability"]
                 result["ml_bucket_probs"] = json.dumps(
-                    {bp["bucket"]: bp["probability"] for bp in bucket_probs[:5]}
+                    {bp["bucket"]: bp["probability"] for bp in bucket_probs}
                 )
                 result["ml_version"] = "v2_atm_classifier"
 
@@ -569,7 +615,21 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     market_probs = _fetch_kalshi_market_probs(target_date_iso)
     if market_probs:
         payload["kalshi_market_snapshot"] = json.dumps(market_probs)
-    if ml and market_probs:
+
+    # Map ML 1°F buckets → Kalshi's actual bucket structure
+    if ml and market_probs and ml.get("ml_bucket_probs"):
+        raw_probs = json.loads(ml["ml_bucket_probs"]) if isinstance(ml["ml_bucket_probs"], str) else ml["ml_bucket_probs"]
+        kalshi_bucket, kalshi_conf, kalshi_aligned = _map_ml_to_kalshi_buckets(raw_probs, market_probs)
+        if kalshi_bucket:
+            payload["ml_bucket"] = kalshi_bucket
+            payload["ml_confidence"] = kalshi_conf
+            print(f"🎯 Kalshi-aligned bucket: {kalshi_bucket} ({kalshi_conf:.0%})")
+            # Bet signal uses Kalshi-aligned confidence
+            signal, edge = _compute_bet_signal(kalshi_conf, kalshi_bucket, market_probs)
+            payload["bet_signal"] = signal
+            payload["ml_edge"] = edge
+            print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
+    elif ml and market_probs:
         signal, edge = _compute_bet_signal(
             ml["ml_confidence"], ml["ml_bucket"], market_probs
         )
@@ -630,7 +690,20 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     market_probs = _fetch_kalshi_market_probs(tomorrow_iso)
     if market_probs:
         payload["kalshi_market_snapshot"] = json.dumps(market_probs)
-    if ml and market_probs:
+
+    # Map ML 1°F buckets → Kalshi's actual bucket structure
+    if ml and market_probs and ml.get("ml_bucket_probs"):
+        raw_probs = json.loads(ml["ml_bucket_probs"]) if isinstance(ml["ml_bucket_probs"], str) else ml["ml_bucket_probs"]
+        kalshi_bucket, kalshi_conf, kalshi_aligned = _map_ml_to_kalshi_buckets(raw_probs, market_probs)
+        if kalshi_bucket:
+            payload["ml_bucket"] = kalshi_bucket
+            payload["ml_confidence"] = kalshi_conf
+            print(f"🎯 Kalshi-aligned bucket: {kalshi_bucket} ({kalshi_conf:.0%})")
+            signal, edge = _compute_bet_signal(kalshi_conf, kalshi_bucket, market_probs)
+            payload["bet_signal"] = signal
+            payload["ml_edge"] = edge
+            print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
+    elif ml and market_probs:
         signal, edge = _compute_bet_signal(
             ml["ml_confidence"], ml["ml_bucket"], market_probs
         )

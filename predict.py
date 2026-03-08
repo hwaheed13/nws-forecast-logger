@@ -175,6 +175,7 @@ def main():
                 center_temp=v2_temp,
                 accu_last=accu_last,
                 nws_last=raw_features.get('nws_last'),
+                n_candidates=11,
             )
 
             if bucket_probs:
@@ -196,24 +197,43 @@ def main():
 
     # Compute bet signal if market_probs provided in input
     market_probs = raw_features.get('market_probs', {})
-    if market_probs and result.get('best_bucket'):
-        ml_conf = result['confidence']
-        ml_bucket = result['best_bucket']
-        market_prob = market_probs.get(ml_bucket, 0)
-        edge = ml_conf - market_prob
+    if market_probs and result.get('bucket_probabilities'):
+        # Map our 1°F ML buckets → Kalshi's actual bucket structure
+        ml_probs = result['bucket_probabilities']
+        kalshi_aligned = {}
+        for kalshi_label in market_probs:
+            parts = kalshi_label.split("-")
+            if len(parts) != 2:
+                continue
+            try:
+                lo, hi = int(parts[0]), int(parts[1])
+            except ValueError:
+                continue
+            agg = sum(ml_probs.get(f"{t}-{t+1}", 0) for t in range(lo, hi + 1))
+            kalshi_aligned[kalshi_label] = round(agg, 4)
 
-        if ml_conf >= 0.55 and edge >= 0.10:
-            signal = "STRONG_BET"
-        elif ml_conf >= 0.40 and edge >= 0.05:
-            signal = "BET"
-        elif ml_conf >= 0.30:
-            signal = "LEAN"
-        else:
-            signal = "SKIP"
+        if kalshi_aligned:
+            best_kalshi = max(kalshi_aligned, key=kalshi_aligned.get)
+            ml_conf = kalshi_aligned[best_kalshi]
+            result['best_bucket'] = best_kalshi
+            result['confidence'] = ml_conf
+            result['kalshi_aligned_probs'] = kalshi_aligned
 
-        result['bet_signal'] = signal
-        result['ml_edge'] = round(edge, 4)
-        result['market_prob'] = round(market_prob, 4)
+            market_prob = market_probs.get(best_kalshi, 0)
+            edge = ml_conf - market_prob
+
+            if ml_conf >= 0.55 and edge >= 0.10:
+                signal = "STRONG_BET"
+            elif ml_conf >= 0.40 and edge >= 0.05:
+                signal = "BET"
+            elif ml_conf >= 0.30:
+                signal = "LEAN"
+            else:
+                signal = "SKIP"
+
+            result['bet_signal'] = signal
+            result['ml_edge'] = round(edge, 4)
+            result['market_prob'] = round(market_prob, 4)
 
     print(json.dumps(result))
 
