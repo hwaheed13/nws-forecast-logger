@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import pickle
 import warnings
 from datetime import datetime
@@ -302,7 +303,9 @@ class NYCTemperatureModelTrainer:
                 features_list.append(feat)
 
         if not features_list:
-            raise ValueError("No features built. Check that your CSVs contain actuals and forecasts.")
+            print("  No features from forecast data. Will rely on multi-year data for v2.")
+            self.features_df = pd.DataFrame()
+            return
 
         self.features_df = pd.DataFrame(features_list)
 
@@ -671,9 +674,10 @@ class NYCTemperatureModelTrainer:
         print(f"{'═'*60}")
 
         # Load atmospheric features for existing dates
-        atm_df = self._load_atmospheric_features()
-        if atm_df is not None:
-            self._merge_atmospheric_features(atm_df)
+        if not self.features_df.empty:
+            atm_df = self._load_atmospheric_features()
+            if atm_df is not None:
+                self._merge_atmospheric_features(atm_df)
 
         # Load multi-year historical data for training expansion
         multiyear_df = self._load_multiyear_data()
@@ -681,10 +685,11 @@ class NYCTemperatureModelTrainer:
             multiyear_features = self._build_multiyear_features(multiyear_df)
             if len(multiyear_features) > 0:
                 # Exclude multi-year dates that overlap with existing data
-                existing_dates = set(self.features_df["target_date"].astype(str).tolist())
-                multiyear_features = multiyear_features[
-                    ~multiyear_features["target_date"].isin(existing_dates)
-                ]
+                if not self.features_df.empty:
+                    existing_dates = set(self.features_df["target_date"].astype(str).tolist())
+                    multiyear_features = multiyear_features[
+                        ~multiyear_features["target_date"].isin(existing_dates)
+                    ]
                 print(f"  After excluding overlaps: {len(multiyear_features)} new rows")
 
                 # Concatenate with existing features
@@ -719,71 +724,76 @@ class NYCTemperatureModelTrainer:
         n_total = len(self.features_df)
         print(f"\n  Regression: {n_forecast} rows with forecasts (of {n_total} total)")
 
-        X_v2_reg = forecast_df[FEATURE_COLS_V2]
-        y_actual_reg = forecast_df["actual_high"]
-        nws_last_reg = forecast_df["nws_last"]
-        accu_last_reg = forecast_df["accu_last"]
+        residual_std_v2 = 2.0  # default
+        self.features_df["_regression_pred"] = np.nan
 
-        base_reg = accu_last_reg.copy()
-        base_reg[base_reg.isna()] = nws_last_reg[base_reg.isna()]
-        y_bias_reg = y_actual_reg - base_reg
+        if n_forecast >= MIN_DAYS_FOR_TRAINING:
+            X_v2_reg = forecast_df[FEATURE_COLS_V2]
+            y_actual_reg = forecast_df["actual_high"]
+            nws_last_reg = forecast_df["nws_last"]
+            accu_last_reg = forecast_df["accu_last"]
 
-        print(f"Training v2 regression model ({len(FEATURE_COLS_V2)} features, {n_forecast} rows)...")
+            base_reg = accu_last_reg.copy()
+            base_reg[base_reg.isna()] = nws_last_reg[base_reg.isna()]
+            y_bias_reg = y_actual_reg - base_reg
 
-        tscv = TimeSeriesSplit(n_splits=5)
-        mae_scores_v2 = []
-        bucket_acc_v2 = []
-        all_residuals_v2 = []
+            print(f"Training v2 regression model ({len(FEATURE_COLS_V2)} features, {n_forecast} rows)...")
 
-        for tr, te in tscv.split(X_v2_reg):
-            model = HistGradientBoostingRegressor(
+            tscv = TimeSeriesSplit(n_splits=5)
+            mae_scores_v2 = []
+            bucket_acc_v2 = []
+            all_residuals_v2 = []
+
+            for tr, te in tscv.split(X_v2_reg):
+                model = HistGradientBoostingRegressor(
+                    max_iter=300, max_depth=3, learning_rate=0.03,
+                    min_samples_leaf=20, l2_regularization=1.0,
+                    max_leaf_nodes=15, random_state=42,
+                )
+                model.fit(X_v2_reg.iloc[tr], y_bias_reg.iloc[tr])
+                pred_bias = model.predict(X_v2_reg.iloc[te])
+                pred_temp = base_reg.iloc[te].values + pred_bias
+
+                mae_scores_v2.append(mean_absolute_error(y_actual_reg.iloc[te], pred_temp))
+                all_residuals_v2.extend((y_actual_reg.iloc[te].values - pred_temp).tolist())
+
+                pred_buckets = [f"{int(p)}-{int(p)+1}" for p in pred_temp]
+                actual_buckets = [f"{int(a)}-{int(a)+1}" for a in y_actual_reg.iloc[te]]
+                correct = sum(1 for pb, ab in zip(pred_buckets, actual_buckets) if pb == ab)
+                bucket_acc_v2.append(correct / len(actual_buckets))
+
+            residual_std_v2 = float(np.std(all_residuals_v2))
+            print(f"  v2 Regression CV MAE: {np.mean(mae_scores_v2):.2f}°F "
+                  f"(v1: {np.mean(self.cv_mae_scores):.2f}°F)")
+            print(f"  v2 Regression CV Bucket Acc: {np.mean(bucket_acc_v2):.1%} "
+                  f"(v1: {np.mean(self.cv_bucket_acc_scores):.1%})")
+            print(f"  v2 Residual Std: {residual_std_v2:.2f}°F")
+
+            # Train final v2 regression model on all forecast rows
+            v2_regressor = HistGradientBoostingRegressor(
                 max_iter=300, max_depth=3, learning_rate=0.03,
                 min_samples_leaf=20, l2_regularization=1.0,
                 max_leaf_nodes=15, random_state=42,
             )
-            model.fit(X_v2_reg.iloc[tr], y_bias_reg.iloc[tr])
-            pred_bias = model.predict(X_v2_reg.iloc[te])
-            pred_temp = base_reg.iloc[te].values + pred_bias
+            v2_regressor.fit(X_v2_reg, y_bias_reg)
 
-            mae_scores_v2.append(mean_absolute_error(y_actual_reg.iloc[te], pred_temp))
-            all_residuals_v2.extend((y_actual_reg.iloc[te].values - pred_temp).tolist())
+            # Add regression predictions for rows that have forecasts.
+            self.features_df.loc[has_forecast_mask, "_regression_pred"] = (
+                base_reg.values + v2_regressor.predict(X_v2_reg)
+            )
 
-            pred_buckets = [f"{int(p)}-{int(p)+1}" for p in pred_temp]
-            actual_buckets = [f"{int(a)}-{int(a)+1}" for a in y_actual_reg.iloc[te]]
-            correct = sum(1 for pb, ab in zip(pred_buckets, actual_buckets) if pb == ab)
-            bucket_acc_v2.append(correct / len(actual_buckets))
-
-        residual_std_v2 = float(np.std(all_residuals_v2))
-        print(f"  v2 Regression CV MAE: {np.mean(mae_scores_v2):.2f}°F "
-              f"(v1: {np.mean(self.cv_mae_scores):.2f}°F)")
-        print(f"  v2 Regression CV Bucket Acc: {np.mean(bucket_acc_v2):.1%} "
-              f"(v1: {np.mean(self.cv_bucket_acc_scores):.1%})")
-        print(f"  v2 Residual Std: {residual_std_v2:.2f}°F")
-
-        # Train final v2 regression model on all forecast rows
-        v2_regressor = HistGradientBoostingRegressor(
-            max_iter=300, max_depth=3, learning_rate=0.03,
-            min_samples_leaf=20, l2_regularization=1.0,
-            max_leaf_nodes=15, random_state=42,
-        )
-        v2_regressor.fit(X_v2_reg, y_bias_reg)
-
-        # Add regression predictions for rows that have forecasts.
-        # For multi-year rows without forecasts, _regression_pred stays NaN.
-        self.features_df["_regression_pred"] = np.nan
-        self.features_df.loc[has_forecast_mask, "_regression_pred"] = (
-            base_reg.values + v2_regressor.predict(X_v2_reg)
-        )
-
-        # Save v2 regression model
-        with open(f"{self.model_prefix}temp_model_v2.pkl", "wb") as f:
-            pickle.dump(v2_regressor, f)
-        with open(f"{self.model_prefix}bucket_model_v2.pkl", "wb") as f:
-            pickle.dump({
-                "residual_std": residual_std_v2,
-                "method": "gaussian_from_v2_regression",
-            }, f)
-        print(f"  Saved v2 regression model")
+            # Save v2 regression model
+            with open(f"{self.model_prefix}temp_model_v2.pkl", "wb") as f:
+                pickle.dump(v2_regressor, f)
+            with open(f"{self.model_prefix}bucket_model_v2.pkl", "wb") as f:
+                pickle.dump({
+                    "residual_std": residual_std_v2,
+                    "method": "gaussian_from_v2_regression",
+                }, f)
+            print(f"  Saved v2 regression model")
+        else:
+            print(f"  ⚠️  Only {n_forecast} forecast rows — skipping v2 regression.")
+            print(f"     Classifier will train on {n_total} multi-year atmospheric rows.")
 
         # --- Train bucket classifier ---
         classifier = BucketClassifier()
@@ -800,12 +810,12 @@ class NYCTemperatureModelTrainer:
                 "end": str(self.features_df["target_date"].max()),
             },
             "v1_performance": {
-                "cv_mae": round(float(np.mean(self.cv_mae_scores)), 2),
-                "cv_bucket_accuracy": round(float(np.mean(self.cv_bucket_acc_scores)), 4),
+                "cv_mae": round(float(np.mean(self.cv_mae_scores)), 2) if hasattr(self, 'cv_mae_scores') and self.cv_mae_scores else None,
+                "cv_bucket_accuracy": round(float(np.mean(self.cv_bucket_acc_scores)), 4) if hasattr(self, 'cv_bucket_acc_scores') and self.cv_bucket_acc_scores else None,
             },
             "v2_regression": {
-                "cv_mae": round(float(np.mean(mae_scores_v2)), 2),
-                "cv_bucket_accuracy": round(float(np.mean(bucket_acc_v2)), 4),
+                "cv_mae": round(float(np.mean(mae_scores_v2)), 2) if 'mae_scores_v2' in dir() else None,
+                "cv_bucket_accuracy": round(float(np.mean(bucket_acc_v2)), 4) if 'bucket_acc_v2' in dir() else None,
                 "residual_std": round(residual_std_v2, 2),
                 "num_features": len(FEATURE_COLS_V2),
             },
@@ -819,10 +829,14 @@ class NYCTemperatureModelTrainer:
 
         # Print comparison summary
         print(f"\n{'─'*50}")
-        print(f"COMPARISON: v1 vs v2")
-        print(f"{'─'*50}")
-        print(f"  Regression MAE:       v1={np.mean(self.cv_mae_scores):.2f}°F → v2={np.mean(mae_scores_v2):.2f}°F")
-        print(f"  Regression Bucket:    v1={np.mean(self.cv_bucket_acc_scores):.1%} → v2={np.mean(bucket_acc_v2):.1%}")
+        if n_forecast >= MIN_DAYS_FOR_TRAINING:
+            print(f"COMPARISON: v1 vs v2")
+            print(f"{'─'*50}")
+            print(f"  Regression MAE:       v1={np.mean(self.cv_mae_scores):.2f}°F → v2={np.mean(mae_scores_v2):.2f}°F")
+            print(f"  Regression Bucket:    v1={np.mean(self.cv_bucket_acc_scores):.1%} → v2={np.mean(bucket_acc_v2):.1%}")
+        else:
+            print(f"v2 CLASSIFIER ONLY (no regression — insufficient forecast data)")
+            print(f"{'─'*50}")
         print(f"  Classifier Bucket:    {classifier.cv_bucket_accuracy:.1%}")
         print(f"{'─'*50}")
 
@@ -839,14 +853,25 @@ class NYCTemperatureModelTrainer:
             & self.nws_df["actual_high"].notna()
             & (self.nws_df["actual_high"] != "")
         ]["cli_date"].nunique()
-        if actual_days < MIN_DAYS_FOR_TRAINING:
+
+        # Check if multi-year data can supplement insufficient forecast data
+        multiyear_path = f"{self.model_prefix}multiyear_atmospheric.csv"
+        has_multiyear = os.path.exists(multiyear_path)
+
+        if actual_days < MIN_DAYS_FOR_TRAINING and not (v2 and has_multiyear):
             print(f"\n⚠️  Only {actual_days} days with actual data for {label}.")
             print(f"    Need at least {MIN_DAYS_FOR_TRAINING} days before training is viable. Skipping.")
             return
 
-        self.build_feature_matrix()
-        self.train_temperature_model()  # always train v1 (backward compat)
-        self.save_models()
+        if actual_days >= MIN_DAYS_FOR_TRAINING:
+            self.build_feature_matrix()
+            self.train_temperature_model()  # always train v1 (backward compat)
+            self.save_models()
+        else:
+            print(f"\n⚠️  Only {actual_days} forecast days, but multi-year data available.")
+            print(f"    Skipping v1 regression. Training v2 classifier on atmospheric data only.")
+            # Build minimal feature matrix from what we have (even if sparse)
+            self.build_feature_matrix()
 
         if v2:
             self.train_v2()
