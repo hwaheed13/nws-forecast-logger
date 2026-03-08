@@ -93,6 +93,107 @@ def _load_v2_models():
     )
 
 
+def _fetch_observed_high_so_far(target_date_iso: str) -> Optional[float]:
+    """
+    Fetch today's observed high temperature from NWS station observations.
+    Used as a SAFETY GUARD — prevents displaying impossible bucket picks
+    (e.g., predicting 64-65 when it's already 67°F). Does NOT change
+    the ML model's prediction logic; just filters out impossible results.
+
+    Returns highest temp (°F) observed today, or None.
+    Only fetches for today's date (not tomorrow/past).
+    """
+    try:
+        import nws_auto_logger as _nal
+        cfg = _nal._CITY_CFG
+        station = cfg.get("nws_station", "KNYC")
+        tz_name = cfg.get("timezone", "America/New_York")
+
+        today = today_nyc().isoformat()
+        if target_date_iso != today:
+            return None
+
+        url = f"https://api.weather.gov/stations/{station}/observations?limit=100"
+        req = urllib.request.Request(url, headers={
+            "Accept": "application/geo+json",
+            "User-Agent": "nws-forecast-logger/1.0",
+        })
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        features = data.get("features", [])
+        if not features:
+            return None
+
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(tz_name)
+
+        high_f = None
+        for f in features:
+            props = f.get("properties", {})
+            ts = props.get("timestamp", "")
+            if not ts:
+                continue
+            obs_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            obs_local = obs_dt.astimezone(tz)
+            if obs_local.strftime("%Y-%m-%d") != target_date_iso:
+                continue
+            temp_c = props.get("temperature", {}).get("value")
+            if temp_c is None:
+                continue
+            temp_f = temp_c * 9.0 / 5.0 + 32.0
+            if high_f is None or temp_f > high_f:
+                high_f = temp_f
+
+        if high_f is not None:
+            high_f = round(high_f, 1)
+            print(f"🌡️ Observed high so far: {high_f}°F (safety floor)")
+        return high_f
+    except Exception as e:
+        print(f"⚠️ Could not fetch observed high: {e}")
+        return None
+
+
+def _apply_observed_floor(bucket_probs: dict, observed_high: float) -> dict:
+    """
+    Safety guard: zero out buckets where the UPPER bound is below the
+    observed high. If it's already 66.3°F, bucket "64-65" (upper=65) is
+    impossible. Renormalize remaining buckets.
+
+    This is NOT an ML feature — it's a post-prediction sanity check
+    to prevent embarrassing signals.
+    """
+    if not bucket_probs or observed_high is None:
+        return bucket_probs
+
+    floor = int(observed_high)  # 66.3 → 66
+    filtered = {}
+    dropped = []
+    for bucket, prob in bucket_probs.items():
+        parts = bucket.split("-")
+        if len(parts) != 2:
+            filtered[bucket] = prob
+            continue
+        try:
+            bucket_hi = int(parts[1])
+        except ValueError:
+            filtered[bucket] = prob
+            continue
+        # Keep if upper bound >= observed floor
+        if bucket_hi >= floor:
+            filtered[bucket] = prob
+        else:
+            dropped.append(bucket)
+
+    if dropped:
+        total = sum(filtered.values())
+        if total > 0:
+            filtered = {k: round(v / total, 4) for k, v in filtered.items()}
+        print(f"🛡️ Floor guard: dropped {len(dropped)} impossible bucket(s) below {floor}°F")
+
+    return filtered
+
+
 def _fetch_atmospheric_features(target_date_iso: str) -> dict:
     """Fetch atmospheric features from Open-Meteo for today/tomorrow."""
     try:
@@ -638,6 +739,9 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         if ml.get("ml_version"):
             payload["ml_version"] = ml["ml_version"]
 
+    # Safety guard: apply observed floor for today's predictions
+    observed_high = _fetch_observed_high_so_far(target_date_iso)
+
     # Fetch Kalshi market odds + compute bet signal
     market_probs = _fetch_kalshi_market_probs(target_date_iso)
     if market_probs:
@@ -646,6 +750,11 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     # Map ML 1°F buckets → Kalshi's actual bucket structure
     if ml and market_probs and ml.get("ml_bucket_probs"):
         raw_probs = json.loads(ml["ml_bucket_probs"]) if isinstance(ml["ml_bucket_probs"], str) else ml["ml_bucket_probs"]
+
+        # Apply observed floor guard (only affects today, drops impossible buckets)
+        if observed_high is not None:
+            raw_probs = _apply_observed_floor(raw_probs, observed_high)
+
         kalshi_bucket, kalshi_conf, kalshi_aligned = _map_ml_to_kalshi_buckets(raw_probs, market_probs)
         if kalshi_bucket:
             payload["ml_bucket"] = kalshi_bucket

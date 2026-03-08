@@ -647,12 +647,12 @@ input[type="date"] {
       <!-- ML Bet Signal -->
       <div class="kalshi-grid" id="ml-bet-signal-grid" style="display:none;">
         <div class="kalshi-card" style="border-left:4px solid var(--border-subtle);" id="ml-signal-today-card">
-          <div class="metric-label">ML Bucket Pick (Today)</div>
+          <div class="metric-label">ML Bucket Pick (Today) <span style="color:#6366f1;font-size:0.7em;font-weight:400;">Atmospheric ML</span></div>
           <div id="ml-signal-today" class="metric-value" style="font-size:18px;">Loading...</div>
           <div id="ml-signal-today-detail" class="kalshi-note"></div>
         </div>
         <div class="kalshi-card" style="border-left:4px solid var(--border-subtle);" id="ml-signal-tomorrow-card">
-          <div class="metric-label">ML Bucket Pick (Tomorrow)</div>
+          <div class="metric-label">ML Bucket Pick (Tomorrow) <span style="color:#6366f1;font-size:0.7em;font-weight:400;">Atmospheric ML</span></div>
           <div id="ml-signal-tomorrow" class="metric-value" style="font-size:18px;">Loading...</div>
           <div id="ml-signal-tomorrow-detail" class="kalshi-note"></div>
         </div>
@@ -3326,7 +3326,11 @@ function renderMLBetSignal() {
         }
       } catch {}
     }
-    if (detail) detail.innerHTML = detailText || "ML bucket classifier prediction";
+    // Training data badge
+    const versionBadge = ml.todayMLVersion || ml.tomorrowMLVersion
+      ? ` <span style="color:#6366f1;font-size:0.75em;margin-left:4px;">v2 classifier | 3+ yrs data</span>`
+      : '';
+    if (detail) detail.innerHTML = (detailText || "ML bucket classifier prediction") + versionBadge;
   };
 
   renderCard("today", ml.todayMLBucket, ml.todayBetSignal, ml.todayMLConfidence, ml.todayEdge, ml.todayMarketSnapshot);
@@ -3688,7 +3692,7 @@ window._predTomorrow = predTomorrow;
           const confTag = todayConfPct
             ? ` <span style="color:${todayConfColor};font-size:0.85em">(${todayConfPct}%)</span>`
             : "";
-          kalshiNote = ` • Kalshi: <span style="color:#16a34a;font-weight:700">${bucketLabel}</span>${confTag}`;
+          kalshiNote = ` • Bucket: <span style="color:#16a34a;font-weight:700">${bucketLabel}</span>${confTag}`;
 
           // Always show runner-up bucket so user sees both options
           if (todayBucketProbs[1]) {
@@ -3696,6 +3700,7 @@ window._predTomorrow = predTomorrow;
             const runnerPct = Math.round(todayBucketProbs[1].prob * 100);
             kalshiNote += ` <span style="color:#6b7280;font-size:0.85em">/ ${runnerLabel} (${runnerPct}%)</span>`;
           }
+          kalshiNote += ` <span style="color:#9ca3af;font-size:0.75em">(ensemble est.)</span>`;
         }
 
       // Add warning if present
@@ -3777,7 +3782,7 @@ if (el1) {
           const confTag = tmrwConfPct
             ? ` <span style="color:${tmrwConfColor};font-size:0.85em">(${tmrwConfPct}%)</span>`
             : "";
-          kalshiNote = ` • Kalshi: <span style="color:#16a34a;font-weight:700">${bucketLabel}</span>${confTag}`;
+          kalshiNote = ` • Bucket: <span style="color:#16a34a;font-weight:700">${bucketLabel}</span>${confTag}`;
 
           // Always show runner-up bucket so user sees both options
           if (tmrwBucketProbs[1]) {
@@ -3785,6 +3790,7 @@ if (el1) {
             const runnerPct = Math.round(tmrwBucketProbs[1].prob * 100);
             kalshiNote += ` <span style="color:#6b7280;font-size:0.85em">/ ${runnerLabel} (${runnerPct}%)</span>`;
           }
+          kalshiNote += ` <span style="color:#9ca3af;font-size:0.75em">(ensemble est.)</span>`;
         }
 
       // Add warning if present
