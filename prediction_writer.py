@@ -93,15 +93,18 @@ def _load_v2_models():
     )
 
 
-def _fetch_observed_high_so_far(target_date_iso: str) -> Optional[float]:
+def _fetch_observed_high_so_far(target_date_iso: str) -> tuple:
     """
     Fetch today's observed high temperature from NWS station observations.
-    Used as a SAFETY GUARD — prevents displaying impossible bucket picks
-    (e.g., predicting 64-65 when it's already 67°F). Does NOT change
-    the ML model's prediction logic; just filters out impossible results.
 
-    Returns highest temp (°F) observed today, or None.
+    Returns (observed_high_f, obs_hour_local) or (None, None).
+      - observed_high_f: highest temp (°F) observed today
+      - obs_hour_local: local hour (0-23) when that high was observed
+
     Only fetches for today's date (not tomorrow/past).
+    Used for:
+      1. Safety floor guard (drop impossible buckets)
+      2. Forecast exceedance detection (shift center when forecast is busted)
     """
     try:
         import nws_auto_logger as _nal
@@ -111,7 +114,7 @@ def _fetch_observed_high_so_far(target_date_iso: str) -> Optional[float]:
 
         today = today_nyc().isoformat()
         if target_date_iso != today:
-            return None
+            return None, None
 
         url = f"https://api.weather.gov/stations/{station}/observations?limit=100"
         req = urllib.request.Request(url, headers={
@@ -121,15 +124,16 @@ def _fetch_observed_high_so_far(target_date_iso: str) -> Optional[float]:
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
 
-        features = data.get("features", [])
-        if not features:
-            return None
+        obs_features = data.get("features", [])
+        if not obs_features:
+            return None, None
 
         from zoneinfo import ZoneInfo
         tz = ZoneInfo(tz_name)
 
         high_f = None
-        for f in features:
+        high_hour = None
+        for f in obs_features:
             props = f.get("properties", {})
             ts = props.get("timestamp", "")
             if not ts:
@@ -144,14 +148,49 @@ def _fetch_observed_high_so_far(target_date_iso: str) -> Optional[float]:
             temp_f = temp_c * 9.0 / 5.0 + 32.0
             if high_f is None or temp_f > high_f:
                 high_f = temp_f
+                high_hour = obs_local.hour
 
         if high_f is not None:
             high_f = round(high_f, 1)
-            print(f"🌡️ Observed high so far: {high_f}°F (safety floor)")
-        return high_f
+            print(f"🌡️ Observed high so far: {high_f}°F at {high_hour}:00 local")
+        return high_f, high_hour
     except Exception as e:
         print(f"⚠️ Could not fetch observed high: {e}")
-        return None
+        return None, None
+
+
+def _adjust_center_for_exceedance(
+    center_temp: float,
+    observed_high: float,
+    obs_hour: Optional[int],
+) -> float:
+    """
+    When the observed temperature EXCEEDS the forecast center, the forecast
+    is wrong. Shift the center up based on the observed temp + estimated
+    remaining afternoon heating.
+
+    This is the key fix: if NWS says 66 but it's already 67 at 1pm,
+    we shift the center to ~69 so the classifier generates the right
+    candidate buckets (68-69, 70-71, etc.).
+    """
+    if observed_high is None or observed_high <= center_temp:
+        return center_temp  # forecast not exceeded, no adjustment
+
+    if obs_hour is None:
+        obs_hour = 12  # default assumption
+
+    # Estimate remaining heating based on hour of day
+    # In spring/fall, peak heating is typically 2-4pm local
+    remaining_heat = {
+        8: 5.0, 9: 4.5, 10: 4.0, 11: 3.5, 12: 2.5,
+        13: 2.0, 14: 1.5, 15: 1.0, 16: 0.5, 17: 0.0,
+    }
+    extra = remaining_heat.get(obs_hour, 0.0 if obs_hour >= 17 else 3.0)
+
+    adjusted = observed_high + extra
+    print(f"⚡ Exceedance: observed {observed_high}°F > forecast {center_temp:.1f}°F "
+          f"at {obs_hour}:00 → adjusted center to {adjusted:.1f}°F (+{extra}°F est. remaining)")
+    return adjusted
 
 
 def _apply_observed_floor(bucket_probs: dict, observed_high: float) -> dict:
@@ -179,8 +218,9 @@ def _apply_observed_floor(bucket_probs: dict, observed_high: float) -> dict:
         except ValueError:
             filtered[bucket] = prob
             continue
-        # Keep if upper bound >= observed floor
-        if bucket_hi >= floor:
+        # Keep if upper bound > observed floor
+        # If observed is 67.2, bucket "66-67" (upper=67) is likely impossible
+        if bucket_hi > floor:
             filtered[bucket] = prob
         else:
             dropped.append(bucket)
@@ -623,6 +663,12 @@ def _compute_ml_prediction(
                 print(f"   Center temp: {v2_temp:.1f}°F "
                       f"(NWS last={features['nws_last']:.0f}{accu_note})")
 
+            # Exceedance check: if observed temp already exceeded forecast,
+            # shift center up (physics-based, not market-based)
+            obs_high, obs_hour = _fetch_observed_high_so_far(target_date_iso)
+            if obs_high is not None:
+                v2_temp = _adjust_center_for_exceedance(v2_temp, obs_high, obs_hour)
+
             # v2 classifier bucket prediction
             # Use 15 candidates (±7) to cover full Kalshi range and handle
             # source disagreements (e.g., AccuWeather says 77, NWS says 88)
@@ -753,7 +799,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             payload["ml_version"] = ml["ml_version"]
 
     # Safety guard: apply observed floor for today's predictions
-    observed_high = _fetch_observed_high_so_far(target_date_iso)
+    observed_high, _ = _fetch_observed_high_so_far(target_date_iso)
 
     # Fetch Kalshi market odds + compute bet signal
     market_probs = _fetch_kalshi_market_probs(target_date_iso)
