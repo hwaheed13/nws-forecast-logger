@@ -175,7 +175,7 @@ def main():
                 center_temp=v2_temp,
                 accu_last=accu_last,
                 nws_last=raw_features.get('nws_last'),
-                n_candidates=11,
+                n_candidates=15,
             )
 
             if bucket_probs:

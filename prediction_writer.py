@@ -608,17 +608,30 @@ def _compute_ml_prediction(
                 v2_bias = float(v2_temp_model.predict(X_v2)[0])
                 v2_temp = base + v2_bias
             else:
-                # No regression model — use raw forecast as center
-                v2_temp = float(base)
+                # No regression model — use MEAN of all available forecasts
+                # as center for bucket candidates. Prioritize NWS since
+                # Kalshi settles on NWS CLI data, but average in AccuWeather
+                # to handle cases where one source is wildly off.
+                all_forecasts = [features["nws_last"]]
+                if has_accu and not np.isnan(features["accu_last"]):
+                    all_forecasts.append(features["accu_last"])
+                # Include NWS mean if different from last
+                if abs(features["nws_mean"] - features["nws_last"]) > 0.5:
+                    all_forecasts.append(features["nws_mean"])
+                v2_temp = float(np.mean(all_forecasts))
+                accu_note = f", AccuWx={features['accu_last']:.0f}" if has_accu else ""
+                print(f"   Center temp: {v2_temp:.1f}°F "
+                      f"(NWS last={features['nws_last']:.0f}{accu_note})")
 
             # v2 classifier bucket prediction
-            # Use 11 candidates (±5) to cover Kalshi's full range
+            # Use 15 candidates (±7) to cover full Kalshi range and handle
+            # source disagreements (e.g., AccuWeather says 77, NWS says 88)
             bucket_probs = v2_classifier.predict_bucket_probs(
                 features=v2_features,
                 center_temp=v2_temp,
                 accu_last=features.get("accu_last") if has_accu else None,
                 nws_last=features.get("nws_last"),
-                n_candidates=11,
+                n_candidates=15,
             )
 
             if bucket_probs:
