@@ -3260,13 +3260,8 @@ function renderMLBetSignal() {
   const grid = document.getElementById("ml-bet-signal-grid");
   if (!grid) return;
 
-  const hasToday = ml.todayMLBucket || ml.todayBetSignal;
-  const hasTomorrow = ml.tomorrowMLBucket || ml.tomorrowBetSignal;
-
-  if (!hasToday && !hasTomorrow) {
-    grid.style.display = "none";
-    return;
-  }
+  // Always show the grid — never hide it on city switch.
+  // Cards show "Awaiting ML prediction" when data is absent.
   grid.style.display = "";
 
   // Signal styling
