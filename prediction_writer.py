@@ -702,9 +702,10 @@ def _compute_ml_prediction(
         if pd.isna(X.loc[0, accu_col]):
             X.loc[0, accu_col] = X.loc[0, nws_col]
 
-    # Base forecast: best available source
-    base = features["accu_last"] if has_accu else features["nws_last"]
-    base_src = "accu" if has_accu else "nws"
+    # Base forecast: use MEAN (not last) — more robust to late-forecast contamination.
+    # Training now filters to morning-only forecasts, so mean ≈ morning consensus.
+    base = features["accu_mean"] if has_accu else features["nws_mean"]
+    base_src = "accu_mean" if has_accu else "nws_mean"
 
     # --- 10. v1 regression prediction (if v1 models available) ---
     result = {}
@@ -753,9 +754,9 @@ def _compute_ml_prediction(
                             atm_input[col] = np.nan
                     atm_pred = float(atm_model.predict(atm_input[atm_input_cols])[0])
                     v2_features["atm_predicted_high"] = atm_pred
-                    v2_features["atm_vs_forecast_diff"] = features["nws_last"] - atm_pred
+                    v2_features["atm_vs_forecast_diff"] = features["nws_mean"] - atm_pred
                     print(f"🌍 Atmospheric predictor: {atm_pred:.1f}°F "
-                          f"(NWS diff: {features['nws_last'] - atm_pred:+.1f}°F)")
+                          f"(NWS diff: {features['nws_mean'] - atm_pred:+.1f}°F)")
                 except Exception as e:
                     print(f"⚠️ Atmospheric predictor failed: {e}")
                     v2_features["atm_predicted_high"] = np.nan
@@ -781,20 +782,16 @@ def _compute_ml_prediction(
                 v2_bias = float(v2_temp_model.predict(X_v2)[0])
                 v2_temp = base + v2_bias
             else:
-                # No regression model — use MEAN of all available forecasts
-                # as center for bucket candidates. Prioritize NWS since
-                # Kalshi settles on NWS CLI data, but average in AccuWeather
-                # to handle cases where one source is wildly off.
-                all_forecasts = [features["nws_last"]]
-                if has_accu and not np.isnan(features["accu_last"]):
-                    all_forecasts.append(features["accu_last"])
-                # Include NWS mean if different from last
-                if abs(features["nws_mean"] - features["nws_last"]) > 0.5:
-                    all_forecasts.append(features["nws_mean"])
+                # No regression model — use morning forecast consensus as center.
+                # nws_mean/accu_mean are now morning-only (pre-noon cutoff applied
+                # above), so this reflects what you'd know at bet time.
+                all_forecasts = [features["nws_mean"]]
+                if has_accu and not np.isnan(features["accu_mean"]):
+                    all_forecasts.append(features["accu_mean"])
                 v2_temp = float(np.mean(all_forecasts))
-                accu_note = f", AccuWx={features['accu_last']:.0f}" if has_accu else ""
+                accu_note = f", AccuWx={features['accu_mean']:.0f}" if has_accu else ""
                 print(f"   Center temp: {v2_temp:.1f}°F "
-                      f"(NWS last={features['nws_last']:.0f}{accu_note})")
+                      f"(NWS mean={features['nws_mean']:.0f}{accu_note})")
 
             # Exceedance check: if observed temp already exceeded forecast,
             # shift center up (physics-based, not market-based)
