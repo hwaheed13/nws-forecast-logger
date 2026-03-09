@@ -94,8 +94,24 @@ INTRADAY_CURVE_COLS = [
     "intra_high_vs_noon",         # actual daily max - noon temp: how much heating after noon
 ]
 
-# Combined v2 feature list (64 total: 30 original + 24 atmospheric + 10 intraday)
-FEATURE_COLS_V2 = FEATURE_COLS + ATMOSPHERIC_COLS + ENSEMBLE_COLS + MULTIMODEL_COLS + INTRADAY_CURVE_COLS
+# Atmospheric predictor output features (2 features)
+# Source: First-stage ML model trained on 1,278 historical days
+# Learns: atmospheric_conditions + season → actual daily high
+# The classifier gets these as features so it knows what the atmosphere
+# "expects" vs what the forecast says — when they diverge, the forecast
+# is more likely to be wrong.
+ATM_PREDICTOR_COLS = [
+    "atm_predicted_high",       # Atmospheric model's predicted daily high (°F)
+    "atm_vs_forecast_diff",     # nws_last - atm_predicted_high: positive = NWS higher than atmosphere
+]
+
+# Features used as INPUT to the atmospheric predictor (first-stage model)
+ATM_PREDICTOR_INPUT_COLS = ATMOSPHERIC_COLS + INTRADAY_CURVE_COLS + [
+    "day_of_year_sin", "day_of_year_cos", "month", "is_summer", "is_winter",
+]
+
+# Combined v2 feature list (66 total: 30 + 15 + 5 + 4 + 10 + 2)
+FEATURE_COLS_V2 = FEATURE_COLS + ATMOSPHERIC_COLS + ENSEMBLE_COLS + MULTIMODEL_COLS + INTRADAY_CURVE_COLS + ATM_PREDICTOR_COLS
 
 # Additional features added per-candidate-bucket during classification (4)
 # These are NOT in FEATURE_COLS_V2 because they vary per candidate bucket, not per day

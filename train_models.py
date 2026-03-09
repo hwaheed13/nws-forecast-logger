@@ -14,7 +14,10 @@ from sklearn.inspection import permutation_importance
 from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import TimeSeriesSplit
 
-from model_config import FEATURE_COLS, FEATURE_COLS_V2, ACCU_NWS_FALLBACK
+from model_config import (
+    FEATURE_COLS, FEATURE_COLS_V2, ACCU_NWS_FALLBACK,
+    ATM_PREDICTOR_INPUT_COLS, ATM_PREDICTOR_COLS,
+)
 
 warnings.filterwarnings("ignore")
 
@@ -698,6 +701,107 @@ class NYCTemperatureModelTrainer:
 
         self.features_df = merged
 
+    def _train_atm_predictor(self) -> None:
+        """
+        Train first-stage atmospheric temperature predictor on historical data.
+
+        Uses 1,278 multi-year days (atmospheric + temporal features only) to learn:
+            atmospheric_conditions → actual daily high
+
+        The predictor's output becomes 2 features for the classifier:
+          - atm_predicted_high: what the atmosphere says the high should be
+          - atm_vs_forecast_diff: NWS forecast - atm_predicted_high
+
+        Trained on multi-year data ONLY (no forecast days), so predictions
+        on the 232 forecast days are fully out-of-sample = no data leakage.
+        """
+        print(f"\n  Training atmospheric predictor (first-stage ML model)...")
+
+        # Train on multi-year rows only (rows without any forecast data)
+        multiyear_mask = self.features_df["nws_last"].isna() & self.features_df["accu_last"].isna()
+        train_df = self.features_df[multiyear_mask].copy()
+
+        if len(train_df) < 100:
+            print(f"  ⚠️ Only {len(train_df)} multi-year rows — skipping atmospheric predictor")
+            self.features_df["atm_predicted_high"] = np.nan
+            self.features_df["atm_vs_forecast_diff"] = np.nan
+            return
+
+        # Ensure all input features exist
+        for col in ATM_PREDICTOR_INPUT_COLS:
+            if col not in self.features_df.columns:
+                self.features_df[col] = np.nan
+
+        X_train = train_df[ATM_PREDICTOR_INPUT_COLS]
+        y_train = train_df["actual_high"]
+
+        # Cross-validate on multi-year data to report quality
+        tscv = TimeSeriesSplit(n_splits=5)
+        cv_maes = []
+        for tr, te in tscv.split(X_train):
+            m = HistGradientBoostingRegressor(
+                max_iter=200, max_depth=4, learning_rate=0.05,
+                min_samples_leaf=15, l2_regularization=1.0,
+                random_state=42,
+            )
+            m.fit(X_train.iloc[tr], y_train.iloc[tr])
+            pred = m.predict(X_train.iloc[te])
+            cv_maes.append(mean_absolute_error(y_train.iloc[te], pred))
+
+        print(f"  Atmospheric predictor CV MAE: {np.mean(cv_maes):.2f}°F "
+              f"(folds: {[f'{s:.2f}' for s in cv_maes]})")
+        print(f"  Trained on {len(train_df)} historical days "
+              f"({len(ATM_PREDICTOR_INPUT_COLS)} features)")
+
+        # Train final model on all multi-year data
+        atm_predictor = HistGradientBoostingRegressor(
+            max_iter=200, max_depth=4, learning_rate=0.05,
+            min_samples_leaf=15, l2_regularization=1.0,
+            random_state=42,
+        )
+        atm_predictor.fit(X_train, y_train)
+
+        # Predict on ALL rows (forecast days are out-of-sample)
+        X_all = self.features_df[ATM_PREDICTOR_INPUT_COLS]
+        atm_preds = atm_predictor.predict(X_all)
+        self.features_df["atm_predicted_high"] = atm_preds
+
+        # Forecast divergence: NWS - atmospheric prediction
+        # Positive = NWS predicts higher than atmosphere expects
+        # Negative = NWS predicts lower than atmosphere expects
+        nws_last = self.features_df["nws_last"]
+        self.features_df["atm_vs_forecast_diff"] = nws_last - atm_preds
+
+        # Show quality on forecast days (out-of-sample for atmospheric predictor)
+        forecast_mask = self.features_df["nws_last"].notna()
+        if forecast_mask.sum() > 0:
+            fc_atm = atm_preds[forecast_mask]
+            fc_actual = self.features_df.loc[forecast_mask, "actual_high"].values
+            fc_mae = mean_absolute_error(fc_actual, fc_atm)
+            print(f"  Out-of-sample MAE on forecast days: {fc_mae:.2f}°F")
+
+            # How well does divergence predict forecast error?
+            nws_vals = self.features_df.loc[forecast_mask, "nws_last"].values
+            nws_errors = fc_actual - nws_vals  # positive = NWS was too low
+            atm_diffs = nws_vals - fc_atm  # positive = NWS higher than atmosphere
+            corr = np.corrcoef(atm_diffs, nws_errors)[0, 1] if len(atm_diffs) > 1 else 0.0
+            print(f"  Divergence ↔ NWS error correlation: {corr:.3f}")
+            if corr < -0.1:
+                print(f"    → When NWS is higher than atmosphere, NWS tends to be too HIGH")
+            elif corr > 0.1:
+                print(f"    → When NWS is higher than atmosphere, actual tends to be HIGHER")
+
+        # Save atmospheric predictor
+        save_data = {
+            "model": atm_predictor,
+            "features": ATM_PREDICTOR_INPUT_COLS,
+            "cv_mae": round(float(np.mean(cv_maes)), 2),
+            "n_training_days": len(train_df),
+        }
+        with open(f"{self.model_prefix}atm_predictor.pkl", "wb") as f:
+            pickle.dump(save_data, f)
+        print(f"  Saved atmospheric predictor to {self.model_prefix}atm_predictor.pkl")
+
     def train_v2(self) -> None:
         """
         Train the v2 enhanced pipeline:
@@ -834,11 +938,15 @@ class NYCTemperatureModelTrainer:
             print(f"  ⚠️  Only {n_forecast} forecast rows — skipping v2 regression.")
             print(f"     Classifier will train on {n_total} multi-year atmospheric rows.")
 
+        # --- Train atmospheric predictor (first-stage model) ---
+        # Uses ALL 1,278 historical days to learn atmosphere → temperature.
+        # Its predictions become features for the classifier.
+        self._train_atm_predictor()
+
         # --- Train bucket classifier ---
         # Train on days with real forecasts (NWS or AccuWeather).
-        # Persistence proxy was tested but HURT accuracy on real forecast days
-        # (36.8% vs 51.6%) — the error distribution is too different (5.6°F MAE
-        # persistence vs ~1°F NWS) for the model to generalize across both.
+        # Now includes atm_predicted_high and atm_vs_forecast_diff features
+        # from the atmospheric predictor trained on 1,278 historical days.
         forecast_df = self.features_df[
             self.features_df["nws_last"].notna() | self.features_df["accu_last"].notna()
         ].copy().reset_index(drop=True)

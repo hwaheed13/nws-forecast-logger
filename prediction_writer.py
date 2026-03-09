@@ -13,7 +13,10 @@ from nws_auto_logger import (
     _compute_avg_bias_excluding, _compute_today_pre_high_mean,
     _float_or_none, compute_today_gate_f,
 )
-from model_config import FEATURE_COLS, FEATURE_COLS_V2, ACCU_NWS_FALLBACK, derive_bucket_probabilities
+from model_config import (
+    FEATURE_COLS, FEATURE_COLS_V2, ACCU_NWS_FALLBACK,
+    ATM_PREDICTOR_INPUT_COLS, derive_bucket_probabilities,
+)
 
 MODEL_VERSION = os.environ.get("PREDICTION_MODEL_VERSION", "bcp_v1")
 
@@ -58,6 +61,7 @@ def _load_v2_models():
         _ML_MODEL_CACHE[cache_key] = None
         _ML_MODEL_CACHE[f"{prefix}v2_bucket_info"] = None
         _ML_MODEL_CACHE[f"{prefix}v2_classifier"] = None
+        _ML_MODEL_CACHE[f"{prefix}v2_atm_predictor"] = None
 
         # v2 regression model (optional)
         try:
@@ -67,6 +71,15 @@ def _load_v2_models():
                 _ML_MODEL_CACHE[f"{prefix}v2_bucket_info"] = pickle.load(f)
         except FileNotFoundError:
             pass  # regression model optional
+
+        # Atmospheric predictor (first-stage model, trained on 1,278 historical days)
+        try:
+            with open(f"{prefix}atm_predictor.pkl", "rb") as f:
+                _ML_MODEL_CACHE[f"{prefix}v2_atm_predictor"] = pickle.load(f)
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            print(f"⚠️ atm predictor load error: {e}")
 
         # Bucket classifier (the important one)
         try:
@@ -82,6 +95,8 @@ def _load_v2_models():
         loaded = []
         if _ML_MODEL_CACHE[cache_key] is not None:
             loaded.append("regression")
+        if _ML_MODEL_CACHE[f"{prefix}v2_atm_predictor"] is not None:
+            loaded.append("atm_predictor")
         if _ML_MODEL_CACHE[f"{prefix}v2_classifier"] is not None:
             loaded.append("classifier")
         if loaded:
@@ -90,6 +105,7 @@ def _load_v2_models():
         _ML_MODEL_CACHE.get(cache_key),
         _ML_MODEL_CACHE.get(f"{prefix}v2_bucket_info"),
         _ML_MODEL_CACHE.get(f"{prefix}v2_classifier"),
+        _ML_MODEL_CACHE.get(f"{prefix}v2_atm_predictor"),
     )
 
 
@@ -441,7 +457,7 @@ def _compute_ml_prediction(
     or None if insufficient data or models missing.
     """
     temp_model, bucket_info = _load_ml_models()
-    v2_temp_model_check, _, v2_classifier_check = _load_v2_models()
+    v2_temp_model_check, _, v2_classifier_check, _ = _load_v2_models()
 
     # Need at least v1 OR v2 models
     if temp_model is None and v2_classifier_check is None:
@@ -621,7 +637,7 @@ def _compute_ml_prediction(
         }
 
     # --- 11. Try v2 models (atmospheric + classifier) ---
-    v2_temp_model, v2_bucket_info, v2_classifier = _load_v2_models()
+    v2_temp_model, v2_bucket_info, v2_classifier, v2_atm_predictor = _load_v2_models()
     if v2_classifier is not None:
         try:
             # Fetch atmospheric features
@@ -630,6 +646,29 @@ def _compute_ml_prediction(
             # Merge atmospheric features into the feature dict
             v2_features = dict(features)
             v2_features.update(atm_features)
+
+            # Run atmospheric predictor (first-stage model) if available
+            if v2_atm_predictor is not None:
+                try:
+                    atm_model_data = v2_atm_predictor
+                    atm_model = atm_model_data["model"]
+                    atm_input_cols = atm_model_data["features"]
+                    atm_input = pd.DataFrame([v2_features])
+                    for col in atm_input_cols:
+                        if col not in atm_input.columns:
+                            atm_input[col] = np.nan
+                    atm_pred = float(atm_model.predict(atm_input[atm_input_cols])[0])
+                    v2_features["atm_predicted_high"] = atm_pred
+                    v2_features["atm_vs_forecast_diff"] = features["nws_last"] - atm_pred
+                    print(f"🌍 Atmospheric predictor: {atm_pred:.1f}°F "
+                          f"(NWS diff: {features['nws_last'] - atm_pred:+.1f}°F)")
+                except Exception as e:
+                    print(f"⚠️ Atmospheric predictor failed: {e}")
+                    v2_features["atm_predicted_high"] = np.nan
+                    v2_features["atm_vs_forecast_diff"] = np.nan
+            else:
+                v2_features["atm_predicted_high"] = np.nan
+                v2_features["atm_vs_forecast_diff"] = np.nan
 
             # Build v2 feature DataFrame
             X_v2 = pd.DataFrame([v2_features])
