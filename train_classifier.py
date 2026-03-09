@@ -41,7 +41,8 @@ from model_config import (
 
 warnings.filterwarnings("ignore")
 
-N_CANDIDATE_BUCKETS = 7  # 3 on each side + center = 7 candidates per day
+N_CANDIDATE_BUCKETS = 7   # 3 on each side + center = 7 candidates per day (real forecasts)
+N_CANDIDATE_BUCKETS_PERSISTENCE = 13  # 6 on each side = 13 candidates (wider for persistence)
 
 
 def build_classification_dataset(
@@ -51,13 +52,13 @@ def build_classification_dataset(
     """
     Build the classification training dataset from the regression feature matrix.
 
-    IMPORTANT: Only pass rows that have real forecast data (NWS or AccuWeather).
-    Rows without forecasts (historical backfill) used actual_high as center,
-    which leaked the answer into position features and inflated accuracy from
-    ~46% to ~82%. Training on forecast-only rows gives honest accuracy.
-
     For each day:
-      1. Use the best available forecast (AccuWeather or NWS) as center
+      1. Use the best available center: AccuWeather > NWS > persistence forecast
+         - Real forecasts (NWS/AccuWeather) are preferred when available
+         - Persistence forecast (yesterday's actual high) is used for historical
+           days that lack real forecasts — this gives the classifier 1,000+ extra
+           training rows to learn atmospheric→error patterns
+         - Rows with NO center at all are skipped
       2. Generate N_CANDIDATE_BUCKETS candidate buckets around that center
       3. Label the winning bucket as 1, all others as 0
       4. Add bucket-position features for each candidate
@@ -77,25 +78,33 @@ def build_classification_dataset(
         winning_bucket = temp_to_bucket_label(actual_high)
 
         # Center prediction: use best available forecast
+        # Priority: AccuWeather > NWS > persistence (yesterday's actual)
         accu_last = row.get("accu_last")
         nws_last = row.get("nws_last")
+        persistence = row.get("_persistence_forecast")
+        is_persistence = False
         if pd.notna(accu_last):
             center = float(accu_last)
         elif pd.notna(nws_last):
             center = float(nws_last)
+        elif persistence is not None and pd.notna(persistence):
+            center = float(persistence)
+            is_persistence = True
         else:
-            # No forecast data — skip this row.
-            # Using actual_high as center leaks the answer.
+            # No forecast or persistence data — skip this row.
             skipped += 1
             continue
 
-        # Also get the regression prediction if available
-        regression_pred = row.get("_regression_pred")
-        if pd.notna(regression_pred) if regression_pred is not None else False:
-            center = float(regression_pred)
+        # Also get the regression prediction if available (real forecast rows only)
+        if not is_persistence:
+            regression_pred = row.get("_regression_pred")
+            if pd.notna(regression_pred) if regression_pred is not None else False:
+                center = float(regression_pred)
 
         # Generate candidate buckets
-        candidates = get_candidate_buckets(center, n_neighbors=N_CANDIDATE_BUCKETS // 2)
+        # Wider range for persistence (higher error) than real forecasts
+        n_cand = N_CANDIDATE_BUCKETS_PERSISTENCE if is_persistence else N_CANDIDATE_BUCKETS
+        candidates = get_candidate_buckets(center, n_neighbors=n_cand // 2)
 
         # Skip if winning bucket isn't reachable (extreme forecast miss)
         if winning_bucket not in candidates:

@@ -547,10 +547,26 @@ class NYCTemperatureModelTrainer:
     def _build_multiyear_features(self, multiyear_df: pd.DataFrame) -> pd.DataFrame:
         """
         Convert multi-year atmospheric data into feature rows compatible with
-        features_df format. Forecast features are NaN, temporal features computed
-        from date, atmospheric features from the data.
+        features_df format.
+
+        Key innovation: PERSISTENCE FORECAST as proxy.
+        For each historical day, yesterday's actual high serves as a "forecast."
+        This gives the classifier real forecast→actual training pairs (1,277 of them)
+        instead of skipping these rows entirely.
+
+        The model learns atmospheric patterns that cause forecasts to miss —
+        the same patterns apply whether the forecast is from NWS or persistence.
         """
+        from model_config import (
+            ATMOSPHERIC_COLS, ENSEMBLE_COLS, MULTIMODEL_COLS, INTRADAY_CURVE_COLS,
+        )
+
+        # Sort by date so we can compute persistence (yesterday's high)
+        multiyear_df = multiyear_df.sort_values("target_date").reset_index(drop=True)
+
         rows = []
+        prev_actual_high = None
+
         for _, row in multiyear_df.iterrows():
             target_date = str(row["target_date"])
             actual_high = float(row["actual_high"])
@@ -558,13 +574,23 @@ class NYCTemperatureModelTrainer:
             try:
                 dt = datetime.strptime(target_date, "%Y-%m-%d")
             except ValueError:
+                prev_actual_high = actual_high
                 continue
 
             doy = dt.timetuple().tm_yday
             month = dt.month
 
+            # Persistence forecast: yesterday's actual high
+            persistence = prev_actual_high
+            prev_actual_high = actual_high
+
+            if persistence is None:
+                # First day in the dataset — no "yesterday" to use
+                continue
+
             features = {
-                # Forecast features — all NaN for multi-year data
+                # Forecast features — NaN for multi-year data
+                # (no real NWS/AccuWeather forecasts exist)
                 "nws_first": np.nan, "nws_last": np.nan,
                 "nws_max": np.nan, "nws_min": np.nan, "nws_mean": np.nan,
                 "nws_spread": np.nan, "nws_std": np.nan, "nws_trend": np.nan,
@@ -577,6 +603,9 @@ class NYCTemperatureModelTrainer:
                 "nws_accu_spread": np.nan, "nws_accu_mean_diff": np.nan,
                 "rolling_bias_7d": np.nan, "rolling_bias_21d": np.nan,
                 "has_accu_data": 0,
+
+                # Persistence proxy forecast — used as center by the classifier
+                "_persistence_forecast": persistence,
 
                 # Temporal features — computed from date
                 "day_of_year_sin": np.sin(2 * np.pi * doy / 365),
@@ -592,22 +621,32 @@ class NYCTemperatureModelTrainer:
             }
 
             # Atmospheric features — from the multi-year data
-            from model_config import ATMOSPHERIC_COLS
             for col in ATMOSPHERIC_COLS:
                 features[col] = row.get(col, np.nan)
 
+            # Intraday curve features — from the multi-year data
+            for col in INTRADAY_CURVE_COLS:
+                features[col] = row.get(col, np.nan)
+
             # Ensemble and multimodel — NaN for historical
-            from model_config import ENSEMBLE_COLS, MULTIMODEL_COLS
             for col in ENSEMBLE_COLS + MULTIMODEL_COLS:
                 features[col] = np.nan
 
             rows.append(features)
 
         result = pd.DataFrame(rows)
-        print(f"  Built {len(result)} multi-year feature rows")
+        n_with_persistence = result["_persistence_forecast"].notna().sum() if len(result) > 0 else 0
+        print(f"  Built {len(result)} multi-year feature rows "
+              f"({n_with_persistence} with persistence forecast)")
 
-        # Show seasonal distribution
-        if len(result) > 0:
+        # Show persistence error distribution
+        if len(result) > 0 and n_with_persistence > 0:
+            pers = result["_persistence_forecast"]
+            actual = result["actual_high"]
+            errors = (actual - pers).dropna()
+            print(f"  Persistence error: mean={errors.mean():.1f}°F, "
+                  f"MAE={errors.abs().mean():.1f}°F, std={errors.std():.1f}°F")
+
             months = result["month"].value_counts().sort_index()
             season_counts = {
                 "winter": int(result["is_winter"].sum()),
@@ -796,10 +835,10 @@ class NYCTemperatureModelTrainer:
             print(f"     Classifier will train on {n_total} multi-year atmospheric rows.")
 
         # --- Train bucket classifier ---
-        # Train ONLY on days with real forecasts (NWS or AccuWeather).
-        # Historical backfill rows have no forecast data — using them with
-        # climatology/actual as center teaches the wrong patterns and hurts
-        # accuracy on real forecast days (35% vs 46% on 2°F Kalshi buckets).
+        # Train on days with real forecasts (NWS or AccuWeather).
+        # Persistence proxy was tested but HURT accuracy on real forecast days
+        # (36.8% vs 51.6%) — the error distribution is too different (5.6°F MAE
+        # persistence vs ~1°F NWS) for the model to generalize across both.
         forecast_df = self.features_df[
             self.features_df["nws_last"].notna() | self.features_df["accu_last"].notna()
         ].copy().reset_index(drop=True)
