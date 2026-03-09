@@ -2809,6 +2809,11 @@ await updateCorrectionBoxes();  // now uses the freshly-trained state
         // NOW reload CSV + full UI refresh (predictions will have ML + AccuWeather data)
         await reloadCSV({ skipHedgeTrain: true });
 
+        // Force ML Bet Signal re-render after city switch
+        // (updateSummaryBoxes is async & not awaited, so renderMLBetSignal may not
+        //  have run yet if Kalshi API calls are slow for the new city)
+        renderMLBetSignal();
+
         // Update city cache with freshly loaded data
         _cityDataCache[cityKey] = {
           accuWeatherData: window.accuWeatherData ? { ...window.accuWeatherData } : null,
