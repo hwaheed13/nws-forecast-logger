@@ -702,8 +702,9 @@ def _compute_ml_prediction(
         if pd.isna(X.loc[0, accu_col]):
             X.loc[0, accu_col] = X.loc[0, nws_col]
 
-    # Base forecast: use MEAN (not last) — more robust to late-forecast contamination.
-    # Training now filters to morning-only forecasts, so mean ≈ morning consensus.
+    # Base forecast: use MEAN (not last) — more robust since nws_last can be a
+    # single update at any time of day.  Data analysis shows PM forecasts are only
+    # 0.05°F better than AM ones, so mean is equally accurate but more stable.
     base = features["accu_mean"] if has_accu else features["nws_mean"]
     base_src = "accu_mean" if has_accu else "nws_mean"
 

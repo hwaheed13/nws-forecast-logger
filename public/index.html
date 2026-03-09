@@ -645,7 +645,7 @@ input[type="date"] {
       </div>
 
       <!-- ML Bet Signal -->
-      <div class="kalshi-grid" id="ml-bet-signal-grid" style="display:none;">
+      <div class="kalshi-grid" id="ml-bet-signal-grid">
         <div class="kalshi-card" style="border-left:4px solid var(--border-subtle);" id="ml-signal-today-card">
           <div class="metric-label">ML Bucket Pick (Today) <span style="color:#6366f1;font-size:0.7em;font-weight:400;">Atmospheric ML</span></div>
           <div id="ml-signal-today" class="metric-value" style="font-size:18px;">Loading...</div>
@@ -680,11 +680,11 @@ input[type="date"] {
       <div class="stats-grid" id="stats">
         <div class="stat-card">
           <div class="stat-label">Days Tracked</div>
-          <div class="stat-value">0</div>
+          <div class="stat-value">—</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">Days With Actual</div>
-          <div class="stat-value">0</div>
+          <div class="stat-value">—</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">Average Absolute Error</div>
@@ -4732,6 +4732,9 @@ async function loadMLPredictions() {
     }
     if (gotToday || gotTomorrow) {
       console.log("ML predictions loaded:", window.mlPredictions);
+      // Render immediately so cards update as soon as data arrives
+      // (prevents "Awaiting ML prediction" flash on city toggle)
+      if (typeof renderMLBetSignal === "function") renderMLBetSignal();
     }
   } catch (e) {
     // Silently handle — ML data will appear after first GitHub Actions run
