@@ -51,6 +51,11 @@ def build_classification_dataset(
     """
     Build the classification training dataset from the regression feature matrix.
 
+    IMPORTANT: Only pass rows that have real forecast data (NWS or AccuWeather).
+    Rows without forecasts (historical backfill) used actual_high as center,
+    which leaked the answer into position features and inflated accuracy from
+    ~46% to ~82%. Training on forecast-only rows gives honest accuracy.
+
     For each day:
       1. Use the best available forecast (AccuWeather or NWS) as center
       2. Generate N_CANDIDATE_BUCKETS candidate buckets around that center
@@ -65,13 +70,13 @@ def build_classification_dataset(
     all_rows = []
     all_labels = []
     all_day_ids = []
+    skipped = 0
 
     for idx, row in features_df.iterrows():
         actual_high = row["actual_high"]
         winning_bucket = temp_to_bucket_label(actual_high)
 
-        # Center prediction: use best available forecast, or actual_high for
-        # multi-year rows that have no forecast data
+        # Center prediction: use best available forecast
         accu_last = row.get("accu_last")
         nws_last = row.get("nws_last")
         if pd.notna(accu_last):
@@ -79,29 +84,29 @@ def build_classification_dataset(
         elif pd.notna(nws_last):
             center = float(nws_last)
         else:
-            # No forecast data (multi-year backfill rows).
-            # Use actual_high as center — this teaches the model atmospheric
-            # patterns without forecast context. The bucket-position features
-            # will be relative to the actual, so the model learns "given these
-            # conditions, which bucket around the actual wins?"
-            center = float(actual_high)
+            # No forecast data — skip this row.
+            # Using actual_high as center leaks the answer.
+            skipped += 1
+            continue
 
         # Also get the regression prediction if available
         regression_pred = row.get("_regression_pred")
         if pd.notna(regression_pred) if regression_pred is not None else False:
-            # Use regression prediction as center for better candidate selection
             center = float(regression_pred)
 
         # Generate candidate buckets
         candidates = get_candidate_buckets(center, n_neighbors=N_CANDIDATE_BUCKETS // 2)
 
+        # Skip if winning bucket isn't reachable (extreme forecast miss)
+        if winning_bucket not in candidates:
+            skipped += 1
+            continue
+
         for bucket_label in candidates:
-            # Parse bucket center from label "48-49" -> 48.5
             parts = bucket_label.split("-")
             bucket_lo = int(parts[0])
             bucket_center = bucket_lo + 0.5
 
-            # Build feature row: base features + bucket position features
             feature_row = {}
             for col in feature_cols:
                 feature_row[col] = row.get(col, np.nan)
@@ -121,6 +126,9 @@ def build_classification_dataset(
             all_rows.append(feature_row)
             all_labels.append(1 if bucket_label == winning_bucket else 0)
             all_day_ids.append(idx)
+
+    if skipped > 0:
+        print(f"  ⚠️ Skipped {skipped} days (no forecast data or winning bucket unreachable)")
 
     X = pd.DataFrame(all_rows)
     y = pd.Series(all_labels, name="label")

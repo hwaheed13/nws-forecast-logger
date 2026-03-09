@@ -796,8 +796,17 @@ class NYCTemperatureModelTrainer:
             print(f"     Classifier will train on {n_total} multi-year atmospheric rows.")
 
         # --- Train bucket classifier ---
+        # Train ONLY on days with real forecasts (NWS or AccuWeather).
+        # Historical backfill rows have no forecast data — using them with
+        # climatology/actual as center teaches the wrong patterns and hurts
+        # accuracy on real forecast days (35% vs 46% on 2°F Kalshi buckets).
+        forecast_df = self.features_df[
+            self.features_df["nws_last"].notna() | self.features_df["accu_last"].notna()
+        ].copy().reset_index(drop=True)
+        print(f"\n  Classifier training on {len(forecast_df)} forecast days "
+              f"(excluding {len(self.features_df) - len(forecast_df)} no-forecast rows)")
         classifier = BucketClassifier()
-        classifier.train(self.features_df, feature_cols=FEATURE_COLS_V2)
+        classifier.train(forecast_df, feature_cols=FEATURE_COLS_V2)
         classifier.save(f"{self.model_prefix}bucket_classifier.pkl")
 
         # --- Save v2 metadata ---
