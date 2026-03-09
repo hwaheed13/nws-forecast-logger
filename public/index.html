@@ -3328,7 +3328,7 @@ function renderMLBetSignal() {
     }
     // Training data badge
     const versionBadge = ml.todayMLVersion || ml.tomorrowMLVersion
-      ? ` <span style="color:#6366f1;font-size:0.75em;margin-left:4px;">v2 classifier | 232 days | 54% CV accuracy</span>`
+      ? ` <span style="color:#6366f1;font-size:0.75em;margin-left:4px;">v2 classifier | 232 days | 64 features | 52% CV accuracy</span>`
       : '';
     if (detail) detail.innerHTML = (detailText || "ML bucket classifier prediction") + versionBadge;
   };

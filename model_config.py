@@ -77,8 +77,25 @@ MULTIMODEL_COLS = [
     "mm_ecmwf_gfs_diff",      # ECMWF - GFS difference — persistent model bias
 ]
 
-# Combined v2 feature list (54 total: 30 original + 24 atmospheric)
-FEATURE_COLS_V2 = FEATURE_COLS + ATMOSPHERIC_COLS + ENSEMBLE_COLS + MULTIMODEL_COLS
+# Intraday temperature curve features (10 features)
+# Source: Open-Meteo archive hourly temperature_2m (historical) or NWS observations (live)
+# These capture the SHAPE of the daily heating curve — crucial for predicting
+# whether the actual high will overshoot or undershoot the forecast.
+INTRADAY_CURVE_COLS = [
+    "intra_temp_9am",             # Temperature at 9am — morning baseline after sunrise heating
+    "intra_temp_noon",            # Temperature at noon — midday check
+    "intra_temp_3pm",             # Temperature at 3pm — near typical peak
+    "intra_temp_5pm",             # Temperature at 5pm — late afternoon (late push detection)
+    "intra_heating_rate_am",      # (noon - 9am) / 3 = °F/hr morning heating rate
+    "intra_heating_rate_pm",      # (3pm - noon) / 3 = °F/hr afternoon heating rate
+    "intra_peak_hour",            # Hour when max temperature occurred (0-23)
+    "intra_late_heating",         # 5pm - 3pm: positive = still warming late (midnight push signal)
+    "intra_rise_from_overnight",  # 9am temp - overnight min: morning warmup magnitude
+    "intra_high_vs_noon",         # actual daily max - noon temp: how much heating after noon
+]
+
+# Combined v2 feature list (64 total: 30 original + 24 atmospheric + 10 intraday)
+FEATURE_COLS_V2 = FEATURE_COLS + ATMOSPHERIC_COLS + ENSEMBLE_COLS + MULTIMODEL_COLS + INTRADAY_CURVE_COLS
 
 # Additional features added per-candidate-bucket during classification (4)
 # These are NOT in FEATURE_COLS_V2 because they vary per candidate bucket, not per day

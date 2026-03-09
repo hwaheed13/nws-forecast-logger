@@ -237,7 +237,7 @@ def extract_daily_atmospheric(hourly_df: pd.DataFrame, target_date: str) -> dict
         target_date: 'YYYY-MM-DD' string
 
     Returns:
-        dict of 15 atmospheric features, or empty dict if no data for date.
+        dict of 25 features (15 atmospheric + 10 intraday curve), or empty dict if no data for date.
     """
     target = pd.Timestamp(target_date)
     day_mask = hourly_df["time"].dt.date == target.date()
@@ -292,14 +292,83 @@ def extract_daily_atmospheric(hourly_df: pd.DataFrame, target_date: str) -> dict
         features["atm_temp_range"] = float(temp.max() - temp.min())
         # Overnight minimum (midnight to 8am)
         overnight = day[(day["time"].dt.hour >= 0) & (day["time"].dt.hour < 8)]["temperature_2m"].dropna()
-        features["atm_overnight_min"] = float(overnight.min()) if len(overnight) > 0 else float(temp.min())
+        overnight_min = float(overnight.min()) if len(overnight) > 0 else float(temp.min())
+        features["atm_overnight_min"] = overnight_min
         # Morning temp at ~6am
         morning = day[day["time"].dt.hour == 6]["temperature_2m"].dropna()
         features["atm_morning_temp_6am"] = float(morning.iloc[0]) if len(morning) > 0 else np.nan
+
+        # ── Intraday temperature curve features (10 features) ──────────
+        # These capture the SHAPE of the daily heating curve — crucial for
+        # predicting whether the actual high will overshoot the forecast.
+
+        # Temperatures at key hours
+        def _temp_at_hour(h: int) -> float:
+            vals = day[day["time"].dt.hour == h]["temperature_2m"].dropna()
+            return float(vals.iloc[0]) if len(vals) > 0 else np.nan
+
+        temp_9am = _temp_at_hour(9)
+        temp_noon = _temp_at_hour(12)
+        temp_3pm = _temp_at_hour(15)
+        temp_5pm = _temp_at_hour(17)
+
+        features["intra_temp_9am"] = temp_9am
+        features["intra_temp_noon"] = temp_noon
+        features["intra_temp_3pm"] = temp_3pm
+        features["intra_temp_5pm"] = temp_5pm
+
+        # Heating rates (°F per hour)
+        if not np.isnan(temp_9am) and not np.isnan(temp_noon):
+            features["intra_heating_rate_am"] = (temp_noon - temp_9am) / 3.0
+        else:
+            features["intra_heating_rate_am"] = np.nan
+
+        if not np.isnan(temp_noon) and not np.isnan(temp_3pm):
+            features["intra_heating_rate_pm"] = (temp_3pm - temp_noon) / 3.0
+        else:
+            features["intra_heating_rate_pm"] = np.nan
+
+        # Peak hour: hour when max temperature occurred
+        temp_with_hours = day[["time", "temperature_2m"]].dropna(subset=["temperature_2m"])
+        if len(temp_with_hours) > 0:
+            peak_idx = temp_with_hours["temperature_2m"].idxmax()
+            features["intra_peak_hour"] = float(temp_with_hours.loc[peak_idx, "time"].hour)
+        else:
+            features["intra_peak_hour"] = np.nan
+
+        # Late heating: positive = still warming after 3pm (midnight push signal)
+        if not np.isnan(temp_5pm) and not np.isnan(temp_3pm):
+            features["intra_late_heating"] = temp_5pm - temp_3pm
+        else:
+            features["intra_late_heating"] = np.nan
+
+        # Rise from overnight: how much warming by 9am
+        if not np.isnan(temp_9am):
+            features["intra_rise_from_overnight"] = temp_9am - overnight_min
+        else:
+            features["intra_rise_from_overnight"] = np.nan
+
+        # High vs noon: how much additional heating after noon
+        if not np.isnan(temp_noon):
+            features["intra_high_vs_noon"] = float(temp.max()) - temp_noon
+        else:
+            features["intra_high_vs_noon"] = np.nan
+
     else:
         features["atm_temp_range"] = np.nan
         features["atm_overnight_min"] = np.nan
         features["atm_morning_temp_6am"] = np.nan
+        # Intraday curve features — all NaN when no temp data
+        features["intra_temp_9am"] = np.nan
+        features["intra_temp_noon"] = np.nan
+        features["intra_temp_3pm"] = np.nan
+        features["intra_temp_5pm"] = np.nan
+        features["intra_heating_rate_am"] = np.nan
+        features["intra_heating_rate_pm"] = np.nan
+        features["intra_peak_hour"] = np.nan
+        features["intra_late_heating"] = np.nan
+        features["intra_rise_from_overnight"] = np.nan
+        features["intra_high_vs_noon"] = np.nan
 
     return features
 
