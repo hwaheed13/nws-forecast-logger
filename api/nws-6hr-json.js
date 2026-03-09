@@ -78,7 +78,7 @@ export default async function handler(req, res) {
       });
     });
 
-    if (!rows.length) return res.status(404).json({ error: "No 6-Hr Max rows found" });
+    if (!rows.length) return res.json({ value: null, error: "No 6-Hr Max rows found" });
 
     rows.sort((a, b) => a.dt - b.dt);
     const latest = rows[rows.length - 1];

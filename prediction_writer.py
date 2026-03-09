@@ -783,9 +783,8 @@ def _compute_ml_prediction(
                 v2_bias = float(v2_temp_model.predict(X_v2)[0])
                 v2_temp = base + v2_bias
             else:
-                # No regression model — use morning forecast consensus as center.
-                # nws_mean/accu_mean are now morning-only (pre-noon cutoff applied
-                # above), so this reflects what you'd know at bet time.
+                # No regression model — use forecast consensus as center.
+                # nws_mean/accu_mean average across all forecast times for the day.
                 all_forecasts = [features["nws_mean"]]
                 if has_accu and not np.isnan(features["accu_mean"]):
                     all_forecasts.append(features["accu_mean"])

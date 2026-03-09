@@ -1856,9 +1856,10 @@ function reloadCSV(opts = {}) {
     forecastChanged.tomorrow = false;
 
     // Always update UI (table, predictions, observations)
+    // resetFilter() already calls displayTable, showStats, showChart,
+    // showMostRecent, updateCorrectionBoxes, and updateSummaryBoxes.
+    // We only add the awaited updateCorrectionBoxes + updateObservations here.
     resetFilter();
-    showMostRecent();
-    updateSummaryBoxes();
     await updateCorrectionBoxes();
     updateObservations();
 
@@ -2810,9 +2811,12 @@ await updateCorrectionBoxes();  // now uses the freshly-trained state
         await reloadCSV({ skipHedgeTrain: true });
 
         // Force ML Bet Signal re-render after city switch
-        // (updateSummaryBoxes is async & not awaited, so renderMLBetSignal may not
-        //  have run yet if Kalshi API calls are slow for the new city)
         renderMLBetSignal();
+        // Safety net: re-render after stale fire-and-forget updateSummaryBoxes
+        // calls from the previous city finish (they call renderMLBetSignal too,
+        // but if the Kalshi API for the old city is slow they can re-trigger a
+        // render after this synchronous call).  1.5s covers typical API latency.
+        setTimeout(() => renderMLBetSignal(), 1500);
 
         // Update city cache with freshly loaded data
         _cityDataCache[cityKey] = {
@@ -4732,14 +4736,17 @@ async function loadMLPredictions() {
     }
     if (gotToday || gotTomorrow) {
       console.log("ML predictions loaded:", window.mlPredictions);
-      // Render immediately so cards update as soon as data arrives
-      // (prevents "Awaiting ML prediction" flash on city toggle)
-      if (typeof renderMLBetSignal === "function") renderMLBetSignal();
+    } else {
+      console.debug(`loadMLPredictions: no rows for city=${currentCity}, today=${today}, tomorrow=${tomorrow}`);
     }
   } catch (e) {
-    // Silently handle — ML data will appear after first GitHub Actions run
-    console.debug("loadMLPredictions: not available yet");
+    console.debug("loadMLPredictions: not available yet", e?.message);
   }
+  // Always render ML cards after query completes — even when no new data
+  // was found, cached data from switchCity restore needs to be displayed.
+  // Previously only rendered inside the if(gotToday||gotTomorrow) block,
+  // causing cards to stay "Awaiting" when cache had data but query was empty.
+  if (typeof renderMLBetSignal === "function") renderMLBetSignal();
 }
 
   const gate = document.getElementById("gate");
