@@ -3264,8 +3264,14 @@ function renderMLBetSignal() {
   const grid = document.getElementById("ml-bet-signal-grid");
   if (!grid) return;
 
-  // Always show the grid — never hide it on city switch.
-  // Cards show "Awaiting ML prediction" when data is absent.
+  // Hide the entire ML grid for cities without an ML model (e.g., LAX).
+  // Showing "Awaiting ML prediction" for cities that will never have
+  // predictions is confusing — just hide the section entirely.
+  const cfg = CITY_CONFIG[currentCity];
+  if (cfg && !cfg.hasMLModel) {
+    grid.style.display = "none";
+    return;
+  }
   grid.style.display = "";
 
   // Signal styling
