@@ -356,21 +356,85 @@ def _parse_kalshi_price(raw) -> Optional[float]:
 
 def _parse_kalshi_bucket(label: str) -> Optional[str]:
     """
-    Parse a Kalshi market label into our bucket format "48-49".
+    Parse a Kalshi market label into our bucket format.
     Handles formats like:
-      "48° to 49°" → "48-49"
-      "47° or less" → None (skip edge buckets)
-      "50° or more" → None (skip edge buckets)
+      "48° to 49°" → "48-49"       (standard range bucket)
+      "47° or less" → "<=47"       (lower edge bucket)
+      "50° or more" → ">=50"       (upper edge bucket)
+      "Below 47°"   → "<=47"
+      "Above 70°"   → ">=70"
     """
     import re
-    clean = label.replace("**", "")
+    clean = label.replace("**", "").strip()
 
     # Range: "48° to 49°" or "48-49°"
     m = re.match(r".*?(\d+)°?\s*(?:to|-|–)\s*(\d+)°", clean)
     if m:
         return f"{m.group(1)}-{m.group(2)}"
 
-    # Edge buckets — skip for now (our model doesn't predict these well)
+    # Upper edge: "70° or more", "70° or above", "Above 70°", "70° or higher"
+    m = re.search(r"(\d+)°?\s*or\s*(?:more|above|higher|greater)", clean, re.IGNORECASE)
+    if m:
+        return f">={m.group(1)}"
+    m = re.search(r"(?:above|over|higher\s+than|more\s+than)\s*(\d+)°?", clean, re.IGNORECASE)
+    if m:
+        return f">={m.group(1)}"
+
+    # Lower edge: "47° or less", "47° or below", "Below 47°", "47° or lower"
+    m = re.search(r"(\d+)°?\s*or\s*(?:less|below|lower|fewer)", clean, re.IGNORECASE)
+    if m:
+        return f"<={m.group(1)}"
+    m = re.search(r"(?:below|under|less\s+than|lower\s+than)\s*(\d+)°?", clean, re.IGNORECASE)
+    if m:
+        return f"<={m.group(1)}"
+
+    return None
+
+
+def _find_kalshi_bucket_for_temp(predicted_temp: float, kalshi_buckets: dict) -> Optional[str]:
+    """
+    Given a predicted temperature, find which Kalshi bucket contains it.
+
+    Kalshi buckets change daily. Structure is always:
+      - "<=X" (lower edge: X and below)
+      - "A-B" (range: covers integer temps A through B inclusive)
+      - ">=Y" (upper edge: Y and above)
+
+    The predicted_temp is rounded to nearest integer, then we find
+    which bucket that integer falls into.
+    """
+    temp_int = int(round(predicted_temp))
+
+    for label in kalshi_buckets:
+        # Upper edge: ">=70" means 70 and above
+        if label.startswith(">="):
+            try:
+                threshold = int(label[2:])
+                if temp_int >= threshold:
+                    return label
+            except ValueError:
+                continue
+
+        # Lower edge: "<=47" means 47 and below
+        elif label.startswith("<="):
+            try:
+                threshold = int(label[2:])
+                if temp_int <= threshold:
+                    return label
+            except ValueError:
+                continue
+
+        # Standard range: "68-69" means integer temps 68 and 69
+        elif "-" in label:
+            parts = label.split("-")
+            if len(parts) == 2:
+                try:
+                    lo, hi = int(parts[0]), int(parts[1])
+                    if lo <= temp_int <= hi:
+                        return label
+                except ValueError:
+                    continue
+
     return None
 
 
@@ -381,10 +445,11 @@ def _map_ml_to_kalshi_buckets(
     """
     Aggregate ML 1°F bucket probabilities into Kalshi's actual bucket structure.
 
-    Our ML predicts 1°F buckets (e.g., "65-66" = [65, 66)°F).
-    Kalshi uses 2°F buckets (e.g., "64-65" covers temps 64° AND 65°).
-
-    For Kalshi bucket "X-Y": sum ML probs for 1°F buckets X→X+1, X+1→X+2, ..., Y→Y+1.
+    Our ML predicts 1°F buckets (e.g., "65-66" = [65, 66)°F, meaning high = 65).
+    Kalshi uses varying bucket sizes that change daily:
+      - "<=47": all temps 47 and below
+      - "48-49": integer temps 48 and 49 (our ML "48-49" + "49-50")
+      - ">=70": all temps 70 and above
 
     Returns (best_kalshi_bucket, aggregated_confidence, kalshi_aligned_probs).
     """
@@ -393,21 +458,50 @@ def _map_ml_to_kalshi_buckets(
 
     kalshi_aligned = {}
     for kalshi_label in kalshi_buckets:
-        parts = kalshi_label.split("-")
-        if len(parts) != 2:
-            continue
-        try:
-            lo = int(parts[0])
-            hi = int(parts[1])
-        except ValueError:
-            continue
-
-        # Sum ML probs for 1°F buckets within this Kalshi range
-        # Kalshi "64-65" covers integer temps 64 and 65 → our "64-65" + "65-66"
         agg_prob = 0.0
-        for t in range(lo, hi + 1):
-            ml_key = f"{t}-{t + 1}"
-            agg_prob += ml_bucket_probs.get(ml_key, 0.0)
+
+        # Upper edge bucket: ">=70" — sum all ML probs for temps 70+
+        if kalshi_label.startswith(">="):
+            try:
+                threshold = int(kalshi_label[2:])
+                for ml_key, prob in ml_bucket_probs.items():
+                    parts = ml_key.split("-")
+                    if len(parts) == 2:
+                        ml_lo = int(parts[0])
+                        if ml_lo >= threshold:
+                            agg_prob += prob
+            except ValueError:
+                continue
+
+        # Lower edge bucket: "<=47" — sum all ML probs for temps 47 and below
+        elif kalshi_label.startswith("<="):
+            try:
+                threshold = int(kalshi_label[2:])
+                for ml_key, prob in ml_bucket_probs.items():
+                    parts = ml_key.split("-")
+                    if len(parts) == 2:
+                        ml_lo = int(parts[0])
+                        # ML bucket "47-48" means high=47, which is <=47
+                        if ml_lo <= threshold:
+                            agg_prob += prob
+            except ValueError:
+                continue
+
+        # Standard range bucket: "68-69"
+        elif "-" in kalshi_label:
+            parts = kalshi_label.split("-")
+            if len(parts) != 2:
+                continue
+            try:
+                lo = int(parts[0])
+                hi = int(parts[1])
+            except ValueError:
+                continue
+            # Kalshi "68-69" covers integer temps 68 and 69
+            # → sum our ML "68-69" (high=68) + "69-70" (high=69)
+            for t in range(lo, hi + 1):
+                ml_key = f"{t}-{t + 1}"
+                agg_prob += ml_bucket_probs.get(ml_key, 0.0)
 
         kalshi_aligned[kalshi_label] = round(agg_prob, 4)
 
@@ -845,31 +939,49 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     if market_probs:
         payload["kalshi_market_snapshot"] = json.dumps(market_probs)
 
-    # Map ML 1°F buckets → Kalshi's actual bucket structure
-    if ml and market_probs and ml.get("ml_bucket_probs"):
-        raw_probs = json.loads(ml["ml_bucket_probs"]) if isinstance(ml["ml_bucket_probs"], str) else ml["ml_bucket_probs"]
+    # Map ML prediction → Kalshi's actual bucket structure for today
+    if ml and market_probs:
+        # Direct mapping: model predicts X°F → which Kalshi bucket contains X?
+        direct_bucket = _find_kalshi_bucket_for_temp(ml["ml_f"], market_probs)
+        if direct_bucket:
+            print(f"🎯 Direct map: {ml['ml_f']:.1f}°F → Kalshi bucket '{direct_bucket}'")
 
-        # Apply observed floor guard (only affects today, drops impossible buckets)
-        if observed_high is not None:
-            raw_probs = _apply_observed_floor(raw_probs, observed_high)
+        if ml.get("ml_bucket_probs"):
+            raw_probs = json.loads(ml["ml_bucket_probs"]) if isinstance(ml["ml_bucket_probs"], str) else ml["ml_bucket_probs"]
 
-        kalshi_bucket, kalshi_conf, kalshi_aligned = _map_ml_to_kalshi_buckets(raw_probs, market_probs)
-        if kalshi_bucket:
-            payload["ml_bucket"] = kalshi_bucket
-            payload["ml_confidence"] = kalshi_conf
-            print(f"🎯 Kalshi-aligned bucket: {kalshi_bucket} ({kalshi_conf:.0%})")
-            # Bet signal uses Kalshi-aligned confidence
-            signal, edge = _compute_bet_signal(kalshi_conf, kalshi_bucket, market_probs)
+            # Apply observed floor guard (only affects today, drops impossible buckets)
+            if observed_high is not None:
+                raw_probs = _apply_observed_floor(raw_probs, observed_high)
+
+            kalshi_bucket, kalshi_conf, kalshi_aligned = _map_ml_to_kalshi_buckets(raw_probs, market_probs)
+            if kalshi_bucket:
+                payload["ml_bucket"] = kalshi_bucket
+                payload["ml_confidence"] = kalshi_conf
+                print(f"🎯 Kalshi prob-aligned bucket: {kalshi_bucket} ({kalshi_conf:.0%})")
+
+                # If probability mapping disagrees with direct mapping, log it
+                if direct_bucket and kalshi_bucket != direct_bucket:
+                    print(f"⚠️ Prob map ({kalshi_bucket}) ≠ direct map ({direct_bucket}) "
+                          f"— using direct map since model predicts {ml['ml_f']:.1f}°F")
+                    payload["ml_bucket"] = direct_bucket
+                    # Recalculate confidence for the direct bucket
+                    payload["ml_confidence"] = kalshi_aligned.get(direct_bucket, kalshi_conf)
+
+                signal, edge = _compute_bet_signal(
+                    payload["ml_confidence"], payload["ml_bucket"], market_probs
+                )
+                payload["bet_signal"] = signal
+                payload["ml_edge"] = edge
+                print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
+        elif direct_bucket:
+            # No bucket probs but we have a direct mapping
+            payload["ml_bucket"] = direct_bucket
+            signal, edge = _compute_bet_signal(
+                ml["ml_confidence"], direct_bucket, market_probs
+            )
             payload["bet_signal"] = signal
             payload["ml_edge"] = edge
             print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
-    elif ml and market_probs:
-        signal, edge = _compute_bet_signal(
-            ml["ml_confidence"], ml["ml_bucket"], market_probs
-        )
-        payload["bet_signal"] = signal
-        payload["ml_edge"] = edge
-        print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
 
     supabase_upsert(payload)
 
@@ -925,25 +1037,40 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     if market_probs:
         payload["kalshi_market_snapshot"] = json.dumps(market_probs)
 
-    # Map ML 1°F buckets → Kalshi's actual bucket structure
-    if ml and market_probs and ml.get("ml_bucket_probs"):
-        raw_probs = json.loads(ml["ml_bucket_probs"]) if isinstance(ml["ml_bucket_probs"], str) else ml["ml_bucket_probs"]
-        kalshi_bucket, kalshi_conf, kalshi_aligned = _map_ml_to_kalshi_buckets(raw_probs, market_probs)
-        if kalshi_bucket:
-            payload["ml_bucket"] = kalshi_bucket
-            payload["ml_confidence"] = kalshi_conf
-            print(f"🎯 Kalshi-aligned bucket: {kalshi_bucket} ({kalshi_conf:.0%})")
-            signal, edge = _compute_bet_signal(kalshi_conf, kalshi_bucket, market_probs)
+    # Map ML prediction → Kalshi's actual bucket structure for tomorrow
+    if ml and market_probs:
+        direct_bucket = _find_kalshi_bucket_for_temp(ml["ml_f"], market_probs)
+        if direct_bucket:
+            print(f"🎯 Direct map: {ml['ml_f']:.1f}°F → Kalshi bucket '{direct_bucket}'")
+
+        if ml.get("ml_bucket_probs"):
+            raw_probs = json.loads(ml["ml_bucket_probs"]) if isinstance(ml["ml_bucket_probs"], str) else ml["ml_bucket_probs"]
+            kalshi_bucket, kalshi_conf, kalshi_aligned = _map_ml_to_kalshi_buckets(raw_probs, market_probs)
+            if kalshi_bucket:
+                payload["ml_bucket"] = kalshi_bucket
+                payload["ml_confidence"] = kalshi_conf
+                print(f"🎯 Kalshi prob-aligned bucket: {kalshi_bucket} ({kalshi_conf:.0%})")
+
+                if direct_bucket and kalshi_bucket != direct_bucket:
+                    print(f"⚠️ Prob map ({kalshi_bucket}) ≠ direct map ({direct_bucket}) "
+                          f"— using direct map since model predicts {ml['ml_f']:.1f}°F")
+                    payload["ml_bucket"] = direct_bucket
+                    payload["ml_confidence"] = kalshi_aligned.get(direct_bucket, kalshi_conf)
+
+                signal, edge = _compute_bet_signal(
+                    payload["ml_confidence"], payload["ml_bucket"], market_probs
+                )
+                payload["bet_signal"] = signal
+                payload["ml_edge"] = edge
+                print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
+        elif direct_bucket:
+            payload["ml_bucket"] = direct_bucket
+            signal, edge = _compute_bet_signal(
+                ml["ml_confidence"], direct_bucket, market_probs
+            )
             payload["bet_signal"] = signal
             payload["ml_edge"] = edge
             print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
-    elif ml and market_probs:
-        signal, edge = _compute_bet_signal(
-            ml["ml_confidence"], ml["ml_bucket"], market_probs
-        )
-        payload["bet_signal"] = signal
-        payload["ml_edge"] = edge
-        print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
 
     supabase_upsert(payload)
 
