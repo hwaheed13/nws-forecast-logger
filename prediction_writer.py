@@ -702,11 +702,11 @@ def _compute_ml_prediction(
         if pd.isna(X.loc[0, accu_col]):
             X.loc[0, accu_col] = X.loc[0, nws_col]
 
-    # Base forecast: use MEAN (not last) — more robust since nws_last can be a
-    # single update at any time of day.  Data analysis shows PM forecasts are only
-    # 0.05°F better than AM ones, so mean is equally accurate but more stable.
-    base = features["accu_mean"] if has_accu else features["nws_mean"]
-    base_src = "accu_mean" if has_accu else "nws_mean"
+    # Base forecast: use LAST (most recent) forecast — on days with significant
+    # revisions (e.g., overnight 70→afternoon 75), the latest forecast is far more
+    # informative than the mean.  Mean stability doesn't matter for real-time betting.
+    base = features["accu_last"] if has_accu else features["nws_last"]
+    base_src = "accu_last" if has_accu else "nws_last"
 
     # --- 10. v1 regression prediction (if v1 models available) ---
     result = {}
@@ -755,9 +755,9 @@ def _compute_ml_prediction(
                             atm_input[col] = np.nan
                     atm_pred = float(atm_model.predict(atm_input[atm_input_cols])[0])
                     v2_features["atm_predicted_high"] = atm_pred
-                    v2_features["atm_vs_forecast_diff"] = features["nws_mean"] - atm_pred
+                    v2_features["atm_vs_forecast_diff"] = features["nws_last"] - atm_pred
                     print(f"🌍 Atmospheric predictor: {atm_pred:.1f}°F "
-                          f"(NWS diff: {features['nws_mean'] - atm_pred:+.1f}°F)")
+                          f"(NWS diff: {features['nws_last'] - atm_pred:+.1f}°F)")
                 except Exception as e:
                     print(f"⚠️ Atmospheric predictor failed: {e}")
                     v2_features["atm_predicted_high"] = np.nan
@@ -783,15 +783,14 @@ def _compute_ml_prediction(
                 v2_bias = float(v2_temp_model.predict(X_v2)[0])
                 v2_temp = base + v2_bias
             else:
-                # No regression model — use forecast consensus as center.
-                # nws_mean/accu_mean average across all forecast times for the day.
-                all_forecasts = [features["nws_mean"]]
-                if has_accu and not np.isnan(features["accu_mean"]):
-                    all_forecasts.append(features["accu_mean"])
+                # No regression model — use latest forecasts as center.
+                all_forecasts = [features["nws_last"]]
+                if has_accu and not np.isnan(features["accu_last"]):
+                    all_forecasts.append(features["accu_last"])
                 v2_temp = float(np.mean(all_forecasts))
-                accu_note = f", AccuWx={features['accu_mean']:.0f}" if has_accu else ""
+                accu_note = f", AccuWx={features['accu_last']:.0f}" if has_accu else ""
                 print(f"   Center temp: {v2_temp:.1f}°F "
-                      f"(NWS mean={features['nws_mean']:.0f}{accu_note})")
+                      f"(NWS last={features['nws_last']:.0f}{accu_note})")
 
             # Exceedance check: if observed temp already exceeded forecast,
             # shift center up (physics-based, not market-based)
