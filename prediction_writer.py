@@ -702,11 +702,24 @@ def _compute_ml_prediction(
         if pd.isna(X.loc[0, accu_col]):
             X.loc[0, accu_col] = X.loc[0, nws_col]
 
-    # Base forecast: use LAST (most recent) forecast — on days with significant
-    # revisions (e.g., overnight 70→afternoon 75), the latest forecast is far more
-    # informative than the mean.  Mean stability doesn't matter for real-time betting.
-    base = features["accu_last"] if has_accu else features["nws_last"]
-    base_src = "accu_last" if has_accu else "nws_last"
+    # Base forecast: prefer AccuWeather (lower MAE historically) but guard against
+    # stale data.  When NWS and AccuWeather disagree by >8°F, AccuWeather is likely
+    # outdated (e.g., yesterday's warm weather not yet revised).  Fall back to NWS
+    # in that case — a small bias mismatch is far better than a 15°F wrong anchor.
+    if has_accu:
+        spread = abs(features["nws_last"] - features["accu_last"])
+        if spread > 8.0:
+            print(f"⚠️ NWS-AccuWeather spread={spread:.0f}°F > 8°F — "
+                  f"AccuWeather likely stale ({features['accu_last']:.0f}°F vs NWS {features['nws_last']:.0f}°F). "
+                  f"Using NWS as base.")
+            base = features["nws_last"]
+            base_src = "nws_last (accu stale)"
+        else:
+            base = features["accu_last"]
+            base_src = "accu_last"
+    else:
+        base = features["nws_last"]
+        base_src = "nws_last"
 
     # --- 10. v1 regression prediction (if v1 models available) ---
     result = {}

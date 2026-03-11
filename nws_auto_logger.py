@@ -596,8 +596,11 @@ def _parse_cli_sections(cli_text: str) -> Dict[str, Optional[Tuple[str, str]]]:
             tkn_time = None
             ampm = None
 
-            if i + 1 < len(parts) and parts[i+1].isdigit():
-                temp = parts[i+1]
+            # NWS CLI may append suffixes like "R" (record) to temps, e.g. "80R"
+            if i + 1 < len(parts):
+                m_temp = re.match(r'^(\d+)', parts[i+1])
+                if m_temp:
+                    temp = m_temp.group(1)
             if i + 2 < len(parts) and _TIME_TOKEN.match(parts[i+2]):
                 tkn_time = parts[i+2]
             if i + 3 < len(parts) and parts[i+3] in ("AM", "PM"):
