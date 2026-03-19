@@ -195,13 +195,22 @@ def _adjust_center_for_exceedance(
     if obs_hour is None:
         obs_hour = 12  # default assumption
 
+    # Only trust exceedance during daytime heating hours (8 AM – 5 PM).
+    # Overnight warmth (e.g., 51°F at midnight from prior day's warm air)
+    # does NOT indicate the day's high will exceed the forecast — temps
+    # often DROP during the day after a warm front passes.
+    if obs_hour < 8 or obs_hour >= 17:
+        print(f"ℹ️ Observed {observed_high}°F > forecast {center_temp:.1f}°F "
+              f"at {obs_hour}:00 — ignoring (outside daytime heating window)")
+        return center_temp
+
     # Estimate remaining heating based on hour of day
     # In spring/fall, peak heating is typically 2-4pm local
     remaining_heat = {
         8: 5.0, 9: 4.5, 10: 4.0, 11: 3.5, 12: 2.5,
-        13: 2.0, 14: 1.5, 15: 1.0, 16: 0.5, 17: 0.0,
+        13: 2.0, 14: 1.5, 15: 1.0, 16: 0.5,
     }
-    extra = remaining_heat.get(obs_hour, 0.0 if obs_hour >= 17 else 3.0)
+    extra = remaining_heat.get(obs_hour, 1.0)
 
     adjusted = observed_high + extra
     print(f"⚡ Exceedance: observed {observed_high}°F > forecast {center_temp:.1f}°F "

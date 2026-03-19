@@ -904,6 +904,12 @@ function cleanKalshiLabel(s) {
   // Full question "...be X° or less/more..."
   const questionBound = cleaned.match(/be\s+(\d+°?\s*or\s*(?:less|more|below|above))/i);
   if (questionBound) return questionBound[1];
+  // Internal bucket format "43-44" → "43° to 44°"
+  const internalRange = cleaned.match(/^(\d+)-(\d+)$/);
+  if (internalRange) return `${internalRange[1]}° to ${internalRange[2]}°`;
+  // Internal edge formats
+  if (cleaned.match(/^<=(\d+)$/)) return `${cleaned.slice(2)}° or less`;
+  if (cleaned.match(/^>=(\d+)$/)) return `${cleaned.slice(2)}° or more`;
   // Already clean NYC subtitle format — pass through
   return cleaned;
 }
