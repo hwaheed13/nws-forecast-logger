@@ -125,7 +125,7 @@ def _fetch_observed_high_so_far(target_date_iso: str) -> tuple:
     try:
         import nws_auto_logger as _nal
         cfg = _nal._CITY_CFG
-        station = cfg.get("nws_station", "KNYC")
+        station = cfg.get("obs_station", "KNYC")
         tz_name = cfg.get("timezone", "America/New_York")
 
         today = today_nyc().isoformat()

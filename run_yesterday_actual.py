@@ -1,5 +1,4 @@
-from nws_auto_logger import ensure_csv_header, log_yesterday_actual
+from nws_auto_logger import ensure_csv_header, upsert_yesterday_actual_if_morning_local
 if __name__ == "__main__":
     ensure_csv_header()
-    log_yesterday_actual()  # appends once per day
-
+    upsert_yesterday_actual_if_morning_local()
