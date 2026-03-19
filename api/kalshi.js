@@ -116,5 +116,7 @@ function winnerToInfo(w) {
     w.expiration_value != null ? Number(w.expiration_value) :
     w.settlement_value != null ? Number(w.settlement_value) :
     null;
-  return { label, exactTemp };
+  const status = String(w.status || "").toLowerCase();
+  const settled = status === "settled" || status === "finalized" || w.result === "yes";
+  return { label, exactTemp, settled };
 }
