@@ -964,17 +964,16 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
 
             kalshi_bucket, kalshi_conf, kalshi_aligned = _map_ml_to_kalshi_buckets(raw_probs, market_probs)
             if kalshi_bucket:
+                # Use prob-aligned bucket as primary pick — it aggregates the
+                # full probability distribution into Kalshi's actual bucket
+                # structure.  This is the best estimate of which bucket wins.
                 payload["ml_bucket"] = kalshi_bucket
                 payload["ml_confidence"] = kalshi_conf
                 print(f"🎯 Kalshi prob-aligned bucket: {kalshi_bucket} ({kalshi_conf:.0%})")
 
-                # If probability mapping disagrees with direct mapping, log it
                 if direct_bucket and kalshi_bucket != direct_bucket:
-                    print(f"⚠️ Prob map ({kalshi_bucket}) ≠ direct map ({direct_bucket}) "
-                          f"— using direct map since model predicts {ml['ml_f']:.1f}°F")
-                    payload["ml_bucket"] = direct_bucket
-                    # Recalculate confidence for the direct bucket
-                    payload["ml_confidence"] = kalshi_aligned.get(direct_bucket, kalshi_conf)
+                    print(f"ℹ️ Direct map ({direct_bucket}) differs from prob-aligned ({kalshi_bucket}) "
+                          f"— keeping prob-aligned (higher expected accuracy)")
 
                 signal, edge = _compute_bet_signal(
                     payload["ml_confidence"], payload["ml_bucket"], market_probs
@@ -1061,10 +1060,8 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
                 print(f"🎯 Kalshi prob-aligned bucket: {kalshi_bucket} ({kalshi_conf:.0%})")
 
                 if direct_bucket and kalshi_bucket != direct_bucket:
-                    print(f"⚠️ Prob map ({kalshi_bucket}) ≠ direct map ({direct_bucket}) "
-                          f"— using direct map since model predicts {ml['ml_f']:.1f}°F")
-                    payload["ml_bucket"] = direct_bucket
-                    payload["ml_confidence"] = kalshi_aligned.get(direct_bucket, kalshi_conf)
+                    print(f"ℹ️ Direct map ({direct_bucket}) differs from prob-aligned ({kalshi_bucket}) "
+                          f"— keeping prob-aligned (higher expected accuracy)")
 
                 signal, edge = _compute_bet_signal(
                     payload["ml_confidence"], payload["ml_bucket"], market_probs
