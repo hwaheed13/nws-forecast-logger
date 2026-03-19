@@ -79,8 +79,9 @@ export default async function handler(req, res) {
     
     // Sort ranges by min temperature
     ranges.sort((a, b) => {
+      if (a.min === null && b.min === null) return 0;
       if (a.min === null) return -1;
-      if (b.min === null) return -1;
+      if (b.min === null) return 1;
       return a.min - b.min;
     });
     

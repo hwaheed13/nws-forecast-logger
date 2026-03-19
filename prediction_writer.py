@@ -319,8 +319,10 @@ def _fetch_kalshi_market_probs(target_date_iso: str) -> dict:
             # Compute implied probability from bid/ask midpoint
             # Kalshi API returns prices in _dollars fields (0-1 scale)
             # Fall back to legacy field names for backwards compat
-            bid = _parse_kalshi_price(m.get("yes_bid_dollars")) or _parse_kalshi_price(m.get("yes_bid"))
-            ask = _parse_kalshi_price(m.get("yes_ask_dollars")) or _parse_kalshi_price(m.get("yes_ask"))
+            bid_d = _parse_kalshi_price(m.get("yes_bid_dollars"))
+            bid = bid_d if bid_d is not None else _parse_kalshi_price(m.get("yes_bid"))
+            ask_d = _parse_kalshi_price(m.get("yes_ask_dollars"))
+            ask = ask_d if ask_d is not None else _parse_kalshi_price(m.get("yes_ask"))
             if bid is not None and ask is not None:
                 prob = (bid + ask) / 2
             elif bid is not None:
@@ -919,8 +921,18 @@ def _latest_forecast(rows: list[dict], date_iso: str, source: Optional[str]) -> 
     cands.sort(key=lambda kv: kv[0])
     return cands[-1][1]
 
-def _fetch_existing_prediction(target_date_iso: str, lead: str) -> Optional[dict]:
-    """Check if a prediction already exists in Supabase for this date+lead."""
+_LOCK_NOT_FOUND = "not_found"
+_LOCK_ERROR = "error"
+
+def _fetch_existing_prediction(target_date_iso: str, lead: str):
+    """
+    Check if a prediction already exists in Supabase for this date+lead.
+
+    Returns:
+      dict  – existing prediction row (lock the ML fields)
+      _LOCK_NOT_FOUND – no row exists yet (compute fresh ML prediction)
+      _LOCK_ERROR – network/auth error (skip ML to avoid overwriting)
+    """
     try:
         endpoint, key = _sb_endpoint()
         idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{lead}:{target_date_iso}"
@@ -934,9 +946,10 @@ def _fetch_existing_prediction(target_date_iso: str, lead: str) -> Optional[dict
             rows = json.loads(resp.read().decode("utf-8"))
         if rows and rows[0].get("ml_f") is not None:
             return rows[0]
+        return _LOCK_NOT_FOUND
     except Exception as e:
         print(f"⚠️ Could not check existing prediction: {e}")
-    return None
+        return _LOCK_ERROR
 
 
 def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
@@ -957,7 +970,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     # The ML prediction should be stable — only computed once per day.
     # Subsequent runs only refresh Kalshi market data + bet signals.
     existing = _fetch_existing_prediction(target_date_iso, "today_for_today")
-    if existing:
+    if isinstance(existing, dict):
         print(f"🔒 ML prediction already locked: {existing['ml_f']}°F → {existing.get('ml_bucket')}")
         ml = {
             "ml_f": existing["ml_f"],
@@ -966,8 +979,12 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             "ml_bucket_probs": existing.get("ml_bucket_probs"),
             "ml_version": existing.get("ml_version"),
         }
+    elif existing == _LOCK_ERROR:
+        # Network error checking lock — skip ML to avoid overwriting a locked prediction
+        print("⚠️ Supabase unreachable — skipping ML recomputation to protect locked prediction")
+        ml = None
     else:
-        # First run of the day — compute ML prediction
+        # First run of the day (_LOCK_NOT_FOUND) — compute ML prediction
         ml = _compute_ml_prediction(rows, target_date_iso)
 
     if bcp is None and ml is None:
@@ -1002,56 +1019,58 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         if ml.get("ml_version"):
             payload["ml_version"] = ml["ml_version"]
 
-    # Safety guard: apply observed floor for today's predictions
-    observed_high, _ = _fetch_observed_high_so_far(target_date_iso)
-
     # Fetch Kalshi market odds + compute bet signal
     market_probs = _fetch_kalshi_market_probs(target_date_iso)
     if market_probs:
         payload["kalshi_market_snapshot"] = json.dumps(market_probs)
 
+    is_locked = isinstance(existing, dict)
+
     # Map ML prediction → Kalshi's actual bucket structure for today
     if ml and market_probs:
-        # Direct mapping: model predicts X°F → which Kalshi bucket contains X?
-        direct_bucket = _find_kalshi_bucket_for_temp(ml["ml_f"], market_probs)
-        if direct_bucket:
-            print(f"🎯 Direct map: {ml['ml_f']:.1f}°F → Kalshi bucket '{direct_bucket}'")
-
-        if ml.get("ml_bucket_probs"):
-            raw_probs = json.loads(ml["ml_bucket_probs"]) if isinstance(ml["ml_bucket_probs"], str) else ml["ml_bucket_probs"]
-
-            # Apply observed floor guard (only affects today, drops impossible buckets)
-            if observed_high is not None:
-                raw_probs = _apply_observed_floor(raw_probs, observed_high)
-
-            kalshi_bucket, kalshi_conf, kalshi_aligned = _map_ml_to_kalshi_buckets(raw_probs, market_probs)
-            if kalshi_bucket:
-                # Use prob-aligned bucket as primary pick — it aggregates the
-                # full probability distribution into Kalshi's actual bucket
-                # structure.  This is the best estimate of which bucket wins.
-                payload["ml_bucket"] = kalshi_bucket
-                payload["ml_confidence"] = kalshi_conf
-                print(f"🎯 Kalshi prob-aligned bucket: {kalshi_bucket} ({kalshi_conf:.0%})")
-
-                if direct_bucket and kalshi_bucket != direct_bucket:
-                    print(f"ℹ️ Direct map ({direct_bucket}) differs from prob-aligned ({kalshi_bucket}) "
-                          f"— keeping prob-aligned (higher expected accuracy)")
-
-                signal, edge = _compute_bet_signal(
-                    payload["ml_confidence"], payload["ml_bucket"], market_probs
-                )
-                payload["bet_signal"] = signal
-                payload["ml_edge"] = edge
-                print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
-        elif direct_bucket:
-            # No bucket probs but we have a direct mapping
-            payload["ml_bucket"] = direct_bucket
+        if is_locked:
+            # Prediction is locked — do NOT re-map the bucket or apply observed
+            # floor.  Only refresh the bet signal (ML confidence vs live market).
+            print(f"🔒 Bucket locked: {payload.get('ml_bucket')} — refreshing bet signal only")
             signal, edge = _compute_bet_signal(
-                ml["ml_confidence"], direct_bucket, market_probs
+                payload.get("ml_confidence", 0), payload.get("ml_bucket", ""), market_probs
             )
             payload["bet_signal"] = signal
             payload["ml_edge"] = edge
             print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
+        else:
+            # First run — map ML probs to Kalshi buckets
+            direct_bucket = _find_kalshi_bucket_for_temp(ml["ml_f"], market_probs)
+            if direct_bucket:
+                print(f"🎯 Direct map: {ml['ml_f']:.1f}°F → Kalshi bucket '{direct_bucket}'")
+
+            if ml.get("ml_bucket_probs"):
+                raw_probs = json.loads(ml["ml_bucket_probs"]) if isinstance(ml["ml_bucket_probs"], str) else ml["ml_bucket_probs"]
+
+                kalshi_bucket, kalshi_conf, kalshi_aligned = _map_ml_to_kalshi_buckets(raw_probs, market_probs)
+                if kalshi_bucket:
+                    payload["ml_bucket"] = kalshi_bucket
+                    payload["ml_confidence"] = kalshi_conf
+                    print(f"🎯 Kalshi prob-aligned bucket: {kalshi_bucket} ({kalshi_conf:.0%})")
+
+                    if direct_bucket and kalshi_bucket != direct_bucket:
+                        print(f"ℹ️ Direct map ({direct_bucket}) differs from prob-aligned ({kalshi_bucket}) "
+                              f"— keeping prob-aligned (higher expected accuracy)")
+
+                    signal, edge = _compute_bet_signal(
+                        payload["ml_confidence"], payload["ml_bucket"], market_probs
+                    )
+                    payload["bet_signal"] = signal
+                    payload["ml_edge"] = edge
+                    print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
+            elif direct_bucket:
+                payload["ml_bucket"] = direct_bucket
+                signal, edge = _compute_bet_signal(
+                    ml["ml_confidence"], direct_bucket, market_probs
+                )
+                payload["bet_signal"] = signal
+                payload["ml_edge"] = edge
+                print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
 
     supabase_upsert(payload)
 
@@ -1072,7 +1091,7 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
 
     # Check if ML prediction is already locked for tomorrow.
     existing = _fetch_existing_prediction(tomorrow_iso, "today_for_tomorrow")
-    if existing:
+    if isinstance(existing, dict):
         print(f"🔒 ML prediction already locked: {existing['ml_f']}°F → {existing.get('ml_bucket')}")
         ml = {
             "ml_f": existing["ml_f"],
@@ -1081,9 +1100,15 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
             "ml_bucket_probs": existing.get("ml_bucket_probs"),
             "ml_version": existing.get("ml_version"),
         }
+    elif existing == _LOCK_ERROR:
+        print("⚠️ Supabase unreachable — skipping ML recomputation to protect locked prediction")
+        ml = None
     else:
         # First run — compute ML prediction
         ml = _compute_ml_prediction(rows, tomorrow_iso)
+
+    if bcp_tm is None and ml is None:
+        print("⏭️ today_for_tomorrow: no BCP data and no ML prediction available."); return
 
     ts = now_nyc().isoformat()
     idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:today_for_tomorrow:{tomorrow_iso}"
@@ -1095,7 +1120,7 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
         "target_date": tomorrow_iso,
         "lead_used": "today_for_tomorrow",
         "model_name": MODEL_VERSION,
-        "prediction_value": bcp_tm,
+        "prediction_value": bcp_tm if bcp_tm is not None else (ml["ml_f"] if ml else None),
         "nws_d1": nws_latest_tm,
         "accuweather": accu_latest_tm,
         "bias_applied": avg_bias_all,
@@ -1119,38 +1144,49 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     if market_probs:
         payload["kalshi_market_snapshot"] = json.dumps(market_probs)
 
+    is_locked_tm = isinstance(existing, dict)
+
     # Map ML prediction → Kalshi's actual bucket structure for tomorrow
     if ml and market_probs:
-        direct_bucket = _find_kalshi_bucket_for_temp(ml["ml_f"], market_probs)
-        if direct_bucket:
-            print(f"🎯 Direct map: {ml['ml_f']:.1f}°F → Kalshi bucket '{direct_bucket}'")
-
-        if ml.get("ml_bucket_probs"):
-            raw_probs = json.loads(ml["ml_bucket_probs"]) if isinstance(ml["ml_bucket_probs"], str) else ml["ml_bucket_probs"]
-            kalshi_bucket, kalshi_conf, kalshi_aligned = _map_ml_to_kalshi_buckets(raw_probs, market_probs)
-            if kalshi_bucket:
-                payload["ml_bucket"] = kalshi_bucket
-                payload["ml_confidence"] = kalshi_conf
-                print(f"🎯 Kalshi prob-aligned bucket: {kalshi_bucket} ({kalshi_conf:.0%})")
-
-                if direct_bucket and kalshi_bucket != direct_bucket:
-                    print(f"ℹ️ Direct map ({direct_bucket}) differs from prob-aligned ({kalshi_bucket}) "
-                          f"— keeping prob-aligned (higher expected accuracy)")
-
-                signal, edge = _compute_bet_signal(
-                    payload["ml_confidence"], payload["ml_bucket"], market_probs
-                )
-                payload["bet_signal"] = signal
-                payload["ml_edge"] = edge
-                print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
-        elif direct_bucket:
-            payload["ml_bucket"] = direct_bucket
+        if is_locked_tm:
+            print(f"🔒 Bucket locked: {payload.get('ml_bucket')} — refreshing bet signal only")
             signal, edge = _compute_bet_signal(
-                ml["ml_confidence"], direct_bucket, market_probs
+                payload.get("ml_confidence", 0), payload.get("ml_bucket", ""), market_probs
             )
             payload["bet_signal"] = signal
             payload["ml_edge"] = edge
             print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
+        else:
+            direct_bucket = _find_kalshi_bucket_for_temp(ml["ml_f"], market_probs)
+            if direct_bucket:
+                print(f"🎯 Direct map: {ml['ml_f']:.1f}°F → Kalshi bucket '{direct_bucket}'")
+
+            if ml.get("ml_bucket_probs"):
+                raw_probs = json.loads(ml["ml_bucket_probs"]) if isinstance(ml["ml_bucket_probs"], str) else ml["ml_bucket_probs"]
+                kalshi_bucket, kalshi_conf, kalshi_aligned = _map_ml_to_kalshi_buckets(raw_probs, market_probs)
+                if kalshi_bucket:
+                    payload["ml_bucket"] = kalshi_bucket
+                    payload["ml_confidence"] = kalshi_conf
+                    print(f"🎯 Kalshi prob-aligned bucket: {kalshi_bucket} ({kalshi_conf:.0%})")
+
+                    if direct_bucket and kalshi_bucket != direct_bucket:
+                        print(f"ℹ️ Direct map ({direct_bucket}) differs from prob-aligned ({kalshi_bucket}) "
+                              f"— keeping prob-aligned (higher expected accuracy)")
+
+                    signal, edge = _compute_bet_signal(
+                        payload["ml_confidence"], payload["ml_bucket"], market_probs
+                    )
+                    payload["bet_signal"] = signal
+                    payload["ml_edge"] = edge
+                    print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
+            elif direct_bucket:
+                payload["ml_bucket"] = direct_bucket
+                signal, edge = _compute_bet_signal(
+                    ml["ml_confidence"], direct_bucket, market_probs
+                )
+                payload["bet_signal"] = signal
+                payload["ml_edge"] = edge
+                print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
 
     supabase_upsert(payload)
 

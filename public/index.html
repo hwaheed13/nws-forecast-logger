@@ -3237,13 +3237,13 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
         } else if (ktoday && ktoday.settled === true && ktoday.label) {
           if (tBox)  tBox.innerHTML  = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${cleanKalshiLabel(ktoday.label)}</a>`;
           if (tNote) tNote.textContent = (ktoday.exactTemp != null) ? `Settled at ${ktoday.exactTemp.toFixed(1)}°F.` : "";
-        } else if (window.mlPredictions && window.mlPredictions.todayMLBucket) {
-          // Fallback: show the ML model's bucket pick when live/settled data unavailable
-          const mlBucket = window.mlPredictions.todayMLBucket;
-          const mlConf = window.mlPredictions.todayMLConfidence;
-          const confStr = mlConf != null ? ` (${Math.round(mlConf * 100)}%)` : "";
-          if (tBox)  tBox.innerHTML  = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${cleanKalshiLabel(mlBucket)}${confStr}</a>`;
-          if (tNote) tNote.textContent = "ML model prediction (live market data unavailable).";
+        } else if (window.mlPredictions && window.mlPredictions.today) {
+          // Fallback: show ML predicted temp (not bucket) when live Kalshi data unavailable.
+          // ML buckets are 1°F wide and may not match actual Kalshi bucket boundaries,
+          // so showing the temp is more honest than showing a potentially fake bucket.
+          const mlTemp = Math.round(window.mlPredictions.today);
+          if (tBox)  tBox.innerHTML  = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">~${mlTemp}°F</a>`;
+          if (tNote) tNote.textContent = "ML model estimate (live market data unavailable).";
         } else {
           if (tBox)  tBox.innerHTML  = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">Open market</a>`;
           if (tNote) tNote.textContent = `Closes 11:59 PM ${CC().tzAbbr}; settles after NWS daily report.`;
