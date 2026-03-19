@@ -800,19 +800,36 @@ def _compute_ml_prediction(
                 if pd.isna(X_v2.loc[0, accu_col]):
                     X_v2.loc[0, accu_col] = X_v2.loc[0, nws_col]
 
-            # v2 regression prediction (if v2 regression model available)
-            if v2_temp_model is not None:
+            # v2 center temp: prefer atmospheric predictor (1,278 days, knows
+            # spring) over regression model (239 days, 15 spring days).
+            # Fall back to regression or forecast average when atm unavailable.
+            atm_pred_val = v2_features.get("atm_predicted_high")
+            has_atm = (atm_pred_val is not None
+                       and not (isinstance(atm_pred_val, float) and math.isnan(atm_pred_val)))
+
+            if has_atm:
+                # Blend atmospheric predictor with forecast sources for stability.
+                # Atm predictor gets 60% weight — it has far more seasonal data.
+                # Forecast average (NWS/AccuWeather) gets 40% — it has today's
+                # specific forecast revisions that the atm model can't see.
+                forecast_avg = base  # already best of accu_last / nws_last
+                v2_temp = 0.6 * atm_pred_val + 0.4 * forecast_avg
+                print(f"   Center temp: {v2_temp:.1f}°F "
+                      f"(60% atm={atm_pred_val:.1f} + 40% forecast={forecast_avg:.0f})")
+            elif v2_temp_model is not None:
                 v2_bias = float(v2_temp_model.predict(X_v2)[0])
                 v2_temp = base + v2_bias
+                print(f"   Center temp: {v2_temp:.1f}°F "
+                      f"(regression: base={base:.0f} + bias={v2_bias:+.1f})")
             else:
-                # No regression model — use latest forecasts as center.
+                # No atm predictor and no regression — use forecast average
                 all_forecasts = [features["nws_last"]]
                 if has_accu and not np.isnan(features["accu_last"]):
                     all_forecasts.append(features["accu_last"])
                 v2_temp = float(np.mean(all_forecasts))
                 accu_note = f", AccuWx={features['accu_last']:.0f}" if has_accu else ""
                 print(f"   Center temp: {v2_temp:.1f}°F "
-                      f"(NWS last={features['nws_last']:.0f}{accu_note})")
+                      f"(forecast avg: NWS={features['nws_last']:.0f}{accu_note})")
 
             # Exceedance check: if observed temp already exceeded forecast,
             # shift center up (physics-based, not market-based)
