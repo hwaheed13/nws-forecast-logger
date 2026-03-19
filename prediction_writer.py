@@ -919,6 +919,26 @@ def _latest_forecast(rows: list[dict], date_iso: str, source: Optional[str]) -> 
     cands.sort(key=lambda kv: kv[0])
     return cands[-1][1]
 
+def _fetch_existing_prediction(target_date_iso: str, lead: str) -> Optional[dict]:
+    """Check if a prediction already exists in Supabase for this date+lead."""
+    try:
+        endpoint, key = _sb_endpoint()
+        idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{lead}:{target_date_iso}"
+        url = (f"{endpoint}?idempotency_key=eq.{idem_key}"
+               f"&select=ml_f,ml_bucket,ml_confidence,ml_bucket_probs,ml_version")
+        req = urllib.request.Request(url, headers={
+            "apikey": key, "Authorization": f"Bearer {key}",
+            "Accept": "application/json",
+        })
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            rows = json.loads(resp.read().decode("utf-8"))
+        if rows and rows[0].get("ml_f") is not None:
+            return rows[0]
+    except Exception as e:
+        print(f"⚠️ Could not check existing prediction: {e}")
+    return None
+
+
 def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     if not target_date_iso:
         target_date_iso = today_nyc().isoformat()
@@ -933,8 +953,22 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     if avg_bias_excl_today is not None and today_pre_mean is not None:
         bcp = today_pre_mean + avg_bias_excl_today
 
-    # ML model prediction (graceful — returns None if models missing or no data)
-    ml = _compute_ml_prediction(rows, target_date_iso)
+    # Check if ML prediction is already locked for today.
+    # The ML prediction should be stable — only computed once per day.
+    # Subsequent runs only refresh Kalshi market data + bet signals.
+    existing = _fetch_existing_prediction(target_date_iso, "today_for_today")
+    if existing:
+        print(f"🔒 ML prediction already locked: {existing['ml_f']}°F → {existing.get('ml_bucket')}")
+        ml = {
+            "ml_f": existing["ml_f"],
+            "ml_bucket": existing["ml_bucket"],
+            "ml_confidence": existing["ml_confidence"],
+            "ml_bucket_probs": existing.get("ml_bucket_probs"),
+            "ml_version": existing.get("ml_version"),
+        }
+    else:
+        # First run of the day — compute ML prediction
+        ml = _compute_ml_prediction(rows, target_date_iso)
 
     if bcp is None and ml is None:
         print("⏭️ today_for_today: no BCP data and no ML prediction available."); return
@@ -1036,8 +1070,20 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     if nws_latest_tm is not None and avg_bias_all is not None:
         bcp_tm = float(f"{(nws_latest_tm + avg_bias_all):.1f}")
 
-    # ML model prediction (graceful — returns None if models missing or no data)
-    ml = _compute_ml_prediction(rows, tomorrow_iso)
+    # Check if ML prediction is already locked for tomorrow.
+    existing = _fetch_existing_prediction(tomorrow_iso, "today_for_tomorrow")
+    if existing:
+        print(f"🔒 ML prediction already locked: {existing['ml_f']}°F → {existing.get('ml_bucket')}")
+        ml = {
+            "ml_f": existing["ml_f"],
+            "ml_bucket": existing["ml_bucket"],
+            "ml_confidence": existing["ml_confidence"],
+            "ml_bucket_probs": existing.get("ml_bucket_probs"),
+            "ml_version": existing.get("ml_version"),
+        }
+    else:
+        # First run — compute ML prediction
+        ml = _compute_ml_prediction(rows, tomorrow_iso)
 
     ts = now_nyc().isoformat()
     idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:today_for_tomorrow:{tomorrow_iso}"
