@@ -162,10 +162,14 @@ function parseRangeFromLabel(label) {
  * Returns 0..1 or null.
  */
 function impliedYesProb(m) {
-  const bidRaw = numOrNull(m.yes_bid)
+  // Kalshi API returns prices in _dollars fields (0-1 scale)
+  // Fall back to legacy field names for backwards compat
+  const bidRaw = numOrNull(m.yes_bid_dollars)
+    ?? numOrNull(m.yes_bid)
     ?? pathNum(m, ["order_book", "yes", "best_bid", "price"])
     ?? pathNum(m, ["order_book", "bids", 0, "price"]);
-  const askRaw = numOrNull(m.yes_ask)
+  const askRaw = numOrNull(m.yes_ask_dollars)
+    ?? numOrNull(m.yes_ask)
     ?? pathNum(m, ["order_book", "yes", "best_ask", "price"])
     ?? pathNum(m, ["order_book", "asks", 0, "price"]);
   

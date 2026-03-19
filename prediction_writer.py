@@ -317,8 +317,10 @@ def _fetch_kalshi_market_probs(target_date_iso: str) -> dict:
         result = {}
         for m in active:
             # Compute implied probability from bid/ask midpoint
-            bid = _parse_kalshi_price(m.get("yes_bid"))
-            ask = _parse_kalshi_price(m.get("yes_ask"))
+            # Kalshi API returns prices in _dollars fields (0-1 scale)
+            # Fall back to legacy field names for backwards compat
+            bid = _parse_kalshi_price(m.get("yes_bid_dollars")) or _parse_kalshi_price(m.get("yes_bid"))
+            ask = _parse_kalshi_price(m.get("yes_ask_dollars")) or _parse_kalshi_price(m.get("yes_ask"))
             if bid is not None and ask is not None:
                 prob = (bid + ask) / 2
             elif bid is not None:
