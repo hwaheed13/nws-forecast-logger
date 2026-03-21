@@ -1089,16 +1089,25 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
         bcp_tm = float(f"{(nws_latest_tm + avg_bias_all):.1f}")
 
     # Check if ML prediction is already locked for tomorrow.
+    # Only lock when Kalshi market data is available — otherwise keep recomputing
+    # so the prediction gets mapped to real Kalshi buckets.
     existing = _fetch_existing_prediction(tomorrow_iso, "today_for_tomorrow")
+    tomorrow_market_probs = _fetch_kalshi_market_probs(tomorrow_iso)
     if isinstance(existing, dict):
-        print(f"🔒 ML prediction already locked: {existing['ml_f']}°F → {existing.get('ml_bucket')}")
-        ml = {
-            "ml_f": existing["ml_f"],
-            "ml_bucket": existing["ml_bucket"],
-            "ml_confidence": existing["ml_confidence"],
-            "ml_bucket_probs": existing.get("ml_bucket_probs"),
-            "ml_version": existing.get("ml_version"),
-        }
+        if existing.get("kalshi_market_snapshot") or tomorrow_market_probs:
+            # Locked WITH Kalshi data — keep it
+            print(f"🔒 ML prediction already locked: {existing['ml_f']}°F → {existing.get('ml_bucket')}")
+            ml = {
+                "ml_f": existing["ml_f"],
+                "ml_bucket": existing["ml_bucket"],
+                "ml_confidence": existing["ml_confidence"],
+                "ml_bucket_probs": existing.get("ml_bucket_probs"),
+                "ml_version": existing.get("ml_version"),
+            }
+        else:
+            # Locked WITHOUT Kalshi data — recompute so we can map to real buckets
+            print(f"🔄 Recomputing tomorrow's prediction — previous had no Kalshi market data")
+            ml = _compute_ml_prediction(rows, tomorrow_iso)
     elif existing == _LOCK_ERROR:
         print("⚠️ Supabase unreachable — skipping ML recomputation to protect locked prediction")
         ml = None
@@ -1138,8 +1147,8 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
         if ml.get("ml_version"):
             payload["ml_version"] = ml["ml_version"]
 
-    # Fetch Kalshi market odds + compute bet signal
-    market_probs = _fetch_kalshi_market_probs(tomorrow_iso)
+    # Use already-fetched Kalshi market odds (from lock check above)
+    market_probs = tomorrow_market_probs
     if market_probs:
         payload["kalshi_market_snapshot"] = json.dumps(market_probs)
 

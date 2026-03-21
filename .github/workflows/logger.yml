@@ -13,7 +13,8 @@ on:
     - cron: "0 18 * * *"  # 2pm EDT / 1pm EST
     
     # Tomorrow's forecast — 10am & 8pm ET
-    - cron: "0 14 * * *"  # 10am EDT / 9am EST
+    # Market opens ~10am ET; prediction won't lock until Kalshi data is available
+    - cron: "0 14 * * *"  # 10am EDT / 9am EST — Kalshi market opens around now
     - cron: "0 0 * * *"   # 8pm EDT / 7pm EST (previous day)
     
     # Actuals
