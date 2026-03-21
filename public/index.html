@@ -3373,7 +3373,7 @@ function renderMLBetSignal() {
     if (card) card.style.borderLeftColor = s.border;
 
     // Format bucket label
-    const fmtBucket = (b) => b.includes("-") ? b + "\u00B0F" : b;
+    const fmtBucket = (b) => cleanKalshiLabel(b);
 
     // Signal badge
     const signalBadge = signal
@@ -3422,7 +3422,7 @@ function renderMLBetSignal() {
     const detail = document.getElementById("ml-signal-today-detail");
     const card = document.getElementById("ml-signal-today-card");
     if (el && ml.todayMLBucket) {
-      const bucketDisplay = ml.todayMLBucket.includes("-") ? ml.todayMLBucket + "\u00B0F" : ml.todayMLBucket;
+      const bucketDisplay = cleanKalshiLabel(ml.todayMLBucket);
 
       // Get actual high from our own CSV data
       const actualRow = allRows.find(r =>
