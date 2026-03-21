@@ -3272,7 +3272,7 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
       renderMLBetSignal();
     }
 
-async function renderMLBetSignal() {
+function renderMLBetSignal() {
   const ml = window.mlPredictions || {};
   const grid = document.getElementById("ml-bet-signal-grid");
   if (!grid) return;
@@ -3401,40 +3401,52 @@ async function renderMLBetSignal() {
     }
   };
 
-  // Today: show WIN/MISS once actual high is published
+  // Today: show WIN/MISS once actual high is published (from our CLI data, not Kalshi settlement)
   const todayISO = nycISODate(0);
   if (hasActualFor(todayISO)) {
     const el = document.getElementById("ml-signal-today");
     const detail = document.getElementById("ml-signal-today-detail");
     const card = document.getElementById("ml-signal-today-card");
-    if (el) {
-      const bucketDisplay = ml.todayMLBucket ? (ml.todayMLBucket.includes("-") ? ml.todayMLBucket + "\u00B0F" : ml.todayMLBucket) : "";
+    if (el && ml.todayMLBucket) {
+      const bucketDisplay = ml.todayMLBucket.includes("-") ? ml.todayMLBucket + "\u00B0F" : ml.todayMLBucket;
 
-      // Compare ML pick to actual Kalshi winning bucket
-      let resultBadge = '<span style="background:#f3f4f6;color:#6b7280;padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid #d1d5db;">SETTLED</span>';
-      let resultDetail = "Market settled — checking result...";
-      let borderColor = "#d1d5db";
+      // Get actual high from our own CSV data
+      const actualRow = allRows.find(r =>
+        r.forecast_or_actual === "actual" && r.cli_date === todayISO &&
+        r.actual_high && String(r.actual_high).trim() !== ""
+      );
+      const actualHigh = actualRow ? Number(actualRow.actual_high) : null;
 
-      try {
-        const ktoday = await getKalshiLabel(todayISO);
-        if (ktoday && ktoday.settled && ktoday.label && ml.todayMLBucket) {
-          // Normalize both to "X-Y" format for comparison
-          const normalize = (s) => s.replace(/[°F\s]/g, '').replace(/(\d+)\s*to\s*(\d+)/i, '$1-$2');
-          const mlNorm = normalize(ml.todayMLBucket);
-          const winNorm = normalize(ktoday.label);
-          const isWin = mlNorm === winNorm;
+      let resultBadge, resultDetail, borderColor;
+
+      if (actualHigh != null && ml.todayMLBucket) {
+        // Check if actual high falls in the ML bucket
+        const parts = ml.todayMLBucket.match(/(\d+)-(\d+)/);
+        if (parts) {
+          const lo = Number(parts[1]);
+          const hi = Number(parts[2]);
+          const actualInt = Math.round(actualHigh);
+          const isWin = actualInt >= lo && actualInt <= hi;
 
           if (isWin) {
             resultBadge = '<span style="background:#ecfdf5;color:#059669;padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid #059669;">WIN</span>';
-            resultDetail = `Correct! Winning bucket: ${cleanKalshiLabel(ktoday.label)}`;
+            resultDetail = `Correct! Actual high: ${actualHigh}°F`;
             borderColor = "#059669";
           } else {
             resultBadge = '<span style="background:#fef2f2;color:#dc2626;padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid #dc2626;">MISS</span>';
-            resultDetail = `Winning bucket: ${cleanKalshiLabel(ktoday.label)}` + (ktoday.exactTemp != null ? ` (${ktoday.exactTemp.toFixed(1)}°F)` : '');
+            resultDetail = `Actual high: ${actualHigh}°F`;
             borderColor = "#dc2626";
           }
+        } else {
+          resultBadge = '<span style="background:#f3f4f6;color:#6b7280;padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid #d1d5db;">SETTLED</span>';
+          resultDetail = `Actual high: ${actualHigh}°F`;
+          borderColor = "#d1d5db";
         }
-      } catch {}
+      } else {
+        resultBadge = '<span style="background:#f3f4f6;color:#6b7280;padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid #d1d5db;">SETTLED</span>';
+        resultDetail = "Actual high published";
+        borderColor = "#d1d5db";
+      }
 
       el.innerHTML = `
         <span style="font-weight:700;color:#6b7280;">${bucketDisplay}</span>
