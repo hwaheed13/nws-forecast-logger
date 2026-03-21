@@ -330,6 +330,7 @@
       .pill .dot { width: 5px; height: 5px; }
       .last-update-label { font-size: 10px; }
       .last-update-content { font-size: 13px; line-height: 1.35; }
+      .signal-badge { display: inline-block; margin-top: 6px; }
     }
 
     @media (min-width: 601px) {
@@ -3363,7 +3364,7 @@ function renderMLBetSignal() {
 
     // Signal badge
     const signalBadge = signal
-      ? `<span style="background:${s.bg};color:${s.color};padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid ${s.border};">${s.icon} ${s.label}</span>`
+      ? `<span class="signal-badge" style="background:${s.bg};color:${s.color};padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid ${s.border};">${s.icon} ${s.label}</span>`
       : '';
 
     if (top2 && top2.second) {
@@ -3415,7 +3416,8 @@ function renderMLBetSignal() {
         r.forecast_or_actual === "actual" && r.cli_date === todayISO &&
         r.actual_high && String(r.actual_high).trim() !== ""
       );
-      const actualHigh = actualRow ? Number(actualRow.actual_high) : null;
+      const actualHighRaw = actualRow ? Number(actualRow.actual_high) : null;
+      const actualHigh = (actualHighRaw != null && !isNaN(actualHighRaw)) ? actualHighRaw : null;
 
       let resultBadge, resultDetail, borderColor;
 
@@ -3429,22 +3431,23 @@ function renderMLBetSignal() {
           const isWin = actualInt >= lo && actualInt <= hi;
 
           if (isWin) {
-            resultBadge = '<span style="background:#ecfdf5;color:#059669;padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid #059669;">WIN</span>';
+            resultBadge = `<span class="signal-badge" style="background:#ecfdf5;color:#059669;padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid #059669;">\u2705 WIN</span>`;
             resultDetail = `Correct! Actual high: ${actualHigh}°F`;
             borderColor = "#059669";
           } else {
-            resultBadge = '<span style="background:#fef2f2;color:#dc2626;padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid #dc2626;">MISS</span>';
+            resultBadge = `<span class="signal-badge" style="background:#fef2f2;color:#dc2626;padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid #dc2626;">\u274C MISS (actual: ${actualInt}°F)</span>`;
             resultDetail = `Actual high: ${actualHigh}°F`;
             borderColor = "#dc2626";
           }
         } else {
-          resultBadge = '<span style="background:#f3f4f6;color:#6b7280;padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid #d1d5db;">SETTLED</span>';
+          resultBadge = '<span class="signal-badge" style="background:#f3f4f6;color:#6b7280;padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid #d1d5db;">SETTLED</span>';
           resultDetail = `Actual high: ${actualHigh}°F`;
           borderColor = "#d1d5db";
         }
       } else {
-        resultBadge = '<span style="background:#f3f4f6;color:#6b7280;padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid #d1d5db;">SETTLED</span>';
-        resultDetail = "Actual high published";
+        // No actual high available yet — show SETTLED as fallback
+        resultBadge = '<span class="signal-badge" style="background:#f3f4f6;color:#6b7280;padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid #d1d5db;">SETTLED</span>';
+        resultDetail = "Awaiting actual high from CLI";
         borderColor = "#d1d5db";
       }
 

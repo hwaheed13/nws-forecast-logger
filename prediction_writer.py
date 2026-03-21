@@ -531,20 +531,21 @@ def _compute_bet_signal(
     market_probs: dict,
 ) -> tuple[str, float]:
     """
-    Compute bet signal based purely on ML model confidence.
+    Compute bet signal based on ML model confidence AND edge over market.
 
     Returns (signal, edge) where:
-      signal: "STRONG_BET" / "BET" / "SKIP"
-      edge: model confidence - market probability (informational only)
+      signal: "STRONG_BET" / "BET" / "LEAN" / "SKIP"
+      edge: model confidence - market probability
     """
     market_prob = market_probs.get(ml_bucket, 0.0)
     edge = ml_confidence - market_prob
 
-    # Signal is purely based on ML confidence — not edge vs market
-    if ml_confidence >= 0.65:
+    if ml_confidence >= 0.65 and edge >= 0.20:
         signal = "STRONG_BET"
-    elif ml_confidence >= 0.45:
+    elif ml_confidence >= 0.55 and edge >= 0.15:
         signal = "BET"
+    elif ml_confidence >= 0.45 and edge >= 0.10:
+        signal = "LEAN"
     else:
         signal = "SKIP"
 
@@ -923,9 +924,12 @@ def _latest_forecast(rows: list[dict], date_iso: str, source: Optional[str]) -> 
 _LOCK_NOT_FOUND = "not_found"
 _LOCK_ERROR = "error"
 
-def _fetch_existing_prediction(target_date_iso: str, lead: str):
+def _fetch_existing_prediction(target_date_iso: str):
     """
-    Check if a prediction already exists in Supabase for this date+lead.
+    Check if a prediction already exists in Supabase for this target date.
+
+    Uses a lead-agnostic idempotency key so the first prediction for a given
+    target date wins (tomorrow's prediction locks out today's for the same date).
 
     Returns:
       dict  – existing prediction row (lock the ML fields)
@@ -934,7 +938,7 @@ def _fetch_existing_prediction(target_date_iso: str, lead: str):
     """
     try:
         endpoint, key = _sb_endpoint()
-        idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{lead}:{target_date_iso}"
+        idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{target_date_iso}"
         url = (f"{endpoint}?idempotency_key=eq.{idem_key}"
                f"&select=ml_f,ml_bucket,ml_confidence,ml_bucket_probs,ml_version,kalshi_market_snapshot")
         req = urllib.request.Request(url, headers={
@@ -974,7 +978,7 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
     # Fetch yesterday's prediction from Supabase
     try:
         endpoint, key = _sb_endpoint()
-        idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:today_for_today:{yesterday_iso}"
+        idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{yesterday_iso}"
         url = (f"{endpoint}?idempotency_key=eq.{idem_key}"
                f"&select=ml_bucket,ml_f,ml_result")
         req = urllib.request.Request(url, headers={
@@ -1047,7 +1051,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     # Check if ML prediction is already locked for today.
     # The ML prediction should be stable — only computed once per day.
     # Subsequent runs only refresh Kalshi market data + bet signals.
-    existing = _fetch_existing_prediction(target_date_iso, "today_for_today")
+    existing = _fetch_existing_prediction(target_date_iso)
     if isinstance(existing, dict):
         print(f"🔒 ML prediction already locked: {existing['ml_f']}°F → {existing.get('ml_bucket')}")
         ml = {
@@ -1069,7 +1073,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         print("⏭️ today_for_today: no BCP data and no ML prediction available."); return
 
     ts = now_nyc().isoformat()
-    idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:today_for_today:{target_date_iso}"
+    idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{target_date_iso}"
 
     payload = {
         "idempotency_key": idem_key,
@@ -1170,7 +1174,7 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     # Check if ML prediction is already locked for tomorrow.
     # Only lock when Kalshi market data is available — otherwise keep recomputing
     # so the prediction gets mapped to real Kalshi buckets.
-    existing = _fetch_existing_prediction(tomorrow_iso, "today_for_tomorrow")
+    existing = _fetch_existing_prediction(tomorrow_iso)
     tomorrow_market_probs = _fetch_kalshi_market_probs(tomorrow_iso)
     if isinstance(existing, dict):
         if existing.get("kalshi_market_snapshot") or tomorrow_market_probs:
@@ -1198,7 +1202,7 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
         print("⏭️ today_for_tomorrow: no BCP data and no ML prediction available."); return
 
     ts = now_nyc().isoformat()
-    idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:today_for_tomorrow:{tomorrow_iso}"
+    idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{tomorrow_iso}"
 
     payload = {
         "idempotency_key": idem_key,
