@@ -109,6 +109,38 @@ def _load_v2_models():
     )
 
 
+def _load_v3_model():
+    """Load v3 unified regression model + atmospheric predictor (cached).
+    v3 predicts actual_high directly from all features — no classifier needed."""
+    import nws_auto_logger as _nal
+    prefix = _nal._CITY_CFG.get("model_prefix", "")
+    cache_key = f"{prefix}v3_model"
+    if cache_key not in _ML_MODEL_CACHE:
+        _ML_MODEL_CACHE[cache_key] = None
+        _ML_MODEL_CACHE[f"{prefix}v3_atm_predictor"] = None
+
+        try:
+            with open(f"{prefix}temp_model_v3.pkl", "rb") as f:
+                _ML_MODEL_CACHE[cache_key] = pickle.load(f)
+            print(f"✅ Loaded v3 unified model (prefix='{prefix}')")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            print(f"⚠️ v3 model load error: {e}")
+
+        # Atmospheric predictor (needed to compute atm_predicted_high feature)
+        try:
+            with open(f"{prefix}atm_predictor.pkl", "rb") as f:
+                _ML_MODEL_CACHE[f"{prefix}v3_atm_predictor"] = pickle.load(f)
+        except FileNotFoundError:
+            pass
+
+    return (
+        _ML_MODEL_CACHE.get(cache_key),
+        _ML_MODEL_CACHE.get(f"{prefix}v3_atm_predictor"),
+    )
+
+
 def _fetch_observed_high_so_far(target_date_iso: str) -> tuple:
     """
     Fetch today's observed high temperature from NWS station observations.
@@ -811,16 +843,7 @@ def _compute_ml_prediction(
             has_atm = (atm_pred_val is not None
                        and not (isinstance(atm_pred_val, float) and math.isnan(atm_pred_val)))
 
-            if has_atm:
-                # Blend atmospheric predictor with forecast sources for stability.
-                # Atm predictor gets 60% weight — it has far more seasonal data.
-                # Forecast average (NWS/AccuWeather) gets 40% — it has today's
-                # specific forecast revisions that the atm model can't see.
-                forecast_avg = base  # already best of accu_last / nws_last
-                v2_temp = 0.6 * atm_pred_val + 0.4 * forecast_avg
-                print(f"   Center temp: {v2_temp:.1f}°F "
-                      f"(60% atm={atm_pred_val:.1f} + 40% forecast={forecast_avg:.0f})")
-            elif v2_temp_model is not None:
+            if v2_temp_model is not None:
                 v2_bias = float(v2_temp_model.predict(X_v2)[0])
                 v2_temp = base + v2_bias
                 print(f"   Center temp: {v2_temp:.1f}°F "

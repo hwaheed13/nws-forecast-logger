@@ -113,6 +113,13 @@ ATM_PREDICTOR_INPUT_COLS = ATMOSPHERIC_COLS + INTRADAY_CURVE_COLS + [
 # Combined v2 feature list (66 total: 30 + 15 + 5 + 4 + 10 + 2)
 FEATURE_COLS_V2 = FEATURE_COLS + ATMOSPHERIC_COLS + ENSEMBLE_COLS + MULTIMODEL_COLS + INTRADAY_CURVE_COLS + ATM_PREDICTOR_COLS
 
+# v3 unified feature list (66 total — same features as v2)
+# The difference is architectural: v3 trains a SINGLE regression model on ALL
+# data (1,540+ days) predicting actual_high directly, instead of separate
+# regression + classifier.  HistGradientBoosting handles NaN forecast features
+# natively for multi-year rows.
+FEATURE_COLS_V3 = FEATURE_COLS_V2
+
 # Additional features added per-candidate-bucket during classification (4)
 # These are NOT in FEATURE_COLS_V2 because they vary per candidate bucket, not per day
 BUCKET_POSITION_COLS = [

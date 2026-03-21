@@ -15,7 +15,7 @@ from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import TimeSeriesSplit
 
 from model_config import (
-    FEATURE_COLS, FEATURE_COLS_V2, ACCU_NWS_FALLBACK,
+    FEATURE_COLS, FEATURE_COLS_V2, FEATURE_COLS_V3, ACCU_NWS_FALLBACK,
     ATM_PREDICTOR_INPUT_COLS, ATM_PREDICTOR_COLS,
 )
 
@@ -996,6 +996,179 @@ class NYCTemperatureModelTrainer:
         print(f"  Classifier Bucket:    {classifier.cv_bucket_accuracy:.1%}")
         print(f"{'─'*50}")
 
+    def train_v3(self) -> None:
+        """
+        Train v3 unified model: single regression on ALL data (forecast + multi-year).
+
+        Key differences from v2:
+        - ONE model predicts actual_high directly (not bias from a base)
+        - Trained on ALL 1,540+ days (forecast days have full features,
+          multi-year days have atmospheric + temporal, rest NaN)
+        - No separate classifier — bucket probs come from Gaussian mapping
+        - The model LEARNS when to trust forecasts vs atmospheric data
+        - HistGradientBoosting handles NaN natively (multi-year rows)
+
+        Output: temp_model_v3.pkl, model_metadata_v3.json
+        """
+        print(f"\n{'═'*60}")
+        print(f"v3 Training: Unified Direct Regression")
+        print(f"{'═'*60}")
+
+        # v3 runs AFTER v2, so features_df already has atmospheric features
+        # and multi-year data merged.  No need to reload.
+
+        # Ensure all v3 columns exist
+        for col in FEATURE_COLS_V3:
+            if col not in self.features_df.columns:
+                self.features_df[col] = np.nan
+
+        # Also train the atmospheric predictor (needed at inference for
+        # atm_predicted_high and atm_vs_forecast_diff features)
+        self._train_atm_predictor()
+
+        # Prepare training data — ALL rows with actual_high
+        df = self.features_df[self.features_df["actual_high"].notna()].copy()
+        n_total = len(df)
+        n_forecast = df["nws_last"].notna().sum()
+        n_multiyear = n_total - n_forecast
+        print(f"\n  v3 unified training: {n_total} total days "
+              f"({n_forecast} with forecasts, {n_multiyear} atmospheric-only)")
+
+        X = df[FEATURE_COLS_V3]
+        y = df["actual_high"]
+        has_forecast = df["nws_last"].notna().values
+
+        # Upweight forecast days so the model learns to use NWS/AccuWeather
+        # when available, instead of always relying on atmospheric features.
+        # Without this, 84% multi-year data dominates and forecast features
+        # get ignored.
+        forecast_weight = max(1, int(n_multiyear / max(n_forecast, 1)))
+        sample_weights = np.where(has_forecast, forecast_weight, 1.0)
+        print(f"  Sample weights: forecast days={forecast_weight}x, multi-year=1x")
+
+        # Cross-validate with TimeSeriesSplit
+        tscv = TimeSeriesSplit(n_splits=5)
+        cv_maes = []
+        cv_bucket_accs = []
+        all_residuals = []
+        # Track forecast-days-only residuals for better residual_std
+        forecast_residuals = []
+        # Also track forecast-only MAE separately
+        forecast_maes = []
+
+        for tr, te in tscv.split(X):
+            model = HistGradientBoostingRegressor(
+                max_iter=400, max_depth=4, learning_rate=0.03,
+                min_samples_leaf=15, l2_regularization=1.0,
+                max_leaf_nodes=20, random_state=42,
+            )
+            model.fit(X.iloc[tr], y.iloc[tr], sample_weight=sample_weights[tr])
+            pred = model.predict(X.iloc[te])
+
+            cv_maes.append(mean_absolute_error(y.iloc[te], pred))
+            residuals = (y.iloc[te].values - pred)
+            all_residuals.extend(residuals.tolist())
+
+            # Track forecast-day residuals separately
+            te_forecast_mask = has_forecast[te]
+            if te_forecast_mask.any():
+                forecast_residuals.extend(residuals[te_forecast_mask].tolist())
+                forecast_maes.append(mean_absolute_error(
+                    y.iloc[te].values[te_forecast_mask], pred[te_forecast_mask]
+                ))
+
+            # Bucket accuracy — compute separately for forecast days only
+            te_forecast_pred = pred[te_forecast_mask]
+            te_forecast_actual = y.iloc[te].values[te_forecast_mask]
+            if len(te_forecast_pred) > 0:
+                pred_buckets = [f"{int(round(p))}-{int(round(p))+1}" for p in te_forecast_pred]
+                actual_buckets = [f"{int(round(a))}-{int(round(a))+1}" for a in te_forecast_actual]
+                correct = sum(1 for pb, ab in zip(pred_buckets, actual_buckets) if pb == ab)
+                cv_bucket_accs.append(correct / len(actual_buckets))
+
+        overall_mae = float(np.mean(cv_maes))
+        forecast_mae = float(np.mean(forecast_maes)) if forecast_maes else overall_mae
+        overall_bucket_acc = float(np.mean(cv_bucket_accs)) if cv_bucket_accs else 0
+        # Use forecast-day residuals for residual_std (tighter, since at inference
+        # we always have forecast data)
+        residual_std = float(np.std(forecast_residuals)) if forecast_residuals else float(np.std(all_residuals))
+
+        print(f"  v3 CV MAE (all): {overall_mae:.2f}°F")
+        print(f"  v3 CV MAE (forecast days only): {forecast_mae:.2f}°F")
+        print(f"  v3 CV 1°F Bucket Accuracy (forecast days): {overall_bucket_acc:.1%} "
+              f"(per fold: {[f'{a:.1%}' for a in cv_bucket_accs]})")
+        print(f"  v3 Residual Std (forecast days): {residual_std:.2f}°F")
+
+        # Train final model on all data (with sample weights)
+        v3_model = HistGradientBoostingRegressor(
+            max_iter=400, max_depth=4, learning_rate=0.03,
+            min_samples_leaf=15, l2_regularization=1.0,
+            max_leaf_nodes=20, random_state=42,
+        )
+        v3_model.fit(X, y, sample_weight=sample_weights)
+
+        # Feature importance
+        from sklearn.inspection import permutation_importance
+        perm = permutation_importance(v3_model, X, y, n_repeats=5, random_state=42, n_jobs=-1)
+        importances = sorted(
+            zip(FEATURE_COLS_V3, perm.importances_mean),
+            key=lambda x: x[1], reverse=True,
+        )
+        print(f"\n  Top 10 features:")
+        for name, imp in importances[:10]:
+            print(f"    {name:30s} {imp:.4f}")
+
+        # Save model
+        v3_data = {
+            "model": v3_model,
+            "features": FEATURE_COLS_V3,
+            "residual_std": residual_std,
+            "cv_mae": overall_mae,
+            "cv_bucket_accuracy": overall_bucket_acc,
+            "n_training_days": n_total,
+            "n_forecast_days": int(n_forecast),
+            "n_multiyear_days": int(n_multiyear),
+        }
+        with open(f"{self.model_prefix}temp_model_v3.pkl", "wb") as f:
+            pickle.dump(v3_data, f)
+        print(f"\n  Saved v3 model to {self.model_prefix}temp_model_v3.pkl")
+
+        # Save metadata
+        v3_metadata = {
+            "trained_on": datetime.now().isoformat(),
+            "version": "v3_unified_regression",
+            "num_days": n_total,
+            "num_forecast_days": int(n_forecast),
+            "num_multiyear_days": int(n_multiyear),
+            "date_range": {
+                "start": str(df["target_date"].min()),
+                "end": str(df["target_date"].max()),
+            },
+            "performance": {
+                "cv_mae": round(overall_mae, 2),
+                "cv_bucket_accuracy_1f": round(overall_bucket_acc, 4),
+                "residual_std": round(residual_std, 2),
+                "per_fold_mae": [round(m, 2) for m in cv_maes],
+                "per_fold_bucket_acc": [round(a, 4) for a in cv_bucket_accs],
+            },
+            "top_features": [
+                {"name": name, "importance": round(float(imp), 4)}
+                for name, imp in importances[:15]
+            ],
+            "hyperparameters": {
+                "max_iter": 400,
+                "max_depth": 4,
+                "learning_rate": 0.03,
+                "min_samples_leaf": 15,
+                "l2_regularization": 1.0,
+                "max_leaf_nodes": 20,
+            },
+            "feature_columns": FEATURE_COLS_V3,
+        }
+        with open(f"{self.model_prefix}model_metadata_v3.json", "w") as f:
+            json.dump(v3_metadata, f, indent=2)
+        print(f"  Saved v3 metadata to {self.model_prefix}model_metadata_v3.json")
+
     def run(self, v2: bool = False):
         label = self.city_cfg["label"]
         print("=" * 60)
@@ -1031,6 +1204,8 @@ class NYCTemperatureModelTrainer:
 
         if v2:
             self.train_v2()
+            # Also train v3 (unified model) using the same expanded data
+            self.train_v3()
 
         print("\nTraining complete.")
 
