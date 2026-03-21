@@ -1676,27 +1676,61 @@ async function warmOnceForCurrentCSV() {
   // Don't reset - preserve learned biases across reloads
   // resetHedgeState();
 
-// === SEEDS (production deterministic defaults) ===
+// === Fetch server-side ensemble weights from Supabase ===
+let serverWeights = null;
+try {
+  const { data, error } = await supabase
+    .from('prediction_logs')
+    .select('recommendation')
+    .eq('target_date', `ensemble_weights_${currentCity}`)
+    .eq('city', currentCity)
+    .maybeSingle();
+  if (!error && data && data.recommendation) {
+    serverWeights = typeof data.recommendation === 'string'
+      ? JSON.parse(data.recommendation) : data.recommendation;
+    console.log("Server ensemble weights loaded:", serverWeights);
+  }
+} catch (e) {
+  console.warn("Could not fetch server ensemble weights:", e);
+}
 
-// === SEEDS (production deterministic defaults) ===
-// Today (D0): mirror D1 scheme — Accu dominant, NWS as light sanity check
+// Map server weights (nws_last, accu_last, nws_mean, ml_prediction)
+// to client candidate names for D0 and D1
+function buildSeedFromServer(sw, prefix) {
+  if (!sw || !sw.weights) return null;
+  const w = sw.weights;
+  const nwsW = w.nws_last || 0;
+  const result = {};
+  result[`${prefix}_latest`]  = Math.round(nwsW * 0.6 * 1e6) / 1e6;
+  result[`${prefix}_trimmed`] = Math.round(nwsW * 0.4 * 1e6) / 1e6;
+  result.series_rep           = w.nws_mean || 0;
+  result.AccuWeather          = w.accu_last || 0;
+  result.ML_bias_corrected    = w.ml_prediction || 0;
+  return result;
+}
+
+// === SEEDS (server-learned or hardcoded fallback) ===
+const d0ServerW = buildSeedFromServer(serverWeights, "D0");
+const d1ServerW = buildSeedFromServer(serverWeights, "D1");
+const serverBias = serverWeights ? (serverWeights.bias || 0) : 0;
+const serverRmse = serverWeights ? (serverWeights.rmse || 2.0) : 2.0;
+
 const todayWarm = {
-  w: { D0_latest: 0.03, D0_trimmed: 0.02, series_rep: 0.02, AccuWeather: 0.83, ML_bias_corrected: 0.10 },
-  bias: 0.0, rmse: 1.9, lastDay: null, learnCounts: {}
+  w: d0ServerW || { D0_latest: 0.03, D0_trimmed: 0.02, series_rep: 0.02, AccuWeather: 0.83, ML_bias_corrected: 0.10 },
+  bias: serverWeights ? serverBias : 0.0, rmse: serverWeights ? serverRmse : 1.9, lastDay: null, learnCounts: {}
 };
 const todayCool = {
-  w: { D0_latest: 0.03, D0_trimmed: 0.02, series_rep: 0.02, AccuWeather: 0.83, ML_bias_corrected: 0.10 },
-  bias: 0.0, rmse: 2.0, lastDay: null, learnCounts: {}
+  w: d0ServerW || { D0_latest: 0.03, D0_trimmed: 0.02, series_rep: 0.02, AccuWeather: 0.83, ML_bias_corrected: 0.10 },
+  bias: serverWeights ? serverBias : 0.0, rmse: serverWeights ? serverRmse : 2.0, lastDay: null, learnCounts: {}
 };
 
-  // Tomorrow (D1): make AccuWeather dominant; NWS + ML as secondary signals
   const tomorrowWarm = {
-    w: { D1_latest: 0.03, D1_trimmed: 0.02, series_rep: 0.02, AccuWeather: 0.83, ML_bias_corrected: 0.10 },
-    bias: 0.0, rmse: 2.4, lastDay: null, learnCounts: {}
+    w: d1ServerW || { D1_latest: 0.03, D1_trimmed: 0.02, series_rep: 0.02, AccuWeather: 0.83, ML_bias_corrected: 0.10 },
+    bias: serverWeights ? serverBias : 0.0, rmse: serverWeights ? serverRmse : 2.4, lastDay: null, learnCounts: {}
   };
   const tomorrowCool = {
-    w: { D1_latest: 0.03, D1_trimmed: 0.02, series_rep: 0.02, AccuWeather: 0.83, ML_bias_corrected: 0.10 },
-    bias: 0.0, rmse: 2.5, lastDay: null, learnCounts: {}
+    w: d1ServerW || { D1_latest: 0.03, D1_trimmed: 0.02, series_rep: 0.02, AccuWeather: 0.83, ML_bias_corrected: 0.10 },
+    bias: serverWeights ? serverBias : 0.0, rmse: serverWeights ? serverRmse : 2.5, lastDay: null, learnCounts: {}
   };
 
 // Only seed if no prior state exists (so the learner can keep adapting)
@@ -1719,6 +1753,28 @@ for (const [k, v] of seeds) {
     } else {
       localStorage.setItem(k, JSON.stringify(v));
       console.log(`Seeded ${k} with initial values`);
+    }
+  } else if (serverWeights) {
+    // Server weights available — merge into existing state
+    // Preserve learned bias, rmse, lastDay, learnCounts
+    try {
+      const parsed = JSON.parse(existing);
+      const isToday = k.includes(":today:");
+      const serverW = isToday ? d0ServerW : d1ServerW;
+      if (serverW && parsed.w) {
+        const merged = { ...serverW };
+        for (const cn of Object.keys(parsed.w)) {
+          if (!(cn in merged)) merged[cn] = parsed.w[cn];
+        }
+        parsed.w = merged;
+        if (parsed.bias === 0 || parsed.bias === null) {
+          parsed.bias = serverBias;
+        }
+        localStorage.setItem(k, JSON.stringify(parsed));
+        console.log(`Updated ${k} with server-learned weights`);
+      }
+    } catch (e) {
+      console.log(`Preserving learned state for ${k}`);
     }
   } else {
     console.log(`Preserving learned state for ${k}`);

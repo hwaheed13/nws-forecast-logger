@@ -1318,6 +1318,245 @@ def write_both_snapshots() -> None:
     except Exception as e: print("⚠️ write_today_for_today failed:", e)
     try: write_today_for_tomorrow()
     except Exception as e: print("⚠️ write_today_for_tomorrow failed:", e)
+    # Compute and store server-side ensemble weights
+    try: compute_ensemble_weights()
+    except Exception as e: print("⚠️ compute_ensemble_weights failed:", e)
+
+
+# ---------------------------------------------------------------------------
+# Server-side ensemble weight learning (Hedge algorithm)
+# ---------------------------------------------------------------------------
+
+def _fetch_ml_predictions_history() -> dict:
+    """
+    Fetch all scored ML predictions from Supabase for the current city.
+    Returns {target_date: ml_f} for rows that have ml_f and ml_actual_high.
+    """
+    try:
+        endpoint, key = _sb_endpoint()
+        url = (f"{endpoint}?city=eq.{_CITY_KEY}"
+               f"&ml_f=not.is.null"
+               f"&ml_actual_high=not.is.null"
+               f"&select=target_date,ml_f")
+        req = urllib.request.Request(url, headers={
+            "apikey": key, "Authorization": f"Bearer {key}",
+            "Accept": "application/json",
+        })
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            rows = json.loads(resp.read().decode("utf-8"))
+        result = {}
+        for r in rows:
+            td = r.get("target_date")
+            ml_f = r.get("ml_f")
+            if td and ml_f is not None:
+                result[td] = float(ml_f)
+        print(f"📊 Loaded {len(result)} ML prediction history rows from Supabase")
+        return result
+    except Exception as e:
+        print(f"⚠️ Could not fetch ML prediction history: {e}")
+        return {}
+
+
+def compute_ensemble_weights() -> Optional[dict]:
+    """
+    Compute server-side ensemble weights using an exponentially-weighted
+    Hedge algorithm over all historical days with actuals.
+
+    Candidates (matching the dashboard):
+      - nws_last: latest NWS forecast for the target date
+      - accu_last: latest AccuWeather forecast
+      - nws_mean: mean of all NWS pre-high forecasts (like series_rep)
+      - ml_prediction: ML bias-corrected prediction from Supabase
+
+    Stores result in Supabase prediction_logs with a special idempotency key.
+    Returns the weight dict or None on failure.
+    """
+    rows, _ = _read_all_rows(include_accu=True)
+
+    # Fetch ML predictions from Supabase
+    ml_history = _fetch_ml_predictions_history()
+
+    # Group rows by target date
+    by_date: dict[str, list[dict]] = {}
+    for r in rows:
+        d = (r.get("cli_date") if r.get("forecast_or_actual") == "actual"
+             else r.get("target_date"))
+        if d:
+            by_date.setdefault(d, []).append(r)
+
+    # Hedge algorithm parameters (match client-side)
+    ETA = 0.05          # learning rate
+    MIX_GAMMA = 0.02    # uniform mixing to prevent collapse
+    DECAY = 0.995       # daily weight decay (recency)
+    CANDIDATE_NAMES = ["nws_last", "accu_last", "nws_mean", "ml_prediction"]
+
+    # Initialize uniform weights
+    n_cands = len(CANDIDATE_NAMES)
+    weights = {name: 1.0 / n_cands for name in CANDIDATE_NAMES}
+
+    # Track bias via EWMA
+    bias_ewma = 0.0
+    bias_alpha = 1.0 - 0.5 ** (1.0 / 14.0)  # 14-day half-life
+    rmse_var = 4.0  # initial variance (2^2)
+    rmse_alpha = 1.0 - 0.5 ** (1.0 / 21.0)  # 21-day half-life
+
+    num_days = 0
+
+    from nws_auto_logger import _minutes_from_hhmm_ampm, _minutes_from_forecast_time_cell
+
+    for d in sorted(by_date.keys()):
+        rs = by_date[d]
+        # Find actual high
+        actual_high = None
+        high_time_str = None
+        for x in rs:
+            if x.get("forecast_or_actual") == "actual":
+                actual_high = _float_or_none(x.get("actual_high"))
+                high_time_str = (x.get("high_time") or "").strip()
+                if actual_high is not None:
+                    break
+        if actual_high is None:
+            continue
+
+        # Parse high time for pre-high filtering
+        high_min = _minutes_from_hhmm_ampm(high_time_str) if high_time_str else None
+
+        # Collect NWS forecasts (pre-high only)
+        nws_vals = []
+        nws_last_val = None
+        for x in rs:
+            if x.get("forecast_or_actual") != "forecast":
+                continue
+            src = (x.get("source") or "").lower()
+            if src == "accuweather":
+                continue
+            ph = _float_or_none(x.get("predicted_high"))
+            if ph is None:
+                continue
+            if high_min is not None:
+                fc_min = _minutes_from_forecast_time_cell(x.get("forecast_time") or "")
+                if fc_min is not None and fc_min > high_min:
+                    continue
+            nws_vals.append(ph)
+        if nws_vals:
+            nws_last_val = nws_vals[-1]  # last pre-high forecast
+
+        # Collect AccuWeather forecasts
+        accu_last_val = None
+        for x in rs:
+            if x.get("forecast_or_actual") != "forecast":
+                continue
+            src = (x.get("source") or "").lower()
+            if src != "accuweather":
+                continue
+            ph = _float_or_none(x.get("predicted_high"))
+            if ph is not None:
+                accu_last_val = ph  # take last one
+
+        # NWS mean
+        nws_mean_val = (sum(nws_vals) / len(nws_vals)) if nws_vals else None
+
+        # ML prediction
+        ml_val = ml_history.get(d)
+
+        # Build candidate dict for this day
+        candidates = {}
+        if nws_last_val is not None:
+            candidates["nws_last"] = nws_last_val
+        if accu_last_val is not None:
+            candidates["accu_last"] = accu_last_val
+        if nws_mean_val is not None:
+            candidates["nws_mean"] = nws_mean_val
+        if ml_val is not None:
+            candidates["ml_prediction"] = ml_val
+
+        if len(candidates) < 2:
+            continue  # need at least 2 candidates
+
+        # Decay weights (recency preference)
+        for name in weights:
+            weights[name] *= DECAY
+
+        # Uniform mixing to prevent collapse
+        total = sum(weights.values())
+        if total > 0:
+            for name in weights:
+                weights[name] = (1.0 - MIX_GAMMA) * (weights[name] / total) + MIX_GAMMA / n_cands
+
+        # Compute weighted ensemble prediction (pre-bias)
+        active_names = [n for n in CANDIDATE_NAMES if n in candidates]
+        denom = sum(weights[n] for n in active_names)
+        if denom <= 0:
+            continue
+        y0 = sum(weights[n] * candidates[n] for n in active_names) / denom
+        yhat = y0 + bias_ewma
+        err = actual_high - yhat
+
+        # Hedge update: penalize each candidate by its absolute error
+        for name in active_names:
+            loss = abs(candidates[name] - actual_high)
+            weights[name] *= math.exp(-ETA * loss)
+
+        # Renormalize
+        total = sum(weights.values())
+        if total > 0:
+            for name in weights:
+                weights[name] /= total
+
+        # Update bias EWMA (clipped to +/-6)
+        clipped_err = max(-6.0, min(6.0, err))
+        bias_ewma = (1.0 - bias_alpha) * bias_ewma + bias_alpha * clipped_err
+
+        # Update RMSE EWMA
+        sq = min(36.0, err * err)
+        rmse_var = (1.0 - rmse_alpha) * rmse_var + rmse_alpha * sq
+
+        num_days += 1
+
+    if num_days < 5:
+        print(f"⏭️ Ensemble weights: only {num_days} days with data, need >= 5")
+        return None
+
+    rmse = math.sqrt(max(0, rmse_var))
+
+    # Final normalization
+    total = sum(weights.values())
+    if total > 0:
+        weights = {k: round(v / total, 6) for k, v in weights.items()}
+
+    result = {
+        "weights": weights,
+        "bias": round(bias_ewma, 4),
+        "rmse": round(rmse, 3),
+        "computed_on": today_nyc().isoformat(),
+        "num_days": num_days,
+    }
+
+    print(f"📊 Ensemble weights ({_CITY_KEY}, {num_days} days):")
+    for name, w in sorted(weights.items(), key=lambda x: -x[1]):
+        print(f"   {name}: {w:.1%}")
+    print(f"   bias: {bias_ewma:+.3f}, RMSE: {rmse:.2f}")
+
+    # Store in Supabase with special idempotency key
+    ts = now_nyc().isoformat()
+    idem_key = f"{_CITY_KEY}:ensemble_weights"
+    payload = {
+        "idempotency_key": idem_key,
+        "timestamp": ts,
+        "timestamp_et": ts,
+        "target_date": f"ensemble_weights_{_CITY_KEY}",
+        "lead_used": "ensemble_weights",
+        "model_name": "hedge_server",
+        "prediction_value": 0,
+        "version": "hedge_v1",
+        "source_card": "ensemble_weights",
+        "city": _CITY_KEY,
+        "recommendation": json.dumps(result),
+    }
+    supabase_upsert(payload)
+
+    return result
+
 
 def _cli():
     import argparse
