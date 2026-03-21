@@ -3303,25 +3303,38 @@ function renderMLBetSignal() {
     if (!bucketProbsRaw) return null;
     try {
       const probs = typeof bucketProbsRaw === 'string' ? JSON.parse(bucketProbsRaw) : bucketProbsRaw;
-      // Aggregate 1°F ML buckets into 2°F Kalshi buckets if market snapshot available
-      let kalshiRanges = null;
+      let aggregated = {};
       if (marketSnapshot) {
         try {
           const mkt = typeof marketSnapshot === 'string' ? JSON.parse(marketSnapshot) : marketSnapshot;
-          kalshiRanges = Object.keys(mkt).filter(k => k.match(/^\d+-\d+$/));
-        } catch {}
-      }
-
-      let aggregated = {};
-      if (kalshiRanges && kalshiRanges.length > 0) {
-        // Aggregate ML 1°F probs into Kalshi 2°F buckets
-        for (const kr of kalshiRanges) {
-          const [lo, hi] = kr.split('-').map(Number);
-          let sum = 0;
-          for (let t = lo; t <= hi; t++) {
-            sum += (probs[`${t}-${t+1}`] || 0);
+          // Aggregate ML 1°F probs into ALL Kalshi buckets (ranges + edges)
+          for (const [label, _prob] of Object.entries(mkt)) {
+            let sum = 0;
+            const rangeMatch = label.match(/^(\d+)-(\d+)$/);
+            const leMatch = label.match(/^<=(\d+)$/);
+            const geMatch = label.match(/^>=(\d+)$/);
+            if (rangeMatch) {
+              const [lo, hi] = [Number(rangeMatch[1]), Number(rangeMatch[2])];
+              for (let t = lo; t <= hi; t++) sum += (probs[`${t}-${t+1}`] || 0);
+            } else if (leMatch) {
+              // <=X: sum all ML buckets from very low up to X
+              const threshold = Number(leMatch[1]);
+              for (const [k, v] of Object.entries(probs)) {
+                const m = k.match(/^(\d+)-(\d+)$/);
+                if (m && Number(m[1]) <= threshold) sum += v;
+              }
+            } else if (geMatch) {
+              // >=X: sum all ML buckets from X and above
+              const threshold = Number(geMatch[1]);
+              for (const [k, v] of Object.entries(probs)) {
+                const m = k.match(/^(\d+)-(\d+)$/);
+                if (m && Number(m[2]) >= threshold) sum += v;
+              }
+            }
+            if (sum > 0.001) aggregated[label] = sum;
           }
-          if (sum > 0.001) aggregated[kr] = sum;
+        } catch {
+          aggregated = probs;
         }
       } else {
         // No market data — use raw ML buckets
