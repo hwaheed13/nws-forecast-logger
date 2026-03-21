@@ -936,7 +936,7 @@ def _fetch_existing_prediction(target_date_iso: str, lead: str):
         endpoint, key = _sb_endpoint()
         idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{lead}:{target_date_iso}"
         url = (f"{endpoint}?idempotency_key=eq.{idem_key}"
-               f"&select=ml_f,ml_bucket,ml_confidence,ml_bucket_probs,ml_version")
+               f"&select=ml_f,ml_bucket,ml_confidence,ml_bucket_probs,ml_version,kalshi_market_snapshot")
         req = urllib.request.Request(url, headers={
             "apikey": key, "Authorization": f"Bearer {key}",
             "Accept": "application/json",
@@ -949,6 +949,85 @@ def _fetch_existing_prediction(target_date_iso: str, lead: str):
     except Exception as e:
         print(f"⚠️ Could not check existing prediction: {e}")
         return _LOCK_ERROR
+
+
+def score_yesterday_prediction(rows: list[dict]) -> None:
+    """
+    Score yesterday's ML prediction against the actual high.
+    Updates the prediction_logs row with ml_result ('WIN' or 'MISS')
+    and ml_actual_high.
+    """
+    today = today_nyc()
+    yesterday_iso = (today - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # Get yesterday's actual high from CSV
+    actual_high = None
+    for r in rows:
+        if (r.get("forecast_or_actual") == "actual" and
+            r.get("cli_date") == yesterday_iso):
+            actual_high = _float_or_none(r.get("actual_high"))
+            if actual_high is not None:
+                break
+    if actual_high is None:
+        return  # No actual yet — nothing to score
+
+    # Fetch yesterday's prediction from Supabase
+    try:
+        endpoint, key = _sb_endpoint()
+        idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:today_for_today:{yesterday_iso}"
+        url = (f"{endpoint}?idempotency_key=eq.{idem_key}"
+               f"&select=ml_bucket,ml_f,ml_result")
+        req = urllib.request.Request(url, headers={
+            "apikey": key, "Authorization": f"Bearer {key}",
+            "Accept": "application/json",
+        })
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            pred_rows = json.loads(resp.read().decode("utf-8"))
+
+        if not pred_rows or not pred_rows[0].get("ml_bucket"):
+            return
+        pred = pred_rows[0]
+
+        # Already scored?
+        if pred.get("ml_result"):
+            return
+
+        # Check if actual falls in the ML bucket
+        ml_bucket = pred["ml_bucket"]
+        parts = ml_bucket.split("-") if "-" in ml_bucket else None
+        if parts and len(parts) == 2:
+            try:
+                lo, hi = int(parts[0]), int(parts[1])
+                actual_int = int(round(actual_high))
+                is_win = lo <= actual_int <= hi
+            except ValueError:
+                is_win = False
+        else:
+            is_win = False
+
+        result = "WIN" if is_win else "MISS"
+
+        # Update prediction_logs with result
+        patch = json.dumps({
+            "ml_result": result,
+            "ml_actual_high": actual_high,
+        }).encode("utf-8")
+        patch_url = f"{endpoint}?idempotency_key=eq.{idem_key}"
+        patch_req = urllib.request.Request(
+            patch_url, data=patch, method="PATCH",
+            headers={
+                "Content-Type": "application/json",
+                "apikey": key, "Authorization": f"Bearer {key}",
+                "Prefer": "return=minimal",
+            },
+        )
+        with urllib.request.urlopen(patch_req, timeout=10) as resp:
+            _ = resp.read()
+        print(f"{'✅' if is_win else '❌'} Yesterday ({yesterday_iso}): ML={ml_bucket}, "
+              f"Actual={actual_high}°F → {result}")
+
+    except Exception as e:
+        print(f"⚠️ Could not score yesterday's prediction: {e}")
 
 
 def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
@@ -1199,6 +1278,10 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     supabase_upsert(payload)
 
 def write_both_snapshots() -> None:
+    rows = _read_all_rows()
+    # Score yesterday's prediction against actual high
+    try: score_yesterday_prediction(rows)
+    except Exception as e: print("⚠️ score_yesterday_prediction failed:", e)
     try: write_today_for_today()
     except Exception as e: print("⚠️ write_today_for_today failed:", e)
     try: write_today_for_tomorrow()
