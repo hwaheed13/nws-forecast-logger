@@ -1682,7 +1682,8 @@ try {
   const { data, error } = await supabase
     .from('prediction_logs')
     .select('recommendation')
-    .eq('target_date', `ensemble_weights_${currentCity}`)
+    .eq('target_date', '9999-12-31')
+    .eq('lead_used', 'ensemble_weights')
     .eq('city', currentCity)
     .maybeSingle();
   if (!error && data && data.recommendation) {

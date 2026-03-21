@@ -1544,7 +1544,7 @@ def compute_ensemble_weights() -> Optional[dict]:
         "idempotency_key": idem_key,
         "timestamp": ts,
         "timestamp_et": ts,
-        "target_date": f"ensemble_weights_{_CITY_KEY}",
+        "target_date": "9999-12-31",
         "lead_used": "ensemble_weights",
         "model_name": "hedge_server",
         "prediction_value": 0,
