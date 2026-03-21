@@ -613,12 +613,12 @@ input[type="date"] {
       <!-- ML Prediction (primary) -->
       <div class="kalshi-grid" id="ml-bet-signal-grid">
         <div class="kalshi-card" style="border-left:4px solid var(--border-subtle);" id="ml-signal-today-card">
-          <div class="metric-label">Our Prediction (Today) <span style="color:#6366f1;font-size:0.7em;font-weight:400;">ML Model</span></div>
+          <div class="metric-label">ML Bucket Pick (Today) <span style="color:#6366f1;font-size:0.7em;font-weight:400;">Atmospheric ML</span></div>
           <div id="ml-signal-today" class="metric-value" style="font-size:18px;">Loading...</div>
           <div id="ml-signal-today-detail" class="kalshi-note"></div>
         </div>
         <div class="kalshi-card" style="border-left:4px solid var(--border-subtle);" id="ml-signal-tomorrow-card">
-          <div class="metric-label">Our Prediction (Tomorrow) <span style="color:#6366f1;font-size:0.7em;font-weight:400;">ML Model</span></div>
+          <div class="metric-label">ML Bucket Pick (Tomorrow) <span style="color:#6366f1;font-size:0.7em;font-weight:400;">Atmospheric ML</span></div>
           <div id="ml-signal-tomorrow" class="metric-value" style="font-size:18px;">Loading...</div>
           <div id="ml-signal-tomorrow-detail" class="kalshi-note"></div>
         </div>
@@ -642,20 +642,20 @@ input[type="date"] {
       <div class="prediction-grid" style="display:grid; grid-template-columns:repeat(2,1fr); gap:18px; margin-bottom:22px;">
         <div class="prediction-card">
         <div class="prediction-title">
-          Forecast Ensemble (Today)
-          <span class="tip" tabindex="0" data-tip="Weighted average of NWS + AccuWeather forecasts with historical bias correction. Not ML-based — just a reference for what the forecasts say.">i</span>
+          Today's Bias-Corrected Prediction
+          <span class="tip" tabindex="0" data-tip="Starts with yesterday's forecast for today, updates if additional forecasts come in, and locks once the actual high is reported">i</span>
         </div>
           <div id="correctionBoxToday" class="prediction-content">Loading...</div>
         </div>
         <div class="prediction-card">
           <div class="prediction-title">
-            Forecast Ensemble (Tomorrow)
-            <span class="tip" tabindex="0" data-tip="Weighted average of NWS + AccuWeather forecasts with historical bias correction. Not ML-based — just a reference for what the forecasts say.">i</span>
+            Tomorrow's Bias-Corrected Prediction
+            <span class="tip" tabindex="0" data-tip="Uses today's forecasts for tomorrow. Once tomorrow begins, updates with that day's forecasts if any are issued">i</span>
           </div>
           <div id="correctionBoxTomorrow" class="prediction-content">Loading...</div>
         </div>
         <div class="prediction-disclaimer" style="grid-column:1 / span 2; font-size:12px; color:var(--text-light); margin-top:-4px;">
-        Weighted forecast average with bias correction. Updates as new forecasts arrive. Use as a reference — the ML prediction above is the primary pick.
+        Based on historical forecast accuracy patterns; updates as new forecasts arrive. Bias correction reduces average error over many days, but NWS can still miss on individual days.
       </div>
       </div>
 
