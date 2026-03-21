@@ -626,6 +626,21 @@ input[type="date"] {
           </div>
           <div id="correctionBoxTomorrow" class="prediction-content">Loading...</div>
         </div>
+
+        <!-- ML Bet Signal (under predictions, above disclaimer) -->
+        <div class="kalshi-grid" style="grid-column:1 / span 2;" id="ml-bet-signal-grid">
+          <div class="kalshi-card" style="border-left:4px solid var(--border-subtle);" id="ml-signal-today-card">
+            <div class="metric-label">ML Bucket Pick (Today) <span style="color:#6366f1;font-size:0.7em;font-weight:400;">Atmospheric ML</span></div>
+            <div id="ml-signal-today" class="metric-value" style="font-size:18px;">Loading...</div>
+            <div id="ml-signal-today-detail" class="kalshi-note"></div>
+          </div>
+          <div class="kalshi-card" style="border-left:4px solid var(--border-subtle);" id="ml-signal-tomorrow-card">
+            <div class="metric-label">ML Bucket Pick (Tomorrow) <span style="color:#6366f1;font-size:0.7em;font-weight:400;">Atmospheric ML</span></div>
+            <div id="ml-signal-tomorrow" class="metric-value" style="font-size:18px;">Loading...</div>
+            <div id="ml-signal-tomorrow-detail" class="kalshi-note"></div>
+          </div>
+        </div>
+
         <div class="prediction-disclaimer" style="grid-column:1 / span 2; font-size:12px; color:var(--text-light); margin-top:-4px;">
         Based on historical forecast accuracy patterns; updates as new forecasts arrive. Bias correction reduces average error over many days, but NWS can still miss on individual days.
       </div>
@@ -642,20 +657,6 @@ input[type="date"] {
           <div class="metric-label">Yesterday’s Kalshi Result</div>
           <div id="box-yday-kalshi" class="metric-value" style="font-size:18px;">–</div>
           <div id="box-yday-kalshi-note" class="kalshi-note"></div>
-        </div>
-      </div>
-
-      <!-- ML Bet Signal -->
-      <div class="kalshi-grid" id="ml-bet-signal-grid">
-        <div class="kalshi-card" style="border-left:4px solid var(--border-subtle);" id="ml-signal-today-card">
-          <div class="metric-label">ML Bucket Pick (Today) <span style="color:#6366f1;font-size:0.7em;font-weight:400;">Atmospheric ML</span></div>
-          <div id="ml-signal-today" class="metric-value" style="font-size:18px;">Loading...</div>
-          <div id="ml-signal-today-detail" class="kalshi-note"></div>
-        </div>
-        <div class="kalshi-card" style="border-left:4px solid var(--border-subtle);" id="ml-signal-tomorrow-card">
-          <div class="metric-label">ML Bucket Pick (Tomorrow) <span style="color:#6366f1;font-size:0.7em;font-weight:400;">Atmospheric ML</span></div>
-          <div id="ml-signal-tomorrow" class="metric-value" style="font-size:18px;">Loading...</div>
-          <div id="ml-signal-tomorrow-detail" class="kalshi-note"></div>
         </div>
       </div>
 
