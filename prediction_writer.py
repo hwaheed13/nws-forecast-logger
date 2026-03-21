@@ -531,21 +531,20 @@ def _compute_bet_signal(
     market_probs: dict,
 ) -> tuple[str, float]:
     """
-    Compute bet signal by comparing model confidence vs market pricing.
+    Compute bet signal based purely on ML model confidence.
 
     Returns (signal, edge) where:
-      signal: "STRONG_BET" / "BET" / "LEAN" / "SKIP"
-      edge: model confidence - market probability (positive = model sees value)
+      signal: "STRONG_BET" / "BET" / "SKIP"
+      edge: model confidence - market probability (informational only)
     """
     market_prob = market_probs.get(ml_bucket, 0.0)
     edge = ml_confidence - market_prob
 
-    if ml_confidence >= 0.55 and edge >= 0.10:
+    # Signal is purely based on ML confidence — not edge vs market
+    if ml_confidence >= 0.65:
         signal = "STRONG_BET"
-    elif ml_confidence >= 0.40 and edge >= 0.05:
+    elif ml_confidence >= 0.45:
         signal = "BET"
-    elif ml_confidence >= 0.30:
-        signal = "LEAN"
     else:
         signal = "SKIP"
 
