@@ -3297,6 +3297,46 @@ async function renderMLBetSignal() {
     }
   };
 
+  // Get top-2 buckets from bucket probs (mapped to Kalshi ranges if available)
+  const getTop2 = (bucketProbsRaw, marketSnapshot) => {
+    if (!bucketProbsRaw) return null;
+    try {
+      const probs = typeof bucketProbsRaw === 'string' ? JSON.parse(bucketProbsRaw) : bucketProbsRaw;
+      // Aggregate 1°F ML buckets into 2°F Kalshi buckets if market snapshot available
+      let kalshiRanges = null;
+      if (marketSnapshot) {
+        try {
+          const mkt = typeof marketSnapshot === 'string' ? JSON.parse(marketSnapshot) : marketSnapshot;
+          kalshiRanges = Object.keys(mkt).filter(k => k.match(/^\d+-\d+$/));
+        } catch {}
+      }
+
+      let aggregated = {};
+      if (kalshiRanges && kalshiRanges.length > 0) {
+        // Aggregate ML 1°F probs into Kalshi 2°F buckets
+        for (const kr of kalshiRanges) {
+          const [lo, hi] = kr.split('-').map(Number);
+          let sum = 0;
+          for (let t = lo; t <= hi; t++) {
+            sum += (probs[`${t}-${t+1}`] || 0);
+          }
+          if (sum > 0.001) aggregated[kr] = sum;
+        }
+      } else {
+        // No market data — use raw ML buckets
+        aggregated = probs;
+      }
+
+      const sorted = Object.entries(aggregated).sort((a, b) => b[1] - a[1]);
+      if (sorted.length < 1) return null;
+      return {
+        first: { bucket: sorted[0][0], prob: sorted[0][1] },
+        second: sorted.length > 1 ? { bucket: sorted[1][0], prob: sorted[1][1] } : null,
+        combined: sorted.length > 1 ? sorted[0][1] + sorted[1][1] : sorted[0][1]
+      };
+    } catch { return null; }
+  };
+
   // Render a signal card
   const renderCard = (prefix, bucket, signal, confidence, edge, marketSnapshot) => {
     const el = document.getElementById(`ml-signal-${prefix}`);
@@ -3311,31 +3351,54 @@ async function renderMLBetSignal() {
       return;
     }
 
+    // Get top-2 buckets
+    const bucketProbs = prefix === "today" ? ml.todayBucketProbs : ml.tomorrowBucketProbs;
+    const top2 = getTop2(bucketProbs, marketSnapshot);
+
     const s = signalStyle(signal);
     if (card) card.style.borderLeftColor = s.border;
 
-    // Format bucket label (e.g., "48-49" → "48-49°F")
-    const bucketDisplay = bucket.includes("-") ? bucket + "\u00B0F" : bucket;
+    // Format bucket label
+    const fmtBucket = (b) => b.includes("-") ? b + "\u00B0F" : b;
 
     // Signal badge
     const signalBadge = signal
       ? `<span style="background:${s.bg};color:${s.color};padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid ${s.border};">${s.icon} ${s.label}</span>`
       : '';
 
-    // Bucket display
-    el.innerHTML = `
-      <span style="font-weight:700;color:#16a34a;">${bucketDisplay}</span>
-      ${signalBadge}
-    `;
-
-    // Detail line: ML confidence only
-    let detailText = '';
-    if (confidence != null) {
-      const confPct = Math.round(confidence * 100);
-      const confColor = confPct >= 65 ? "#059669" : confPct >= 45 ? "#16a34a" : "#dc2626";
-      detailText += `ML confidence: <span style="color:${confColor};font-weight:600;">${confPct}%</span>`;
+    if (top2 && top2.second) {
+      // Show top-2 buckets
+      const p1 = Math.round(top2.first.prob * 100);
+      const p2 = Math.round(top2.second.prob * 100);
+      const combinedPct = Math.round(top2.combined * 100);
+      el.innerHTML = `
+        <span style="font-weight:700;color:#16a34a;">${fmtBucket(top2.first.bucket)}</span>
+        <span style="color:#6b7280;font-size:13px;">(${p1}%)</span>
+        <span style="color:#9ca3af;margin:0 4px;">or</span>
+        <span style="font-weight:700;color:#2563eb;">${fmtBucket(top2.second.bucket)}</span>
+        <span style="color:#6b7280;font-size:13px;">(${p2}%)</span>
+        ${signalBadge}
+      `;
+      // Detail: combined probability
+      const combColor = combinedPct >= 75 ? "#059669" : combinedPct >= 60 ? "#16a34a" : "#d97706";
+      if (detail) detail.innerHTML = `Combined top-2: <span style="color:${combColor};font-weight:600;">${combinedPct}%</span>`;
+    } else {
+      // Single bucket fallback
+      const bucketDisplay = fmtBucket(bucket);
+      el.innerHTML = `
+        <span style="font-weight:700;color:#16a34a;">${bucketDisplay}</span>
+        ${signalBadge}
+      `;
+      if (detail) {
+        if (confidence != null) {
+          const confPct = Math.round(confidence * 100);
+          const confColor = confPct >= 65 ? "#059669" : confPct >= 45 ? "#16a34a" : "#dc2626";
+          detail.innerHTML = `ML confidence: <span style="color:${confColor};font-weight:600;">${confPct}%</span>`;
+        } else {
+          detail.innerHTML = "ML bucket classifier prediction";
+        }
+      }
     }
-    if (detail) detail.innerHTML = detailText || "ML bucket classifier prediction";
   };
 
   // Today: show WIN/MISS once actual high is published
@@ -4748,6 +4811,7 @@ async function loadMLPredictions() {
         window.mlPredictions.todayMLConfidence = row.ml_confidence != null ? Number(row.ml_confidence) : null;
         window.mlPredictions.todayMarketSnapshot = row.kalshi_market_snapshot || null;
         window.mlPredictions.todayMLVersion = row.ml_version || null;
+        window.mlPredictions.todayBucketProbs = row.ml_bucket_probs || null;
         gotToday = true;
       }
       if (row.target_date === tomorrow && !gotTomorrow) {
@@ -4758,6 +4822,7 @@ async function loadMLPredictions() {
         window.mlPredictions.tomorrowMLConfidence = row.ml_confidence != null ? Number(row.ml_confidence) : null;
         window.mlPredictions.tomorrowMarketSnapshot = row.kalshi_market_snapshot || null;
         window.mlPredictions.tomorrowMLVersion = row.ml_version || null;
+        window.mlPredictions.tomorrowBucketProbs = row.ml_bucket_probs || null;
         gotTomorrow = true;
       }
       if (gotToday && gotTomorrow) break;
