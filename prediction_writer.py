@@ -971,6 +971,11 @@ def _fetch_existing_prediction(target_date_iso: str):
         with urllib.request.urlopen(req, timeout=10) as resp:
             rows = json.loads(resp.read().decode("utf-8"))
         if rows and rows[0].get("ml_f") is not None:
+            # Allow force-recompute for specific dates (e.g., after code fix)
+            force_dates = os.environ.get("FORCE_RECOMPUTE_DATES", "")
+            if target_date_iso in force_dates.split(","):
+                print(f"🔓 Force-recompute enabled for {target_date_iso}")
+                return _LOCK_NOT_FOUND
             return rows[0]
         return _LOCK_NOT_FOUND
     except Exception as e:
