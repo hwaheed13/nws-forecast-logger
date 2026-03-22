@@ -5,7 +5,11 @@
 .version{margin-top:32px;padding-bottom:8px;border-bottom:1px solid #e5e7eb}
 .version h2{margin-bottom:4px}
 .version .date{color:#6b7280;font-size:0.9em;margin-bottom:12px}
-ul{padding-left:20px}li{margin-bottom:6px}</style>
+ul{padding-left:20px}li{margin-bottom:6px}
+.divider{margin:48px 0 32px;border:none;border-top:2px solid #e5e7eb}
+.bugfix-version{margin-top:24px;padding-bottom:8px}
+.bugfix-version h3{margin-bottom:4px;font-size:1em}
+.bugfix-version .date{color:#6b7280;font-size:0.85em;margin-bottom:8px}</style>
 </head><body>
 <h1>Release Notes</h1>
 <p>What's new and improved on Daily Dew Point.</p>
@@ -19,12 +23,6 @@ ul{padding-left:20px}li{margin-bottom:6px}</style>
   <li><strong>Enhanced prediction model</strong> — Added new atmospheric features to improve accuracy on days with sharp temperature swings.</li>
   <li><strong>WIN/MISS tracking</strong> — ML bucket predictions are now scored against actual results daily, building a transparent track record.</li>
   <li><strong>Improved Kalshi integration</strong> — Live market data now loads reliably with updated API support.</li>
-</ul>
-<h3 style="font-size:0.95em;color:#6b7280;margin-top:16px;margin-bottom:8px;">Bug Fixes</h3>
-<ul>
-  <li>Fixed Kalshi market data not displaying due to API field update.</li>
-  <li>ML predictions now correctly reflect settled results when daily high is revised overnight.</li>
-  <li>Resolved data pipeline issues affecting prediction accuracy.</li>
 </ul>
 </div>
 
@@ -48,6 +46,20 @@ ul{padding-left:20px}li{margin-bottom:6px}</style>
   <li><strong>Bias correction</strong> — Built weighted ensemble that adjusts forecasts based on historical accuracy.</li>
   <li><strong>Kalshi market display</strong> — Live market leaders and settlement results.</li>
   <li><strong>Historical accuracy stats</strong> — Bucket hit rate and forecast accuracy metrics.</li>
+</ul>
+</div>
+
+<hr class="divider">
+
+<h2>Bug Fixes</h2>
+
+<div class="bugfix-version">
+<h3>March 22, 2026</h3>
+<div class="date"></div>
+<ul>
+  <li>Fixed Kalshi market data not displaying due to API field update.</li>
+  <li>ML predictions now correctly reflect settled results when daily high is revised overnight.</li>
+  <li>Resolved data pipeline issues affecting prediction accuracy.</li>
 </ul>
 </div>
 
