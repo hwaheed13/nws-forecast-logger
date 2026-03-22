@@ -298,6 +298,10 @@ def extract_daily_atmospheric(hourly_df: pd.DataFrame, target_date: str) -> dict
         morning = day[day["time"].dt.hour == 6]["temperature_2m"].dropna()
         features["atm_morning_temp_6am"] = float(morning.iloc[0]) if len(morning) > 0 else np.nan
 
+        # Midnight temp (12am) — overnight carryover detection
+        midnight = day[day["time"].dt.hour == 0]["temperature_2m"].dropna()
+        features["midnight_temp"] = float(midnight.iloc[0]) if len(midnight) > 0 else np.nan
+
         # ── Intraday temperature curve features (10 features) ──────────
         # These capture the SHAPE of the daily heating curve — crucial for
         # predicting whether the actual high will overshoot the forecast.
@@ -358,6 +362,7 @@ def extract_daily_atmospheric(hourly_df: pd.DataFrame, target_date: str) -> dict
         features["atm_temp_range"] = np.nan
         features["atm_overnight_min"] = np.nan
         features["atm_morning_temp_6am"] = np.nan
+        features["midnight_temp"] = np.nan
         # Intraday curve features — all NaN when no temp data
         features["intra_temp_9am"] = np.nan
         features["intra_temp_noon"] = np.nan

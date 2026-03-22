@@ -5,7 +5,7 @@ import json
 import os
 import pickle
 import warnings
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -139,7 +139,7 @@ class NYCTemperatureModelTrainer:
 
         print(f"Loaded {len(self.nws_df)} NWS rows, {len(self.accu_df)} AccuWeather rows")
 
-    def extract_features_for_date(self, target_date: str):
+    def extract_features_for_date(self, target_date: str, prev_day_high: float = None):
         # NWS forecasts for the target date
         nws_forecasts = self.nws_df[
             (self.nws_df["target_date"] == target_date)
@@ -241,6 +241,17 @@ class NYCTemperatureModelTrainer:
         # --- Data availability flag ---
         features["has_accu_data"] = int(has_accu)
 
+        # --- Overnight carryover detection features ---
+        # prev_day_high: yesterday's actual high (passed in from build_feature_matrix)
+        features["prev_day_high"] = float(prev_day_high) if prev_day_high is not None else np.nan
+        # prev_day_temp_drop: large positive = overnight carryover risk
+        if prev_day_high is not None and not np.isnan(features["nws_last"]):
+            features["prev_day_temp_drop"] = float(prev_day_high) - features["nws_last"]
+        else:
+            features["prev_day_temp_drop"] = np.nan
+        # midnight_temp: filled later from atmospheric data merge
+        features["midnight_temp"] = np.nan
+
         # --- Target variables (not features, used for training) ---
         features["actual_high"] = actual_high
         features["winning_bucket"] = f"{int(actual_high)}-{int(actual_high)+1}"
@@ -299,9 +310,28 @@ class NYCTemperatureModelTrainer:
             key=lambda d: pd.to_datetime(d, errors="coerce"),
         )
 
+        # Build a lookup of actual highs by date for prev_day_high computation
+        actual_lookup = {}
+        for _, row in self.nws_df[self.nws_df["forecast_or_actual"] == "actual"].iterrows():
+            cli_d = row.get("cli_date")
+            ah = row.get("actual_high")
+            if cli_d and ah is not None:
+                try:
+                    actual_lookup[str(cli_d)] = float(ah)
+                except (ValueError, TypeError):
+                    pass
+
         features_list = []
         for date in dates_with_actuals:
-            feat = self.extract_features_for_date(date)
+            # Look up previous day's actual high
+            try:
+                prev_dt = datetime.strptime(date, "%Y-%m-%d") - timedelta(days=1)
+                prev_date_str = prev_dt.strftime("%Y-%m-%d")
+                prev_high = actual_lookup.get(prev_date_str)
+            except (ValueError, TypeError):
+                prev_high = None
+
+            feat = self.extract_features_for_date(date, prev_day_high=prev_high)
             if feat:
                 features_list.append(feat)
 
@@ -606,6 +636,11 @@ class NYCTemperatureModelTrainer:
                 "nws_accu_spread": np.nan, "nws_accu_mean_diff": np.nan,
                 "rolling_bias_7d": np.nan, "rolling_bias_21d": np.nan,
                 "has_accu_data": 0,
+
+                # Overnight carryover detection features
+                "prev_day_high": persistence,  # same as persistence forecast for multiyear
+                "prev_day_temp_drop": np.nan,  # no NWS forecast for multiyear data
+                "midnight_temp": row.get("midnight_temp", np.nan),
 
                 # Persistence proxy forecast — used as center by the classifier
                 "_persistence_forecast": persistence,

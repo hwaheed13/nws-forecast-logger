@@ -738,6 +738,29 @@ def _compute_ml_prediction(
     features["rolling_bias_7d"] = float(np.mean(daily_biases[-7:])) if daily_biases else 0.0
     features["rolling_bias_21d"] = float(np.mean(daily_biases[-21:])) if daily_biases else 0.0
 
+    # --- 7b. Overnight carryover detection features ---
+    # prev_day_high: yesterday's actual high from CSV rows
+    prev_day_high = None
+    try:
+        prev_dt = datetime.strptime(target_date_iso, "%Y-%m-%d") - timedelta(days=1)
+        prev_date_str = prev_dt.strftime("%Y-%m-%d")
+        for r in rows:
+            if r.get("forecast_or_actual") == "actual" and r.get("cli_date") == prev_date_str:
+                ah = _float_or_none(r.get("actual_high"))
+                if ah is not None:
+                    prev_day_high = ah
+                    break
+    except (ValueError, TypeError):
+        pass
+    features["prev_day_high"] = prev_day_high if prev_day_high is not None else np.nan
+    # prev_day_temp_drop: large positive = potential overnight carryover
+    if prev_day_high is not None:
+        features["prev_day_temp_drop"] = prev_day_high - features["nws_last"]
+    else:
+        features["prev_day_temp_drop"] = np.nan
+    # midnight_temp: filled from atmospheric features later (Open-Meteo live data)
+    features["midnight_temp"] = np.nan
+
     # --- 8. Data availability flag ---
     features["has_accu_data"] = int(has_accu)
 

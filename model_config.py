@@ -94,6 +94,15 @@ INTRADAY_CURVE_COLS = [
     "intra_high_vs_noon",         # actual daily max - noon temp: how much heating after noon
 ]
 
+# Overnight carryover detection features (3 features)
+# Helps the model handle days where the CLI actual high is an overnight
+# carryover from the previous warm day, not the daytime peak.
+OVERNIGHT_CARRYOVER_COLS = [
+    "prev_day_high",          # Yesterday's actual high (°F) — from CSV or Open-Meteo
+    "prev_day_temp_drop",     # prev_day_high - nws_last: large positive = potential carryover
+    "midnight_temp",          # Temperature at midnight (12am) from Open-Meteo hourly
+]
+
 # Atmospheric predictor output features (2 features)
 # Source: First-stage ML model trained on 1,278 historical days
 # Learns: atmospheric_conditions + season → actual daily high
@@ -108,12 +117,13 @@ ATM_PREDICTOR_COLS = [
 # Features used as INPUT to the atmospheric predictor (first-stage model)
 ATM_PREDICTOR_INPUT_COLS = ATMOSPHERIC_COLS + INTRADAY_CURVE_COLS + [
     "day_of_year_sin", "day_of_year_cos", "month", "is_summer", "is_winter",
+    "midnight_temp",
 ]
 
-# Combined v2 feature list (66 total: 30 + 15 + 5 + 4 + 10 + 2)
-FEATURE_COLS_V2 = FEATURE_COLS + ATMOSPHERIC_COLS + ENSEMBLE_COLS + MULTIMODEL_COLS + INTRADAY_CURVE_COLS + ATM_PREDICTOR_COLS
+# Combined v2 feature list (69 total: 30 + 15 + 5 + 4 + 10 + 3 + 2)
+FEATURE_COLS_V2 = FEATURE_COLS + ATMOSPHERIC_COLS + ENSEMBLE_COLS + MULTIMODEL_COLS + INTRADAY_CURVE_COLS + OVERNIGHT_CARRYOVER_COLS + ATM_PREDICTOR_COLS
 
-# v3 unified feature list (66 total — same features as v2)
+# v3 unified feature list (69 total — same features as v2)
 # The difference is architectural: v3 trains a SINGLE regression model on ALL
 # data (1,540+ days) predicting actual_high directly, instead of separate
 # regression + classifier.  HistGradientBoosting handles NaN forecast features
