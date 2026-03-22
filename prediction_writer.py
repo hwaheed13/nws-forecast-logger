@@ -1312,7 +1312,7 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     supabase_upsert(payload)
 
 def write_both_snapshots() -> None:
-    rows = _read_all_rows()
+    rows, _ = _read_all_rows()
     # Score yesterday's prediction against actual high
     try: score_yesterday_prediction(rows)
     except Exception as e: print("⚠️ score_yesterday_prediction failed:", e)
