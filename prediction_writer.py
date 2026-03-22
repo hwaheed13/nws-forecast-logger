@@ -1008,7 +1008,7 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
         endpoint, key = _sb_endpoint()
         idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{yesterday_iso}"
         url = (f"{endpoint}?idempotency_key=eq.{idem_key}"
-               f"&select=ml_bucket,ml_f,ml_result")
+               f"&select=ml_bucket,ml_f,ml_result,ml_actual_high")
         req = urllib.request.Request(url, headers={
             "apikey": key, "Authorization": f"Bearer {key}",
             "Accept": "application/json",
@@ -1020,9 +1020,11 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
             return
         pred = pred_rows[0]
 
-        # Already scored?
-        if pred.get("ml_result"):
-            return
+        # Already scored with same actual? Skip.
+        # But re-score if actual changed (e.g., CLI updated overnight)
+        prev_actual = _float_or_none(pred.get("ml_actual_high"))
+        if pred.get("ml_result") and prev_actual is not None and abs(prev_actual - actual_high) < 0.1:
+            return  # same actual, already scored
 
         # Check if actual falls in the ML bucket
         ml_bucket = pred["ml_bucket"]
