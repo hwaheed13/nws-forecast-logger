@@ -315,11 +315,11 @@ class NYCTemperatureModelTrainer:
         for _, row in self.nws_df[self.nws_df["forecast_or_actual"] == "actual"].iterrows():
             cli_d = row.get("cli_date")
             ah = row.get("actual_high")
-            if cli_d and ah is not None:
-                try:
+            try:
+                if cli_d and not pd.isna(ah):
                     actual_lookup[str(cli_d)] = float(ah)
-                except (ValueError, TypeError):
-                    pass
+            except (ValueError, TypeError):
+                pass
 
         features_list = []
         for date in dates_with_actuals:
