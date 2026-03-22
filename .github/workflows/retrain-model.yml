@@ -2,8 +2,9 @@ name: Daily ML Model Retrain
 
 on:
   schedule:
-    # Every day at 3am ET (8am UTC) — before first prediction run
-    - cron: "0 8 * * *"
+    # Every day at 6am ET (10am UTC) — after finalize-yesterday (5am ET)
+    # and before first prediction run (7am ET)
+    - cron: "0 10 * * *"
   workflow_dispatch:  # manual trigger
 
 jobs:
@@ -63,7 +64,7 @@ jobs:
           else
             git commit -m "Retrain ML models v1+v2 with latest data ($(date +%Y-%m-%d))
 
-          Automated weekly retrain using train_models.py --all (v1 + v2).
+          Automated daily retrain using train_models.py --all (v1 + v2).
           Cities with <60 days of data are skipped automatically.
           See model_metadata*.json for updated performance metrics."
             git push
