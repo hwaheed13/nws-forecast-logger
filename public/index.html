@@ -633,11 +633,13 @@ input[type="date"] {
             <div class="metric-label">ML Bucket Pick (Today) <span style="color:#6366f1;font-size:0.7em;font-weight:400;">Atmospheric ML</span></div>
             <div id="ml-signal-today" class="metric-value" style="font-size:18px;">Loading...</div>
             <div id="ml-signal-today-detail" class="kalshi-note"></div>
+            <div id="overnight-warn-today"></div>
           </div>
           <div class="kalshi-card" style="border-left:4px solid var(--border-subtle);" id="ml-signal-tomorrow-card">
             <div class="metric-label">ML Bucket Pick (Tomorrow) <span style="color:#6366f1;font-size:0.7em;font-weight:400;">Atmospheric ML</span></div>
             <div id="ml-signal-tomorrow" class="metric-value" style="font-size:18px;">Loading...</div>
             <div id="ml-signal-tomorrow-detail" class="kalshi-note"></div>
+            <div id="overnight-warn-tomorrow"></div>
           </div>
         </div>
 
@@ -765,6 +767,7 @@ input[type="date"] {
         label: "New York City", short: "NYC",
         timezone: "America/New_York", tzAbbr: "ET", tzLong: "Eastern Time",
         station: "KNYC",
+        lat: 40.7834, lon: -73.965,
         csvFile: "nws_forecast_log.csv",
         accuCsvFile: "accuweather_log.csv",
         kalshiSeries: "KXHIGHNY",
@@ -779,6 +782,7 @@ input[type="date"] {
         label: "Los Angeles", short: "LAX",
         timezone: "America/Los_Angeles", tzAbbr: "PT", tzLong: "Pacific Time",
         station: "KLAX",
+        lat: 33.9425, lon: -118.408,
         csvFile: "lax_nws_forecast_log.csv",
         accuCsvFile: "lax_accuweather_log.csv",
         kalshiSeries: "KXHIGHLAX",
@@ -3533,6 +3537,115 @@ function renderMLBetSignal() {
     renderCard("today", ml.todayMLBucket, ml.todayBetSignal, ml.todayMLConfidence, ml.todayEdge, ml.todayMarketSnapshot);
   }
   renderCard("tomorrow", ml.tomorrowMLBucket, ml.tomorrowBetSignal, ml.tomorrowMLConfidence, ml.tomorrowEdge, ml.tomorrowMarketSnapshot);
+
+  // Check overnight high warnings after rendering ML cards
+  checkOvernightHighWarning();
+}
+
+// ===== Overnight High Temperature Warning =====
+// Fetches Open-Meteo hourly forecast and warns if overnight temp exceeds NWS daytime forecast
+async function checkOvernightHighWarning() {
+  // Clear previous warnings
+  const wt = document.getElementById("overnight-warn-tomorrow");
+  const wd = document.getElementById("overnight-warn-today");
+  if (wt) wt.innerHTML = "";
+  if (wd) wd.innerHTML = "";
+
+  try {
+    const cc = CC();
+    if (!cc.lat || !cc.lon) return;
+
+    const tz = cc.timezone;
+    const todayISO = nycISODate(0);
+    const tomorrowISO = nycISODate(1);
+
+    // Get NWS latest forecasts for today and tomorrow
+    const latestForDate = (date) => {
+      const rows = allRows
+        .filter(r => r.forecast_or_actual === "forecast" && r.target_date === date && r.predicted_high);
+      if (!rows.length) return null;
+      rows.sort((a, b) => {
+        const A = a.timestamp || a.forecast_time || "";
+        const B = b.timestamp || b.forecast_time || "";
+        return B.localeCompare(A);
+      });
+      const v = Number(rows[0].predicted_high);
+      return Number.isFinite(v) ? v : null;
+    };
+
+    const nwsTomorrow = latestForDate(tomorrowISO);
+    const nwsToday = latestForDate(todayISO);
+
+    // Need at least the tomorrow forecast to do anything useful
+    if (!Number.isFinite(nwsTomorrow) && !Number.isFinite(nwsToday)) return;
+
+    // Fetch Open-Meteo hourly forecast (past_hours=6 to get yesterday's late night for today card)
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${cc.lat}&longitude=${cc.lon}&hourly=temperature_2m&temperature_unit=fahrenheit&timezone=${encodeURIComponent(tz)}&forecast_days=2&past_hours=6`;
+    const resp = await fetch(url);
+    if (!resp.ok) return;
+    const data = await resp.json();
+
+    if (!data.hourly || !data.hourly.time || !data.hourly.temperature_2m) return;
+
+    const times = data.hourly.time;   // "2026-03-22T00:00", "2026-03-22T01:00", ...
+    const temps = data.hourly.temperature_2m;
+
+    // Helper: find temp at a specific date + hour
+    const tempAt = (dateISO, hour) => {
+      const prefix = `${dateISO}T${String(hour).padStart(2, '0')}:00`;
+      const idx = times.findIndex(t => t === prefix);
+      return idx >= 0 ? temps[idx] : null;
+    };
+
+    // --- Tomorrow card: check tonight's overnight max vs tomorrow NWS forecast ---
+    if (Number.isFinite(nwsTomorrow)) {
+      const h22 = tempAt(todayISO, 22);   // 10pm today
+      const h23 = tempAt(todayISO, 23);   // 11pm today
+      const h0  = tempAt(tomorrowISO, 0);  // midnight tomorrow
+
+      const overnightTemps = [h22, h23, h0].filter(t => t != null);
+      if (overnightTemps.length > 0) {
+        const overnightMax = Math.max(...overnightTemps);
+        if (overnightMax > nwsTomorrow) {
+          const warnDiv = document.getElementById("overnight-warn-tomorrow");
+          if (warnDiv) {
+            warnDiv.innerHTML = `<div style="margin-top:8px;padding:6px 10px;background:#fef3c7;border:1px solid #f59e0b;color:#92400e;border-radius:8px;font-size:12px;font-weight:600;">
+              \u26A0\uFE0F Overnight forecast (~${Math.round(overnightMax)}\u00B0F at midnight) exceeds daytime forecast (${Math.round(nwsTomorrow)}\u00B0F) \u2014 daily high may be set overnight.
+            </div>`;
+          }
+        }
+      }
+    }
+
+    // --- Today card: if before 8am and last night's overnight exceeded today's forecast ---
+    if (Number.isFinite(nwsToday)) {
+      const nowLocal = new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
+      const hourNow = nowLocal.getHours();
+
+      if (hourNow < 8) {
+        // Check yesterday's late night hours + today's midnight
+        const yesterdayISO = nycISODate(-1);
+        const yh22 = tempAt(yesterdayISO, 22);
+        const yh23 = tempAt(yesterdayISO, 23);
+        const h0   = tempAt(todayISO, 0);
+
+        const overnightTemps = [yh22, yh23, h0].filter(t => t != null);
+        if (overnightTemps.length > 0) {
+          const overnightMax = Math.max(...overnightTemps);
+          if (overnightMax > nwsToday) {
+            const warnDiv = document.getElementById("overnight-warn-today");
+            if (warnDiv) {
+              warnDiv.innerHTML = `<div style="margin-top:8px;padding:6px 10px;background:#fef3c7;border:1px solid #f59e0b;color:#92400e;border-radius:8px;font-size:12px;font-weight:600;">
+                \u26A0\uFE0F Overnight forecast (~${Math.round(overnightMax)}\u00B0F at midnight) exceeds daytime forecast (${Math.round(nwsToday)}\u00B0F) \u2014 daily high may be set overnight.
+              </div>`;
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[Overnight high warning]", err);
+  }
 }
 
 function hasActualFor(dateISO) {
