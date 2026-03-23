@@ -1051,16 +1051,29 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
 
         # Check if actual falls in the ML bucket
         ml_bucket = pred["ml_bucket"]
-        parts = ml_bucket.split("-") if "-" in ml_bucket else None
-        if parts and len(parts) == 2:
+        actual_int = int(round(actual_high))
+        is_win = False
+
+        if ml_bucket.startswith("<="):
             try:
-                lo, hi = int(parts[0]), int(parts[1])
-                actual_int = int(round(actual_high))
-                is_win = lo <= actual_int <= hi
+                threshold = int(ml_bucket[2:])
+                is_win = actual_int <= threshold
             except ValueError:
-                is_win = False
-        else:
-            is_win = False
+                pass
+        elif ml_bucket.startswith(">="):
+            try:
+                threshold = int(ml_bucket[2:])
+                is_win = actual_int >= threshold
+            except ValueError:
+                pass
+        elif "-" in ml_bucket:
+            parts = ml_bucket.split("-")
+            if len(parts) == 2:
+                try:
+                    lo, hi = int(parts[0]), int(parts[1])
+                    is_win = lo <= actual_int <= hi
+                except ValueError:
+                    pass
 
         result = "WIN" if is_win else "MISS"
 

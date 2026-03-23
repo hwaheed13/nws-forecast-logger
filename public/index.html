@@ -3503,13 +3503,23 @@ function renderMLBetSignal() {
 
       if (actualHigh != null && ml.todayMLBucket) {
         // Check if actual high falls in the ML bucket
-        const parts = ml.todayMLBucket.match(/(\d+)-(\d+)/);
-        if (parts) {
-          const lo = Number(parts[1]);
-          const hi = Number(parts[2]);
-          const actualInt = Math.round(actualHigh);
-          const isWin = actualInt >= lo && actualInt <= hi;
+        const actualInt = Math.round(actualHigh);
+        let isWin = false;
+        const bucket = ml.todayMLBucket;
 
+        const leMatch = bucket.match(/^<=(\d+)$/);
+        const geMatch = bucket.match(/^>=(\d+)$/);
+        const rangeMatch = bucket.match(/^(\d+)-(\d+)$/);
+
+        if (leMatch) {
+          isWin = actualInt <= Number(leMatch[1]);
+        } else if (geMatch) {
+          isWin = actualInt >= Number(geMatch[1]);
+        } else if (rangeMatch) {
+          isWin = actualInt >= Number(rangeMatch[1]) && actualInt <= Number(rangeMatch[2]);
+        }
+
+        if (leMatch || geMatch || rangeMatch) {
           if (isWin) {
             resultBadge = `<span class="signal-badge" style="background:#ecfdf5;color:#059669;padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid #059669;">\u2705 WIN</span>`;
             resultDetail = `Correct! Actual high: ${actualHigh}°F`;
