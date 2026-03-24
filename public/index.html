@@ -587,7 +587,7 @@ input[type="date"] {
           <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border-subtle);">
             <div class="metric-label" style="margin-bottom:6px;">Today's Actual High (CLI)</div>
             <div id="box-today-actual" class="metric-value">–</div>
-            <div id="box-today-actual-note" class="metric-subtitle">NWS daily summary message</div>
+            <div id="box-today-actual-note" class="metric-subtitle">NWS daily climatological report</div>
           </div>
         </div>
 
@@ -3125,7 +3125,7 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
       const parsed = (CC().dsmProduct === "CLI") ? parseCLI(txt) : parseDSM(txt);
       if (parsed && parsed.dayISO === today) {
         el.textContent = `${parsed.tempF.toFixed(0)}°F`;
-        note.textContent = `${parsed.timeET} ${CC().tzAbbr} • NWS climatological report`;
+        note.textContent = `${parsed.timeET} ${CC().tzAbbr} • NWS daily summary message`;
       } else {
         clearDSMOnly();
       }
