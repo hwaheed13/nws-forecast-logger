@@ -656,9 +656,9 @@ input[type="date"] {
           <div id="box-today-kalshi-note" class="kalshi-note"></div>
         </div>
         <div class="kalshi-card">
-          <div class="metric-label">Yesterday’s Kalshi Result</div>
-          <div id="box-yday-kalshi" class="metric-value" style="font-size:18px;">–</div>
-          <div id="box-yday-kalshi-note" class="kalshi-note"></div>
+          <div class="metric-label">Tomorrow’s Kalshi Market</div>
+          <div id="box-tomorrow-kalshi" class="metric-value" style="font-size:18px;">–</div>
+          <div id="box-tomorrow-kalshi-note" class="kalshi-note"></div>
         </div>
       </div>
 
@@ -3287,14 +3287,14 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
       // ===== Kalshi badges =====
       const tBox  = e('box-today-kalshi');
       const tNote = e('box-today-kalshi-note');
-      const yBox  = e('box-yday-kalshi');
-      const yNote = e('box-yday-kalshi-note');
+      const tmBox  = e('box-tomorrow-kalshi');
+      const tmNote = e('box-tomorrow-kalshi-note');
 
       try {
-        const [ktoday, kyday, live] = await Promise.all([
+        const [ktoday, live, liveTomorrow] = await Promise.all([
           getKalshiLabel(today),
-          getKalshiLabel(yesterday),
-          fetchKalshiLiveLeader(today)
+          fetchKalshiLiveLeader(today),
+          fetchKalshiLiveLeader(tomorrow)
         ]);
 
         // --- TODAY ---
@@ -3306,9 +3306,6 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
           if (tBox)  tBox.innerHTML  = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">${cleanKalshiLabel(ktoday.label)}</a>`;
           if (tNote) tNote.textContent = (ktoday.exactTemp != null) ? `Settled at ${ktoday.exactTemp.toFixed(1)}°F.` : "";
         } else if (window.mlPredictions && window.mlPredictions.today) {
-          // Fallback: show ML predicted temp (not bucket) when live Kalshi data unavailable.
-          // ML buckets are 1°F wide and may not match actual Kalshi bucket boundaries,
-          // so showing the temp is more honest than showing a potentially fake bucket.
           const mlTemp = Math.round(window.mlPredictions.today);
           if (tBox)  tBox.innerHTML  = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">~${mlTemp}°F</a>`;
           if (tNote) tNote.textContent = "ML model estimate (live market data unavailable).";
@@ -3317,23 +3314,23 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
           if (tNote) tNote.textContent = `Closes 11:59 PM ${CC().tzAbbr}; settles after NWS daily report.`;
         }
 
-        // --- YESTERDAY ---
-        const anchor = kalshiAnchorForISO(yesterday);
-        const yHref = `${KALSHI_BASE_URL}${anchor}`;
-        if (kyday && kyday.label) {
-          const exact = (kyday.exactTemp != null) ? ` (settled ${kyday.exactTemp.toFixed(1)}°F)` : "";
-          if (yBox)  yBox.innerHTML  = `<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">${cleanKalshiLabel(kyday.label)}${exact}</a>`;
-          if (yNote) yNote.textContent = "Links directly to yesterday's contract.";
+        // --- TOMORROW ---
+        const tmAnchor = kalshiAnchorForISO(tomorrow);
+        const tmHref = `${KALSHI_BASE_URL}${tmAnchor}`;
+        if (liveTomorrow && liveTomorrow.leadingLabel) {
+          const pct = (liveTomorrow.leadingProb != null) ? ` (${Math.round(liveTomorrow.leadingProb * 100)}%)` : "";
+          if (tmBox)  tmBox.innerHTML  = `<a class="kalshi-badge" href="${tmHref}" target="_blank" rel="noopener noreferrer">${cleanKalshiLabel(liveTomorrow.leadingLabel)}${pct}</a>`;
+          if (tmNote) tmNote.textContent = "Live leader (can flip before settlement).";
         } else {
-          if (yBox)  yBox.innerHTML  = `<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">Open yesterday's market</a>`;
-          if (yNote) yNote.textContent = "No proxy data; linking via anchor.";
+          if (tmBox)  tmBox.innerHTML  = `<a class="kalshi-badge" href="${tmHref}" target="_blank" rel="noopener noreferrer">Open market</a>`;
+          if (tmNote) tmNote.textContent = "Market may not be open yet.";
         }
       } catch {
         if (tBox)  tBox.innerHTML  = `<a class="kalshi-badge" href="${KALSHI_BASE_URL}" target="_blank" rel="noopener noreferrer">Open market</a>`;
-        if (tNote) tNote.textContent = "Could not load proxy data.";
-        const yHref = `${KALSHI_BASE_URL}${kalshiAnchorForISO(yesterday)}`;
-        if (yBox)  yBox.innerHTML  = `<a class="kalshi-badge" href="${yHref}" target="_blank" rel="noopener noreferrer">Open yesterday's market</a>`;
-        if (yNote) yNote.textContent = "Proxy error; using anchor link.";
+        if (tNote) tNote.textContent = "Could not load market data.";
+        const tmHrefFallback = `${KALSHI_BASE_URL}${kalshiAnchorForISO(tomorrow)}`;
+        if (tmBox)  tmBox.innerHTML  = `<a class="kalshi-badge" href="${tmHrefFallback}" target="_blank" rel="noopener noreferrer">Open market</a>`;
+        if (tmNote) tmNote.textContent = "Could not load market data.";
       }
 
       // ===== ML Bet Signal Display =====
