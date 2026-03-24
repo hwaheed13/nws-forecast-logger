@@ -2874,6 +2874,7 @@ await updateCorrectionBoxes();  // now uses the freshly-trained state
         // (ML predictions, AccuWeather, prediction history all feed into buildCandidatesForDay)
         await Promise.all([
           (typeof loadMLPredictions === "function") ? loadMLPredictions().catch(() => {}) : Promise.resolve(),
+          (typeof loadMLBucketStats === "function") ? loadMLBucketStats().catch(() => {}) : Promise.resolve(),
           (typeof loadTodaysPredictionHistory === "function") ? loadTodaysPredictionHistory().catch(() => {}) : Promise.resolve(),
           (typeof fetchAccuWeatherForecasts === "function") ? fetchAccuWeatherForecasts().catch(() => {}) : Promise.resolve(),
         ]);
@@ -4888,17 +4889,19 @@ stats.innerHTML = `
   </div>
   <div class="stat-card">
     <div class="stat-label">
-      Prediction ±1°F
-      <span class="tip" tabindex="0" data-tip="% of days where the Hedge ensemble prediction was within 1°F of actual (${hedgeDaysChecked} days with predictions)">i</span>
+      Ensemble ±1°F
+      <span class="tip" tabindex="0" data-tip="% of days where the ensemble forecast was within 1°F of actual (${hedgeDaysChecked} days)">i</span>
     </div>
     <div class="stat-value" style="color:#16a34a">${hedgeAccuracy}%</div>
   </div>
   <div class="stat-card">
     <div class="stat-label">
-      Bucket Hit Rate
-      <span class="tip" tabindex="0" data-tip="% of days where the prediction landed in the winning Kalshi bucket. AccuWeather-clamped: ${accuBucketRate}% (${accuBucketDaysChecked} days) • Old ensemble: ${bucketRate}% (${bucketDaysChecked} days)">i</span>
+      ML Bucket Hit Rate
+      <span class="tip" tabindex="0" data-tip="% of days where the ML model's bucket pick was correct (${window.mlBucketStats?.total || 0} scored days)">i</span>
     </div>
-    <div class="stat-value" style="color:#7c3aed">${accuBucketDaysChecked > 0 ? accuBucketRate : bucketRate}%</div>
+    <div class="stat-value" style="color:#7c3aed">${window.mlBucketStats?.rate != null ? window.mlBucketStats.rate + '%' : '–'}
+      <span style="font-size:0.6em;color:var(--text-muted);font-weight:400;">${window.mlBucketStats?.total > 0 ? ` (${window.mlBucketStats.wins}/${window.mlBucketStats.total})` : ''}</span>
+    </div>
   </div>
   ${daysWithActual.length < 30
     ? `<div class="limited-data-banner" style="margin-top:12px; grid-column: 1 / -1;">
@@ -5051,6 +5054,25 @@ async function loadMLPredictions() {
   // Previously only rendered inside the if(gotToday||gotTomorrow) block,
   // causing cards to stay "Awaiting" when cache had data but query was empty.
   if (typeof renderMLBetSignal === "function") renderMLBetSignal();
+}
+
+// Load ML bucket hit rate from Supabase (WIN/MISS scoring)
+window.mlBucketStats = { wins: 0, total: 0, rate: null };
+async function loadMLBucketStats() {
+  try {
+    const { data, error } = await supabase
+      .from('prediction_logs')
+      .select('ml_result')
+      .eq('city', currentCity)
+      .not('ml_result', 'is', null);
+    if (error || !data) return;
+    const wins = data.filter(r => r.ml_result === 'WIN').length;
+    const total = data.length;
+    window.mlBucketStats = { wins, total, rate: total > 0 ? Math.round(wins / total * 100) : null };
+    console.log(`ML bucket stats (${currentCity}): ${wins}/${total} = ${window.mlBucketStats.rate}%`);
+  } catch (e) {
+    console.debug("loadMLBucketStats error:", e?.message);
+  }
 }
 
   const gate = document.getElementById("gate");
