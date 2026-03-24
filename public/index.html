@@ -2874,7 +2874,6 @@ await updateCorrectionBoxes();  // now uses the freshly-trained state
         // (ML predictions, AccuWeather, prediction history all feed into buildCandidatesForDay)
         await Promise.all([
           (typeof loadMLPredictions === "function") ? loadMLPredictions().catch(() => {}) : Promise.resolve(),
-          (typeof loadMLBucketStats === "function") ? loadMLBucketStats().catch(() => {}) : Promise.resolve(),
           (typeof loadTodaysPredictionHistory === "function") ? loadTodaysPredictionHistory().catch(() => {}) : Promise.resolve(),
           (typeof fetchAccuWeatherForecasts === "function") ? fetchAccuWeatherForecasts().catch(() => {}) : Promise.resolve(),
         ]);
@@ -4839,6 +4838,20 @@ async function displayTable() {
   const bestBiasStr = bestBias != null
     ? (bestBias >= 0 ? "+" : "") + bestBias.toFixed(1) + "°F" 
     : "--";
+
+// Load ML bucket stats before rendering
+try {
+  const { data: mlData, error: mlErr } = await supabase
+    .from('prediction_logs')
+    .select('ml_result')
+    .eq('city', currentCity)
+    .not('ml_result', 'is', null);
+  if (!mlErr && mlData) {
+    const wins = mlData.filter(r => r.ml_result === 'WIN').length;
+    const total = mlData.length;
+    window.mlBucketStats = { wins, total, rate: total > 0 ? Math.round(wins / total * 100) : null };
+  }
+} catch {}
 
 stats.innerHTML = `
   <div class="stat-card">
