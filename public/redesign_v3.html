@@ -110,41 +110,53 @@
 
     .predictions { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 32px; }
     @media (max-width: 768px) { .predictions { grid-template-columns: 1fr; } }
-    .pred-card { padding: 32px; position: relative; }
-    .pred-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 6px; }
-    .pred-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-light); }
-    .pred-date { font-size: 14px; color: var(--text-muted); margin-bottom: 20px; }
+    .pred-card { padding: 28px 28px 24px; position: relative; }
+    .pred-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+    .pred-label { font-family: var(--serif); font-size: 20px; color: var(--text); font-weight: 400; }
+    .pred-date { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; }
     .signal-badge { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.2px; padding: 6px 16px; border-radius: 100px; box-shadow: var(--shadow); }
     .signal-strong { background: var(--green-bg); color: var(--green); }
     .signal-lean { background: var(--blue-bg); color: var(--blue); }
     .signal-skip { background: var(--border); color: var(--text-light); }
-    .pred-bucket { font-family: var(--serif); font-size: clamp(44px, 5vw, 60px); letter-spacing: -2px; line-height: 1; margin-bottom: 16px; color: var(--text); }
-    .pred-conf { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
-    .conf-pct { font-size: 20px; font-weight: 800; color: var(--accent); min-width: 50px; }
-    .conf-track { flex: 1; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
-    .conf-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--accent), #2dd4bf); transition: width 0.6s ease; }
-    .pred-runner { font-size: 13px; color: var(--text-light); margin-bottom: 8px; }
-    .pred-result { margin-bottom: 20px; }
+
+    .ml-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--accent); margin-bottom: 6px; }
+    .pred-bucket { font-family: var(--serif); font-size: clamp(38px, 4.5vw, 50px); letter-spacing: -1.5px; line-height: 1; margin-bottom: 12px; color: var(--text); }
+    .pred-conf { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .conf-pct { font-size: 18px; font-weight: 800; color: var(--accent); min-width: 44px; }
+    .conf-track { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+    .conf-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--accent), #2dd4bf); transition: width 0.6s ease; }
+    .pred-runner { font-size: 13px; font-weight: 600; color: var(--text-mid); margin-bottom: 4px; }
+    .pred-runner .top2-pct { color: var(--accent); font-weight: 800; }
+    .pred-result { margin-bottom: 16px; }
     .result-tag { display: inline-flex; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; padding: 3px 10px; border-radius: 100px; }
     .result-win { background: var(--green-bg); color: var(--green); }
     .result-miss { background: var(--red-bg); color: var(--red); }
-    .pred-details { border-top: 1px solid var(--border); padding-top: 20px; margin-bottom: 16px; }
-    .detail-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; }
-    .detail-label { font-size: 13px; color: var(--text-muted); }
-    .detail-value { font-size: 13px; font-weight: 600; }
-    .detail-accent { color: var(--accent); }
-    .detail-sub { font-weight: 400; color: var(--text-light); }
-    .ensemble-inline { font-size: 14px; color: var(--text-muted); margin-bottom: 20px; padding: 10px 14px; background: var(--border-light); border-radius: 10px; }
-    .ensemble-inline strong { color: var(--text); font-weight: 700; font-size: 15px; }
-    .ref-data { display: flex; gap: 20px; flex-wrap: wrap; padding: 12px 0; margin-bottom: 12px; font-size: 12px; color: var(--text-light); border-top: 1px solid var(--border); margin-top: 4px; }
-    .ref-item { display: flex; gap: 4px; }
-    .ref-label { color: var(--text-light); }
-    .ref-value { color: var(--text-muted); font-weight: 600; }
-    .forecast-trail { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
-    .trail-chip { font-size: 11px; padding: 3px 10px; border-radius: 6px; background: var(--border-light); color: var(--text-muted); }
+
+    .ensemble-inline { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; padding: 8px 12px; background: var(--border-light); border-radius: 8px; }
+    .ensemble-inline strong { color: var(--text); font-weight: 700; }
+
+    /* Reference data as mini grid */
+    .ref-data {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px;
+      background: var(--border); border-radius: 10px; overflow: hidden;
+      margin: 12px 0;
+    }
+    .ref-item {
+      background: var(--surface); padding: 10px 12px; text-align: center;
+    }
+    .ref-label { display: block; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-light); margin-bottom: 2px; }
+    .ref-value { display: block; font-size: 14px; font-weight: 700; color: var(--text); }
+    .ref-value a { color: var(--accent); text-decoration: none; font-weight: 700; }
+
+    /* Forecast trail */
+    .forecast-trail-header { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--text-light); margin-top: 12px; margin-bottom: 6px; }
+    .forecast-trail { display: flex; flex-wrap: wrap; gap: 5px; }
+    .trail-chip { font-size: 11px; padding: 4px 10px; border-radius: 6px; background: var(--border-light); color: var(--text-muted); }
     .trail-chip.latest { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-    .trail-time { opacity: 0.6; margin-right: 3px; }
-    .warn-bar { margin-top: 16px; padding: 10px 14px; border-radius: var(--radius-sm); font-size: 12px; line-height: 1.4; }
+    .trail-time { opacity: 0.5; margin-right: 3px; font-size: 10px; }
+
+    /* Warnings */
+    .warn-bar { margin-top: 12px; padding: 8px 12px; border-radius: 8px; font-size: 11px; line-height: 1.4; }
     .warn-overnight { background: var(--amber-bg); color: var(--amber); }
     .warn-boundary { background: var(--blue-bg); color: var(--blue); }
 
@@ -1194,7 +1206,7 @@
     const runnerEl = document.getElementById(`${prefix}Runner`);
     if (runnerEl && top2 && top2.second) {
       const p1 = Math.round(top2.first.prob * 100), p2 = Math.round(top2.second.prob * 100);
-      runnerEl.textContent = `Runner-up: ${cleanKalshiLabel(top2.second.bucket)} (${p2}%) \u00b7 Top-2: ${Math.round(top2.combined * 100)}%`;
+      runnerEl.innerHTML = `Runner-up: ${cleanKalshiLabel(top2.second.bucket)} (${p2}%) &middot; Top-2: <span class="top2-pct">${Math.round(top2.combined * 100)}%</span>`;
     } else if (runnerEl) { runnerEl.textContent = ''; }
 
     // Signal badge
@@ -1231,19 +1243,19 @@
       ensembleEl.innerHTML = `Ensemble: <strong>${pred.y.toFixed(1)}\u00b0F</strong> (${sign}${pred.bias.toFixed(2)} bias)`;
     }
 
-    // Reference data (NWS, AccuWeather, Kalshi)
+    // Reference data (NWS, AccuWeather, Kalshi) — grid layout
     const refEl = document.getElementById(`${prefix}RefData`);
     if (refEl) {
-      const parts = [];
       const nwsLatest = built.candidates.D0_latest ?? built.candidates.D1_latest;
-      if (nwsLatest != null) parts.push(`<span class="ref-item"><span class="ref-label">NWS Latest</span> <span class="ref-value">${Math.round(nwsLatest)}\u00b0F</span></span>`);
       const accu = built.candidates.AccuWeather;
-      if (accu != null) parts.push(`<span class="ref-item"><span class="ref-label">AccuWeather</span> <span class="ref-value">${Math.round(accu)}\u00b0F</span></span>`);
+      let nwsHtml = `<div class="ref-item"><span class="ref-label">NWS Latest</span><span class="ref-value">${nwsLatest != null ? Math.round(nwsLatest) + '\u00b0F' : '--'}</span></div>`;
+      let accuHtml = `<div class="ref-item"><span class="ref-label">AccuWeather</span><span class="ref-value">${accu != null ? Math.round(accu) + '\u00b0F' : '--'}</span></div>`;
+      let kalshiHtml = '<div class="ref-item"><span class="ref-label">Kalshi Leader</span><span class="ref-value">--</span></div>';
       if (market && market.leadingLabel) {
         const pct = market.leadingProb != null ? ` (${Math.round(market.leadingProb * 100)}%)` : '';
-        parts.push(`<span class="ref-item"><span class="ref-label">Kalshi Leader</span> <a href="${KALSHI_BASE_URL}" target="_blank" style="color:var(--accent);font-weight:600;font-size:12px;text-decoration:none">${cleanKalshiLabel(market.leadingLabel)}${pct}</a></span>`);
+        kalshiHtml = `<div class="ref-item"><span class="ref-label">Kalshi Leader</span><span class="ref-value"><a href="${KALSHI_BASE_URL}" target="_blank">${cleanKalshiLabel(market.leadingLabel)}${pct}</a></span></div>`;
       }
-      refEl.innerHTML = parts.join('');
+      refEl.innerHTML = nwsHtml + accuHtml + kalshiHtml;
     }
 
     // Source agreement badge
