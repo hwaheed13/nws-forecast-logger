@@ -171,7 +171,8 @@
 
     .stats-section { margin-bottom: 48px; }
     .section-title { font-family: var(--serif); font-size: 26px; letter-spacing: -0.5px; margin-bottom: 20px; }
-    .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+    .stats-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
+    @media (max-width: 900px) { .stats-grid { grid-template-columns: repeat(3, 1fr); } }
     @media (max-width: 640px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
     .stat-card { padding: 24px 20px; text-align: center; }
     .stat-number { font-family: var(--serif); font-size: 32px; line-height: 1; margin-bottom: 4px; }
@@ -341,11 +342,13 @@
     <!-- ===== MODEL PERFORMANCE ===== -->
     <div class="stats-section">
       <h2 class="section-title">Model performance</h2>
-      <div class="stats-grid" id="statsGrid">
+      <div class="stats-grid" id="statsGrid" style="grid-template-columns: repeat(6, 1fr);">
         <div class="card stat-card"><div class="stat-number" id="statWins" style="color:var(--green)">--</div><div class="stat-label">Wins</div></div>
         <div class="card stat-card"><div class="stat-number" id="statMisses" style="color:var(--red)">--</div><div class="stat-label">Misses</div></div>
-        <div class="card stat-card"><div class="stat-number" id="statAccuracy">--%</div><div class="stat-label">Bucket accuracy</div><div class="stat-streak" id="statStreak"></div></div>
-        <div class="card stat-card"><div class="stat-number" id="statMAE">--</div><div class="stat-label">Forecast MAE</div><div class="stat-streak" id="statDaysTracked"></div></div>
+        <div class="card stat-card"><div class="stat-number" id="statAccuracy">--%</div><div class="stat-label">Bucket Hit Rate</div><div class="stat-streak" id="statStreak"></div></div>
+        <div class="card stat-card"><div class="stat-number" id="statMAE">--</div><div class="stat-label">Forecast MAE</div></div>
+        <div class="card stat-card"><div class="stat-number" id="statWithin1">--%</div><div class="stat-label">Within ±1°F</div></div>
+        <div class="card stat-card"><div class="stat-number" id="statDaysTracked" style="color:var(--accent)">--</div><div class="stat-label">Days Tracked</div></div>
       </div>
     </div>
 
@@ -360,11 +363,11 @@
         </div>
       </div>
       <div class="chart-container">
-        <div id="trendChart" style="width:100%;height:280px;"></div>
+        <div id="trendChart" style="width:100%;height:320px;"></div>
       </div>
     </div>
 
-    <!-- ===== HISTORY ===== -->
+    <!-- ===== RECENT PREDICTIONS ===== -->
     <div class="history-section">
       <h2 class="section-title">Recent predictions</h2>
       <div class="card history-table">
@@ -382,6 +385,32 @@
           <tbody id="historyBody"></tbody>
         </table>
       </div>
+    </div>
+
+    <!-- ===== DETAILED FORECAST LOG (expandable) ===== -->
+    <div class="history-section">
+      <details class="card" style="cursor:pointer;">
+        <summary style="padding:18px 24px;font-family:var(--serif);font-size:18px;display:flex;justify-content:space-between;align-items:center;">
+          <span>Detailed Forecast Log</span>
+          <span style="font-size:12px;color:var(--text-light);font-family:var(--sans);font-weight:500;">Click to expand</span>
+        </summary>
+        <div style="overflow-x:auto;">
+          <table class="history-table" style="border-radius:0;">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Time</th>
+                <th>For Date</th>
+                <th>Forecast</th>
+                <th>Actual</th>
+                <th>Error</th>
+                <th>Kalshi Range</th>
+              </tr>
+            </thead>
+            <tbody id="detailedLogBody"></tbody>
+          </table>
+        </div>
+      </details>
     </div>
 
     <!-- FOOTER -->
@@ -1389,7 +1418,22 @@
       }
     }
     document.getElementById('statMAE').textContent = errCount > 0 ? `${(totalErr / errCount).toFixed(1)}\u00b0` : '--';
-    document.getElementById('statDaysTracked').textContent = `${daysWithActual.size} days tracked`;
+    document.getElementById('statDaysTracked').textContent = daysWithActual.size || '--';
+
+    // Within ±1°F
+    let within1 = 0, within1Total = 0;
+    for (const [d, rows] of Object.entries(dayMap)) {
+      const actual = rows.find(r => r.forecast_or_actual === "actual" && r.actual_high);
+      if (!actual) continue;
+      const actualHigh = Number(actual.actual_high);
+      const forecasts = rows.filter(r => r.forecast_or_actual === "forecast" && r.predicted_high)
+        .sort((a,b) => (b.timestamp || b.forecast_time || "").localeCompare(a.timestamp || a.forecast_time || ""));
+      if (forecasts.length) {
+        within1Total++;
+        if (Math.abs(Number(forecasts[0].predicted_high) - actualHigh) <= 1) within1++;
+      }
+    }
+    document.getElementById('statWithin1').textContent = within1Total > 0 ? `${Math.round(within1 / within1Total * 100)}%` : '--%';
   }
 
   // ── Chart rendering (ECharts) ───────────────────────────────────────
@@ -1545,6 +1589,50 @@
     }
   }
 
+  // ── Detailed forecast log rendering ─────────────────────────────────
+  function renderDetailedLog() {
+    const tbody = document.getElementById('detailedLogBody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    const todayISO = nycISODate(0);
+    const dayMap = {};
+    allRows.forEach(r => {
+      const d = r.target_date || r.cli_date;
+      if (d) (dayMap[d] ??= []).push(r);
+    });
+    const dates = Object.keys(dayMap).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort().reverse().slice(0, 60);
+
+    for (const date of dates) {
+      const rows = dayMap[date] || [];
+      const actual = rows.find(r => r.forecast_or_actual === "actual" && r.actual_high);
+      const actualHigh = actual ? Number(actual.actual_high) : null;
+
+      const forecasts = rows.filter(r => r.forecast_or_actual === "forecast" && r.predicted_high)
+        .sort((a,b) => (a.timestamp || a.forecast_time || "").localeCompare(b.timestamp || b.forecast_time || ""));
+
+      for (const fc of forecasts) {
+        const fcVal = Number(fc.predicted_high);
+        const ts = safeParseTimestamp(fc.timestamp || fc.forecast_time);
+        const timeStr = ts ? fmtTimeET(ts) : '--';
+        const error = (actualHigh != null && Number.isFinite(fcVal)) ? (fcVal - actualHigh).toFixed(1) : '--';
+        const errorColor = error !== '--' ? (Math.abs(parseFloat(error)) <= 1 ? 'var(--green)' : Math.abs(parseFloat(error)) <= 2 ? 'var(--amber)' : 'var(--red)') : 'var(--text-light)';
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${date}</td>
+          <td>${timeStr}</td>
+          <td>${fc.target_date || '--'}</td>
+          <td style="font-weight:600">${Number.isFinite(fcVal) ? Math.round(fcVal) + '\u00b0F' : '--'}</td>
+          <td style="font-weight:700">${actualHigh != null ? Math.round(actualHigh) + '\u00b0F' : '--'}</td>
+          <td style="color:${errorColor};font-weight:600">${error !== '--' ? (parseFloat(error) > 0 ? '+' : '') + error + '\u00b0' : '--'}</td>
+          <td>--</td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+  }
+
   // ── City toggle ──────────────────────────────────────────────────────
   async function switchCity(cityKey) {
     if (!CITY_CONFIG[cityKey] || cityKey === currentCity) return;
@@ -1641,6 +1729,7 @@
     ]);
     renderChart(0);
     await renderHistoryTable();
+    renderDetailedLog();
 
     // Polling intervals
     setInterval(() => renderLiveStrip().catch(() => {}), 5 * 60 * 1000);
