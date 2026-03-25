@@ -114,16 +114,16 @@
     .pred-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 6px; }
     .pred-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-light); }
     .pred-date { font-size: 14px; color: var(--text-muted); margin-bottom: 20px; }
-    .signal-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; padding: 5px 14px; border-radius: 100px; }
+    .signal-badge { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.2px; padding: 6px 16px; border-radius: 100px; box-shadow: var(--shadow); }
     .signal-strong { background: var(--green-bg); color: var(--green); }
     .signal-lean { background: var(--blue-bg); color: var(--blue); }
     .signal-skip { background: var(--border); color: var(--text-light); }
-    .pred-bucket { font-family: var(--serif); font-size: clamp(40px, 4.5vw, 54px); letter-spacing: -2px; line-height: 1; margin-bottom: 14px; }
-    .pred-conf { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-    .conf-pct { font-size: 15px; font-weight: 700; color: var(--accent); min-width: 42px; }
-    .conf-track { flex: 1; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
-    .conf-fill { height: 100%; border-radius: 2px; background: var(--accent); transition: width 0.6s ease; }
-    .pred-runner { font-size: 13px; color: var(--text-light); margin-bottom: 6px; }
+    .pred-bucket { font-family: var(--serif); font-size: clamp(44px, 5vw, 60px); letter-spacing: -2px; line-height: 1; margin-bottom: 16px; color: var(--text); }
+    .pred-conf { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+    .conf-pct { font-size: 20px; font-weight: 800; color: var(--accent); min-width: 50px; }
+    .conf-track { flex: 1; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+    .conf-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--accent), #2dd4bf); transition: width 0.6s ease; }
+    .pred-runner { font-size: 13px; color: var(--text-light); margin-bottom: 8px; }
     .pred-result { margin-bottom: 20px; }
     .result-tag { display: inline-flex; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; padding: 3px 10px; border-radius: 100px; }
     .result-win { background: var(--green-bg); color: var(--green); }
@@ -134,9 +134,9 @@
     .detail-value { font-size: 13px; font-weight: 600; }
     .detail-accent { color: var(--accent); }
     .detail-sub { font-weight: 400; color: var(--text-light); }
-    .ensemble-inline { font-size: 13px; color: var(--text-muted); margin-bottom: 20px; }
-    .ensemble-inline strong { color: var(--text-mid); font-weight: 600; }
-    .ref-data { display: flex; gap: 16px; flex-wrap: wrap; padding: 10px 0; margin-bottom: 12px; font-size: 12px; color: var(--text-light); }
+    .ensemble-inline { font-size: 14px; color: var(--text-muted); margin-bottom: 20px; padding: 10px 14px; background: var(--border-light); border-radius: 10px; }
+    .ensemble-inline strong { color: var(--text); font-weight: 700; font-size: 15px; }
+    .ref-data { display: flex; gap: 20px; flex-wrap: wrap; padding: 12px 0; margin-bottom: 12px; font-size: 12px; color: var(--text-light); border-top: 1px solid var(--border); margin-top: 4px; }
     .ref-item { display: flex; gap: 4px; }
     .ref-label { color: var(--text-light); }
     .ref-value { color: var(--text-muted); font-weight: 600; }
@@ -348,7 +348,7 @@
         </div>
       </div>
       <div class="chart-container">
-        <canvas id="trendChart"></canvas>
+        <div id="trendChart" style="width:100%;height:280px;"></div>
       </div>
     </div>
 
@@ -387,6 +387,7 @@
   </div><!-- end #app -->
 
   <!-- Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 
@@ -1379,7 +1380,8 @@
     document.getElementById('statDaysTracked').textContent = `${daysWithActual.size} days tracked`;
   }
 
-  // ── Chart rendering ──────────────────────────────────────────────────
+  // ── Chart rendering (ECharts) ───────────────────────────────────────
+  let echartsInstance = null;
   function renderChart(daysLimit = 0) {
     const byDate = {};
     allRows.forEach(r => {
@@ -1389,12 +1391,13 @@
     });
     let haveDays = Object.keys(byDate).sort();
     if (daysLimit > 0) haveDays = haveDays.slice(-daysLimit);
-    const ctx = document.getElementById('trendChart');
-    if (!ctx) return;
+    const container = document.getElementById('trendChart');
+    if (!container) return;
 
     const actualData = [], forecastData = [], labels = [];
     haveDays.forEach(dayISO => {
-      labels.push(dayISO);
+      const [Y,M,D] = dayISO.split('-').map(Number);
+      labels.push(new Intl.DateTimeFormat('en-US', { month:'short', day:'numeric' }).format(new Date(Y, M-1, D)));
       const rows = byDate[dayISO] || [];
       const actualRow = rows.find(r => r.forecast_or_actual === "actual" && r.actual_high);
       actualData.push(actualRow ? Number(actualRow.actual_high) : null);
@@ -1403,35 +1406,73 @@
       forecastData.push(forecasts.length ? Number(forecasts[0].predicted_high) : null);
     });
 
-    if (chartInstance) chartInstance.destroy();
-    chartInstance = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels,
-        datasets: [
-          { label: 'Actual high', data: actualData, borderWidth: 3, tension: 0.3, pointRadius: 0, spanGaps: true, borderColor: '#2563eb' },
-          { label: 'Last forecast', data: forecastData, borderWidth: 3, tension: 0.3, pointRadius: 0, spanGaps: true, borderColor: '#059669' }
-        ]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false, animation: false,
-        interaction: { mode: 'index', intersect: false },
-        plugins: { legend: { display: true } },
-        scales: {
-          x: {
-            ticks: {
-              autoSkip: true, maxRotation: 0,
-              callback: (val, idx) => {
-                const iso = labels[idx]; if (!iso) return '';
-                const [Y,M,D] = iso.split('-').map(Number);
-                return new Intl.DateTimeFormat('en-US', { month:'short', day:'numeric' }).format(new Date(Y, M-1, D));
-              }
-            }
-          },
-          y: {}
+    if (echartsInstance) echartsInstance.dispose();
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    echartsInstance = echarts.init(container, isDark ? 'dark' : null);
+
+    const option = {
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: isDark ? '#1c1917' : '#fff',
+        borderColor: isDark ? '#292524' : '#e7e5e4',
+        textStyle: { color: isDark ? '#fafaf9' : '#1c1917', fontSize: 13, fontFamily: 'Inter' },
+        formatter: (params) => {
+          let html = `<div style="font-weight:600;margin-bottom:4px">${params[0].axisValueLabel}</div>`;
+          params.forEach(p => {
+            if (p.value != null) html += `<div style="display:flex;align-items:center;gap:6px;margin:2px 0"><span style="width:8px;height:8px;border-radius:50%;background:${p.color};display:inline-block"></span>${p.seriesName}: <strong>${p.value}°F</strong></div>`;
+          });
+          return html;
         }
-      }
-    });
+      },
+      legend: {
+        data: ['Actual High', 'Last Forecast'],
+        bottom: 0,
+        textStyle: { color: isDark ? '#a8a29e' : '#78716c', fontFamily: 'Inter', fontSize: 12 },
+        itemWidth: 16, itemHeight: 3, itemGap: 24
+      },
+      grid: { left: 48, right: 24, top: 16, bottom: 48, containLabel: false },
+      xAxis: {
+        type: 'category', data: labels, boundaryGap: false,
+        axisLine: { lineStyle: { color: isDark ? '#292524' : '#e7e5e4' } },
+        axisLabel: { color: isDark ? '#57534e' : '#a8a29e', fontSize: 11, fontFamily: 'Inter',
+          interval: Math.max(0, Math.floor(labels.length / 8)) },
+        axisTick: { show: false }
+      },
+      yAxis: {
+        type: 'value',
+        axisLine: { show: false },
+        axisTick: { show: false },
+        splitLine: { lineStyle: { color: isDark ? '#1c1917' : '#f0eeeb', type: 'dashed' } },
+        axisLabel: { color: isDark ? '#57534e' : '#a8a29e', fontSize: 11, fontFamily: 'Inter', formatter: '{value}°' }
+      },
+      series: [
+        {
+          name: 'Actual High', type: 'line', data: actualData,
+          smooth: 0.3, symbol: 'circle', symbolSize: 5, showSymbol: false,
+          lineStyle: { width: 3, color: '#2563eb' },
+          itemStyle: { color: '#2563eb' },
+          areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(37,99,235,0.15)' },
+            { offset: 1, color: 'rgba(37,99,235,0)' }
+          ]) },
+          connectNulls: true
+        },
+        {
+          name: 'Last Forecast', type: 'line', data: forecastData,
+          smooth: 0.3, symbol: 'circle', symbolSize: 5, showSymbol: false,
+          lineStyle: { width: 3, color: '#059669' },
+          itemStyle: { color: '#059669' },
+          areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(5,150,105,0.1)' },
+            { offset: 1, color: 'rgba(5,150,105,0)' }
+          ]) },
+          connectNulls: true
+        }
+      ]
+    };
+    echartsInstance.setOption(option);
+    window.addEventListener('resize', () => echartsInstance?.resize());
   }
 
   // ── History table rendering ──────────────────────────────────────────
