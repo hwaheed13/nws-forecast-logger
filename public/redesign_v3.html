@@ -149,10 +149,10 @@
     .ref-value a { color: var(--accent); text-decoration: none; font-weight: 700; }
 
     /* Forecast trail */
-    .forecast-trail-header { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-muted); margin-top: 16px; margin-bottom: 8px; }
+    .forecast-trail-header { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: var(--text); margin-top: 16px; margin-bottom: 8px; }
     .forecast-trail { display: flex; flex-wrap: wrap; gap: 6px; }
     .trail-chip { font-size: 13px; padding: 6px 14px; border-radius: 8px; background: var(--surface); color: var(--text-mid); font-weight: 500; border: 1px solid var(--border); transition: all 0.15s; }
-    .trail-chip.latest { background: var(--accent); color: #fff; font-weight: 700; border-color: var(--accent); }
+    .trail-chip.latest { background: var(--surface); color: var(--text); font-weight: 700; border-color: var(--text-mid); border-width: 2px; }
     .trail-time { opacity: 0.6; margin-right: 4px; font-size: 11px; }
     .trail-chip .trail-temp { font-weight: 700; font-size: 14px; }
 
@@ -399,14 +399,14 @@
           <span style="font-size:20px;color:var(--text-light);transition:transform 0.2s;">&#9662;</span>
         </summary>
         <div style="overflow-x:auto;max-height:500px;overflow-y:auto;">
-          <table class="history-table" style="border-radius:0;">
-            <thead style="position:sticky;top:0;z-index:1;">
+          <table style="width:100%;border-collapse:collapse;">
+            <thead style="position:sticky;top:0;z-index:1;background:var(--border-light);">
               <tr>
-                <th>For Date</th>
-                <th>Issued</th>
-                <th>Forecast</th>
-                <th>Actual</th>
-                <th>Error</th>
+                <th style="padding:12px 20px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-light);border-bottom:1px solid var(--border);width:20%;">For Date</th>
+                <th style="padding:12px 20px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-light);border-bottom:1px solid var(--border);width:20%;">Issued</th>
+                <th style="padding:12px 20px;text-align:center;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-light);border-bottom:1px solid var(--border);width:20%;">Forecast</th>
+                <th style="padding:12px 20px;text-align:center;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-light);border-bottom:1px solid var(--border);width:20%;">Actual</th>
+                <th style="padding:12px 20px;text-align:center;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-light);border-bottom:1px solid var(--border);width:20%;">Error</th>
               </tr>
             </thead>
             <tbody id="detailedLogBody"></tbody>
@@ -1121,7 +1121,9 @@
 
   async function renderHeroTrainingDays() {
     try {
-      const resp = await fetch('/model_metadata_v2.json'); if (!resp.ok) return;
+      let resp = await fetch('/model_metadata_v2.json');
+      if (!resp.ok) resp = await fetch(`${GITHUB_RAW}/model_metadata_v2.json`);
+      if (!resp.ok) return;
       const meta = await resp.json();
       const el = document.getElementById('heroTrainDays');
       const el2 = document.getElementById('heroAtmoDays');
@@ -1493,11 +1495,11 @@
       },
       legend: {
         data: ['Actual High', 'NWS Forecast', 'AccuWeather'],
-        bottom: 0,
-        textStyle: { color: isDark ? '#a8a29e' : '#78716c', fontFamily: 'Inter', fontSize: 12 },
-        itemWidth: 16, itemHeight: 3, itemGap: 24
+        top: 0, right: 0,
+        textStyle: { color: isDark ? '#a8a29e' : '#78716c', fontFamily: 'Inter', fontSize: 11 },
+        itemWidth: 14, itemHeight: 3, itemGap: 16
       },
-      grid: { left: 48, right: 24, top: 16, bottom: 48, containLabel: false },
+      grid: { left: 48, right: 24, top: 32, bottom: 24, containLabel: false },
       xAxis: {
         type: 'category', data: labels, boundaryGap: false,
         axisLine: { lineStyle: { color: isDark ? '#292524' : '#e7e5e4' } },
@@ -1632,12 +1634,13 @@
         const errorColor = error !== '--' ? (Math.abs(parseFloat(error)) <= 1 ? 'var(--green)' : Math.abs(parseFloat(error)) <= 2 ? 'var(--amber)' : 'var(--red)') : 'var(--text-light)';
 
         const tr = document.createElement('tr');
+        tr.style.borderBottom = '1px solid var(--border)';
         tr.innerHTML = `
-          <td>${date}</td>
-          <td style="color:var(--text-muted);font-size:12px;">${timeStr}</td>
-          <td style="font-weight:600;font-size:15px;">${Number.isFinite(fcVal) ? Math.round(fcVal) + '\u00b0' : '--'}</td>
-          <td style="font-weight:700;font-size:15px;">${actualHigh != null ? Math.round(actualHigh) + '\u00b0' : '--'}</td>
-          <td style="color:${errorColor};font-weight:700;">${error !== '--' ? (parseFloat(error) > 0 ? '+' : '') + error + '\u00b0' : '--'}</td>
+          <td style="padding:12px 20px;font-size:13px;">${date}</td>
+          <td style="padding:12px 20px;color:var(--text-muted);font-size:12px;">${timeStr}</td>
+          <td style="padding:12px 20px;text-align:center;font-weight:600;font-size:14px;">${Number.isFinite(fcVal) ? Math.round(fcVal) + '\u00b0F' : '--'}</td>
+          <td style="padding:12px 20px;text-align:center;font-weight:700;font-size:14px;">${actualHigh != null ? Math.round(actualHigh) + '\u00b0F' : '--'}</td>
+          <td style="padding:12px 20px;text-align:center;color:${errorColor};font-weight:700;font-size:14px;">${error !== '--' ? (parseFloat(error) > 0 ? '+' : '') + error + '\u00b0' : '--'}</td>
         `;
         tbody.appendChild(tr);
       }
