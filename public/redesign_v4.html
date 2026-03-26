@@ -1817,8 +1817,13 @@
     const saved = localStorage.getItem("theme-pref");
     if (saved) { document.documentElement.setAttribute("data-theme", saved); themeBtnV4.textContent = saved === "dark" ? "\u263E" : "\u2606"; }
   }
-  // Boot with auth
-  checkAccess();
+  // Boot with auth (bypass with ?preview=1 for design review)
+  if (new URLSearchParams(location.search).get('preview') === '1') {
+    showApp();
+    bootData().catch(console.error);
+  } else {
+    checkAccess();
+  }
   </script>
 </body>
 </html>
