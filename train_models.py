@@ -252,6 +252,9 @@ class NYCTemperatureModelTrainer:
         # midnight_temp: filled later from atmospheric data merge
         features["midnight_temp"] = np.nan
 
+        # --- MOS max temp — NaN for training data (not available in archive) ---
+        features["mos_max_temp"] = np.nan
+
         # --- Target variables (not features, used for training) ---
         features["actual_high"] = actual_high
         features["winning_bucket"] = f"{int(actual_high)}-{int(actual_high)+1}"
@@ -592,6 +595,7 @@ class NYCTemperatureModelTrainer:
         """
         from model_config import (
             ATMOSPHERIC_COLS, ENSEMBLE_COLS, MULTIMODEL_COLS, INTRADAY_CURVE_COLS,
+            MOS_COLS,
         )
 
         # Sort by date so we can compute persistence (yesterday's high)
@@ -668,6 +672,10 @@ class NYCTemperatureModelTrainer:
 
             # Ensemble and multimodel — NaN for historical
             for col in ENSEMBLE_COLS + MULTIMODEL_COLS:
+                features[col] = np.nan
+
+            # MOS — NaN for historical (not available in archive)
+            for col in MOS_COLS:
                 features[col] = np.nan
 
             rows.append(features)

@@ -32,6 +32,11 @@ HOURLY_VARS = [
     "precipitation",
 ]
 
+# Pressure-level hourly variables (separate parameter group in Open-Meteo)
+HOURLY_PRESSURE_LEVEL_VARS = [
+    "temperature_850hPa",
+]
+
 DAILY_VARS = [
     "temperature_2m_max",
     "temperature_2m_min",
@@ -81,12 +86,13 @@ def fetch_historical_hourly(
     Returns:
         DataFrame with 'time' column (datetime) and all hourly variables in °F.
     """
+    all_hourly_vars = HOURLY_VARS + HOURLY_PRESSURE_LEVEL_VARS
     params = {
         "latitude": lat,
         "longitude": lon,
         "start_date": start_date,
         "end_date": end_date,
-        "hourly": ",".join(HOURLY_VARS),
+        "hourly": ",".join(all_hourly_vars),
         "daily": ",".join(DAILY_VARS),
         "temperature_unit": "fahrenheit",
         "wind_speed_unit": "mph",
@@ -107,7 +113,7 @@ def fetch_historical_hourly(
         return pd.DataFrame()
 
     df = pd.DataFrame({"time": pd.to_datetime(times)})
-    for var in HOURLY_VARS:
+    for var in all_hourly_vars:
         df[var] = hourly.get(var, [None] * len(times))
 
     # Parse daily data (separate DataFrame, merged by date)
@@ -237,7 +243,7 @@ def extract_daily_atmospheric(hourly_df: pd.DataFrame, target_date: str) -> dict
         target_date: 'YYYY-MM-DD' string
 
     Returns:
-        dict of 25 features (15 atmospheric + 10 intraday curve), or empty dict if no data for date.
+        dict of 27 features (17 atmospheric + 10 intraday curve), or empty dict if no data for date.
     """
     target = pd.Timestamp(target_date)
     day_mask = hourly_df["time"].dt.date == target.date()
@@ -285,6 +291,18 @@ def extract_daily_atmospheric(hourly_df: pd.DataFrame, target_date: str) -> dict
     # Precipitation
     precip = day["precipitation"].dropna()
     features["atm_precip_total"] = float(precip.sum()) if len(precip) > 0 else 0.0
+
+    # 850mb temperature — warm air advection aloft detection
+    # Daytime hours (10am-6pm local) to capture synoptic-scale warm advection
+    if "temperature_850hPa" in day.columns:
+        daytime_850 = day[
+            (day["time"].dt.hour >= 10) & (day["time"].dt.hour <= 18)
+        ]["temperature_850hPa"].dropna()
+        features["atm_850mb_temp_max"] = float(daytime_850.max()) if len(daytime_850) > 0 else np.nan
+        features["atm_850mb_temp_mean"] = float(daytime_850.mean()) if len(daytime_850) > 0 else np.nan
+    else:
+        features["atm_850mb_temp_max"] = np.nan
+        features["atm_850mb_temp_mean"] = np.nan
 
     # Temperature range (from hourly, more granular than daily min/max)
     temp = day["temperature_2m"].dropna()
@@ -362,6 +380,10 @@ def extract_daily_atmospheric(hourly_df: pd.DataFrame, target_date: str) -> dict
         features["atm_temp_range"] = np.nan
         features["atm_overnight_min"] = np.nan
         features["atm_morning_temp_6am"] = np.nan
+        # 850mb features also NaN when no data
+        if "atm_850mb_temp_max" not in features:
+            features["atm_850mb_temp_max"] = np.nan
+            features["atm_850mb_temp_mean"] = np.nan
         features["midnight_temp"] = np.nan
         # Intraday curve features — all NaN when no temp data
         features["intra_temp_9am"] = np.nan
@@ -505,11 +527,12 @@ def get_atmospheric_features_live(
     Get all atmospheric features for today/tomorrow (from forecast + ensemble APIs).
     Uses forecast data for atmospheric context and live ensemble for uncertainty.
     """
-    # Atmospheric features from the standard forecast API
+    # Atmospheric features from the standard forecast API (including pressure levels)
+    all_hourly_vars = HOURLY_VARS + HOURLY_PRESSURE_LEVEL_VARS
     params = {
         "latitude": lat,
         "longitude": lon,
-        "hourly": ",".join(HOURLY_VARS),
+        "hourly": ",".join(all_hourly_vars),
         "temperature_unit": "fahrenheit",
         "wind_speed_unit": "mph",
         "precipitation_unit": "inch",
@@ -523,7 +546,7 @@ def get_atmospheric_features_live(
     times = hourly.get("time", [])
     if times:
         forecast_df = pd.DataFrame({"time": pd.to_datetime(times)})
-        for var in HOURLY_VARS:
+        for var in all_hourly_vars:
             forecast_df[var] = hourly.get(var, [None] * len(times))
         features = extract_daily_atmospheric(forecast_df, target_date)
     else:

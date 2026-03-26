@@ -35,10 +35,10 @@ ACCU_NWS_FALLBACK = {
 }
 
 # ═══════════════════════════════════════════════════════════════════════
-# v2 atmospheric features (24 columns) — from Open-Meteo APIs
+# v2 atmospheric features (27 columns) — from Open-Meteo APIs + NWS MOS
 # ═══════════════════════════════════════════════════════════════════════
 
-# Observed atmospheric conditions (15 features)
+# Observed atmospheric conditions (17 features)
 # Source: Open-Meteo archive (historical) or forecast API (live)
 ATMOSPHERIC_COLS = [
     "atm_wind_max",           # Max wind speed (mph) — high wind = temp moderation
@@ -56,6 +56,8 @@ ATMOSPHERIC_COLS = [
     "atm_temp_range",         # Daily temp range (°F) — volatility proxy
     "atm_overnight_min",      # Overnight minimum (midnight-8am) — baseline
     "atm_morning_temp_6am",   # Temperature at 6am — starting point
+    "atm_850mb_temp_max",     # Max 850mb temperature (daytime 10am-6pm) — warm air advection aloft
+    "atm_850mb_temp_mean",    # Mean 850mb temperature (daytime 10am-6pm)
 ]
 
 # Ensemble uncertainty features (5 features)
@@ -114,16 +116,23 @@ ATM_PREDICTOR_COLS = [
     "atm_vs_forecast_diff",     # nws_last - atm_predicted_high: positive = NWS higher than atmosphere
 ]
 
+# NWS MOS (Model Output Statistics) features (1 feature)
+# Source: NWS MEX product (live inference only, NaN for historical/backfill)
+# MOS provides an independent statistical post-processing of GFS model output.
+MOS_COLS = [
+    "mos_max_temp",             # MOS predicted max temperature for the target date
+]
+
 # Features used as INPUT to the atmospheric predictor (first-stage model)
 ATM_PREDICTOR_INPUT_COLS = ATMOSPHERIC_COLS + INTRADAY_CURVE_COLS + [
     "day_of_year_sin", "day_of_year_cos", "month", "is_summer", "is_winter",
     "midnight_temp",
 ]
 
-# Combined v2 feature list (69 total: 30 + 15 + 5 + 4 + 10 + 3 + 2)
-FEATURE_COLS_V2 = FEATURE_COLS + ATMOSPHERIC_COLS + ENSEMBLE_COLS + MULTIMODEL_COLS + INTRADAY_CURVE_COLS + OVERNIGHT_CARRYOVER_COLS + ATM_PREDICTOR_COLS
+# Combined v2 feature list (72 total: 30 + 17 + 5 + 4 + 10 + 3 + 2 + 1)
+FEATURE_COLS_V2 = FEATURE_COLS + ATMOSPHERIC_COLS + ENSEMBLE_COLS + MULTIMODEL_COLS + INTRADAY_CURVE_COLS + OVERNIGHT_CARRYOVER_COLS + ATM_PREDICTOR_COLS + MOS_COLS
 
-# v3 unified feature list (69 total — same features as v2)
+# v3 unified feature list (72 total — same features as v2)
 # The difference is architectural: v3 trains a SINGLE regression model on ALL
 # data (1,540+ days) predicting actual_high directly, instead of separate
 # regression + classifier.  HistGradientBoosting handles NaN forecast features

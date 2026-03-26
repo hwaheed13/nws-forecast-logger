@@ -291,6 +291,123 @@ def _apply_observed_floor(bucket_probs: dict, observed_high: float) -> dict:
     return filtered
 
 
+def _fetch_mos_forecast(target_date_iso: str) -> Optional[float]:
+    """
+    Fetch MOS (Model Output Statistics) max temperature forecast from NWS MEX product.
+
+    The MEX product contains GFS MOS guidance with X/N (max/min) temperature rows.
+    Parses the text product to extract the max temperature for the target date.
+
+    Returns the MOS max temp as a float, or None on failure.
+    """
+    import re
+
+    try:
+        import nws_auto_logger as _nal
+        cfg = _nal._CITY_CFG
+        issuedby = cfg.get("cli_issuedby", "NYC")
+
+        url = f"https://forecast.weather.gov/product.php?site=NWS&issuedby={issuedby}&product=MEX"
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "nws-forecast-logger/1.0",
+            "Accept": "text/html",
+        })
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            html = resp.read().decode("utf-8", errors="ignore")
+
+        # Extract the pre-formatted text content from the HTML
+        pre_match = re.search(r"<pre[^>]*>(.*?)</pre>", html, re.DOTALL | re.IGNORECASE)
+        if not pre_match:
+            print(f"  MOS: no <pre> block found in MEX product")
+            return None
+        text = pre_match.group(1)
+
+        # Parse target date components
+        target_dt = datetime.strptime(target_date_iso, "%Y-%m-%d")
+        target_month_abbr = target_dt.strftime("%b").upper()  # e.g., "MAR"
+        target_day = target_dt.day
+
+        # Find the DT line that contains our target date
+        # Format: "DT /MAR  26            /MAR  27            /"
+        # or similar with the month abbreviation and day number
+        lines = text.split("\n")
+
+        # Strategy: find the DT header row with our date, then find X/N row
+        mos_max = None
+        for i, line in enumerate(lines):
+            line_upper = line.upper().strip()
+
+            # Look for DT row containing our target date
+            if not line_upper.startswith("DT"):
+                continue
+
+            # Check if our target date's month+day appears in this DT line
+            # Pattern: /MON  DD where MON is 3-letter month abbreviation
+            dt_pattern = rf"/{target_month_abbr}\s+{target_day}\b"
+            dt_matches = list(re.finditer(dt_pattern, line_upper))
+            if not dt_matches:
+                continue
+
+            # Found our date in the DT line. Now find the X/N row below it.
+            # The X/N row has the max (X) and min (N) temperatures.
+            for j in range(i + 1, min(i + 10, len(lines))):
+                xn_line = lines[j].strip()
+                if xn_line.startswith("X/N"):
+                    # Extract numbers from the X/N line
+                    # The values are space-separated after "X/N"
+                    xn_values = re.findall(r'-?\d+', xn_line[3:])
+                    if xn_values:
+                        # Determine which column corresponds to our date.
+                        # The DT line has date blocks separated by "/".
+                        # Count which date block our match is in.
+                        dt_content = line_upper
+                        # Split by "/" to get date groups
+                        date_groups = [g.strip() for g in dt_content.split("/") if g.strip()]
+
+                        # Find which group index contains our target date
+                        target_group_idx = None
+                        for gi, group in enumerate(date_groups):
+                            if re.search(rf"{target_month_abbr}\s+{target_day}\b", group):
+                                target_group_idx = gi
+                                break
+
+                        if target_group_idx is not None and target_group_idx < len(date_groups):
+                            # In X/N row, values alternate: max for day1, min for day1, max for day2, min for day2...
+                            # But the DT header starts with "DT" then date groups.
+                            # The first date group (index 0 after removing "DT") corresponds to X/N values.
+                            # First number is max for first date, second is min for between dates, etc.
+                            # Adjust: DT line has "DT" prefix in group 0
+                            adj_idx = target_group_idx
+                            if date_groups[0].startswith("DT"):
+                                adj_idx = target_group_idx  # DT is part of group 0
+
+                            # The X/N values: first value = max of first date period,
+                            # second value = min of overnight, etc.
+                            # For the Nth date group (0-indexed), max is at index N*2
+                            # and min is at index N*2+1
+                            val_idx = adj_idx  # max temp index
+                            if val_idx < len(xn_values):
+                                mos_max = float(xn_values[val_idx])
+                                print(f"🌡️ MOS forecast: {mos_max:.0f}°F max for {target_date_iso}")
+                                return mos_max
+
+                    # If we couldn't parse columns, try simpler: first number is the max
+                    if xn_values:
+                        mos_max = float(xn_values[0])
+                        print(f"🌡️ MOS forecast: {mos_max:.0f}°F max for {target_date_iso} (first value)")
+                        return mos_max
+                    break
+            break
+
+        if mos_max is None:
+            print(f"  MOS: could not find max temp for {target_date_iso} in MEX product")
+        return mos_max
+
+    except Exception as e:
+        print(f"⚠️ MOS forecast fetch failed: {e}")
+        return None
+
+
 def _fetch_atmospheric_features(target_date_iso: str) -> dict:
     """Fetch atmospheric features from Open-Meteo for today/tomorrow."""
     try:
@@ -764,6 +881,9 @@ def _compute_ml_prediction(
     # --- 8. Data availability flag ---
     features["has_accu_data"] = int(has_accu)
 
+    # --- 8b. MOS max temp — set to NaN initially, filled in v2 path ---
+    features["mos_max_temp"] = np.nan
+
     # --- 9. Build DataFrame, fill NaN AccuWeather with NWS fallbacks ---
     X = pd.DataFrame([features])[FEATURE_COLS]
     for accu_col, nws_col in ACCU_NWS_FALLBACK.items():
@@ -823,6 +943,10 @@ def _compute_ml_prediction(
             # Merge atmospheric features into the feature dict
             v2_features = dict(features)
             v2_features.update(atm_features)
+
+            # Fetch MOS forecast
+            mos_temp = _fetch_mos_forecast(target_date_iso)
+            v2_features["mos_max_temp"] = float(mos_temp) if mos_temp is not None else np.nan
 
             # Run atmospheric predictor (first-stage model) if available
             if v2_atm_predictor is not None:
