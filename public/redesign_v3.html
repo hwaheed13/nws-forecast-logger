@@ -149,11 +149,12 @@
     .ref-value a { color: var(--accent); text-decoration: none; font-weight: 700; }
 
     /* Forecast trail */
-    .forecast-trail-header { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--text-light); margin-top: 12px; margin-bottom: 6px; }
-    .forecast-trail { display: flex; flex-wrap: wrap; gap: 5px; }
-    .trail-chip { font-size: 11px; padding: 4px 10px; border-radius: 6px; background: var(--border-light); color: var(--text-muted); }
-    .trail-chip.latest { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-    .trail-time { opacity: 0.5; margin-right: 3px; font-size: 10px; }
+    .forecast-trail-header { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-muted); margin-top: 16px; margin-bottom: 8px; }
+    .forecast-trail { display: flex; flex-wrap: wrap; gap: 6px; }
+    .trail-chip { font-size: 13px; padding: 6px 14px; border-radius: 8px; background: var(--surface); color: var(--text-mid); font-weight: 500; border: 1px solid var(--border); transition: all 0.15s; }
+    .trail-chip.latest { background: var(--accent); color: #fff; font-weight: 700; border-color: var(--accent); }
+    .trail-time { opacity: 0.6; margin-right: 4px; font-size: 11px; }
+    .trail-chip .trail-temp { font-weight: 700; font-size: 14px; }
 
     /* Warnings */
     .warn-bar { margin-top: 12px; padding: 8px 12px; border-radius: 8px; font-size: 11px; line-height: 1.4; }
@@ -161,13 +162,13 @@
     .warn-boundary { background: var(--blue-bg); color: var(--blue); }
 
     .live-section { margin-bottom: 48px; }
-    .live-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-light); margin-bottom: 12px; }
-    .live-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1px; background: var(--border); border-radius: var(--radius); overflow: hidden; }
+    .live-title { font-family: var(--serif); font-size: 22px; letter-spacing: -0.3px; margin-bottom: 16px; color: var(--text); }
+    .live-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1px; background: var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
     @media (max-width: 640px) { .live-strip { grid-template-columns: repeat(3, 1fr); } }
-    .strip-cell { background: var(--surface); padding: 18px 16px; text-align: center; }
-    .strip-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--text-light); margin-bottom: 4px; }
-    .strip-value { font-family: var(--serif); font-size: 26px; }
-    .strip-sub { font-size: 10px; color: var(--text-light); margin-top: 2px; }
+    .strip-cell { background: var(--surface); padding: 20px 16px; text-align: center; }
+    .strip-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-muted); margin-bottom: 6px; }
+    .strip-value { font-family: var(--serif); font-size: 30px; color: var(--text); }
+    .strip-sub { font-size: 11px; color: var(--text-light); margin-top: 4px; }
 
     .stats-section { margin-bottom: 48px; }
     .section-title { font-family: var(--serif); font-size: 26px; letter-spacing: -0.5px; margin-bottom: 20px; }
@@ -363,7 +364,7 @@
         </div>
       </div>
       <div class="chart-container">
-        <div id="trendChart" style="width:100%;height:320px;"></div>
+        <div id="trendChart" style="width:100%;height:400px;"></div>
       </div>
     </div>
 
@@ -390,21 +391,22 @@
     <!-- ===== DETAILED FORECAST LOG (expandable) ===== -->
     <div class="history-section">
       <details class="card" style="cursor:pointer;">
-        <summary style="padding:18px 24px;font-family:var(--serif);font-size:18px;display:flex;justify-content:space-between;align-items:center;">
-          <span>Detailed Forecast Log</span>
-          <span style="font-size:12px;color:var(--text-light);font-family:var(--sans);font-weight:500;">Click to expand</span>
+        <summary style="padding:20px 24px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);">
+          <div>
+            <div style="font-family:var(--serif);font-size:20px;">Detailed Forecast Log</div>
+            <div style="font-size:12px;color:var(--text-light);margin-top:2px;">Every NWS forecast update with error analysis</div>
+          </div>
+          <span style="font-size:20px;color:var(--text-light);transition:transform 0.2s;">&#9662;</span>
         </summary>
-        <div style="overflow-x:auto;">
+        <div style="overflow-x:auto;max-height:500px;overflow-y:auto;">
           <table class="history-table" style="border-radius:0;">
-            <thead>
+            <thead style="position:sticky;top:0;z-index:1;">
               <tr>
-                <th>Date</th>
-                <th>Time</th>
                 <th>For Date</th>
+                <th>Issued</th>
                 <th>Forecast</th>
                 <th>Actual</th>
                 <th>Error</th>
-                <th>Kalshi Range</th>
               </tr>
             </thead>
             <tbody id="detailedLogBody"></tbody>
@@ -1450,16 +1452,24 @@
     const container = document.getElementById('trendChart');
     if (!container) return;
 
-    const actualData = [], forecastData = [], labels = [];
+    const actualData = [], forecastData = [], accuData = [], errorData = [], labels = [];
     haveDays.forEach(dayISO => {
       const [Y,M,D] = dayISO.split('-').map(Number);
       labels.push(new Intl.DateTimeFormat('en-US', { month:'short', day:'numeric' }).format(new Date(Y, M-1, D)));
       const rows = byDate[dayISO] || [];
       const actualRow = rows.find(r => r.forecast_or_actual === "actual" && r.actual_high);
-      actualData.push(actualRow ? Number(actualRow.actual_high) : null);
-      const forecasts = rows.filter(r => r.forecast_or_actual === "forecast" && r.predicted_high)
+      const actualVal = actualRow ? Number(actualRow.actual_high) : null;
+      actualData.push(actualVal);
+      const forecasts = rows.filter(r => r.forecast_or_actual === "forecast" && r.predicted_high && (r.source || '').toLowerCase() !== 'accuweather')
         .sort((a,b) => (b.timestamp || b.forecast_time || "").localeCompare(a.timestamp || a.forecast_time || ""));
-      forecastData.push(forecasts.length ? Number(forecasts[0].predicted_high) : null);
+      const fcVal = forecasts.length ? Number(forecasts[0].predicted_high) : null;
+      forecastData.push(fcVal);
+      // AccuWeather
+      const accuForDay = accuRows.filter(r => r.target_date === dayISO && r.predicted_high)
+        .sort((a,b) => (b.timestamp || b.forecast_time || "").localeCompare(a.timestamp || a.forecast_time || ""));
+      accuData.push(accuForDay.length ? Number(accuForDay[0].predicted_high) : null);
+      // Error (forecast - actual)
+      errorData.push((actualVal != null && fcVal != null) ? Math.round((fcVal - actualVal) * 10) / 10 : null);
     });
 
     if (echartsInstance) echartsInstance.dispose();
@@ -1482,7 +1492,7 @@
         }
       },
       legend: {
-        data: ['Actual High', 'Last Forecast'],
+        data: ['Actual High', 'NWS Forecast', 'AccuWeather'],
         bottom: 0,
         textStyle: { color: isDark ? '#a8a29e' : '#78716c', fontFamily: 'Inter', fontSize: 12 },
         itemWidth: 16, itemHeight: 3, itemGap: 24
@@ -1515,14 +1525,17 @@
           connectNulls: true
         },
         {
-          name: 'Last Forecast', type: 'line', data: forecastData,
-          smooth: 0.3, symbol: 'circle', symbolSize: 5, showSymbol: false,
-          lineStyle: { width: 3, color: '#059669' },
+          name: 'NWS Forecast', type: 'line', data: forecastData,
+          smooth: 0.3, symbol: 'circle', symbolSize: 4, showSymbol: false,
+          lineStyle: { width: 2.5, color: '#059669' },
           itemStyle: { color: '#059669' },
-          areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(5,150,105,0.1)' },
-            { offset: 1, color: 'rgba(5,150,105,0)' }
-          ]) },
+          connectNulls: true
+        },
+        {
+          name: 'AccuWeather', type: 'line', data: accuData,
+          smooth: 0.3, symbol: 'diamond', symbolSize: 4, showSymbol: false,
+          lineStyle: { width: 2, color: '#d97706', type: 'dashed' },
+          itemStyle: { color: '#d97706' },
           connectNulls: true
         }
       ]
@@ -1621,12 +1634,10 @@
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td>${date}</td>
-          <td>${timeStr}</td>
-          <td>${fc.target_date || '--'}</td>
-          <td style="font-weight:600">${Number.isFinite(fcVal) ? Math.round(fcVal) + '\u00b0F' : '--'}</td>
-          <td style="font-weight:700">${actualHigh != null ? Math.round(actualHigh) + '\u00b0F' : '--'}</td>
-          <td style="color:${errorColor};font-weight:600">${error !== '--' ? (parseFloat(error) > 0 ? '+' : '') + error + '\u00b0' : '--'}</td>
-          <td>--</td>
+          <td style="color:var(--text-muted);font-size:12px;">${timeStr}</td>
+          <td style="font-weight:600;font-size:15px;">${Number.isFinite(fcVal) ? Math.round(fcVal) + '\u00b0' : '--'}</td>
+          <td style="font-weight:700;font-size:15px;">${actualHigh != null ? Math.round(actualHigh) + '\u00b0' : '--'}</td>
+          <td style="color:${errorColor};font-weight:700;">${error !== '--' ? (parseFloat(error) > 0 ? '+' : '') + error + '\u00b0' : '--'}</td>
         `;
         tbody.appendChild(tr);
       }
