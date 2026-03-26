@@ -410,39 +410,6 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 
   <script>
-                <th style="padding:12px 20px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-light);border-bottom:1px solid var(--border);width:20%;">For Date</th>
-                <th style="padding:12px 20px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-light);border-bottom:1px solid var(--border);width:20%;">Issued</th>
-                <th style="padding:12px 20px;text-align:center;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-light);border-bottom:1px solid var(--border);width:20%;">Forecast</th>
-                <th style="padding:12px 20px;text-align:center;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-light);border-bottom:1px solid var(--border);width:20%;">Actual</th>
-                <th style="padding:12px 20px;text-align:center;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-light);border-bottom:1px solid var(--border);width:20%;">Error</th>
-              </tr>
-            </thead>
-            <tbody id="detailedLogBody"></tbody>
-          </table>
-        </div>
-      </details>
-    </div>
-
-    <!-- FOOTER -->
-    <footer>
-      <div class="footer-links">
-        <a href="/about.html">About</a>
-        <a href="/changelog.html">Release Notes</a>
-        <a href="/terms.html">Terms</a>
-        <a href="/privacy.html">Privacy</a>
-      </div>
-      <p class="footer-legal">&copy; 2025 Daily Dew Point. Informational only, not financial advice. Do your own due diligence before placing any bets or making financial decisions.</p>
-    </footer>
-
-  </div>
-  </div><!-- end #app -->
-
-  <!-- Libraries -->
-  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-
-  <script>
   /* =======================================================================
      REDESIGN — full data wiring
      All data-fetching & computation logic from index.html,
@@ -1086,7 +1053,6 @@
       if (!Number.isFinite(nwsTomorrow) && !Number.isFinite(nwsToday)) return {};
       const url = `https://api.open-meteo.com/v1/forecast?latitude=${cc.lat}&longitude=${cc.lon}&hourly=temperature_2m&temperature_unit=fahrenheit&timezone=${encodeURIComponent(tz)}&forecast_days=2&past_hours=6`;
       const resp = await fetch(url); if (!resp.ok) return {};
-      const resp = await fetch(url); if (!resp.ok) return {};
       const data = await resp.json();
       if (!data.hourly || !data.hourly.time) return {};
       const times = data.hourly.time, temps = data.hourly.temperature_2m;
@@ -1203,10 +1169,10 @@
     const warnToday = document.getElementById('todayWarnings');
     const warnTomorrow = document.getElementById('tomorrowWarnings');
     if (overnightWarns.today && warnToday) {
-      warnToday.innerHTML = `<div class="warn-bar pc-warn overnight">Overnight forecast (~${Math.round(overnightWarns.today.overnightMax)}\u00b0F at midnight) exceeds daytime forecast (${Math.round(overnightWarns.today.forecast)}\u00b0F) \u2014 daily high may be set overnight.</div>`;
+      warnToday.innerHTML = `<div class="warn-bar warn-overnight">Overnight forecast (~${Math.round(overnightWarns.today.overnightMax)}\u00b0F at midnight) exceeds daytime forecast (${Math.round(overnightWarns.today.forecast)}\u00b0F) \u2014 daily high may be set overnight.</div>`;
     }
     if (overnightWarns.tomorrow && warnTomorrow) {
-      warnTomorrow.innerHTML = `<div class="warn-bar pc-warn overnight">Overnight forecast (~${Math.round(overnightWarns.tomorrow.overnightMax)}\u00b0F at midnight) exceeds daytime forecast (${Math.round(overnightWarns.tomorrow.forecast)}\u00b0F) \u2014 daily high may be set overnight.</div>`;
+      warnTomorrow.innerHTML = `<div class="warn-bar warn-overnight">Overnight forecast (~${Math.round(overnightWarns.tomorrow.overnightMax)}\u00b0F at midnight) exceeds daytime forecast (${Math.round(overnightWarns.tomorrow.forecast)}\u00b0F) \u2014 daily high may be set overnight.</div>`;
     }
 
     // Boundary warnings
@@ -1218,7 +1184,7 @@
         const minDist = Math.min(distToLower, distToUpper);
         if (minDist <= 0.5 && warnToday) {
           const boundary = distToLower < distToUpper ? range.min : (range.max + 1);
-          warnToday.innerHTML += `<div class="warn-bar pc-warn boundary">Near bucket edge \u2014 ${predToday.y.toFixed(1)}\u00b0F is ${minDist.toFixed(1)}\u00b0 from the ${boundary}\u00b0 boundary.</div>`;
+          warnToday.innerHTML += `<div class="warn-bar warn-boundary">Near bucket edge \u2014 ${predToday.y.toFixed(1)}\u00b0F is ${minDist.toFixed(1)}\u00b0 from the ${boundary}\u00b0 boundary.</div>`;
         }
       }
     }
@@ -1669,7 +1635,7 @@
     NWS_DSM_URLS = [`${API_BASE}/nws-dsm?issuedby=${cfg.dsmIssuedby}&site=${cfg.dsmSite}&product=${cfg.dsmProduct || "DSM"}`];
 
     // Update toggle buttons
-    document.querySelectorAll('.city-btn').forEach(btn => {
+    document.querySelectorAll('.city-pill').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.city === cityKey);
     });
 
@@ -1766,13 +1732,13 @@
   initChartFilters();
 
   // City toggle buttons
-  document.getElementById('cityToggle')?.addEventListener('click', (e) => {
-    const btn = e.target.closest('.city-btn');
+  document.querySelector('.city-pills')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.city-pill');
     if (btn && btn.dataset.city) switchCity(btn.dataset.city);
   });
 
   // Set initial city toggle state
-  document.querySelectorAll('.city-btn').forEach(btn => {
+  document.querySelectorAll('.city-pill').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.city === currentCity);
   });
 
@@ -1837,34 +1803,22 @@
     }
   });
 
+  // Wire v4 theme button
+  const themeBtnV4 = document.getElementById("themeBtnV4");
+  if (themeBtnV4) {
+    themeBtnV4.addEventListener("click", () => {
+      const cur = document.documentElement.getAttribute("data-theme") || "light";
+      const next = cur === "light" ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", next);
+      localStorage.setItem("theme-pref", next);
+      themeBtnV4.textContent = next === "dark" ? "\u263E" : "\u2606";
+      if (typeof echartsInstance !== "undefined" && echartsInstance) { echartsInstance.dispose(); echartsInstance = null; renderChart(0); }
+    });
+    const saved = localStorage.getItem("theme-pref");
+    if (saved) { document.documentElement.setAttribute("data-theme", saved); themeBtnV4.textContent = saved === "dark" ? "\u263E" : "\u2606"; }
+  }
   // Boot with auth
   checkAccess();
-  </script>
-</body>
-</html>
-
-  // Wire up v4 theme button
-  const themeBtnV4 = document.getElementById('themeBtnV4');
-  if (themeBtnV4) {
-    themeBtnV4.addEventListener('click', () => {
-      const current = document.documentElement.getAttribute('data-theme') || 'light';
-      const next = current === 'light' ? 'dark' : 'light';
-      document.documentElement.setAttribute('data-theme', next);
-      localStorage.setItem('theme-pref', next);
-      themeBtnV4.textContent = next === 'dark' ? '\u263E' : '\u2606';
-      if (typeof echartsInstance !== 'undefined' && echartsInstance) { echartsInstance.dispose(); echartsInstance = null; renderChart(0); }
-    });
-    const savedTheme = localStorage.getItem('theme-pref');
-    if (savedTheme) { document.documentElement.setAttribute('data-theme', savedTheme); themeBtnV4.textContent = savedTheme === 'dark' ? '\u263E' : '\u2606'; }
-  }
-
-  // Wire city pills
-  document.querySelectorAll('.city-pill').forEach(btn => {
-    btn.addEventListener('click', () => { if (btn.dataset.city) switchCity(btn.dataset.city); });
-  });
-  document.querySelectorAll('.city-pill').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.city === currentCity);
-  });
   </script>
 </body>
 </html>
