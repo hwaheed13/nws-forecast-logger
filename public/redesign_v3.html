@@ -108,9 +108,11 @@
     .agree-mixed { background: var(--amber-bg); color: var(--amber); }
     .agree-disagree { background: var(--red-bg); color: var(--red); }
 
-    .predictions { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 32px; }
+    .predictions { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 40px; align-items: start; }
     @media (max-width: 768px) { .predictions { grid-template-columns: 1fr; } }
     .pred-card { padding: 28px 28px 24px; position: relative; }
+    .card-section { margin-bottom: 4px; }
+    .pred-section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--accent); margin-bottom: 4px; }
     .pred-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
     .pred-label { font-family: var(--serif); font-size: 20px; color: var(--text); font-weight: 400; }
     .pred-date { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; }
@@ -259,23 +261,36 @@
         </div>
         <div class="pred-date" id="todayPredDate">--</div>
 
-        <div class="source-agree agree-strong" id="todaySourceAgree" style="display:none"></div>
-
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--accent);margin-bottom:4px">ML Prediction</div>
-        <div class="pred-bucket" id="todayBucket">--</div>
-        <div class="pred-conf">
-          <span class="conf-pct" id="todayConfPct" title="Model confidence">--%</span>
-          <div class="conf-track"><div class="conf-fill" id="todayConfFill" style="width:0%"></div></div>
+        <div class="card-section" style="min-height:28px;">
+          <div class="source-agree agree-strong" id="todaySourceAgree" style="display:none"></div>
         </div>
-        <div class="pred-runner" id="todayRunner"></div>
 
-        <div id="todayResultTag"></div>
+        <div class="card-section">
+          <div class="pred-section-label">ML Prediction</div>
+          <div class="pred-bucket" id="todayBucket">--</div>
+          <div class="pred-conf">
+            <span class="conf-pct" id="todayConfPct" title="Model confidence">--%</span>
+            <div class="conf-track"><div class="conf-fill" id="todayConfFill" style="width:0%"></div></div>
+          </div>
+        </div>
 
-        <div class="ensemble-inline" id="todayEnsemble">Ensemble: <strong>--</strong></div>
-        <div class="ref-data" id="todayRefData"></div>
+        <div class="card-section" style="min-height:48px;">
+          <div class="pred-runner" id="todayRunner"></div>
+          <div id="todayResultTag"></div>
+        </div>
 
-        <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text-light);margin-top:12px;margin-bottom:6px">NWS Forecast Changes</div>
-        <div class="forecast-trail" id="todayForecastTrail"></div>
+        <div class="card-section">
+          <div class="ensemble-inline" id="todayEnsemble">Ensemble: <strong>--</strong></div>
+        </div>
+
+        <div class="card-section">
+          <div class="ref-data" id="todayRefData"></div>
+        </div>
+
+        <div class="card-section">
+          <div class="forecast-trail-header">NWS Forecast Changes</div>
+          <div class="forecast-trail" id="todayForecastTrail"></div>
+        </div>
 
         <div id="todayWarnings"></div>
       </div>
@@ -288,18 +303,35 @@
         </div>
         <div class="pred-date" id="tomorrowPredDate">--</div>
 
-        <div class="source-agree agree-strong" id="tomorrowSourceAgree" style="display:none"></div>
-
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--accent);margin-bottom:4px">ML Prediction</div>
-        <div class="pred-bucket" id="tomorrowBucket">--</div>
-        <div class="pred-conf">
-          <span class="conf-pct" id="tomorrowConfPct" title="Model confidence">--%</span>
-          <div class="conf-track"><div class="conf-fill" id="tomorrowConfFill" style="width:0%"></div></div>
+        <div class="card-section" style="min-height:28px;">
+          <div class="source-agree agree-strong" id="tomorrowSourceAgree" style="display:none"></div>
         </div>
-        <div class="pred-runner" id="tomorrowRunner"></div>
 
-        <div class="ensemble-inline" id="tomorrowEnsemble">Ensemble: <strong>--</strong></div>
-        <div class="ref-data" id="tomorrowRefData"></div>
+        <div class="card-section">
+          <div class="pred-section-label">ML Prediction</div>
+          <div class="pred-bucket" id="tomorrowBucket">--</div>
+          <div class="pred-conf">
+            <span class="conf-pct" id="tomorrowConfPct" title="Model confidence">--%</span>
+            <div class="conf-track"><div class="conf-fill" id="tomorrowConfFill" style="width:0%"></div></div>
+          </div>
+        </div>
+
+        <div class="card-section" style="min-height:48px;">
+          <div class="pred-runner" id="tomorrowRunner"></div>
+        </div>
+
+        <div class="card-section">
+          <div class="ensemble-inline" id="tomorrowEnsemble">Ensemble: <strong>--</strong></div>
+        </div>
+
+        <div class="card-section">
+          <div class="ref-data" id="tomorrowRefData"></div>
+        </div>
+
+        <div class="card-section">
+          <div class="forecast-trail-header">NWS Forecast Changes</div>
+          <div class="forecast-trail" id="tomorrowForecastTrail"></div>
+        </div>
 
         <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text-light);margin-top:12px;margin-bottom:6px">NWS Forecast Changes</div>
         <div class="forecast-trail" id="tomorrowForecastTrail"></div>
