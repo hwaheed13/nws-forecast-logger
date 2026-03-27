@@ -1,29 +1,29 @@
 {
-  "trained_on": "2026-03-26T11:00:23.836944",
+  "trained_on": "2026-03-27T00:02:39.139387",
   "version": "v2_atmospheric_classifier",
-  "num_days": 1544,
+  "num_days": 1545,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-03-25"
+    "end": "2026-03-26"
   },
   "v1_performance": {
-    "cv_mae": 1.21,
-    "cv_bucket_accuracy": 0.3073
+    "cv_mae": 1.16,
+    "cv_bucket_accuracy": 0.2878
   },
   "v2_regression": {
-    "cv_mae": 1.14,
-    "cv_bucket_accuracy": 0.2829,
+    "cv_mae": 1.12,
+    "cv_bucket_accuracy": 0.2976,
     "residual_std": 1.62,
-    "num_features": 69
+    "num_features": 72
   },
   "v2_classifier": {
-    "cv_bucket_accuracy": 0.4146,
-    "cv_log_loss": 0.4077,
-    "insample_bucket_accuracy": 0.6113,
-    "num_training_days": 249,
-    "num_classification_rows": 1729,
+    "cv_bucket_accuracy": 0.4,
+    "cv_log_loss": 0.4113,
+    "insample_bucket_accuracy": 0.6048,
+    "num_training_days": 250,
+    "num_classification_rows": 1736,
     "n_candidate_buckets": 7,
-    "feature_cols_used": 73,
+    "feature_cols_used": 76,
     "positive_rate": 0.1429
   },
   "feature_columns_v2": [
@@ -72,6 +72,8 @@
     "atm_temp_range",
     "atm_overnight_min",
     "atm_morning_temp_6am",
+    "atm_850mb_temp_max",
+    "atm_850mb_temp_mean",
     "ens_spread",
     "ens_std",
     "ens_iqr",
@@ -95,6 +97,7 @@
     "prev_day_temp_drop",
     "midnight_temp",
     "atm_predicted_high",
-    "atm_vs_forecast_diff"
+    "atm_vs_forecast_diff",
+    "mos_max_temp"
   ]
 }
