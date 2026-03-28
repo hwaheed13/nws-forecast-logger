@@ -1155,7 +1155,7 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
         endpoint, key = _sb_endpoint()
         idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{yesterday_iso}"
         url = (f"{endpoint}?idempotency_key=eq.{idem_key}"
-               f"&select=ml_bucket,ml_f,ml_result,ml_actual_high")
+               f"&select=ml_bucket,ml_f,ml_result,ml_actual_high,kalshi_market_snapshot")
         req = urllib.request.Request(url, headers={
             "apikey": key, "Authorization": f"Bearer {key}",
             "Accept": "application/json",
@@ -1173,31 +1173,63 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
         if pred.get("ml_result") and prev_actual is not None and abs(prev_actual - actual_high) < 0.1:
             return  # same actual, already scored
 
-        # Check if actual falls in the ML bucket
+        # Score against Kalshi's actual bucket structure (not ML's internal buckets)
         ml_bucket = pred["ml_bucket"]
         actual_int = int(round(actual_high))
         is_win = False
 
-        if ml_bucket.startswith("<="):
+        # Try to use Kalshi market snapshot for accurate bucket comparison
+        kalshi_snapshot = pred.get("kalshi_market_snapshot")
+        if kalshi_snapshot:
             try:
-                threshold = int(ml_bucket[2:])
-                is_win = actual_int <= threshold
-            except ValueError:
-                pass
-        elif ml_bucket.startswith(">="):
-            try:
-                threshold = int(ml_bucket[2:])
-                is_win = actual_int >= threshold
-            except ValueError:
-                pass
-        elif "-" in ml_bucket:
-            parts = ml_bucket.split("-")
-            if len(parts) == 2:
+                mkt = json.loads(kalshi_snapshot) if isinstance(kalshi_snapshot, str) else kalshi_snapshot
+                # Find which Kalshi bucket the actual falls in
+                actual_kalshi = _find_kalshi_bucket_for_temp(float(actual_int), mkt)
+                # Find which Kalshi bucket the ML's center temp falls in
+                ml_f_val = _float_or_none(pred.get("ml_f"))
+                ml_kalshi = _find_kalshi_bucket_for_temp(ml_f_val, mkt) if ml_f_val is not None else None
+                # Also check if the ML's picked bucket label matches a Kalshi bucket
+                ml_pick_kalshi = ml_bucket if ml_bucket in mkt else _find_kalshi_bucket_for_temp(
+                    float(ml_bucket.split("-")[0]) if "-" in ml_bucket else float(ml_bucket.replace("<=","").replace(">=","")),
+                    mkt
+                ) if ml_bucket else None
+
+                if actual_kalshi and (ml_kalshi == actual_kalshi or ml_pick_kalshi == actual_kalshi):
+                    is_win = True
+                    print(f"📊 Kalshi-aware scoring: actual {actual_int}°F → {actual_kalshi}, "
+                          f"ML pick → {ml_kalshi or ml_pick_kalshi} → WIN")
+                elif actual_kalshi:
+                    print(f"📊 Kalshi-aware scoring: actual {actual_int}°F → {actual_kalshi}, "
+                          f"ML pick → {ml_kalshi or ml_pick_kalshi} → MISS")
+                else:
+                    # Couldn't map actual to a Kalshi bucket — fall back to direct comparison
+                    kalshi_snapshot = None  # triggers fallback below
+            except Exception as e:
+                print(f"⚠️ Kalshi-aware scoring failed, using fallback: {e}")
+                kalshi_snapshot = None  # triggers fallback below
+
+        # Fallback: direct bucket check (when no Kalshi snapshot available)
+        if not kalshi_snapshot:
+            if ml_bucket.startswith("<="):
                 try:
-                    lo, hi = int(parts[0]), int(parts[1])
-                    is_win = lo <= actual_int <= hi
+                    threshold = int(ml_bucket[2:])
+                    is_win = actual_int <= threshold
                 except ValueError:
                     pass
+            elif ml_bucket.startswith(">="):
+                try:
+                    threshold = int(ml_bucket[2:])
+                    is_win = actual_int >= threshold
+                except ValueError:
+                    pass
+            elif "-" in ml_bucket:
+                parts = ml_bucket.split("-")
+                if len(parts) == 2:
+                    try:
+                        lo, hi = int(parts[0]), int(parts[1])
+                        is_win = lo <= actual_int <= hi
+                    except ValueError:
+                        pass
 
         result = "WIN" if is_win else "MISS"
 
