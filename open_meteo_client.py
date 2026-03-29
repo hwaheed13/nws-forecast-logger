@@ -517,6 +517,152 @@ def get_atmospheric_features_historical(
     return features
 
 
+def extract_observation_proxy_features(
+    hourly_df: pd.DataFrame,
+    target_date: str,
+    as_of_hour: int = 12,
+    nws_last: float = None,
+    intra_features: dict = None,
+) -> dict:
+    """
+    Compute observation proxy features from Open-Meteo archive hourly data.
+
+    For training: the archive IS real observations, so we simulate what the ML
+    model would see at a specific hour during live inference. This teaches the
+    model to use partial-day observations to predict the final daily high.
+
+    Args:
+        hourly_df: DataFrame with hourly archive data (temperature_2m, wind, etc.)
+        target_date: 'YYYY-MM-DD' string
+        as_of_hour: Simulate observations up to this local hour (default: noon)
+        nws_last: Latest NWS forecast value (for obs_temp_vs_forecast_max). NaN for multi-year.
+        intra_features: Dict of intraday forecast features (for obs_vs_intra_forecast).
+                       For training on archive data, this is the same source → delta ≈ 0.
+
+    Returns dict with all 12 OBSERVATION_COLS features.
+    """
+    from model_config import OBSERVATION_COLS
+
+    nan_result = {col: np.nan for col in OBSERVATION_COLS}
+
+    target = pd.Timestamp(target_date)
+    day_mask = hourly_df["time"].dt.date == target.date()
+    day = hourly_df[day_mask].copy()
+
+    if day.empty or "temperature_2m" not in day.columns:
+        return nan_result
+
+    # Filter to hours up to as_of_hour (simulating partial-day observations)
+    day_partial = day[day["time"].dt.hour <= as_of_hour]
+    temp = day_partial["temperature_2m"].dropna()
+
+    if len(temp) == 0:
+        return nan_result
+
+    features = {}
+
+    # Latest observation (the last reading up to as_of_hour)
+    latest_idx = temp.index[-1]
+    features["obs_latest_temp"] = float(temp.iloc[-1])
+    features["obs_latest_hour"] = float(day_partial.loc[latest_idx, "time"].hour)
+
+    # Running daily max up to as_of_hour
+    features["obs_max_so_far"] = float(temp.max())
+
+    # 6-hour max: max of last 6 hours of observations
+    recent_6h = day_partial[day_partial["time"].dt.hour > (as_of_hour - 6)]
+    recent_6h_temp = recent_6h["temperature_2m"].dropna()
+    features["obs_6hr_max"] = float(recent_6h_temp.max()) if len(recent_6h_temp) > 0 else features["obs_max_so_far"]
+
+    # Delta vs intraday forecast at same hour
+    # For training on archive data, both come from the same source → delta ≈ 0
+    # The model learns that non-zero deltas during live inference signal forecast error
+    if intra_features:
+        intra_map = {
+            9: "intra_temp_9am", 10: "intra_temp_9am",
+            11: "intra_temp_noon", 12: "intra_temp_noon",
+            13: "intra_temp_3pm", 14: "intra_temp_3pm", 15: "intra_temp_3pm",
+            16: "intra_temp_5pm", 17: "intra_temp_5pm",
+        }
+        obs_hour = int(features["obs_latest_hour"])
+        intra_key = intra_map.get(obs_hour)
+        if intra_key and intra_key in intra_features:
+            intra_val = intra_features[intra_key]
+            if intra_val is not None and not (isinstance(intra_val, float) and np.isnan(intra_val)):
+                features["obs_vs_intra_forecast"] = round(
+                    features["obs_latest_temp"] - intra_val, 1
+                )
+            else:
+                features["obs_vs_intra_forecast"] = np.nan
+        else:
+            features["obs_vs_intra_forecast"] = np.nan
+    else:
+        features["obs_vs_intra_forecast"] = np.nan
+
+    # Wind speed and gust
+    if "wind_speed_10m" in day_partial.columns:
+        wind = day_partial.loc[latest_idx, "wind_speed_10m"]
+        features["obs_wind_speed"] = float(wind) if pd.notna(wind) else np.nan
+    else:
+        features["obs_wind_speed"] = np.nan
+
+    if "wind_gusts_10m" in day_partial.columns:
+        gust = day_partial.loc[latest_idx, "wind_gusts_10m"]
+        features["obs_wind_gust"] = float(gust) if pd.notna(gust) else np.nan
+    else:
+        features["obs_wind_gust"] = np.nan
+
+    # Wind direction (circular encoding)
+    if "wind_direction_10m" in day_partial.columns:
+        wdir = day_partial.loc[latest_idx, "wind_direction_10m"]
+        if pd.notna(wdir):
+            features["obs_wind_dir_sin"] = round(float(np.sin(np.deg2rad(wdir))), 4)
+            features["obs_wind_dir_cos"] = round(float(np.cos(np.deg2rad(wdir))), 4)
+        else:
+            features["obs_wind_dir_sin"] = np.nan
+            features["obs_wind_dir_cos"] = np.nan
+    else:
+        features["obs_wind_dir_sin"] = np.nan
+        features["obs_wind_dir_cos"] = np.nan
+
+    # Cloud cover (direct from archive — already numeric %)
+    if "cloud_cover" in day_partial.columns:
+        cloud = day_partial.loc[latest_idx, "cloud_cover"]
+        features["obs_cloud_cover"] = round(float(cloud) / 100.0, 2) if pd.notna(cloud) else np.nan
+    else:
+        features["obs_cloud_cover"] = np.nan
+
+    # Heating rate: slope over last 3 hours
+    if len(temp) >= 2:
+        recent_3h = day_partial[day_partial["time"].dt.hour > (as_of_hour - 3)]
+        recent_temp = recent_3h["temperature_2m"].dropna()
+        if len(recent_temp) >= 2:
+            hours_span = (recent_3h["time"].iloc[-1] - recent_3h["time"].iloc[0]).total_seconds() / 3600.0
+            if hours_span > 0:
+                features["obs_heating_rate"] = round(
+                    float(recent_temp.iloc[-1] - recent_temp.iloc[0]) / hours_span, 2
+                )
+            else:
+                features["obs_heating_rate"] = np.nan
+        else:
+            features["obs_heating_rate"] = np.nan
+    else:
+        features["obs_heating_rate"] = np.nan
+
+    # Obs max vs NWS forecast
+    if nws_last is not None and not (isinstance(nws_last, float) and np.isnan(nws_last)):
+        features["obs_temp_vs_forecast_max"] = round(features["obs_max_so_far"] - nws_last, 1)
+    else:
+        features["obs_temp_vs_forecast_max"] = np.nan
+
+    # Fill any missing keys
+    for col in OBSERVATION_COLS:
+        if col not in features:
+            features[col] = np.nan
+
+    return features
+
+
 def get_atmospheric_features_live(
     lat: float,
     lon: float,
