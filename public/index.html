@@ -3547,20 +3547,14 @@ function renderMLBetSignal() {
         }
 
         // Always show WIN/MISS when we have a bucket and actual
-        {
-          if (isWin) {
-            resultBadge = `<span class="signal-badge" style="background:#ecfdf5;color:#059669;padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid #059669;">\u2705 WIN</span>`;
-            resultDetail = `Correct! Actual high: ${actualHigh}°F`;
-            borderColor = "#059669";
-          } else {
-            resultBadge = `<span class="signal-badge" style="background:#fef2f2;color:#dc2626;padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid #dc2626;">\u274C MISS (actual: ${actualInt}°F)</span>`;
-            resultDetail = `Actual high: ${actualHigh}°F`;
-            borderColor = "#dc2626";
-          }
+        if (isWin) {
+          resultBadge = `<span class="signal-badge" style="background:#ecfdf5;color:#059669;padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid #059669;">\u2705 WIN</span>`;
+          resultDetail = `Correct! Actual high: ${actualHigh}°F`;
+          borderColor = "#059669";
         } else {
-          resultBadge = '<span class="signal-badge" style="background:#f3f4f6;color:#6b7280;padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid #d1d5db;">SETTLED</span>';
+          resultBadge = `<span class="signal-badge" style="background:#fef2f2;color:#dc2626;padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid #dc2626;">\u274C MISS (actual: ${actualInt}°F)</span>`;
           resultDetail = `Actual high: ${actualHigh}°F`;
-          borderColor = "#d1d5db";
+          borderColor = "#dc2626";
         }
       } else {
         // No actual high available yet — show SETTLED as fallback
