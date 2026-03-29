@@ -3546,7 +3546,8 @@ function renderMLBetSignal() {
           else if (rangeMatch) isWin = actualInt >= Number(rangeMatch[1]) && actualInt <= Number(rangeMatch[2]);
         }
 
-        if (leMatch || geMatch || rangeMatch) {
+        // Always show WIN/MISS when we have a bucket and actual
+        {
           if (isWin) {
             resultBadge = `<span class="signal-badge" style="background:#ecfdf5;color:#059669;padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid #059669;">\u2705 WIN</span>`;
             resultDetail = `Correct! Actual high: ${actualHigh}°F`;
