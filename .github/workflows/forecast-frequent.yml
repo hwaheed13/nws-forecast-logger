@@ -241,6 +241,22 @@ jobs:
             fi
           done
 
+      # Collect NWS hourly observations → Supabase (before predictions so obs are available)
+      - name: Collect NWS observations - NYC
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+          TZ: America/New_York
+        run: python prediction_writer.py collect_obs
+        continue-on-error: true
+
+      - name: Collect NWS observations - LA
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+        run: python prediction_writer.py --city lax collect_obs
+        continue-on-error: true
+
       # Write ML + BCP predictions to Supabase (reads CSVs, does NOT modify repo)
       - name: Write Supabase predictions - NYC (BCP + ML)
         env:

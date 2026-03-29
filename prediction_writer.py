@@ -14,8 +14,8 @@ from nws_auto_logger import (
     _float_or_none, compute_today_gate_f,
 )
 from model_config import (
-    FEATURE_COLS, FEATURE_COLS_V2, ACCU_NWS_FALLBACK,
-    ATM_PREDICTOR_INPUT_COLS, derive_bucket_probabilities,
+    FEATURE_COLS, FEATURE_COLS_V2, FEATURE_COLS_V4, ACCU_NWS_FALLBACK,
+    ATM_PREDICTOR_INPUT_COLS, OBSERVATION_COLS, derive_bucket_probabilities,
 )
 
 MODEL_VERSION = os.environ.get("PREDICTION_MODEL_VERSION", "bcp_v1")
@@ -948,6 +948,17 @@ def _compute_ml_prediction(
             mos_temp = _fetch_mos_forecast(target_date_iso)
             v2_features["mos_max_temp"] = float(mos_temp) if mos_temp is not None else np.nan
 
+            # Fetch observation features (real-time NWS station data)
+            obs_features = _fetch_observation_features(
+                target_date_iso,
+                nws_last=features.get("nws_last"),
+                atm_features=atm_features,
+            )
+            v2_features.update(obs_features)
+            obs_populated = sum(1 for v in obs_features.values()
+                                if v is not None and not (isinstance(v, float) and np.isnan(v)))
+            print(f"🔭 Observation features: {obs_populated}/{len(obs_features)} populated")
+
             # Run atmospheric predictor (first-stage model) if available
             if v2_atm_predictor is not None:
                 try:
@@ -1046,6 +1057,373 @@ def _compute_ml_prediction(
             print(f"⚠️ v2 prediction failed, using v1: {e}")
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# NWS observation collection → Supabase
+# ---------------------------------------------------------------------------
+
+def _kmh_to_mph(kmh):
+    """Convert km/h to mph, returning None if input is None."""
+    return round(kmh * 0.621371, 1) if kmh is not None else None
+
+def _pa_to_hpa(pa):
+    """Convert Pascals to hectopascals, returning None if input is None."""
+    return round(pa / 100.0, 1) if pa is not None else None
+
+def _c_to_f(c):
+    """Convert Celsius to Fahrenheit, returning None if input is None."""
+    return round(c * 9.0 / 5.0 + 32.0, 1) if c is not None else None
+
+
+def collect_nws_observations(city_key: str = None) -> int:
+    """
+    Fetch recent NWS station observations and upsert into Supabase nws_observations table.
+
+    Returns the number of rows upserted.
+    """
+    import nws_auto_logger as _nal
+    cfg = _nal._CITY_CFG
+    station = cfg.get("obs_station", "KNYC")
+    tz_name = cfg.get("timezone", "America/New_York")
+    city = city_key or _CITY_KEY
+
+    # Fetch last 24 observations (~24 hours of hourly data)
+    url = f"https://api.weather.gov/stations/{station}/observations?limit=24"
+    req = urllib.request.Request(url, headers={
+        "Accept": "application/geo+json",
+        "User-Agent": "nws-forecast-logger/1.0",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        print(f"⚠️ Failed to fetch NWS observations for {station}: {e}")
+        return 0
+
+    obs_features = data.get("features", [])
+    if not obs_features:
+        print(f"⚠️ No observations returned for {station}")
+        return 0
+
+    # Parse observations into rows
+    rows = []
+    for feat in obs_features:
+        props = feat.get("properties", {})
+        ts = props.get("timestamp")
+        if not ts:
+            continue
+
+        temp_c = props.get("temperature", {}).get("value")
+        if temp_c is None:
+            continue  # skip obs with no temperature
+
+        wind_kmh = props.get("windSpeed", {}).get("value")
+        gust_kmh = props.get("windGust", {}).get("value")
+        wdir = props.get("windDirection", {}).get("value")
+        dewpoint_c = props.get("dewpoint", {}).get("value")
+        pressure_pa = props.get("barometricPressure", {}).get("value")
+        humidity = props.get("relativeHumidity", {}).get("value")
+        sky = props.get("textDescription", "") or ""
+        raw_msg = props.get("rawMessage", "") or ""
+
+        # Parse 6-hr max from maxTemperatureLast24Hours (populated on some stations)
+        max24_c = props.get("maxTemperatureLast24Hours", {}).get("value")
+
+        rows.append({
+            "city": city,
+            "station": station,
+            "observed_at": ts,
+            "temp_f": _c_to_f(temp_c),
+            "wind_speed_mph": _kmh_to_mph(wind_kmh),
+            "wind_gust_mph": _kmh_to_mph(gust_kmh),
+            "wind_direction_deg": round(wdir, 0) if wdir is not None else None,
+            "sky_condition": sky.strip() if sky else None,
+            "dewpoint_f": _c_to_f(dewpoint_c),
+            "pressure_hpa": _pa_to_hpa(pressure_pa),
+            "humidity_pct": round(humidity, 1) if humidity is not None else None,
+            "six_hr_max_f": _c_to_f(max24_c),
+            "raw_message": raw_msg.strip() if raw_msg else None,
+        })
+
+    if not rows:
+        print(f"⚠️ No valid temperature observations for {station}")
+        return 0
+
+    # Upsert into Supabase nws_observations table
+    sb_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    sb_key = os.environ.get("SUPABASE_SERVICE_ROLE", "")
+    if not sb_url or not sb_key:
+        print("⚠️ Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE — skipping obs upsert")
+        return 0
+
+    endpoint = f"{sb_url}/rest/v1/nws_observations"
+    upserted = 0
+    for row in rows:
+        body = json.dumps(row, ensure_ascii=False).encode("utf-8")
+        r = urllib.request.Request(
+            f"{endpoint}?on_conflict=city,station,observed_at",
+            data=body, method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "Prefer": "resolution=merge-duplicates,return=minimal",
+                "apikey": sb_key,
+                "Authorization": f"Bearer {sb_key}",
+            },
+        )
+        try:
+            with urllib.request.urlopen(r, timeout=10) as resp:
+                _ = resp.read()
+            upserted += 1
+        except Exception as e:
+            err_body = ""
+            if hasattr(e, "read"):
+                try: err_body = e.read().decode("utf-8", "ignore")
+                except: pass
+            print(f"⚠️ obs upsert failed for {row['observed_at']}: {e} {err_body}")
+
+    print(f"✅ Collected {upserted}/{len(rows)} NWS observations for {station} ({city})")
+    return upserted
+
+
+# ---------------------------------------------------------------------------
+# Observation-derived features for ML model
+# ---------------------------------------------------------------------------
+
+# Sky condition → numeric cloud cover mapping
+_SKY_COVER_MAP = {
+    "clear": 0.0, "fair": 0.1, "a few clouds": 0.15,
+    "partly cloudy": 0.25, "mostly cloudy": 0.75,
+    "overcast": 1.0, "fog": 0.9, "fog/mist": 0.9,
+    "haze": 0.3, "mostly clear": 0.1,
+}
+
+
+def _sky_to_cloud_cover(text_desc: str) -> float:
+    """Map NWS textDescription to numeric cloud cover [0.0, 1.0].
+
+    Handles compound descriptions like 'Mostly Cloudy and Breezy' by
+    checking for known sky keywords in order of specificity.
+    """
+    if not text_desc:
+        return np.nan
+    low = text_desc.lower().strip()
+    # Direct match first
+    if low in _SKY_COVER_MAP:
+        return _SKY_COVER_MAP[low]
+    # Check for keywords in compound descriptions (most specific first)
+    for key in ("overcast", "mostly cloudy", "partly cloudy", "a few clouds",
+                "fog", "haze", "mostly clear", "fair", "clear"):
+        if key in low:
+            return _SKY_COVER_MAP[key]
+    # Rain/snow/thunderstorm → assume heavy cloud cover
+    if any(w in low for w in ("rain", "snow", "thunder", "drizzle", "sleet", "ice")):
+        return 0.95
+    return 0.5  # unknown → middle
+
+
+def _query_supabase_observations(target_date_iso: str, city: str = None) -> list[dict]:
+    """Query Supabase nws_observations for a specific date. Returns list of obs dicts."""
+    sb_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    sb_key = os.environ.get("SUPABASE_SERVICE_ROLE", "")
+    if not sb_url or not sb_key:
+        return []
+
+    import nws_auto_logger as _nal
+    cfg = _nal._CITY_CFG
+    tz_name = cfg.get("timezone", "America/New_York")
+    city = city or _CITY_KEY
+
+    # Query observations for the target date (local time boundaries)
+    # Use date range: target_date 00:00 to target_date+1 00:00 in local tz
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo(tz_name)
+    start_local = datetime.fromisoformat(f"{target_date_iso}T00:00:00").replace(tzinfo=tz)
+    end_local = start_local + timedelta(days=1)
+    start_utc = start_local.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
+    end_utc = end_local.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    endpoint = f"{sb_url}/rest/v1/nws_observations"
+    params = (
+        f"?city=eq.{city}"
+        f"&observed_at=gte.{start_utc}"
+        f"&observed_at=lt.{end_utc}"
+        f"&order=observed_at.asc"
+        f"&limit=50"
+    )
+    req = urllib.request.Request(
+        endpoint + params,
+        headers={
+            "apikey": sb_key,
+            "Authorization": f"Bearer {sb_key}",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            rows = json.loads(resp.read().decode("utf-8"))
+        return rows
+    except Exception as e:
+        print(f"⚠️ Failed to query observations for {target_date_iso}: {e}")
+        return []
+
+
+def _fetch_observation_features(
+    target_date_iso: str,
+    nws_last: float = None,
+    atm_features: dict = None,
+) -> dict:
+    """
+    Compute observation-derived features from NWS observations stored in Supabase.
+
+    Args:
+        target_date_iso: The date we're predicting for (YYYY-MM-DD)
+        nws_last: Latest NWS forecast value (°F) for obs_temp_vs_forecast_max
+        atm_features: Dict of atmospheric features (for obs_vs_intra_forecast)
+
+    Returns dict with all OBSERVATION_COLS. NaN for any unavailable feature.
+    """
+    nan_result = {col: np.nan for col in OBSERVATION_COLS}
+
+    # Only fetch observations for today (no observations exist for future dates)
+    today = today_nyc().isoformat()
+    if target_date_iso != today:
+        # For D1 (tomorrow) predictions, we can still provide today's overshoot
+        if nws_last is not None:
+            today_obs = _query_supabase_observations(today)
+            if today_obs:
+                today_max = max(
+                    (r["temp_f"] for r in today_obs if r.get("temp_f") is not None),
+                    default=None,
+                )
+                if today_max is not None:
+                    nan_result["obs_temp_vs_forecast_max"] = round(today_max - nws_last, 1)
+        return nan_result
+
+    obs_rows = _query_supabase_observations(target_date_iso)
+    if not obs_rows:
+        return nan_result
+
+    # Filter to rows with valid temperature
+    valid_obs = [r for r in obs_rows if r.get("temp_f") is not None]
+    if not valid_obs:
+        return nan_result
+
+    features = {}
+
+    # Latest observation
+    latest = valid_obs[-1]  # already sorted by observed_at asc
+    features["obs_latest_temp"] = latest["temp_f"]
+
+    # Parse hour from observed_at timestamp
+    try:
+        import nws_auto_logger as _nal
+        cfg = _nal._CITY_CFG
+        tz_name = cfg.get("timezone", "America/New_York")
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(tz_name)
+        obs_dt = datetime.fromisoformat(latest["observed_at"].replace("Z", "+00:00"))
+        obs_local = obs_dt.astimezone(tz)
+        features["obs_latest_hour"] = obs_local.hour
+    except Exception:
+        features["obs_latest_hour"] = np.nan
+
+    # Running daily max
+    features["obs_max_so_far"] = max(r["temp_f"] for r in valid_obs)
+
+    # 6-hour max: max of last 6 hours of observations, or from six_hr_max_f column
+    six_hr_vals = [r["six_hr_max_f"] for r in valid_obs if r.get("six_hr_max_f") is not None]
+    if six_hr_vals:
+        features["obs_6hr_max"] = max(six_hr_vals)
+    else:
+        # Compute from hourly obs: max of last 6 observations
+        recent_6 = valid_obs[-6:] if len(valid_obs) >= 6 else valid_obs
+        features["obs_6hr_max"] = max(r["temp_f"] for r in recent_6)
+
+    # Delta vs Open-Meteo forecast at same hour
+    obs_hour = features.get("obs_latest_hour")
+    if obs_hour is not None and atm_features and not np.isnan(obs_hour):
+        # Map hour to nearest intraday forecast feature
+        intra_map = {
+            9: "intra_temp_9am", 10: "intra_temp_9am",
+            11: "intra_temp_noon", 12: "intra_temp_noon",
+            13: "intra_temp_3pm", 14: "intra_temp_3pm", 15: "intra_temp_3pm",
+            16: "intra_temp_5pm", 17: "intra_temp_5pm",
+        }
+        intra_key = intra_map.get(int(obs_hour))
+        if intra_key and intra_key in atm_features:
+            intra_val = atm_features[intra_key]
+            if intra_val is not None and not (isinstance(intra_val, float) and np.isnan(intra_val)):
+                features["obs_vs_intra_forecast"] = round(
+                    features["obs_latest_temp"] - intra_val, 1
+                )
+            else:
+                features["obs_vs_intra_forecast"] = np.nan
+        else:
+            features["obs_vs_intra_forecast"] = np.nan
+    else:
+        features["obs_vs_intra_forecast"] = np.nan
+
+    # Wind speed and gust
+    features["obs_wind_speed"] = latest.get("wind_speed_mph")
+    if features["obs_wind_speed"] is None:
+        features["obs_wind_speed"] = np.nan
+    features["obs_wind_gust"] = latest.get("wind_gust_mph")
+    if features["obs_wind_gust"] is None:
+        features["obs_wind_gust"] = np.nan
+
+    # Wind direction (circular encoding)
+    wdir = latest.get("wind_direction_deg")
+    if wdir is not None:
+        features["obs_wind_dir_sin"] = round(math.sin(math.radians(wdir)), 4)
+        features["obs_wind_dir_cos"] = round(math.cos(math.radians(wdir)), 4)
+    else:
+        features["obs_wind_dir_sin"] = np.nan
+        features["obs_wind_dir_cos"] = np.nan
+
+    # Cloud cover from sky condition text
+    features["obs_cloud_cover"] = _sky_to_cloud_cover(latest.get("sky_condition", ""))
+
+    # Heating rate: linear slope over last 3 hours of observations
+    if len(valid_obs) >= 2:
+        # Use last min(len, ~3 hours worth) observations
+        recent = valid_obs[-4:] if len(valid_obs) >= 4 else valid_obs
+        try:
+            temps = [r["temp_f"] for r in recent]
+            # Compute hours elapsed for each observation relative to first
+            t0_str = recent[0]["observed_at"].replace("Z", "+00:00")
+            t0 = datetime.fromisoformat(t0_str)
+            hours = []
+            for r in recent:
+                ti = datetime.fromisoformat(r["observed_at"].replace("Z", "+00:00"))
+                hours.append((ti - t0).total_seconds() / 3600.0)
+            if hours[-1] > 0:
+                # Simple linear slope: (last - first) / hours_elapsed
+                features["obs_heating_rate"] = round(
+                    (temps[-1] - temps[0]) / hours[-1], 2
+                )
+            else:
+                features["obs_heating_rate"] = np.nan
+        except Exception:
+            features["obs_heating_rate"] = np.nan
+    else:
+        features["obs_heating_rate"] = np.nan
+
+    # Obs max vs NWS forecast
+    if nws_last is not None and features["obs_max_so_far"] is not None:
+        features["obs_temp_vs_forecast_max"] = round(
+            features["obs_max_so_far"] - nws_last, 1
+        )
+    else:
+        features["obs_temp_vs_forecast_max"] = np.nan
+
+    # Fill any missing keys with NaN
+    for col in OBSERVATION_COLS:
+        if col not in features:
+            features[col] = np.nan
+
+    return features
+
 
 def _sb_endpoint():
     url = os.environ.get("SUPABASE_URL", "").rstrip("/")
@@ -1773,6 +2151,7 @@ def _cli():
     a = s.add_parser("today_for_today");    a.add_argument("--date")
     b = s.add_parser("today_for_tomorrow"); b.add_argument("--date")
     s.add_parser("both")
+    s.add_parser("collect_obs")
     args = p.parse_args()
 
     set_city(args.city)
@@ -1780,7 +2159,8 @@ def _cli():
     _CITY_KEY = args.city
     print(f"[prediction_writer] city={args.city}")
 
-    if args.cmd == "today_for_today":    write_today_for_today(args.date)
+    if args.cmd == "collect_obs":        collect_nws_observations(args.city)
+    elif args.cmd == "today_for_today":    write_today_for_today(args.date)
     elif args.cmd == "today_for_tomorrow": write_today_for_tomorrow(args.date)
     else: write_both_snapshots()
 

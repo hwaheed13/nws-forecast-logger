@@ -123,6 +123,26 @@ MOS_COLS = [
     "mos_max_temp",             # MOS predicted max temperature for the target date
 ]
 
+# NWS real-time observation features (12 features)
+# Source: NWS station observations API (live), Open-Meteo archive hourly (training proxy)
+# These provide GROUND TRUTH during live inference — the delta between forecasted
+# and observed conditions is where the strongest signal lives.
+# For D1 (tomorrow) predictions: all obs_* features are NaN except obs_temp_vs_forecast_max.
+OBSERVATION_COLS = [
+    "obs_latest_temp",          # Most recent observed temp (°F) from NWS station
+    "obs_latest_hour",          # Hour (0-23) of latest observation (local time)
+    "obs_max_so_far",           # Running daily max from hourly observations
+    "obs_6hr_max",              # NWS official 6-hour max (reported at :51 every 6 hrs)
+    "obs_vs_intra_forecast",    # obs_latest_temp - Open-Meteo forecasted temp at same hour
+    "obs_wind_speed",           # Observed wind speed (mph)
+    "obs_wind_gust",            # Observed wind gust (mph)
+    "obs_wind_dir_sin",         # Wind direction circular encoding (sin component)
+    "obs_wind_dir_cos",         # Wind direction circular encoding (cos component)
+    "obs_cloud_cover",          # Mapped from NWS textDescription (0.0=Clear → 1.0=Overcast)
+    "obs_heating_rate",         # Observed heating trajectory (°F/hr over last 3 hours)
+    "obs_temp_vs_forecast_max", # obs_max_so_far - nws_last: how reality compares to forecast
+]
+
 # Features used as INPUT to the atmospheric predictor (first-stage model)
 ATM_PREDICTOR_INPUT_COLS = ATMOSPHERIC_COLS + INTRADAY_CURVE_COLS + [
     "day_of_year_sin", "day_of_year_cos", "month", "is_summer", "is_winter",
@@ -138,6 +158,11 @@ FEATURE_COLS_V2 = FEATURE_COLS + ATMOSPHERIC_COLS + ENSEMBLE_COLS + MULTIMODEL_C
 # regression + classifier.  HistGradientBoosting handles NaN forecast features
 # natively for multi-year rows.
 FEATURE_COLS_V3 = FEATURE_COLS_V2
+
+# v4 feature list (84 total: 72 + 12 observation features)
+# Adds real-time NWS observation features that give the model ground-truth
+# temperature/wind/sky data to compare against forecasts during live inference.
+FEATURE_COLS_V4 = FEATURE_COLS_V3 + OBSERVATION_COLS
 
 # Additional features added per-candidate-bucket during classification (4)
 # These are NOT in FEATURE_COLS_V2 because they vary per candidate bucket, not per day

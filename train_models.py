@@ -255,6 +255,14 @@ class NYCTemperatureModelTrainer:
         # --- MOS max temp — NaN for training data (not available in archive) ---
         features["mos_max_temp"] = np.nan
 
+        # --- Observation proxy features — NaN here, filled after atmospheric merge ---
+        # For recent dates, the atmospheric merge brings intraday temps from
+        # atmospheric_data.csv. After merge, we compute obs proxy features
+        # in _compute_observation_proxy_features().
+        from model_config import OBSERVATION_COLS
+        for col in OBSERVATION_COLS:
+            features[col] = np.nan
+
         # --- Target variables (not features, used for training) ---
         features["actual_high"] = actual_high
         features["winning_bucket"] = f"{int(actual_high)}-{int(actual_high)+1}"
@@ -595,7 +603,7 @@ class NYCTemperatureModelTrainer:
         """
         from model_config import (
             ATMOSPHERIC_COLS, ENSEMBLE_COLS, MULTIMODEL_COLS, INTRADAY_CURVE_COLS,
-            MOS_COLS,
+            MOS_COLS, OBSERVATION_COLS,
         )
 
         # Sort by date so we can compute persistence (yesterday's high)
@@ -678,6 +686,45 @@ class NYCTemperatureModelTrainer:
             for col in MOS_COLS:
                 features[col] = np.nan
 
+            # Observation proxy features — computed from archive intraday data
+            # Simulates what the model would see at noon during live inference.
+            # For archive data, intraday features ARE real observations.
+            obs_noon_temp = row.get("intra_temp_noon", np.nan)
+            obs_9am_temp = row.get("intra_temp_9am", np.nan)
+            obs_3pm_temp = row.get("intra_temp_3pm", np.nan)
+
+            features["obs_latest_temp"] = obs_noon_temp if pd.notna(obs_noon_temp) else np.nan
+            features["obs_latest_hour"] = 12.0  # fixed as-of hour for training
+            # Running max up to noon: max of 9am and noon
+            obs_temps = [t for t in [obs_9am_temp, obs_noon_temp] if pd.notna(t)]
+            features["obs_max_so_far"] = max(obs_temps) if obs_temps else np.nan
+            # 6hr max: max of morning observations (same as max_so_far for noon cutoff)
+            features["obs_6hr_max"] = features["obs_max_so_far"]
+            # Delta vs intraday forecast: ~0 for archive (same source)
+            features["obs_vs_intra_forecast"] = 0.0
+
+            # Wind from atmospheric features
+            features["obs_wind_speed"] = row.get("atm_wind_mean", np.nan)
+            features["obs_wind_gust"] = row.get("atm_wind_max", np.nan)
+            features["obs_wind_dir_sin"] = row.get("atm_wind_dir_sin", np.nan)
+            features["obs_wind_dir_cos"] = row.get("atm_wind_dir_cos", np.nan)
+
+            # Cloud cover (archive has mean %, convert to 0-1 scale)
+            cloud_mean = row.get("atm_cloud_cover_mean", np.nan)
+            features["obs_cloud_cover"] = round(cloud_mean / 100.0, 2) if pd.notna(cloud_mean) else np.nan
+
+            # Heating rate: (noon - 9am) / 3 hours
+            if pd.notna(obs_noon_temp) and pd.notna(obs_9am_temp):
+                features["obs_heating_rate"] = round((obs_noon_temp - obs_9am_temp) / 3.0, 2)
+            else:
+                features["obs_heating_rate"] = np.nan
+
+            # Obs max vs persistence forecast (our proxy "NWS" forecast)
+            if persistence is not None and features["obs_max_so_far"] is not None and not np.isnan(features["obs_max_so_far"]):
+                features["obs_temp_vs_forecast_max"] = round(features["obs_max_so_far"] - persistence, 1)
+            else:
+                features["obs_temp_vs_forecast_max"] = np.nan
+
             rows.append(features)
 
         result = pd.DataFrame(rows)
@@ -743,6 +790,62 @@ class NYCTemperatureModelTrainer:
             print(f"  Matched atmospheric data for {matched}/{len(merged)} days")
 
         self.features_df = merged
+
+    def _compute_observation_proxy_features(self) -> None:
+        """Fill observation proxy features for recent data rows after atmospheric merge.
+
+        For rows that came from extract_features_for_date() (recent NWS/AccuWeather data),
+        the observation proxy columns were initialized as NaN. Now that atmospheric merge
+        brought intraday features, we can compute the obs proxy from them.
+
+        Simulates "as-of noon" observations using the archived intraday curve data.
+        """
+        df = self.features_df
+        if df is None or df.empty:
+            return
+
+        # Only fill rows where obs_latest_temp is NaN (i.e., not already set by multiyear builder)
+        mask = df["obs_latest_temp"].isna() & df["intra_temp_noon"].notna()
+        if mask.sum() == 0:
+            print(f"  Observation proxy: no rows to fill (all already set or no intraday data)")
+            return
+
+        # obs_latest_temp = noon temp
+        df.loc[mask, "obs_latest_temp"] = df.loc[mask, "intra_temp_noon"]
+        df.loc[mask, "obs_latest_hour"] = 12.0
+
+        # obs_max_so_far: max of 9am and noon
+        df.loc[mask, "obs_max_so_far"] = df.loc[mask, ["intra_temp_9am", "intra_temp_noon"]].max(axis=1)
+
+        # obs_6hr_max: same as max_so_far for noon cutoff
+        df.loc[mask, "obs_6hr_max"] = df.loc[mask, "obs_max_so_far"]
+
+        # obs_vs_intra_forecast: ~0 for archive data (same source)
+        df.loc[mask, "obs_vs_intra_forecast"] = 0.0
+
+        # Wind from atmospheric features
+        df.loc[mask, "obs_wind_speed"] = df.loc[mask, "atm_wind_mean"]
+        df.loc[mask, "obs_wind_gust"] = df.loc[mask, "atm_wind_max"]
+        df.loc[mask, "obs_wind_dir_sin"] = df.loc[mask, "atm_wind_dir_sin"]
+        df.loc[mask, "obs_wind_dir_cos"] = df.loc[mask, "atm_wind_dir_cos"]
+
+        # Cloud cover (atmospheric has %, convert to 0-1)
+        cloud = df.loc[mask, "atm_cloud_cover_mean"]
+        df.loc[mask, "obs_cloud_cover"] = (cloud / 100.0).round(2)
+
+        # Heating rate: (noon - 9am) / 3
+        noon = df.loc[mask, "intra_temp_noon"]
+        am9 = df.loc[mask, "intra_temp_9am"]
+        df.loc[mask, "obs_heating_rate"] = ((noon - am9) / 3.0).round(2)
+
+        # obs_temp_vs_forecast_max: obs_max_so_far - nws_last
+        obs_max = df.loc[mask, "obs_max_so_far"]
+        nws_last = df.loc[mask, "nws_last"]
+        df.loc[mask, "obs_temp_vs_forecast_max"] = (obs_max - nws_last).round(1)
+
+        self.features_df = df
+        filled = mask.sum()
+        print(f"  Observation proxy: filled {filled} recent rows with as-of-noon features")
 
     def _train_atm_predictor(self) -> None:
         """
@@ -887,6 +990,9 @@ class NYCTemperatureModelTrainer:
                 # Sort by date for proper temporal cross-validation
                 self.features_df = self.features_df.sort_values("target_date").reset_index(drop=True)
                 print(f"  Training data expanded: {original_count} → {len(self.features_df)} days")
+
+        # Fill observation proxy features for recent rows (after atmospheric merge)
+        self._compute_observation_proxy_features()
 
         # Determine which v2 columns are actually available
         available_v2_cols = [c for c in FEATURE_COLS_V2 if c in self.features_df.columns]
