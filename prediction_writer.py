@@ -1032,8 +1032,13 @@ def _compute_ml_prediction(
                 )
                 result["ml_version"] = "v2_atm_classifier"
 
+                # Direct map: what bucket does the regression temp map to?
+                from model_config import temp_to_bucket_label
+                result["ml_direct_bucket"] = temp_to_bucket_label(v2_temp)
+
                 print(f"🧠 ML v2 prediction for {target_date_iso}: {v2_temp:.1f}°F "
-                      f"→ bucket={v2_best['bucket']} ({v2_best['probability']:.0%})")
+                      f"→ bucket={v2_best['bucket']} ({v2_best['probability']:.0%}) "
+                      f"[direct: {result['ml_direct_bucket']}]")
                 if len(bucket_probs) > 1:
                     runner = bucket_probs[1]
                     print(f"   Runner-up: {runner['bucket']} ({runner['probability']:.0%})")
@@ -1322,6 +1327,8 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             payload["ml_bucket_probs"] = ml["ml_bucket_probs"]
         if ml.get("ml_version"):
             payload["ml_version"] = ml["ml_version"]
+        if ml.get("ml_direct_bucket"):
+            payload["ml_direct_bucket"] = ml["ml_direct_bucket"]
 
     # Fetch Kalshi market odds + compute bet signal
     market_probs = _fetch_kalshi_market_probs(target_date_iso)
@@ -1451,6 +1458,8 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
             payload["ml_bucket_probs"] = ml["ml_bucket_probs"]
         if ml.get("ml_version"):
             payload["ml_version"] = ml["ml_version"]
+        if ml.get("ml_direct_bucket"):
+            payload["ml_direct_bucket"] = ml["ml_direct_bucket"]
 
     # Use already-fetched Kalshi market odds (from lock check above)
     market_probs = tomorrow_market_probs
