@@ -3499,21 +3499,51 @@ function renderMLBetSignal() {
       let resultBadge, resultDetail, borderColor;
 
       if (actualHigh != null && ml.todayMLBucket) {
-        // Check if actual high falls in the ML bucket
+        // Kalshi-aware scoring: check if actual and ML pick land in same Kalshi bucket
         const actualInt = Math.round(actualHigh);
         let isWin = false;
         const bucket = ml.todayMLBucket;
 
-        const leMatch = bucket.match(/^<=(\d+)$/);
-        const geMatch = bucket.match(/^>=(\d+)$/);
-        const rangeMatch = bucket.match(/^(\d+)-(\d+)$/);
+        // Try Kalshi-aware scoring using market snapshot
+        const mktSnap = ml.todayMarketSnapshot;
+        if (mktSnap) {
+          try {
+            const mkt = typeof mktSnap === 'string' ? JSON.parse(mktSnap) : mktSnap;
+            const ranges = Object.keys(mkt);
+            // Find which Kalshi bucket contains the actual
+            const findBucket = (temp) => {
+              const t = Math.round(temp);
+              for (const label of ranges) {
+                const le = label.match(/^<=(\d+)$/);
+                if (le && t <= Number(le[1])) return label;
+                const ge = label.match(/^>=(\d+)$/);
+                if (ge && t >= Number(ge[1])) return label;
+                const rng = label.match(/^(\d+)-(\d+)$/);
+                if (rng && t >= Number(rng[1]) && t <= Number(rng[2])) return label;
+              }
+              return null;
+            };
+            const actualKalshi = findBucket(actualInt);
+            const mlF = ml.today != null ? ml.today : null;
+            const mlKalshi = mlF != null ? findBucket(Math.round(mlF)) : null;
+            // Also check if ml_bucket label directly matches a Kalshi bucket
+            const mlPickKalshi = ranges.includes(bucket) ? bucket : null;
+            if (actualKalshi && (mlKalshi === actualKalshi || mlPickKalshi === actualKalshi)) {
+              isWin = true;
+            }
+          } catch (e) {
+            // Fall through to direct comparison
+          }
+        }
 
-        if (leMatch) {
-          isWin = actualInt <= Number(leMatch[1]);
-        } else if (geMatch) {
-          isWin = actualInt >= Number(geMatch[1]);
-        } else if (rangeMatch) {
-          isWin = actualInt >= Number(rangeMatch[1]) && actualInt <= Number(rangeMatch[2]);
+        // Fallback: direct bucket check (when no Kalshi snapshot)
+        if (!mktSnap) {
+          const leMatch = bucket.match(/^<=(\d+)$/);
+          const geMatch = bucket.match(/^>=(\d+)$/);
+          const rangeMatch = bucket.match(/^(\d+)-(\d+)$/);
+          if (leMatch) isWin = actualInt <= Number(leMatch[1]);
+          else if (geMatch) isWin = actualInt >= Number(geMatch[1]);
+          else if (rangeMatch) isWin = actualInt >= Number(rangeMatch[1]) && actualInt <= Number(rangeMatch[2]);
         }
 
         if (leMatch || geMatch || rangeMatch) {
