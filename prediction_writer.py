@@ -1076,6 +1076,27 @@ def _c_to_f(c):
     return round(c * 9.0 / 5.0 + 32.0, 1) if c is not None else None
 
 
+import re
+_METAR_6HR_MAX_RE = re.compile(r'\b1([01])(\d{3})\b')
+
+def _parse_metar_6hr_max(raw_message: str) -> float | None:
+    """Parse 6-hour maximum temperature from METAR remarks.
+
+    METAR group format: 1snTTT
+      - 1  = group identifier (6-hr max)
+      - sn = sign (0=positive, 1=negative)
+      - TTT = temperature in tenths of °C (e.g., 117 = 11.7°C)
+
+    Example: '10117' → +11.7°C → 53.1°F
+    """
+    m = _METAR_6HR_MAX_RE.search(raw_message)
+    if not m:
+        return None
+    sign = -1 if m.group(1) == '1' else 1
+    temp_c = sign * int(m.group(2)) / 10.0
+    return round(temp_c * 9.0 / 5.0 + 32.0, 1)
+
+
 def collect_nws_observations(city_key: str = None) -> int:
     """
     Fetch recent NWS station observations and upsert into Supabase nws_observations table.
@@ -1127,8 +1148,11 @@ def collect_nws_observations(city_key: str = None) -> int:
         sky = props.get("textDescription", "") or ""
         raw_msg = props.get("rawMessage", "") or ""
 
-        # Parse 6-hr max from maxTemperatureLast24Hours (populated on some stations)
+        # Parse 6-hr max: first try API field, then parse from METAR remarks
         max24_c = props.get("maxTemperatureLast24Hours", {}).get("value")
+        six_hr_max = _c_to_f(max24_c)
+        if six_hr_max is None and raw_msg:
+            six_hr_max = _parse_metar_6hr_max(raw_msg)
 
         rows.append({
             "city": city,
@@ -1142,7 +1166,7 @@ def collect_nws_observations(city_key: str = None) -> int:
             "dewpoint_f": _c_to_f(dewpoint_c),
             "pressure_hpa": _pa_to_hpa(pressure_pa),
             "humidity_pct": round(humidity, 1) if humidity is not None else None,
-            "six_hr_max_f": _c_to_f(max24_c),
+            "six_hr_max_f": six_hr_max,
             "raw_message": raw_msg.strip() if raw_msg else None,
         })
 
