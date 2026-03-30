@@ -35,10 +35,11 @@ jobs:
           echo "Backfilling atmospheric data through $YESTERDAY"
           python backfill_multiyear.py --all --end "$YESTERDAY"
 
-      - name: Run model training (v1 + v2 for all cities)
+      - name: Run model training (v1 + v2 + v4 for all cities)
         run: |
           python train_models.py --all
           python train_models.py --all --v2
+          python train_models.py --all --v4
 
       - name: Show training results
         run: |
@@ -62,9 +63,10 @@ jobs:
           if git diff --cached --quiet; then
             echo "No model changes to commit"
           else
-            git commit -m "Retrain ML models v1+v2 with latest data ($(date +%Y-%m-%d))
+            git commit -m "Retrain ML models v1+v2+v4 with latest data ($(date +%Y-%m-%d))
 
-          Automated daily retrain using train_models.py --all (v1 + v2).
+          Automated daily retrain using train_models.py --all (v1 + v2 + v4).
+          v4 includes 12 observation features (84 total) for intraday re-prediction.
           Cities with <60 days of data are skipped automatically.
           See model_metadata*.json for updated performance metrics."
             git push

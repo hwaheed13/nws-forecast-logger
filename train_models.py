@@ -1318,7 +1318,170 @@ class NYCTemperatureModelTrainer:
             json.dump(v3_metadata, f, indent=2)
         print(f"  Saved v3 metadata to {self.model_prefix}model_metadata_v3.json")
 
-    def run(self, v2: bool = False):
+    def train_v4(self) -> None:
+        """
+        Train v4 model: v2 architecture + 12 real-time observation features (84 total).
+
+        Uses FEATURE_COLS_V4 which adds obs_latest_temp, obs_max_so_far, obs_6hr_max,
+        obs_vs_intra_forecast, obs_wind_speed/gust/dir, obs_cloud_cover, obs_heating_rate,
+        obs_temp_vs_forecast_max to the existing 72 v2 features.
+
+        Observation proxy features were already computed in train_v2() via
+        _compute_observation_proxy_features() and _build_multiyear_features().
+        """
+        from model_config import FEATURE_COLS_V4, OBSERVATION_COLS
+        from train_classifier import BucketClassifier
+
+        print(f"\n{'═'*60}")
+        print(f"v4 Training: v2 + Real-Time Observation Features ({len(FEATURE_COLS_V4)} features)")
+        print(f"{'═'*60}")
+
+        if self.features_df is None or self.features_df.empty:
+            print("  ⚠️ No feature data available. Run train_v2() first.")
+            return
+
+        # Ensure all v4 columns exist (fill missing with NaN)
+        available_v4_cols = [c for c in FEATURE_COLS_V4 if c in self.features_df.columns]
+        missing_v4 = [c for c in FEATURE_COLS_V4 if c not in self.features_df.columns]
+        if missing_v4:
+            print(f"  Missing v4 columns (will be NaN): {missing_v4[:5]}{'...' if len(missing_v4) > 5 else ''}")
+            for col in missing_v4:
+                self.features_df[col] = np.nan
+
+        # Check observation feature coverage
+        obs_populated = 0
+        for col in OBSERVATION_COLS:
+            if col in self.features_df.columns:
+                n = self.features_df[col].notna().sum()
+                if n > 0:
+                    obs_populated += 1
+        print(f"  Observation features with data: {obs_populated}/{len(OBSERVATION_COLS)}")
+        print(f"  Using {len(FEATURE_COLS_V4)} v4 features ({len(available_v4_cols)} with data, "
+              f"{len(missing_v4)} NaN)")
+
+        # --- Train v4 regression model ---
+        has_forecast_mask = self.features_df["nws_last"].notna()
+        forecast_df = self.features_df[has_forecast_mask].copy()
+        n_forecast = len(forecast_df)
+        n_total = len(self.features_df)
+        print(f"\n  Regression: {n_forecast} rows with forecasts (of {n_total} total)")
+
+        residual_std_v4 = 2.0
+        mae_scores_v4 = []
+        bucket_acc_v4 = []
+
+        if n_forecast >= MIN_DAYS_FOR_TRAINING:
+            X_v4_reg = forecast_df[FEATURE_COLS_V4]
+            y_actual_reg = forecast_df["actual_high"]
+            nws_last_reg = forecast_df["nws_last"]
+            accu_last_reg = forecast_df["accu_last"]
+
+            base_reg = accu_last_reg.copy()
+            base_reg[base_reg.isna()] = nws_last_reg[base_reg.isna()]
+            y_bias_reg = y_actual_reg - base_reg
+
+            print(f"  Training v4 regression model ({len(FEATURE_COLS_V4)} features, {n_forecast} rows)...")
+
+            tscv = TimeSeriesSplit(n_splits=5)
+            all_residuals_v4 = []
+
+            for tr, te in tscv.split(X_v4_reg):
+                model = HistGradientBoostingRegressor(
+                    max_iter=300, max_depth=3, learning_rate=0.03,
+                    min_samples_leaf=20, l2_regularization=1.0,
+                    max_leaf_nodes=15, random_state=42,
+                )
+                model.fit(X_v4_reg.iloc[tr], y_bias_reg.iloc[tr])
+                pred_bias = model.predict(X_v4_reg.iloc[te])
+                pred_temp = base_reg.iloc[te].values + pred_bias
+
+                mae_scores_v4.append(mean_absolute_error(y_actual_reg.iloc[te], pred_temp))
+                all_residuals_v4.extend((y_actual_reg.iloc[te].values - pred_temp).tolist())
+
+                pred_buckets = [f"{int(p)}-{int(p)+1}" for p in pred_temp]
+                actual_buckets = [f"{int(a)}-{int(a)+1}" for a in y_actual_reg.iloc[te]]
+                correct = sum(1 for pb, ab in zip(pred_buckets, actual_buckets) if pb == ab)
+                bucket_acc_v4.append(correct / len(actual_buckets))
+
+            residual_std_v4 = float(np.std(all_residuals_v4))
+            print(f"  v4 Regression CV MAE: {np.mean(mae_scores_v4):.2f}°F")
+            print(f"  v4 Regression CV Bucket Acc: {np.mean(bucket_acc_v4):.1%}")
+            print(f"  v4 Residual Std: {residual_std_v4:.2f}°F")
+
+            # Train final v4 regression model on all forecast rows
+            v4_regressor = HistGradientBoostingRegressor(
+                max_iter=300, max_depth=3, learning_rate=0.03,
+                min_samples_leaf=20, l2_regularization=1.0,
+                max_leaf_nodes=15, random_state=42,
+            )
+            v4_regressor.fit(X_v4_reg, y_bias_reg)
+
+            # Save v4 regression model
+            with open(f"{self.model_prefix}temp_model_v4.pkl", "wb") as f:
+                pickle.dump(v4_regressor, f)
+            with open(f"{self.model_prefix}bucket_model_v4.pkl", "wb") as f:
+                pickle.dump({
+                    "residual_std": residual_std_v4,
+                    "method": "gaussian_from_v4_regression",
+                }, f)
+            print(f"  Saved v4 regression model")
+        else:
+            print(f"  ⚠️  Only {n_forecast} forecast rows — skipping v4 regression.")
+
+        # --- Train v4 bucket classifier ---
+        forecast_df = self.features_df[
+            self.features_df["nws_last"].notna() | self.features_df["accu_last"].notna()
+        ].copy().reset_index(drop=True)
+        print(f"\n  Classifier training on {len(forecast_df)} forecast days "
+              f"(excluding {len(self.features_df) - len(forecast_df)} no-forecast rows)")
+        classifier = BucketClassifier()
+        classifier.train(forecast_df, feature_cols=FEATURE_COLS_V4)
+        classifier.save(f"{self.model_prefix}bucket_classifier_v4.pkl")
+
+        # --- Save v4 metadata ---
+        v4_metadata = {
+            "trained_on": datetime.now().isoformat(),
+            "version": "v4_observation_features",
+            "num_days": int(len(self.features_df)),
+            "date_range": {
+                "start": str(self.features_df["target_date"].min()),
+                "end": str(self.features_df["target_date"].max()),
+            },
+            "v4_regression": {
+                "cv_mae": round(float(np.mean(mae_scores_v4)), 2) if mae_scores_v4 else None,
+                "cv_bucket_accuracy": round(float(np.mean(bucket_acc_v4)), 4) if bucket_acc_v4 else None,
+                "residual_std": round(residual_std_v4, 2),
+                "num_features": len(FEATURE_COLS_V4),
+            },
+            "v4_classifier": classifier.training_stats,
+            "observation_features": OBSERVATION_COLS,
+            "feature_columns_v4": FEATURE_COLS_V4,
+        }
+
+        with open(f"{self.model_prefix}model_metadata_v4.json", "w") as f:
+            json.dump(v4_metadata, f, indent=2)
+        print(f"\n  Saved v4 metadata to {self.model_prefix}model_metadata_v4.json")
+
+        # Print comparison with v2
+        print(f"\n{'─'*50}")
+        print(f"COMPARISON: v2 vs v4")
+        print(f"{'─'*50}")
+        # Load v2 metadata for comparison
+        try:
+            with open(f"{self.model_prefix}model_metadata_v2.json") as f:
+                v2_meta = json.load(f)
+            v2_mae = v2_meta.get("v2_regression", {}).get("cv_mae")
+            v2_bucket = v2_meta.get("v2_regression", {}).get("cv_bucket_accuracy")
+            if v2_mae and mae_scores_v4:
+                print(f"  Regression MAE:    v2={v2_mae:.2f}°F → v4={np.mean(mae_scores_v4):.2f}°F")
+            if v2_bucket and bucket_acc_v4:
+                print(f"  Regression Bucket: v2={v2_bucket:.1%} → v4={np.mean(bucket_acc_v4):.1%}")
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+        print(f"  v4 Classifier Bucket: {classifier.cv_bucket_accuracy:.1%}")
+        print(f"{'─'*50}")
+
+    def run(self, v2: bool = False, v4: bool = False):
         label = self.city_cfg["label"]
         print("=" * 60)
         print(f"{label} Temperature Model Training")
@@ -1356,6 +1519,13 @@ class NYCTemperatureModelTrainer:
             # Also train v3 (unified model) using the same expanded data
             self.train_v3()
 
+        if v4:
+            if not v2:
+                # v4 needs v2 to run first (builds feature matrix with atmospheric + obs proxy)
+                self.train_v2()
+                self.train_v3()
+            self.train_v4()
+
         print("\nTraining complete.")
 
 
@@ -1366,6 +1536,8 @@ if __name__ == "__main__":
     parser.add_argument("--all", action="store_true", help="Train all cities")
     parser.add_argument("--v2", action="store_true",
                         help="Also train v2 (atmospheric features + bucket classifier)")
+    parser.add_argument("--v4", action="store_true",
+                        help="Also train v4 (v2 + real-time observation features)")
     args = parser.parse_args()
 
     if args.all:
@@ -1375,7 +1547,7 @@ if __name__ == "__main__":
             print(f"# Training: {city_key}")
             print(f"{'#' * 60}\n")
             trainer = NYCTemperatureModelTrainer(city_key=city_key)
-            trainer.run(v2=args.v2)
+            trainer.run(v2=args.v2, v4=args.v4)
     else:
         trainer = NYCTemperatureModelTrainer(city_key=args.city)
-        trainer.run(v2=args.v2)
+        trainer.run(v2=args.v2, v4=args.v4)

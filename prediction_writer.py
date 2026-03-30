@@ -141,6 +141,49 @@ def _load_v3_model():
     )
 
 
+def _load_v4_models():
+    """Load v4 models: regression + bucket_info + classifier + atm_predictor (cached).
+    v4 = v2 architecture + 12 observation features (84 total)."""
+    import nws_auto_logger as _nal
+    prefix = _nal._CITY_CFG.get("model_prefix", "")
+    cache_key = f"{prefix}v4_regressor"
+    if cache_key not in _ML_MODEL_CACHE:
+        _ML_MODEL_CACHE[cache_key] = None
+        _ML_MODEL_CACHE[f"{prefix}v4_bucket_info"] = None
+        _ML_MODEL_CACHE[f"{prefix}v4_classifier"] = None
+
+        try:
+            with open(f"{prefix}temp_model_v4.pkl", "rb") as f:
+                _ML_MODEL_CACHE[cache_key] = pickle.load(f)
+            print(f"✅ Loaded v4 regression model (prefix='{prefix}')")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            print(f"⚠️ v4 regression load error: {e}")
+
+        try:
+            with open(f"{prefix}bucket_model_v4.pkl", "rb") as f:
+                _ML_MODEL_CACHE[f"{prefix}v4_bucket_info"] = pickle.load(f)
+        except FileNotFoundError:
+            pass
+
+        try:
+            from train_classifier import BucketClassifier
+            if os.path.exists(f"{prefix}bucket_classifier_v4.pkl"):
+                _ML_MODEL_CACHE[f"{prefix}v4_classifier"] = BucketClassifier.load(
+                    f"{prefix}bucket_classifier_v4.pkl"
+                )
+                print(f"✅ Loaded v4 bucket classifier (prefix='{prefix}')")
+        except Exception as e:
+            print(f"⚠️ v4 classifier load error: {e}")
+
+    return (
+        _ML_MODEL_CACHE.get(cache_key),
+        _ML_MODEL_CACHE.get(f"{prefix}v4_bucket_info"),
+        _ML_MODEL_CACHE.get(f"{prefix}v4_classifier"),
+    )
+
+
 def _fetch_observed_high_so_far(target_date_iso: str) -> tuple:
     """
     Fetch today's observed high temperature from NWS station observations.
@@ -933,9 +976,19 @@ def _compute_ml_prediction(
             "ml_confidence": round(confidence, 4),
         }
 
-    # --- 11. Try v2 models (atmospheric + classifier) ---
+    # --- 11. Try v4 models first (v2 + observation features), fall back to v2 ---
+    v4_regressor, v4_bucket_info, v4_classifier = _load_v4_models()
     v2_temp_model, v2_bucket_info, v2_classifier, v2_atm_predictor = _load_v2_models()
-    if v2_classifier is not None:
+
+    # Select best available model
+    use_v4 = v4_classifier is not None
+    active_classifier = v4_classifier if use_v4 else v2_classifier
+    active_regressor = v4_regressor if use_v4 else v2_temp_model
+    active_bucket_info = v4_bucket_info if use_v4 else v2_bucket_info
+    active_feature_cols = FEATURE_COLS_V4 if use_v4 else FEATURE_COLS_V2
+    active_version = "v4_observation_features" if use_v4 else "v2_atm_classifier"
+
+    if active_classifier is not None:
         try:
             # Fetch atmospheric features
             atm_features = _fetch_atmospheric_features(target_date_iso)
@@ -982,13 +1035,12 @@ def _compute_ml_prediction(
                 v2_features["atm_predicted_high"] = np.nan
                 v2_features["atm_vs_forecast_diff"] = np.nan
 
-            # Build v2 feature DataFrame
+            # Build feature DataFrame (v4 or v2 depending on available model)
             X_v2 = pd.DataFrame([v2_features])
-            # Add any missing v2 columns as NaN
-            for col in FEATURE_COLS_V2:
+            for col in active_feature_cols:
                 if col not in X_v2.columns:
                     X_v2[col] = np.nan
-            X_v2 = X_v2[FEATURE_COLS_V2]
+            X_v2 = X_v2[active_feature_cols]
             # Fill AccuWeather fallbacks
             for accu_col, nws_col in ACCU_NWS_FALLBACK.items():
                 if pd.isna(X_v2.loc[0, accu_col]):
@@ -1001,11 +1053,11 @@ def _compute_ml_prediction(
             has_atm = (atm_pred_val is not None
                        and not (isinstance(atm_pred_val, float) and math.isnan(atm_pred_val)))
 
-            if v2_temp_model is not None:
-                v2_bias = float(v2_temp_model.predict(X_v2)[0])
+            if active_regressor is not None:
+                v2_bias = float(active_regressor.predict(X_v2)[0])
                 v2_temp = base + v2_bias
                 print(f"   Center temp: {v2_temp:.1f}°F "
-                      f"(regression: base={base:.0f} + bias={v2_bias:+.1f})")
+                      f"({active_version} regression: base={base:.0f} + bias={v2_bias:+.1f})")
             else:
                 # No atm predictor and no regression — use forecast average
                 all_forecasts = [features["nws_last"]]
@@ -1025,7 +1077,7 @@ def _compute_ml_prediction(
             # v2 classifier bucket prediction
             # Use 15 candidates (±7) to cover full Kalshi range and handle
             # source disagreements (e.g., AccuWeather says 77, NWS says 88)
-            bucket_probs = v2_classifier.predict_bucket_probs(
+            bucket_probs = active_classifier.predict_bucket_probs(
                 features=v2_features,
                 center_temp=v2_temp,
                 accu_last=features.get("accu_last") if has_accu else None,
@@ -1041,13 +1093,13 @@ def _compute_ml_prediction(
                 result["ml_bucket_probs"] = json.dumps(
                     {bp["bucket"]: bp["probability"] for bp in bucket_probs}
                 )
-                result["ml_version"] = "v2_atm_classifier"
+                result["ml_version"] = active_version
 
                 # Direct map: what bucket does the regression temp map to?
                 from model_config import temp_to_bucket_label
                 result["ml_direct_bucket"] = temp_to_bucket_label(v2_temp)
 
-                print(f"🧠 ML v2 prediction for {target_date_iso}: {v2_temp:.1f}°F "
+                print(f"🧠 ML {active_version} prediction for {target_date_iso}: {v2_temp:.1f}°F "
                       f"→ bucket={v2_best['bucket']} ({v2_best['probability']:.0%}) "
                       f"[direct: {result['ml_direct_bucket']}]")
                 if len(bucket_probs) > 1:
@@ -1677,26 +1729,13 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     if avg_bias_excl_today is not None and today_pre_mean is not None:
         bcp = today_pre_mean + avg_bias_excl_today
 
-    # Check if ML prediction is already locked for today.
-    # The ML prediction should be stable — only computed once per day.
-    # Subsequent runs only refresh Kalshi market data + bet signals.
+    # Intraday re-prediction: always recompute ML with fresh observation features.
+    # Each 30-min run gets updated obs (temp, wind, cloud cover, heating rate)
+    # which may shift the prediction as real-time ground truth unfolds.
     existing = _fetch_existing_prediction(target_date_iso)
     if isinstance(existing, dict):
-        print(f"🔒 ML prediction already locked: {existing['ml_f']}°F → {existing.get('ml_bucket')}")
-        ml = {
-            "ml_f": existing["ml_f"],
-            "ml_bucket": existing["ml_bucket"],
-            "ml_confidence": existing["ml_confidence"],
-            "ml_bucket_probs": existing.get("ml_bucket_probs"),
-            "ml_version": existing.get("ml_version"),
-        }
-    elif existing == _LOCK_ERROR:
-        # Network error checking lock — skip ML to avoid overwriting a locked prediction
-        print("⚠️ Supabase unreachable — skipping ML recomputation to protect locked prediction")
-        ml = None
-    else:
-        # First run of the day (_LOCK_NOT_FOUND) — compute ML prediction
-        ml = _compute_ml_prediction(rows, target_date_iso)
+        print(f"🔄 Recomputing ML prediction (previous: {existing['ml_f']}°F → {existing.get('ml_bucket')})")
+    ml = _compute_ml_prediction(rows, target_date_iso)
 
     if bcp is None and ml is None:
         print("⏭️ today_for_today: no BCP data and no ML prediction available."); return
@@ -1737,53 +1776,40 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     if market_probs:
         payload["kalshi_market_snapshot"] = json.dumps(market_probs)
 
-    is_locked = isinstance(existing, dict)
-
     # Map ML prediction → Kalshi's actual bucket structure for today
+    # Always re-map with fresh prediction (no lock — intraday re-prediction enabled)
     if ml and market_probs:
-        if is_locked:
-            # Prediction is locked — do NOT re-map the bucket or apply observed
-            # floor.  Only refresh the bet signal (ML confidence vs live market).
-            print(f"🔒 Bucket locked: {payload.get('ml_bucket')} — refreshing bet signal only")
-            signal, edge = _compute_bet_signal(
-                payload.get("ml_confidence", 0), payload.get("ml_bucket", ""), market_probs
-            )
-            payload["bet_signal"] = signal
-            payload["ml_edge"] = edge
-            print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
-        else:
-            # First run — map ML probs to Kalshi buckets
-            direct_bucket = _find_kalshi_bucket_for_temp(ml["ml_f"], market_probs)
-            if direct_bucket:
-                print(f"🎯 Direct map: {ml['ml_f']:.1f}°F → Kalshi bucket '{direct_bucket}'")
+        direct_bucket = _find_kalshi_bucket_for_temp(ml["ml_f"], market_probs)
+        if direct_bucket:
+            print(f"🎯 Direct map: {ml['ml_f']:.1f}°F → Kalshi bucket '{direct_bucket}'")
 
-            if ml.get("ml_bucket_probs"):
-                raw_probs = json.loads(ml["ml_bucket_probs"]) if isinstance(ml["ml_bucket_probs"], str) else ml["ml_bucket_probs"]
+        if ml.get("ml_bucket_probs"):
+            raw_probs = json.loads(ml["ml_bucket_probs"]) if isinstance(ml["ml_bucket_probs"], str) else ml["ml_bucket_probs"]
 
-                kalshi_bucket, kalshi_conf, kalshi_aligned = _map_ml_to_kalshi_buckets(raw_probs, market_probs)
-                if kalshi_bucket:
-                    payload["ml_bucket"] = kalshi_bucket
-                    payload["ml_confidence"] = kalshi_conf
-                    print(f"🎯 Kalshi prob-aligned bucket: {kalshi_bucket} ({kalshi_conf:.0%})")
+            kalshi_bucket, kalshi_conf, kalshi_aligned = _map_ml_to_kalshi_buckets(raw_probs, market_probs)
+            if kalshi_bucket:
+                payload["ml_bucket"] = kalshi_bucket
+                payload["ml_confidence"] = kalshi_conf
+                print(f"🎯 Kalshi prob-aligned bucket: {kalshi_bucket} ({kalshi_conf:.0%})")
 
-                    if direct_bucket and kalshi_bucket != direct_bucket:
-                        print(f"ℹ️ Direct map ({direct_bucket}) differs from prob-aligned ({kalshi_bucket}) "
-                              f"— keeping prob-aligned (higher expected accuracy)")
+                if direct_bucket and kalshi_bucket != direct_bucket:
+                    print(f"ℹ️ Direct map ({direct_bucket}) differs from prob-aligned ({kalshi_bucket}) "
+                          f"— keeping prob-aligned (higher expected accuracy)")
 
-                    signal, edge = _compute_bet_signal(
-                        payload["ml_confidence"], payload["ml_bucket"], market_probs
-                    )
-                    payload["bet_signal"] = signal
-                    payload["ml_edge"] = edge
-                    print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
-            elif direct_bucket:
-                payload["ml_bucket"] = direct_bucket
                 signal, edge = _compute_bet_signal(
-                    ml["ml_confidence"], direct_bucket, market_probs
+                    payload["ml_confidence"], payload["ml_bucket"], market_probs
                 )
                 payload["bet_signal"] = signal
                 payload["ml_edge"] = edge
                 print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
+        elif direct_bucket:
+            payload["ml_bucket"] = direct_bucket
+            signal, edge = _compute_bet_signal(
+                ml["ml_confidence"], direct_bucket, market_probs
+            )
+            payload["bet_signal"] = signal
+            payload["ml_edge"] = edge
+            print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
 
     supabase_upsert(payload)
 
