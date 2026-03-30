@@ -1969,13 +1969,31 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     if avg_bias_excl_today is not None and today_pre_mean is not None:
         bcp = today_pre_mean + avg_bias_excl_today
 
-    # Intraday re-prediction: always recompute ML with fresh observation features.
-    # Each 30-min run gets updated obs (temp, wind, cloud cover, heating rate)
-    # which may shift the prediction as real-time ground truth unfolds.
+    # Intraday re-prediction: recompute ML with fresh observation features,
+    # BUT lock once today's actual high is in the CSV (prevent cheating —
+    # the model must not see the answer and retroactively shift its bucket).
+    has_actual_today = any(
+        r.get("forecast_or_actual") == "actual"
+        and r.get("cli_date") == target_date_iso
+        and _float_or_none(r.get("actual_high")) is not None
+        for r in rows
+    )
+
     existing = _fetch_existing_prediction(target_date_iso)
-    if isinstance(existing, dict):
-        print(f"🔄 Recomputing ML prediction (previous: {existing['ml_f']}°F → {existing.get('ml_bucket')})")
-    ml = _compute_ml_prediction(rows, target_date_iso)
+    if has_actual_today and isinstance(existing, dict):
+        print(f"🔒 Actual high recorded — prediction frozen: {existing['ml_f']}°F → {existing.get('ml_bucket')}")
+        ml = {
+            "ml_f": existing["ml_f"],
+            "ml_bucket": existing["ml_bucket"],
+            "ml_confidence": existing["ml_confidence"],
+            "ml_bucket_probs": existing.get("ml_bucket_probs"),
+            "ml_version": existing.get("ml_version"),
+        }
+    else:
+        # No actual yet — recompute with fresh observations
+        if isinstance(existing, dict):
+            print(f"🔄 Recomputing ML prediction (previous: {existing['ml_f']}°F → {existing.get('ml_bucket')})")
+        ml = _compute_ml_prediction(rows, target_date_iso)
 
     if bcp is None and ml is None:
         print("⏭️ today_for_today: no BCP data and no ML prediction available."); return
