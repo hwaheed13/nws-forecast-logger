@@ -1550,6 +1550,246 @@ def _latest_forecast(rows: list[dict], date_iso: str, source: Optional[str]) -> 
     cands.sort(key=lambda kv: kv[0])
     return cands[-1][1]
 
+# ---------------------------------------------------------------------------
+# Observation feature backfill for training
+# ---------------------------------------------------------------------------
+
+def backfill_observation_features(city_key: str = None) -> str:
+    """
+    Query all real NWS observations from Supabase and compute observation
+    features for each date. Saves to {prefix}observation_data.csv.
+
+    This gives the training pipeline REAL obs_vs_intra_forecast deltas
+    (non-zero) instead of proxy values (always 0). The model needs real
+    deltas to learn what forecast-vs-observation divergence means.
+
+    Returns path to the CSV file written.
+    """
+    import nws_auto_logger as _nal
+    from model_config import OBSERVATION_COLS
+
+    cfg = _nal._CITY_CFG
+    prefix = cfg.get("model_prefix", "")
+    city = city_key or _CITY_KEY
+    tz_name = cfg.get("timezone", "America/New_York")
+
+    sb_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    sb_key = os.environ.get("SUPABASE_SERVICE_ROLE", "")
+    if not sb_url or not sb_key:
+        print("⚠️ Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE — cannot backfill observations")
+        return ""
+
+    # Fetch ALL observations for this city from Supabase (paginated)
+    endpoint = f"{sb_url}/rest/v1/nws_observations"
+    all_obs = []
+    offset = 0
+    page_size = 1000
+    while True:
+        params = (
+            f"?city=eq.{city}"
+            f"&order=observed_at.asc"
+            f"&limit={page_size}"
+            f"&offset={offset}"
+        )
+        req = urllib.request.Request(
+            endpoint + params,
+            headers={
+                "apikey": sb_key,
+                "Authorization": f"Bearer {sb_key}",
+                "Accept": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                rows = json.loads(resp.read().decode("utf-8"))
+            all_obs.extend(rows)
+            if len(rows) < page_size:
+                break
+            offset += page_size
+        except Exception as e:
+            print(f"⚠️ Failed to fetch observations page at offset {offset}: {e}")
+            break
+
+    if not all_obs:
+        print(f"⚠️ No observations found for {city} — nothing to backfill")
+        return ""
+
+    print(f"📊 Fetched {len(all_obs)} total observations for {city}")
+
+    # Group observations by local date
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo(tz_name)
+    obs_by_date = {}
+    for obs in all_obs:
+        ts = obs.get("observed_at")
+        if not ts or obs.get("temp_f") is None:
+            continue
+        obs_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        obs_local = obs_dt.astimezone(tz)
+        date_str = obs_local.strftime("%Y-%m-%d")
+        if date_str not in obs_by_date:
+            obs_by_date[date_str] = []
+        obs_by_date[date_str].append(obs)
+
+    print(f"📅 Observations span {len(obs_by_date)} unique dates")
+
+    # Load atmospheric data to get intraday forecasts for obs_vs_intra_forecast
+    atm_csv = f"{prefix}atmospheric_data.csv"
+    atm_df = None
+    if os.path.exists(atm_csv):
+        atm_df = pd.read_csv(atm_csv)
+        atm_df["target_date"] = atm_df["target_date"].astype(str)
+        print(f"📂 Loaded {len(atm_df)} atmospheric feature rows for intraday forecast comparison")
+
+    # Also load NWS forecast data for obs_temp_vs_forecast_max
+    nws_csv = f"{prefix}nws_forecast_log.csv" if prefix else "nws_forecast_log.csv"
+    nws_last_by_date = {}
+    if os.path.exists(nws_csv):
+        nws_df = pd.read_csv(nws_csv)
+        for _, row in nws_df.iterrows():
+            if row.get("forecast_or_actual") == "forecast" and row.get("target_date"):
+                try:
+                    nws_last_by_date[str(row["target_date"])] = float(row["predicted_high"])
+                except (ValueError, TypeError):
+                    pass
+
+    # Compute observation features for each date
+    feature_rows = []
+    for date_str in sorted(obs_by_date.keys()):
+        obs_list = obs_by_date[date_str]
+        # Sort by timestamp
+        obs_list.sort(key=lambda r: r.get("observed_at", ""))
+
+        # Filter to valid temp observations
+        valid_obs = [r for r in obs_list if r.get("temp_f") is not None]
+        if not valid_obs:
+            continue
+
+        # Simulate as-of noon: only use observations up to ~noon local
+        noon_obs = []
+        for obs in valid_obs:
+            obs_dt = datetime.fromisoformat(obs["observed_at"].replace("Z", "+00:00"))
+            obs_local = obs_dt.astimezone(tz)
+            if obs_local.hour <= 12:
+                noon_obs.append(obs)
+
+        # If no pre-noon obs, use first few obs of the day
+        if not noon_obs:
+            noon_obs = valid_obs[:6]
+
+        if not noon_obs:
+            continue
+
+        features = {"target_date": date_str, "city": city}
+        latest = noon_obs[-1]
+
+        # obs_latest_temp
+        features["obs_latest_temp"] = latest["temp_f"]
+
+        # obs_latest_hour
+        try:
+            obs_dt = datetime.fromisoformat(latest["observed_at"].replace("Z", "+00:00"))
+            obs_local = obs_dt.astimezone(tz)
+            features["obs_latest_hour"] = float(obs_local.hour)
+        except Exception:
+            features["obs_latest_hour"] = np.nan
+
+        # obs_max_so_far
+        features["obs_max_so_far"] = max(r["temp_f"] for r in noon_obs)
+
+        # obs_6hr_max
+        six_hr_vals = [r["six_hr_max_f"] for r in noon_obs if r.get("six_hr_max_f") is not None]
+        if six_hr_vals:
+            features["obs_6hr_max"] = max(six_hr_vals)
+        else:
+            recent_6 = noon_obs[-6:] if len(noon_obs) >= 6 else noon_obs
+            features["obs_6hr_max"] = max(r["temp_f"] for r in recent_6)
+
+        # obs_vs_intra_forecast — THE KEY FEATURE
+        # Compare real NWS observation against Open-Meteo forecast at the same hour
+        features["obs_vs_intra_forecast"] = np.nan
+        obs_hour = features.get("obs_latest_hour")
+        if atm_df is not None and obs_hour is not None and not np.isnan(obs_hour):
+            atm_row = atm_df[atm_df["target_date"] == date_str]
+            if not atm_row.empty:
+                intra_map = {
+                    9: "intra_temp_9am", 10: "intra_temp_9am",
+                    11: "intra_temp_noon", 12: "intra_temp_noon",
+                    13: "intra_temp_3pm", 14: "intra_temp_3pm", 15: "intra_temp_3pm",
+                    16: "intra_temp_5pm", 17: "intra_temp_5pm",
+                }
+                intra_key = intra_map.get(int(obs_hour))
+                if intra_key and intra_key in atm_row.columns:
+                    intra_val = atm_row.iloc[0][intra_key]
+                    if pd.notna(intra_val):
+                        features["obs_vs_intra_forecast"] = round(
+                            features["obs_latest_temp"] - float(intra_val), 1
+                        )
+
+        # obs_wind_speed, obs_wind_gust
+        features["obs_wind_speed"] = latest.get("wind_speed_mph") if latest.get("wind_speed_mph") is not None else np.nan
+        features["obs_wind_gust"] = latest.get("wind_gust_mph") if latest.get("wind_gust_mph") is not None else np.nan
+
+        # obs_wind_dir_sin, obs_wind_dir_cos
+        wdir = latest.get("wind_direction_deg")
+        if wdir is not None:
+            features["obs_wind_dir_sin"] = round(math.sin(math.radians(wdir)), 4)
+            features["obs_wind_dir_cos"] = round(math.cos(math.radians(wdir)), 4)
+        else:
+            features["obs_wind_dir_sin"] = np.nan
+            features["obs_wind_dir_cos"] = np.nan
+
+        # obs_cloud_cover
+        features["obs_cloud_cover"] = _sky_to_cloud_cover(latest.get("sky_condition", ""))
+
+        # obs_heating_rate
+        if len(noon_obs) >= 2:
+            try:
+                t0_str = noon_obs[0]["observed_at"].replace("Z", "+00:00")
+                t0 = datetime.fromisoformat(t0_str)
+                t1_str = noon_obs[-1]["observed_at"].replace("Z", "+00:00")
+                t1 = datetime.fromisoformat(t1_str)
+                hours_span = (t1 - t0).total_seconds() / 3600.0
+                if hours_span > 0:
+                    features["obs_heating_rate"] = round(
+                        (noon_obs[-1]["temp_f"] - noon_obs[0]["temp_f"]) / hours_span, 2
+                    )
+                else:
+                    features["obs_heating_rate"] = np.nan
+            except Exception:
+                features["obs_heating_rate"] = np.nan
+        else:
+            features["obs_heating_rate"] = np.nan
+
+        # obs_temp_vs_forecast_max
+        nws_last = nws_last_by_date.get(date_str)
+        if nws_last is not None:
+            features["obs_temp_vs_forecast_max"] = round(features["obs_max_so_far"] - nws_last, 1)
+        else:
+            features["obs_temp_vs_forecast_max"] = np.nan
+
+        feature_rows.append(features)
+
+    if not feature_rows:
+        print(f"⚠️ No observation features computed for {city}")
+        return ""
+
+    # Save to CSV
+    csv_path = f"{prefix}observation_data.csv"
+    df = pd.DataFrame(feature_rows)
+    df.to_csv(csv_path, index=False)
+
+    # Report non-zero obs_vs_intra_forecast stats
+    non_zero = df["obs_vs_intra_forecast"].dropna()
+    non_zero = non_zero[non_zero != 0]
+    print(f"✅ Saved {len(df)} observation feature rows to {csv_path}")
+    print(f"   obs_vs_intra_forecast: {len(non_zero)} non-zero values "
+          f"(mean={non_zero.mean():.1f}°F, std={non_zero.std():.1f}°F)" if len(non_zero) > 0
+          else f"   obs_vs_intra_forecast: all zero or NaN (need atmospheric_data.csv for comparison)")
+
+    return csv_path
+
+
 _LOCK_NOT_FOUND = "not_found"
 _LOCK_ERROR = "error"
 
@@ -2202,6 +2442,7 @@ def _cli():
     b = s.add_parser("today_for_tomorrow"); b.add_argument("--date")
     s.add_parser("both")
     s.add_parser("collect_obs")
+    s.add_parser("backfill_obs")
     args = p.parse_args()
 
     set_city(args.city)
@@ -2210,6 +2451,7 @@ def _cli():
     print(f"[prediction_writer] city={args.city}")
 
     if args.cmd == "collect_obs":        collect_nws_observations(args.city)
+    elif args.cmd == "backfill_obs":     backfill_observation_features(args.city)
     elif args.cmd == "today_for_today":    write_today_for_today(args.date)
     elif args.cmd == "today_for_tomorrow": write_today_for_tomorrow(args.date)
     else: write_both_snapshots()

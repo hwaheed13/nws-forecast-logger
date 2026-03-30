@@ -791,6 +791,58 @@ class NYCTemperatureModelTrainer:
 
         self.features_df = merged
 
+    def _load_observation_features(self) -> pd.DataFrame | None:
+        """Load real NWS observation features CSV if it exists."""
+        prefix = self.model_prefix
+        obs_csv = f"{prefix}observation_data.csv"
+        try:
+            df = pd.read_csv(obs_csv)
+            print(f"  Loaded {len(df)} real observation feature rows from {obs_csv}")
+            non_zero = df["obs_vs_intra_forecast"].dropna()
+            non_zero = non_zero[non_zero != 0]
+            print(f"  obs_vs_intra_forecast: {len(non_zero)} non-zero values")
+            return df
+        except FileNotFoundError:
+            print(f"  ⚠️ No observation data file: {obs_csv}")
+            print(f"     Run: python prediction_writer.py --city {self.city_key} backfill_obs")
+            return None
+
+    def _merge_observation_features(self, obs_df: pd.DataFrame) -> None:
+        """Merge REAL observation features into self.features_df, overwriting proxy values.
+
+        For dates where real NWS observations exist in observation_data.csv,
+        replaces the proxy obs features (obs_vs_intra_forecast=0) with real
+        values (obs_vs_intra_forecast=actual delta). This is critical —
+        the model needs real non-zero deltas to learn.
+        """
+        from model_config import OBSERVATION_COLS
+
+        if obs_df is None or self.features_df is None:
+            return
+
+        obs_df["target_date"] = obs_df["target_date"].astype(str)
+
+        # Only merge observation feature columns (not city, target_date)
+        obs_cols_in_csv = [c for c in obs_df.columns if c in OBSERVATION_COLS]
+        if not obs_cols_in_csv:
+            print(f"  ⚠️ No observation feature columns found in CSV")
+            return
+
+        # For each date in obs_df, overwrite the proxy values in features_df
+        obs_indexed = obs_df.set_index("target_date")
+        dates_updated = 0
+        for date_str in obs_indexed.index:
+            mask = self.features_df["target_date"] == date_str
+            if mask.sum() == 0:
+                continue
+            for col in obs_cols_in_csv:
+                val = obs_indexed.loc[date_str, col]
+                if pd.notna(val):
+                    self.features_df.loc[mask, col] = val
+            dates_updated += 1
+
+        print(f"  Overwrote proxy obs features with real data for {dates_updated} dates")
+
     def _compute_observation_proxy_features(self) -> None:
         """Fill observation proxy features for recent data rows after atmospheric merge.
 
@@ -1339,6 +1391,11 @@ class NYCTemperatureModelTrainer:
         if self.features_df is None or self.features_df.empty:
             print("  ⚠️ No feature data available. Run train_v2() first.")
             return
+
+        # Merge REAL observation features (overwrites proxy values where available)
+        obs_df = self._load_observation_features()
+        if obs_df is not None:
+            self._merge_observation_features(obs_df)
 
         # Ensure all v4 columns exist (fill missing with NaN)
         available_v4_cols = [c for c in FEATURE_COLS_V4 if c in self.features_df.columns]

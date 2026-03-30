@@ -35,6 +35,15 @@ jobs:
           echo "Backfilling atmospheric data through $YESTERDAY"
           python backfill_multiyear.py --all --end "$YESTERDAY"
 
+      - name: Backfill real NWS observation features
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+        run: |
+          python prediction_writer.py backfill_obs
+          python prediction_writer.py --city lax backfill_obs
+        continue-on-error: true
+
       - name: Run model training (v1 + v2 + v4 for all cities)
         run: |
           python train_models.py --all
@@ -44,7 +53,7 @@ jobs:
       - name: Show training results
         run: |
           for prefix in "" "lax_"; do
-            for meta in "${prefix}model_metadata.json" "${prefix}model_metadata_v2.json"; do
+            for meta in "${prefix}model_metadata.json" "${prefix}model_metadata_v2.json" "${prefix}model_metadata_v4.json"; do
               if [ -f "$meta" ]; then
                 echo "=== $meta ==="
                 cat "$meta"
@@ -59,7 +68,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add *.pkl *model_metadata*.json *multiyear_atmospheric.csv 2>/dev/null || true
+          git add *.pkl *model_metadata*.json *multiyear_atmospheric.csv *observation_data.csv 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "No model changes to commit"
           else
