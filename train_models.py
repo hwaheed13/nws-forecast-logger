@@ -822,6 +822,13 @@ class NYCTemperatureModelTrainer:
 
         obs_df["target_date"] = obs_df["target_date"].astype(str)
 
+        # Safety check: deduplicate by target_date (keep last occurrence)
+        dupes = obs_df["target_date"].duplicated(keep="last")
+        if dupes.any():
+            n_dupes = dupes.sum()
+            print(f"  ⚠️ Removed {n_dupes} duplicate target_dates from observation_data.csv")
+            obs_df = obs_df[~dupes].copy()
+
         # Only merge observation feature columns (not city, target_date)
         obs_cols_in_csv = [c for c in obs_df.columns if c in OBSERVATION_COLS]
         if not obs_cols_in_csv:
