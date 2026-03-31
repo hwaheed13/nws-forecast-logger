@@ -1068,11 +1068,13 @@ def _compute_ml_prediction(
                 print(f"   Center temp: {v2_temp:.1f}°F "
                       f"(forecast avg: NWS={features['nws_last']:.0f}{accu_note})")
 
-            # Exceedance check: if observed temp already exceeded forecast,
-            # shift center up (physics-based, not market-based)
-            obs_high, obs_hour = _fetch_observed_high_so_far(target_date_iso)
-            if obs_high is not None:
-                v2_temp = _adjust_center_for_exceedance(v2_temp, obs_high, obs_hour)
+            # Exceedance adjustment DISABLED — it chases observed temps after
+            # the market already sees them, producing fake WINs with no edge.
+            # The v4 model with observation features will learn to make
+            # legitimate early adjustments from training data over time.
+            # obs_high, obs_hour = _fetch_observed_high_so_far(target_date_iso)
+            # if obs_high is not None:
+            #     v2_temp = _adjust_center_for_exceedance(v2_temp, obs_high, obs_hour)
 
             # v2 classifier bucket prediction
             # Use 15 candidates (±7) to cover full Kalshi range and handle
