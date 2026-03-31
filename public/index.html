@@ -3388,11 +3388,12 @@ function renderMLBetSignal() {
                 if (m && Number(m[1]) <= threshold) sum += v;
               }
             } else if (geMatch) {
-              // >=X: sum all ML buckets from X and above
+              // >=X: sum all ML buckets where the LOW end >= X
+              // ML bucket "77-78" means high=77, so it should NOT be in >=78
               const threshold = Number(geMatch[1]);
               for (const [k, v] of Object.entries(probs)) {
                 const m = k.match(/^(\d+)-(\d+)$/);
-                if (m && Number(m[2]) >= threshold) sum += v;
+                if (m && Number(m[1]) >= threshold) sum += v;
               }
             }
             if (sum > 0.001) aggregated[label] = sum;
