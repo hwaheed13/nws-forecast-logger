@@ -165,6 +165,7 @@ class BucketClassifier:
         self,
         features_df: pd.DataFrame,
         feature_cols: list[str] | None = None,
+        residual_std: float = 2.0,
     ) -> None:
         """
         Train the bucket classifier.
@@ -172,7 +173,9 @@ class BucketClassifier:
         Args:
             features_df: DataFrame from train_models.py with all features + actual_high
             feature_cols: list of feature columns (default: FEATURE_COLS_V2)
+            residual_std: regression residual std (°F), stored for Gaussian dampening at inference
         """
+        self._residual_std = residual_std
         if feature_cols is None:
             # Use whatever v2 columns are available in the data
             feature_cols = [c for c in FEATURE_COLS_V2 if c in features_df.columns]
@@ -304,6 +307,7 @@ class BucketClassifier:
             "n_candidate_buckets": N_CANDIDATE_BUCKETS,
             "feature_cols_used": len(all_cols),
             "positive_rate": round(float(y.mean()), 4),
+            "residual_std": round(self._residual_std, 3),
         }
 
     def predict_bucket_probs(
@@ -357,6 +361,17 @@ class BucketClassifier:
 
         X = pd.DataFrame(rows)[all_cols]
         probas = self.model.predict_proba(X)[:, 1]
+
+        # Apply Gaussian dampening for far candidates.
+        # The classifier was trained on ±3 neighbors (7 candidates) but inference
+        # uses ±7 (15 candidates). Tail candidates 4-7°F away were never seen
+        # during training and get artificially high raw probabilities, causing wide
+        # Kalshi catch-all buckets (>=70) to accumulate spurious probability.
+        # Dampen by distance from center_temp using residual_std from training.
+        sigma = self.training_stats.get("residual_std", 2.0)
+        dists = np.array([abs(center_temp - (int(b.split("-")[0]) + 0.5)) for b in candidates])
+        damping = np.exp(-0.5 * (dists / sigma) ** 2)
+        probas = probas * damping
 
         # Normalize to sum to 1
         total = probas.sum()

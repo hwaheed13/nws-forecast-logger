@@ -1161,7 +1161,7 @@ class NYCTemperatureModelTrainer:
         print(f"\n  Classifier training on {len(forecast_df)} forecast days "
               f"(excluding {len(self.features_df) - len(forecast_df)} no-forecast rows)")
         classifier = BucketClassifier()
-        classifier.train(forecast_df, feature_cols=FEATURE_COLS_V2)
+        classifier.train(forecast_df, feature_cols=FEATURE_COLS_V2, residual_std=residual_std_v2)
         classifier.save(f"{self.model_prefix}bucket_classifier.pkl")
 
         # --- Save v2 metadata ---
@@ -1499,7 +1499,7 @@ class NYCTemperatureModelTrainer:
         print(f"\n  Classifier training on {len(forecast_df)} forecast days "
               f"(excluding {len(self.features_df) - len(forecast_df)} no-forecast rows)")
         classifier = BucketClassifier()
-        classifier.train(forecast_df, feature_cols=FEATURE_COLS_V4)
+        classifier.train(forecast_df, feature_cols=FEATURE_COLS_V4, residual_std=residual_std_v4)
         classifier.save(f"{self.model_prefix}bucket_classifier_v4.pkl")
 
         # --- Save v4 metadata ---
