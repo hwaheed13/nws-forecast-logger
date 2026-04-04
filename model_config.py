@@ -21,6 +21,8 @@ FEATURE_COLS = [
     "month", "is_summer", "is_winter",
     # Rolling bias from prior completed days
     "rolling_bias_7d", "rolling_bias_21d",
+    # Rolling ML model self-error (how wrong has the ML been recently)
+    "rolling_ml_error_7d",
     # Data availability flag
     "has_accu_data",
 ]

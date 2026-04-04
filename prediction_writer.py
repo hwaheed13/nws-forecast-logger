@@ -898,6 +898,50 @@ def _compute_ml_prediction(
     features["rolling_bias_7d"] = float(np.mean(daily_biases[-7:])) if daily_biases else 0.0
     features["rolling_bias_21d"] = float(np.mean(daily_biases[-21:])) if daily_biases else 0.0
 
+    # rolling_ml_error_7d: mean(actual - ml_f) over last 7 days
+    # Captures systematic ML model bias in recent predictions
+    try:
+        endpoint, key = _sb_endpoint()
+        ml_hist_url = (
+            f"{endpoint}"
+            f"?city=eq.{_CITY_KEY}"
+            f"&lead_used=in.(today_for_today,D0)"
+            f"&ml_f=not.is.null"
+            f"&target_date=lt.{target_date_iso}"
+            f"&order=target_date.desc"
+            f"&limit=14"
+            f"&select=target_date,ml_f"
+        )
+        ml_hist_req = urllib.request.Request(
+            ml_hist_url,
+            headers={
+                "apikey": key,
+                "Authorization": f"Bearer {key}",
+                "Accept": "application/json",
+            },
+        )
+        with urllib.request.urlopen(ml_hist_req, timeout=10) as _resp:
+            ml_hist_rows = json.loads(_resp.read().decode("utf-8"))
+        ml_errors = []
+        actuals_by_date = {}
+        for r in rows:
+            if r.get("forecast_or_actual") == "actual":
+                d = r.get("cli_date") or r.get("target_date")
+                ah = _float_or_none(r.get("actual_high"))
+                if d and ah is not None:
+                    actuals_by_date[d] = ah
+        for mrow in ml_hist_rows:
+            d = str(mrow.get("target_date", ""))[:10]
+            mf = _float_or_none(mrow.get("ml_f"))
+            ah = actuals_by_date.get(d)
+            if mf is not None and ah is not None:
+                ml_errors.append(ah - mf)
+            if len(ml_errors) >= 7:
+                break
+        features["rolling_ml_error_7d"] = float(np.mean(ml_errors)) if ml_errors else 0.0
+    except Exception:
+        features["rolling_ml_error_7d"] = 0.0
+
     # --- 7b. Overnight carryover detection features ---
     # prev_day_high: yesterday's actual high from CSV rows
     prev_day_high = None
@@ -912,6 +956,39 @@ def _compute_ml_prediction(
                     break
     except (ValueError, TypeError):
         pass
+
+    # If no actual yet (CLI/DSM not recorded) and we're predicting tomorrow,
+    # use today's obs_max_so_far as a real-time proxy.
+    # After 12 PM ET the daily max is usually established; before that we
+    # use the latest NWS forecast for today as a conservative fallback.
+    if prev_day_high is None:
+        try:
+            today_iso = today_nyc().isoformat()
+            prev_dt2 = datetime.strptime(target_date_iso, "%Y-%m-%d") - timedelta(days=1)
+            if prev_dt2.strftime("%Y-%m-%d") == today_iso:
+                # We're predicting tomorrow; today's actual not yet recorded
+                today_obs = _query_supabase_observations(today_iso)
+                if today_obs:
+                    max_temps = [r["temp_f"] for r in today_obs if r.get("temp_f") is not None]
+                    if max_temps:
+                        obs_max = max(max_temps)
+                        current_hour = now_nyc().hour
+                        if current_hour >= 14:
+                            # After 2 PM: obs max is likely the final high
+                            prev_day_high = obs_max
+                            print(f"  📍 prev_day_high proxy (obs_max after 2PM): {obs_max:.1f}°F")
+                        elif current_hour >= 9:
+                            # 9 AM–2 PM: use obs_max as lower bound proxy (high still building)
+                            # Blend with NWS forecast for today as upper estimate
+                            today_nws = _latest_forecast(rows, today_iso, source=None)
+                            if today_nws is not None:
+                                prev_day_high = max(obs_max, float(today_nws) * 0.5 + obs_max * 0.5)
+                            else:
+                                prev_day_high = obs_max
+                            print(f"  📍 prev_day_high proxy (obs_max+NWS blend 9-2PM): {prev_day_high:.1f}°F")
+        except Exception:
+            pass
+
     features["prev_day_high"] = prev_day_high if prev_day_high is not None else np.nan
     # prev_day_temp_drop: large positive = potential overnight carryover
     if prev_day_high is not None:

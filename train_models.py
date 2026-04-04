@@ -237,6 +237,7 @@ class NYCTemperatureModelTrainer:
         # --- Rolling bias (placeholder, computed in build_feature_matrix) ---
         features["rolling_bias_7d"] = 0.0
         features["rolling_bias_21d"] = 0.0
+        features["rolling_ml_error_7d"] = 0.0
 
         # --- Data availability flag ---
         features["has_accu_data"] = int(has_accu)
@@ -305,6 +306,47 @@ class NYCTemperatureModelTrainer:
 
         df["rolling_bias_7d"] = rolling_7
         df["rolling_bias_21d"] = rolling_21
+
+        # rolling_ml_error_7d: requires historical ml_f from Supabase
+        # Falls back to 0.0 if not available (model handles gracefully)
+        try:
+            import os
+            supabase_url = os.environ.get("SUPABASE_URL")
+            supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE") or os.environ.get("SUPABASE_KEY")
+            if supabase_url and supabase_key:
+                from supabase import create_client
+                sb = create_client(supabase_url, supabase_key)
+                city_key = getattr(self, 'city_key', 'nyc')
+                resp = sb.table("prediction_logs").select("target_date,ml_f").eq("city", city_key).in_("lead_used", ["today_for_today", "D0"]).not_.is_("ml_f", "null").execute()
+                ml_pred_map = {}
+                for row in (resp.data or []):
+                    d = str(row.get("target_date", ""))[:10]
+                    mf = row.get("ml_f")
+                    if d and mf is not None:
+                        try:
+                            ml_pred_map[d] = float(mf)
+                        except (TypeError, ValueError):
+                            pass
+
+                actual_map = dict(zip(df["target_date"].astype(str), df["actual_high"].values))
+                rolling_ml_err = []
+                dates_list = df["target_date"].astype(str).tolist()
+                for i, d in enumerate(dates_list):
+                    prior_errors = []
+                    for j in range(max(0, i-14), i):
+                        pd_ = dates_list[j]
+                        mf = ml_pred_map.get(pd_)
+                        ah = actual_map.get(pd_)
+                        if mf is not None and ah is not None and not np.isnan(ah):
+                            prior_errors.append(float(ah) - float(mf))
+                    recent_7 = prior_errors[-7:] if len(prior_errors) >= 1 else []
+                    rolling_ml_err.append(float(np.mean(recent_7)) if recent_7 else 0.0)
+                df["rolling_ml_error_7d"] = rolling_ml_err
+            else:
+                df["rolling_ml_error_7d"] = 0.0
+        except Exception as e:
+            print(f"  ⚠️ rolling_ml_error_7d fallback to 0: {e}")
+            df["rolling_ml_error_7d"] = 0.0
         self.features_df = df
 
     def build_feature_matrix(self):
@@ -647,6 +689,7 @@ class NYCTemperatureModelTrainer:
                 "accu_count": np.nan,
                 "nws_accu_spread": np.nan, "nws_accu_mean_diff": np.nan,
                 "rolling_bias_7d": np.nan, "rolling_bias_21d": np.nan,
+                "rolling_ml_error_7d": 0.0,
                 "has_accu_data": 0,
 
                 # Overnight carryover detection features
