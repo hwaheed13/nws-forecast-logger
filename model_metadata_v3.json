@@ -1,23 +1,23 @@
 {
-  "trained_on": "2026-04-03T10:52:32.325143",
+  "trained_on": "2026-04-04T10:41:58.867419",
   "version": "v3_unified_regression",
-  "num_days": 1552,
-  "num_forecast_days": 257,
+  "num_days": 1553,
+  "num_forecast_days": 258,
   "num_multiyear_days": 1295,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-04-02"
+    "end": "2026-04-03"
   },
   "performance": {
-    "cv_mae": 6.05,
+    "cv_mae": 6.12,
     "cv_bucket_accuracy_1f": 0.006,
-    "residual_std": 19.62,
+    "residual_std": 19.78,
     "per_fold_mae": [
       0.61,
       0.4,
-      0.32,
+      0.33,
       0.93,
-      28.0
+      28.34
     ],
     "per_fold_bucket_acc": [
       0.0,
@@ -27,63 +27,63 @@
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 0.3644
+      "importance": 0.3705
     },
     {
       "name": "prev_day_high",
-      "importance": 0.2351
+      "importance": 0.2301
     },
     {
       "name": "intra_temp_3pm",
-      "importance": 0.0316
+      "importance": 0.0231
     },
     {
       "name": "accu_last",
-      "importance": 0.0134
-    },
-    {
-      "name": "intra_temp_noon",
-      "importance": 0.0033
+      "importance": 0.0155
     },
     {
       "name": "accu_max",
       "importance": 0.0026
     },
     {
-      "name": "accu_mean",
-      "importance": 0.0019
+      "name": "intra_temp_noon",
+      "importance": 0.0025
+    },
+    {
+      "name": "day_of_year_cos",
+      "importance": 0.0023
     },
     {
       "name": "atm_temp_range",
+      "importance": 0.0019
+    },
+    {
+      "name": "accu_mean",
       "importance": 0.0018
     },
     {
       "name": "is_winter",
-      "importance": 0.0018
-    },
-    {
-      "name": "atm_vs_forecast_diff",
       "importance": 0.0017
     },
     {
-      "name": "nws_last",
+      "name": "atm_vs_forecast_diff",
       "importance": 0.0013
     },
     {
-      "name": "day_of_year_cos",
-      "importance": 0.0011
-    },
-    {
-      "name": "atm_dewpoint_mean",
-      "importance": 0.0008
-    },
-    {
-      "name": "nws_first",
-      "importance": 0.0008
+      "name": "nws_last",
+      "importance": 0.0012
     },
     {
       "name": "nws_max",
-      "importance": 0.0006
+      "importance": 0.0012
+    },
+    {
+      "name": "atm_dewpoint_mean",
+      "importance": 0.0011
+    },
+    {
+      "name": "nws_first",
+      "importance": 0.001
     }
   ],
   "hyperparameters": {
