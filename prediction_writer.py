@@ -1971,9 +1971,12 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     if avg_bias_excl_today is not None and today_pre_mean is not None:
         bcp = today_pre_mean + avg_bias_excl_today
 
-    # Intraday re-prediction: recompute ML with fresh observation features,
-    # BUT lock once today's actual high is in the CSV (prevent cheating —
-    # the model must not see the answer and retroactively shift its bucket).
+    # Lock logic: freeze the ML prediction once either:
+    #   (a) the actual high has been recorded in Supabase, OR
+    #   (b) it is past 9 AM ET — by then the Kalshi market is open,
+    #       the morning NWS/AccuWeather updates are in, and any further
+    #       intraday observation updates would just chase the thermometer
+    #       rather than provide genuine advance edge.
     has_actual_today = any(
         r.get("forecast_or_actual") == "actual"
         and r.get("cli_date") == target_date_iso
@@ -1981,7 +1984,11 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         for r in rows
     )
 
+    _now = now_nyc()
+    past_9am_et = _now.hour >= 9
+
     existing = _fetch_existing_prediction(target_date_iso)
+
     if has_actual_today and isinstance(existing, dict):
         print(f"🔒 Actual high recorded — prediction frozen: {existing['ml_f']}°F → {existing.get('ml_bucket')}")
         ml = {
@@ -1991,8 +1998,17 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             "ml_bucket_probs": existing.get("ml_bucket_probs"),
             "ml_version": existing.get("ml_version"),
         }
+    elif past_9am_et and isinstance(existing, dict) and existing.get("ml_f") is not None:
+        print(f"🔒 Past 9 AM ET — prediction frozen at morning call: {existing['ml_f']}°F → {existing.get('ml_bucket')}")
+        ml = {
+            "ml_f": existing["ml_f"],
+            "ml_bucket": existing["ml_bucket"],
+            "ml_confidence": existing["ml_confidence"],
+            "ml_bucket_probs": existing.get("ml_bucket_probs"),
+            "ml_version": existing.get("ml_version"),
+        }
     else:
-        # No actual yet — recompute with fresh observations
+        # Before 9 AM and no actual yet — recompute with fresh observations
         if isinstance(existing, dict):
             print(f"🔄 Recomputing ML prediction (previous: {existing['ml_f']}°F → {existing.get('ml_bucket')})")
         ml = _compute_ml_prediction(rows, target_date_iso)
