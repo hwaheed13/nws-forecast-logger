@@ -1005,7 +1005,17 @@ def _compute_ml_prediction(
     features["mos_max_temp"] = np.nan
 
     # --- 9. Build DataFrame, fill NaN AccuWeather with NWS fallbacks ---
-    X = pd.DataFrame([features])[FEATURE_COLS]
+    # Use model's own feature list (feature_names_in_) when available so that
+    # the inference feature set always matches what the model was trained on,
+    # regardless of changes to FEATURE_COLS in model_config.py.
+    X = pd.DataFrame([features])
+    _v1_feature_cols = FEATURE_COLS
+    if temp_model is not None and hasattr(temp_model, "feature_names_in_"):
+        _v1_feature_cols = list(temp_model.feature_names_in_)
+    for col in _v1_feature_cols:
+        if col not in X.columns:
+            X[col] = np.nan
+    X = X[_v1_feature_cols]
     for accu_col, nws_col in ACCU_NWS_FALLBACK.items():
         if pd.isna(X.loc[0, accu_col]):
             X.loc[0, accu_col] = X.loc[0, nws_col]
@@ -1062,7 +1072,14 @@ def _compute_ml_prediction(
     active_classifier = v4_classifier if use_v4 else v2_classifier
     active_regressor = v4_regressor if use_v4 else v2_temp_model
     active_bucket_info = v4_bucket_info if use_v4 else v2_bucket_info
-    active_feature_cols = FEATURE_COLS_V4 if use_v4 else FEATURE_COLS_V2
+    # Use the regressor's own feature list when available (self-consistent with training),
+    # falling back to FEATURE_COLS_V4/V2 from model_config for new models without saved names.
+    if active_regressor is not None and hasattr(active_regressor, "feature_names_in_"):
+        active_feature_cols = list(active_regressor.feature_names_in_)
+    elif use_v4:
+        active_feature_cols = FEATURE_COLS_V4
+    else:
+        active_feature_cols = FEATURE_COLS_V2
     active_version = "v4_observation_features" if use_v4 else "v2_atm_classifier"
 
     if active_classifier is not None:
