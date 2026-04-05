@@ -248,7 +248,8 @@ def extract_daily_atmospheric(hourly_df: pd.DataFrame, target_date: str) -> dict
         target_date: 'YYYY-MM-DD' string
 
     Returns:
-        dict of 27 features (17 atmospheric + 10 intraday curve), or empty dict if no data for date.
+        dict of 35+ features (21 atmospheric incl 925mb+solar + 10 intraday curve + overnight),
+        or empty dict if no data for date.
     """
     target = pd.Timestamp(target_date)
     day_mask = hourly_df["time"].dt.date == target.date()

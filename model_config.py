@@ -161,7 +161,10 @@ ATM_PREDICTOR_INPUT_COLS = ATMOSPHERIC_COLS + INTRADAY_CURVE_COLS + [
     "midnight_temp",
 ]
 
-# Combined v2 feature list (72 total: 30 + 17 + 5 + 4 + 10 + 3 + 2 + 1)
+# Combined v2 feature list (80 total: 31 + 21 + 5 + 7 + 10 + 3 + 2 + 1)
+# 31 = FEATURE_COLS (v1 + rolling_ml_error_7d), 21 = ATMOSPHERIC_COLS (incl 925mb + solar),
+# 5 = ENSEMBLE_COLS, 7 = MULTIMODEL_COLS (incl HRRR features), 10 = INTRADAY_CURVE_COLS,
+# 3 = OVERNIGHT_CARRYOVER_COLS, 2 = ATM_PREDICTOR_COLS, 1 = MOS_COLS
 FEATURE_COLS_V2 = FEATURE_COLS + ATMOSPHERIC_COLS + ENSEMBLE_COLS + MULTIMODEL_COLS + INTRADAY_CURVE_COLS + OVERNIGHT_CARRYOVER_COLS + ATM_PREDICTOR_COLS + MOS_COLS
 
 # v3 unified feature list (72 total — same features as v2)
@@ -171,7 +174,7 @@ FEATURE_COLS_V2 = FEATURE_COLS + ATMOSPHERIC_COLS + ENSEMBLE_COLS + MULTIMODEL_C
 # natively for multi-year rows.
 FEATURE_COLS_V3 = FEATURE_COLS_V2
 
-# v4 feature list (84 total: 72 + 12 observation features)
+# v4 feature list (92 total: 80 + 12 observation features)
 # Adds real-time NWS observation features that give the model ground-truth
 # temperature/wind/sky data to compare against forecasts during live inference.
 FEATURE_COLS_V4 = FEATURE_COLS_V3 + OBSERVATION_COLS
