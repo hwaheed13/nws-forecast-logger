@@ -16,8 +16,17 @@ ul{padding-left:20px}li{margin-bottom:6px}
 <p>What's new and improved on Daily Dew Point.</p>
 
 <div class="version">
-<h2>March 29, 2026</h2>
+<h2>April 5, 2026</h2>
 <div class="date">Latest</div>
+<ul>
+  <li><strong>Corrupted observation guard</strong> — The NWS weather station API occasionally returns stale warm-afternoon readings mixed in with overnight data, which could cause the model to predict unrealistically high temperatures in the middle of the night. A time-aware filter now detects and discards these physically impossible swings before they affect predictions.</li>
+  <li><strong>Improved model self-correction</strong> — The ML model tracks its own recent prediction errors to detect and correct systematic bias (e.g., consistently running warm in spring). A missing dependency had silently disabled this since launch. Now restored — the model will begin adapting to its own error patterns starting with today's retrain.</li>
+</ul>
+</div>
+
+<div class="version">
+<h2>March 29, 2026</h2>
+<div class="date"></div>
 <ul>
   <li><strong>Live weather observations</strong> — Predictions now incorporate real-time weather station data throughout the day, not just forecasts. As conditions change, the model adjusts.</li>
   <li><strong>Intraday prediction updates</strong> — Both today's and tomorrow's predictions now refresh every 30 minutes with the latest data, instead of locking after the morning run.</li>
@@ -68,9 +77,7 @@ ul{padding-left:20px}li{margin-bottom:6px}
 <h3>April 5, 2026</h3>
 <div class="date"></div>
 <ul>
-  <li>Fixed corrupted NWS weather station readings causing wildly wrong overnight predictions. The NWS API occasionally returns stale warm-afternoon observations mixed with overnight data (e.g., 73°F at 3 AM in 44°F weather). A time-aware rate filter now detects and discards physically impossible temperature swings before they reach the model.</li>
-  <li>Fixed ML model accuracy feature that was silently disabled since launch. The model tracks its own recent prediction errors to self-correct systematic bias — this was broken due to a missing dependency in the daily retraining pipeline. Now restored; the model will begin adapting to its own errors starting with the next retrain.</li>
-  <li>New app icon (water drop) now appears consistently across all pages and browser tabs.</li>
+  <li>New water drop app icon now appears consistently across all pages and browser tabs.</li>
 </ul>
 </div>
 
