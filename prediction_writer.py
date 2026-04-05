@@ -1277,6 +1277,8 @@ def collect_nws_observations(city_key: str = None) -> int:
 
     # Parse observations into rows
     rows = []
+    _prev_temp_f: Optional[float] = None  # for inter-observation sanity check
+    _skipped_bad = 0
     for feat in obs_features:
         props = feat.get("properties", {})
         ts = props.get("timestamp")
@@ -1286,6 +1288,32 @@ def collect_nws_observations(city_key: str = None) -> int:
         temp_c = props.get("temperature", {}).get("value")
         if temp_c is None:
             continue  # skip obs with no temperature
+
+        temp_f = _c_to_f(temp_c)
+
+        # ── Observation sanity gate ──────────────────────────────────────
+        # The NWS station API occasionally serves stale/cached observations
+        # from a previous reporting cycle mixed in with current readings.
+        # This is most common in the midnight-4 AM ET window and produces
+        # readings that oscillate 10-30°F between consecutive rows (minutes
+        # apart) — physically impossible for ambient temperature change.
+        #
+        # Rules:
+        #  1. Hard bounds: NYC/LA temps are always -20°F to 115°F
+        #  2. Rate-of-change: reject if temp_f differs from the previous
+        #     accepted reading by >15°F (real temp can't change 15°F/hour,
+        #     let alone within a few minutes between METAR reports)
+        if temp_f is not None:
+            if temp_f < -20 or temp_f > 115:
+                print(f"  ⚠️ obs sanity: {temp_f:.1f}°F out of bounds at {ts} — skipped")
+                _skipped_bad += 1
+                continue
+            if _prev_temp_f is not None and abs(temp_f - _prev_temp_f) > 15:
+                print(f"  ⚠️ obs sanity: {temp_f:.1f}°F jump from {_prev_temp_f:.1f}°F at {ts} — skipped")
+                _skipped_bad += 1
+                continue
+        _prev_temp_f = temp_f
+        # ────────────────────────────────────────────────────────────────
 
         wind_kmh = props.get("windSpeed", {}).get("value")
         gust_kmh = props.get("windGust", {}).get("value")
@@ -1354,7 +1382,8 @@ def collect_nws_observations(city_key: str = None) -> int:
                 except: pass
             print(f"⚠️ obs upsert failed for {row['observed_at']}: {e} {err_body}")
 
-    print(f"✅ Collected {upserted}/{len(rows)} NWS observations for {station} ({city})")
+    bad_note = f", {_skipped_bad} rejected by sanity gate" if _skipped_bad > 0 else ""
+    print(f"✅ Collected {upserted}/{len(rows)} NWS observations for {station} ({city}){bad_note}")
     return upserted
 
 
@@ -1480,6 +1509,25 @@ def _fetch_observation_features(
     valid_obs = [r for r in obs_rows if r.get("temp_f") is not None]
     if not valid_obs:
         return nan_result
+
+    # Second-line sanity gate: remove spike outliers already in Supabase.
+    # Rows are sorted asc by observed_at. Reject any reading that differs
+    # from its neighbor by >15°F — these are NWS API corruption artifacts,
+    # not real temperature changes (real ambient change is <5°F/hour).
+    if len(valid_obs) > 1:
+        filtered = [valid_obs[0]]
+        for obs in valid_obs[1:]:
+            prev_f = filtered[-1]["temp_f"]
+            curr_f = obs["temp_f"]
+            if abs(curr_f - prev_f) > 15:
+                print(f"  ⚠️ obs filter: {curr_f:.1f}°F spike from {prev_f:.1f}°F at "
+                      f"{obs.get('observed_at','')} — excluded from ML features")
+            else:
+                filtered.append(obs)
+        if len(filtered) < len(valid_obs):
+            print(f"  ⚠️ Removed {len(valid_obs)-len(filtered)} spiked obs from feature input "
+                  f"({len(filtered)} of {len(valid_obs)} kept)")
+        valid_obs = filtered if filtered else valid_obs  # always keep at least one
 
     features = {}
 
