@@ -1990,8 +1990,13 @@ def _fetch_existing_prediction(target_date_iso: str):
     Uses a lead-agnostic idempotency key so the first prediction for a given
     target date wins (tomorrow's prediction locks out today's for the same date).
 
+    Also fetches nws_d0 and accuweather so write_today_for_today can compare
+    the current agency forecasts against the values used in the last ML run,
+    and only recompute when an agency has actually revised their forecast.
+
     Returns:
-      dict  – existing prediction row (lock the ML fields)
+      dict  – existing prediction row (contains ml_f, ml_bucket, ml_confidence,
+               ml_bucket_probs, ml_version, kalshi_market_snapshot, nws_d0, accuweather)
       _LOCK_NOT_FOUND – no row exists yet (compute fresh ML prediction)
       _LOCK_ERROR – network/auth error (skip ML to avoid overwriting)
     """
@@ -1999,7 +2004,8 @@ def _fetch_existing_prediction(target_date_iso: str):
         endpoint, key = _sb_endpoint()
         idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{target_date_iso}"
         url = (f"{endpoint}?idempotency_key=eq.{idem_key}"
-               f"&select=ml_f,ml_bucket,ml_confidence,ml_bucket_probs,ml_version,kalshi_market_snapshot")
+               f"&select=ml_f,ml_bucket,ml_confidence,ml_bucket_probs,ml_version,"
+               f"kalshi_market_snapshot,nws_d0,accuweather")
         req = urllib.request.Request(url, headers={
             "apikey": key, "Authorization": f"Bearer {key}",
             "Accept": "application/json",
@@ -2159,12 +2165,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     if avg_bias_excl_today is not None and today_pre_mean is not None:
         bcp = today_pre_mean + avg_bias_excl_today
 
-    # Lock logic: freeze the ML prediction once either:
-    #   (a) the actual high has been recorded in Supabase, OR
-    #   (b) it is past 9 AM ET — by then the Kalshi market is open,
-    #       the morning NWS/AccuWeather updates are in, and any further
-    #       intraday observation updates would just chase the thermometer
-    #       rather than provide genuine advance edge.
+    # Freeze once the actual high is recorded in the CSV.
     has_actual_today = any(
         r.get("forecast_or_actual") == "actual"
         and r.get("cli_date") == target_date_iso
@@ -2172,12 +2173,18 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         for r in rows
     )
 
-    _now = now_nyc()
-    past_9am_et = _now.hour >= 9
-
     existing = _fetch_existing_prediction(target_date_iso)
 
+    # ml_recomputed tracks whether we actually ran the model this cycle.
+    # When True  → include nws_d0/accuweather in the upsert so the stored
+    #              baseline advances to the values the model just ran with.
+    # When False → omit nws_d0/accuweather from the upsert so the stored
+    #              baseline stays at the values used in the last real ML run,
+    #              preserving the correct comparison point for future cycles.
+    ml_recomputed = False
+
     if has_actual_today and isinstance(existing, dict):
+        # Day is over — actual recorded. Prediction is final.
         print(f"🔒 Actual high recorded — prediction frozen: {existing['ml_f']}°F → {existing.get('ml_bucket')}")
         ml = {
             "ml_f": existing["ml_f"],
@@ -2186,20 +2193,68 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             "ml_bucket_probs": existing.get("ml_bucket_probs"),
             "ml_version": existing.get("ml_version"),
         }
-    elif past_9am_et and isinstance(existing, dict) and existing.get("ml_f") is not None:
-        print(f"🔒 Past 9 AM ET — prediction frozen at morning call: {existing['ml_f']}°F → {existing.get('ml_bucket')}")
-        ml = {
-            "ml_f": existing["ml_f"],
-            "ml_bucket": existing["ml_bucket"],
-            "ml_confidence": existing["ml_confidence"],
-            "ml_bucket_probs": existing.get("ml_bucket_probs"),
-            "ml_version": existing.get("ml_version"),
-        }
+
+    elif isinstance(existing, dict) and existing.get("ml_f") is not None:
+        # A prediction exists. Re-run the model only if NWS or AccuWeather has
+        # issued a new forecast since our last ML run.  Temperature observations
+        # (thermometer readings) are deliberately excluded — they don't represent
+        # a new agency forecast and would cause thermometer-chasing.
+        #
+        # Threshold: ≥1°F difference (both sources round to integer °F, so any
+        # difference ≥1 is a genuine revision, not floating-point noise).
+        stored_nws  = existing.get("nws_d0")    # float or None from Supabase
+        stored_accu = existing.get("accuweather")  # float or None from Supabase
+
+        nws_revised = (
+            stored_nws is not None
+            and nws_latest is not None
+            and abs(float(nws_latest) - float(stored_nws)) >= 1.0
+        )
+        accu_revised = (
+            stored_accu is not None
+            and accu_latest is not None
+            and abs(float(accu_latest) - float(stored_accu)) >= 1.0
+        )
+
+        if nws_revised or accu_revised:
+            # Agency revised their forecast — this is new information.
+            reasons = []
+            if nws_revised:
+                reasons.append(f"NWS {stored_nws:.0f}→{nws_latest:.0f}°F")
+            if accu_revised:
+                reasons.append(f"AccuWeather {stored_accu:.0f}→{accu_latest:.0f}°F")
+            print(f"🔄 Forecast revised ({', '.join(reasons)}) — recomputing ML prediction")
+            ml = _compute_ml_prediction(rows, target_date_iso)
+            ml_recomputed = True
+
+        elif stored_nws is None and stored_accu is None:
+            # No stored baseline (row predates this logic). Recompute once to
+            # establish nws_d0/accuweather as the comparison baseline going forward.
+            print(f"🔄 No stored forecast baseline — recomputing to establish "
+                  f"(previous: {existing['ml_f']}°F → {existing.get('ml_bucket')})")
+            ml = _compute_ml_prediction(rows, target_date_iso)
+            ml_recomputed = True
+
+        else:
+            # No revision since last ML run. Hold the existing prediction.
+            nws_disp  = f"{nws_latest:.0f}°F"  if nws_latest  is not None else "N/A"
+            accu_disp = f"{accu_latest:.0f}°F" if accu_latest is not None else "N/A"
+            print(f"⏸️ No forecast revision (NWS={nws_disp}, AccuWeather={accu_disp} unchanged) "
+                  f"— ML held: {existing['ml_f']}°F → {existing.get('ml_bucket')}")
+            ml = {
+                "ml_f": existing["ml_f"],
+                "ml_bucket": existing["ml_bucket"],
+                "ml_confidence": existing["ml_confidence"],
+                "ml_bucket_probs": existing.get("ml_bucket_probs"),
+                "ml_version": existing.get("ml_version"),
+            }
+
     else:
-        # Before 9 AM and no actual yet — recompute with fresh observations
+        # No existing prediction (LOCK_NOT_FOUND or LOCK_ERROR) — compute fresh.
         if isinstance(existing, dict):
-            print(f"🔄 Recomputing ML prediction (previous: {existing['ml_f']}°F → {existing.get('ml_bucket')})")
+            print(f"🔄 Recomputing ML prediction (previous: {existing.get('ml_f')}°F → {existing.get('ml_bucket')})")
         ml = _compute_ml_prediction(rows, target_date_iso)
+        ml_recomputed = True
 
     if bcp is None and ml is None:
         print("⏭️ today_for_today: no BCP data and no ML prediction available."); return
@@ -2215,15 +2270,19 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         "lead_used": "today_for_today",
         "model_name": MODEL_VERSION,
         "prediction_value": float(f"{bcp:.1f}") if bcp is not None else (ml["ml_f"] if ml else 0.0),
-        "nws_d0": nws_latest,
-        "accuweather": accu_latest,
         "rep_forecast": today_pre_mean,
         "bias_applied": avg_bias_excl_today,
         "version": MODEL_VERSION,
-        "recommendation": "frozen at actual time",
+        "recommendation": "live — updates on agency forecast revision",
         "source_card": "nws_auto_logger",
         "city": _CITY_KEY,
     }
+    # Only write nws_d0/accuweather when ML actually ran this cycle.
+    # This preserves the stored baseline (the values the model last ran with)
+    # so future cycles can detect genuine forecast revisions correctly.
+    if ml_recomputed:
+        payload["nws_d0"] = nws_latest
+        payload["accuweather"] = accu_latest
     if ml:
         payload["ml_f"] = ml["ml_f"]
         payload["ml_bucket"] = ml["ml_bucket"]
