@@ -512,7 +512,7 @@ def extract_multimodel_features(multimodel_data: dict, target_date: str) -> dict
     if ecmwf is not None and gfs is not None:
         features["mm_ecmwf_gfs_diff"] = ecmwf - gfs
     else:
-        features["mm_ecmwf_gfs_diff"] = 0.0
+        features["mm_ecmwf_gfs_diff"] = np.nan
 
     # HRRR features — HRRR has a known boundary-layer warm bias that sophisticated
     # traders exploit. When HRRR diverges from ECMWF, it's a strong uncertainty signal.
