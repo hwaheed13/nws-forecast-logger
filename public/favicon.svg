@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#d0f4f7"/>
+      <stop offset="100%" stop-color="#d4f5e9"/>
+    </linearGradient>
+    <linearGradient id="drop" x1="15%" y1="5%" x2="85%" y2="95%">
+      <stop offset="0%" stop-color="#1e6fb5"/>
+      <stop offset="100%" stop-color="#0d9473"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded square background -->
+  <rect width="100" height="100" rx="22" ry="22" fill="url(#bg)"/>
+  <!-- Water drop shape: pointed top, circular bottom -->
+  <path d="M50 13 C50 13 24 46 24 63 C24 77.4 35.6 89 50 89 C64.4 89 76 77.4 76 63 C76 46 50 13 50 13Z" fill="url(#drop)"/>
+</svg>
