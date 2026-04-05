@@ -65,6 +65,16 @@ ul{padding-left:20px}li{margin-bottom:6px}
 <h2>Bug Fixes</h2>
 
 <div class="bugfix-version">
+<h3>April 5, 2026</h3>
+<div class="date"></div>
+<ul>
+  <li>Fixed corrupted NWS weather station readings causing wildly wrong overnight predictions. The NWS API occasionally returns stale warm-afternoon observations mixed with overnight data (e.g., 73°F at 3 AM in 44°F weather). A time-aware rate filter now detects and discards physically impossible temperature swings before they reach the model.</li>
+  <li>Fixed ML model accuracy feature that was silently disabled since launch. The model tracks its own recent prediction errors to self-correct systematic bias — this was broken due to a missing dependency in the daily retraining pipeline. Now restored; the model will begin adapting to its own errors starting with the next retrain.</li>
+  <li>New app icon (water drop) now appears consistently across all pages and browser tabs.</li>
+</ul>
+</div>
+
+<div class="bugfix-version">
 <h3>March 22, 2026</h3>
 <div class="date"></div>
 <ul>
