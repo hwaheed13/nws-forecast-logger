@@ -44,6 +44,11 @@ jobs:
           python prediction_writer.py --city lax backfill_obs
         continue-on-error: true
 
+      - name: Patch live-API columns (HRRR, 925mb, solar — past 90 days)
+        run: |
+          python backfill_multiyear.py --all --patch-live-cols
+        continue-on-error: true
+
       - name: Run model training (v1 + v2 + v4 for all cities)
         run: |
           python train_models.py --all

@@ -32,9 +32,13 @@ HOURLY_VARS = [
     "precipitation",
 ]
 
-# Pressure-level hourly variables (separate parameter group in Open-Meteo)
+# Pressure-level and additional hourly variables for live forecast API
+# NOTE: these are NOT available in the archive API (returns None) — only used
+# for live inference. HistGradientBoosting handles NaN for historical rows.
 HOURLY_PRESSURE_LEVEL_VARS = [
-    "temperature_850hPa",
+    "temperature_850hPa",   # Warm air advection aloft — key for temp overshoot detection
+    "temperature_925hPa",   # Near-surface warm advection (925hPa more relevant than 850 for NYC)
+    "shortwave_radiation",  # Solar irradiance (W/m²) — drives afternoon heating
 ]
 
 DAILY_VARS = [
@@ -189,9 +193,10 @@ def fetch_multimodel_forecast(
     Returns dict like:
         {"2026-03-07": {"ecmwf": 52.1, "gfs": 51.3, "icon": 50.8, "gem": 51.0}, ...}
     """
-    models = ["ecmwf_ifs025", "gfs_seamless", "icon_seamless", "gem_seamless"]
+    models = ["ecmwf_ifs025", "gfs_seamless", "icon_seamless", "gem_seamless", "ncep_hrrr_conus"]
     model_short = {"ecmwf_ifs025": "ecmwf", "gfs_seamless": "gfs",
-                   "icon_seamless": "icon", "gem_seamless": "gem"}
+                   "icon_seamless": "icon", "gem_seamless": "gem",
+                   "ncep_hrrr_conus": "hrrr"}
 
     result: dict[str, dict[str, float]] = {}
 
@@ -293,7 +298,8 @@ def extract_daily_atmospheric(hourly_df: pd.DataFrame, target_date: str) -> dict
     features["atm_precip_total"] = float(precip.sum()) if len(precip) > 0 else 0.0
 
     # 850mb temperature — warm air advection aloft detection
-    # Daytime hours (10am-6pm local) to capture synoptic-scale warm advection
+    # Available from forecast API (live inference) but NOT from archive API.
+    # Daytime hours (10am-6pm local) to capture synoptic-scale warm advection.
     if "temperature_850hPa" in day.columns:
         daytime_850 = day[
             (day["time"].dt.hour >= 10) & (day["time"].dt.hour <= 18)
@@ -303,6 +309,31 @@ def extract_daily_atmospheric(hourly_df: pd.DataFrame, target_date: str) -> dict
     else:
         features["atm_850mb_temp_max"] = np.nan
         features["atm_850mb_temp_mean"] = np.nan
+
+    # 925mb temperature — more relevant than 850mb for near-surface NYC boundary layer
+    # Also only available from forecast API (not archive).
+    if "temperature_925hPa" in day.columns:
+        daytime_925 = day[
+            (day["time"].dt.hour >= 10) & (day["time"].dt.hour <= 18)
+        ]["temperature_925hPa"].dropna()
+        features["atm_925mb_temp_max"] = float(daytime_925.max()) if len(daytime_925) > 0 else np.nan
+        features["atm_925mb_temp_mean"] = float(daytime_925.mean()) if len(daytime_925) > 0 else np.nan
+    else:
+        features["atm_925mb_temp_max"] = np.nan
+        features["atm_925mb_temp_mean"] = np.nan
+
+    # Solar irradiance — peak solar drives afternoon heating; low solar = temperature cap
+    # Available from forecast API only. Archive API returns None for shortwave_radiation.
+    if "shortwave_radiation" in day.columns:
+        # Midday solar potential (10am-2pm) — peak heating window
+        midday = day[
+            (day["time"].dt.hour >= 10) & (day["time"].dt.hour <= 14)
+        ]["shortwave_radiation"].dropna()
+        features["atm_solar_radiation_peak"] = float(midday.max()) if len(midday) > 0 else np.nan
+        features["atm_solar_radiation_mean"] = float(midday.mean()) if len(midday) > 0 else np.nan
+    else:
+        features["atm_solar_radiation_peak"] = np.nan
+        features["atm_solar_radiation_mean"] = np.nan
 
     # Temperature range (from hourly, more granular than daily min/max)
     temp = day["temperature_2m"].dropna()
@@ -476,10 +507,23 @@ def extract_multimodel_features(multimodel_data: dict, target_date: str) -> dict
     # ECMWF vs GFS difference (when both available)
     ecmwf = day_data.get("ecmwf")
     gfs = day_data.get("gfs")
+    hrrr = day_data.get("hrrr")
     if ecmwf is not None and gfs is not None:
         features["mm_ecmwf_gfs_diff"] = ecmwf - gfs
     else:
         features["mm_ecmwf_gfs_diff"] = 0.0
+
+    # HRRR features — HRRR has a known boundary-layer warm bias that sophisticated
+    # traders exploit. When HRRR diverges from ECMWF, it's a strong uncertainty signal.
+    features["mm_hrrr_max"] = float(hrrr) if hrrr is not None else np.nan
+    if hrrr is not None and ecmwf is not None:
+        features["mm_hrrr_ecmwf_diff"] = float(hrrr - ecmwf)
+    else:
+        features["mm_hrrr_ecmwf_diff"] = np.nan
+    if hrrr is not None and gfs is not None:
+        features["mm_hrrr_gfs_diff"] = float(hrrr - gfs)
+    else:
+        features["mm_hrrr_gfs_diff"] = np.nan
 
     return features
 
@@ -510,7 +554,8 @@ def get_atmospheric_features_historical(
     # HistGradientBoosting handles NaN natively
     for col in ["ens_spread", "ens_std", "ens_iqr", "ens_mean", "ens_skew"]:
         features[col] = np.nan
-    for col in ["mm_spread", "mm_std", "mm_mean", "mm_ecmwf_gfs_diff"]:
+    for col in ["mm_spread", "mm_std", "mm_mean", "mm_ecmwf_gfs_diff",
+                "mm_hrrr_max", "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff"]:
         features[col] = np.nan
 
     features["target_date"] = target_date
@@ -715,7 +760,8 @@ def get_atmospheric_features_live(
         features.update(mm_features)
     except Exception as e:
         print(f"  ⚠️ Multi-model fetch failed: {e}")
-        for col in ["mm_spread", "mm_std", "mm_mean", "mm_ecmwf_gfs_diff"]:
+        for col in ["mm_spread", "mm_std", "mm_mean", "mm_ecmwf_gfs_diff",
+                    "mm_hrrr_max", "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff"]:
             features[col] = np.nan
 
     features["target_date"] = target_date

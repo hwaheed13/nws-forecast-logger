@@ -60,6 +60,10 @@ ATMOSPHERIC_COLS = [
     "atm_morning_temp_6am",   # Temperature at 6am — starting point
     "atm_850mb_temp_max",     # Max 850mb temperature (daytime 10am-6pm) — warm air advection aloft
     "atm_850mb_temp_mean",    # Mean 850mb temperature (daytime 10am-6pm)
+    "atm_925mb_temp_max",     # Max 925mb temperature — closer to surface than 850mb, more relevant for NYC BL
+    "atm_925mb_temp_mean",    # Mean 925mb temperature
+    "atm_solar_radiation_peak",  # Peak solar irradiance midday (W/m²) — high = strong afternoon heating
+    "atm_solar_radiation_mean",  # Mean solar irradiance midday (W/m²)
 ]
 
 # Ensemble uncertainty features (5 features)
@@ -72,13 +76,19 @@ ENSEMBLE_COLS = [
     "ens_skew",               # Skewness — asymmetric risk
 ]
 
-# Multi-model cross-comparison features (4 features)
-# Source: Open-Meteo ECMWF, GFS, ICON, GEM models (live forecast only, NaN for historical)
+# Multi-model cross-comparison features (7 features)
+# Source: Open-Meteo ECMWF, GFS, ICON, GEM, HRRR (live forecast only, NaN for historical)
+# HRRR (ncep_hrrr_conus) has known boundary-layer warm bias. Sophisticated Kalshi traders
+# watch HRRR vs ECMWF spread to detect when HRRR is "overmixing" (overestimating heating).
+# When HRRR and ECMWF diverge by >5°F, one of them is usually badly wrong.
 MULTIMODEL_COLS = [
-    "mm_spread",              # Max model - min model daily high
+    "mm_spread",              # Max model - min model daily high (all 5 models)
     "mm_std",                 # Std dev across models
     "mm_mean",                # Multi-model mean consensus
     "mm_ecmwf_gfs_diff",      # ECMWF - GFS difference — persistent model bias
+    "mm_hrrr_max",            # HRRR predicted daily max (warm-biased, high-res mesoscale)
+    "mm_hrrr_ecmwf_diff",     # HRRR - ECMWF: positive = HRRR warmer (overmix signal)
+    "mm_hrrr_gfs_diff",       # HRRR - GFS: HRRR mesoscale vs synoptic scale agreement
 ]
 
 # Intraday temperature curve features (10 features)

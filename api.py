@@ -74,12 +74,21 @@ def prepare_features(raw):
         # Rolling bias (must be provided by caller or default to 0)
         "rolling_bias_7d": float(raw.get("rolling_bias_7d", 0)),
         "rolling_bias_21d": float(raw.get("rolling_bias_21d", 0)),
+        # Rolling ML self-error (how wrong the ML has been recently)
+        "rolling_ml_error_7d": float(raw.get("rolling_ml_error_7d", 0)),
 
         # Data availability flag
         "has_accu_data": int(raw.get("has_accu_data", int(raw.get("accu_last") is not None))),
     }
 
-    X = pd.DataFrame([row], columns=FEATURE_COLS)
+    # Use model's own feature list when available (self-consistent with training)
+    _cols = FEATURE_COLS
+    if hasattr(TEMP_MODEL, "feature_names_in_"):
+        _cols = list(TEMP_MODEL.feature_names_in_)
+    for col in _cols:
+        if col not in row:
+            row[col] = np.nan
+    X = pd.DataFrame([row], columns=_cols)
 
     # Fill NaN AccuWeather values with NWS equivalents
     for accu_col, nws_col in ACCU_NWS_FALLBACK.items():

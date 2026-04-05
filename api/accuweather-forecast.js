@@ -3,9 +3,13 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET');
   
-  const ACCUWEATHER_KEY = process.env.ACCUWEATHER_API_KEY || 'zpka_171d856fa2e445ed9b2d071bf2446f91_a9e8af6e';
+  const ACCUWEATHER_KEY = process.env.ACCUWEATHER_API_KEY;
   const LOCATION = (req.query && req.query.location) || '2627448';
   
+  if (!ACCUWEATHER_KEY) {
+    return res.status(500).json({ error: 'ACCUWEATHER_API_KEY not configured' });
+  }
+
   try {
     const response = await fetch(
       `https://dataservice.accuweather.com/forecasts/v1/daily/5day/${LOCATION}?apikey=${ACCUWEATHER_KEY}`
