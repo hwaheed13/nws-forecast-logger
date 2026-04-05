@@ -1275,9 +1275,21 @@ def collect_nws_observations(city_key: str = None) -> int:
         print(f"⚠️ No observations returned for {station}")
         return 0
 
+    # Sort features oldest-first so our rate check is chronologically consistent.
+    # The NWS API returns newest-first by default; sorting here makes the
+    # prev → curr direction unambiguous.
+    try:
+        obs_features = sorted(
+            obs_features,
+            key=lambda f: f.get("properties", {}).get("timestamp", ""),
+        )
+    except Exception:
+        pass  # keep original order if sort fails
+
     # Parse observations into rows
     rows = []
-    _prev_temp_f: Optional[float] = None  # for inter-observation sanity check
+    _prev_temp_f: Optional[float] = None  # last ACCEPTED temp
+    _prev_ts_str: Optional[str] = None    # last ACCEPTED timestamp
     _skipped_bad = 0
     for feat in obs_features:
         props = feat.get("properties", {})
@@ -1291,28 +1303,51 @@ def collect_nws_observations(city_key: str = None) -> int:
 
         temp_f = _c_to_f(temp_c)
 
-        # ── Observation sanity gate ──────────────────────────────────────
-        # The NWS station API occasionally serves stale/cached observations
-        # from a previous reporting cycle mixed in with current readings.
-        # This is most common in the midnight-4 AM ET window and produces
-        # readings that oscillate 10-30°F between consecutive rows (minutes
-        # apart) — physically impossible for ambient temperature change.
+        # ── Time-aware observation sanity gate ───────────────────────────
+        # The NWS station API occasionally mixes stale cached observations
+        # from a previous warm day into the current overnight response.
+        # This produces readings that oscillate ~9-15°F every 5 minutes —
+        # physically impossible for real ambient temperature change.
         #
-        # Rules:
-        #  1. Hard bounds: NYC/LA temps are always -20°F to 115°F
-        #  2. Rate-of-change: reject if temp_f differs from the previous
-        #     accepted reading by >15°F (real temp can't change 15°F/hour,
-        #     let alone within a few minutes between METAR reports)
+        # Root cause observed Apr 5 2026: readings of 64°F and 73°F
+        # alternating at midnight when actual KNYC was 44°F. Each
+        # individual jump was only 9°F (below a naive 15°F threshold)
+        # but the RATE was 110°F/hour — clearly corrupt data.
+        #
+        # Gate logic:
+        #  1. Hard bounds: discard readings outside [-20, 115]°F
+        #  2. Time-aware rate: allow up to 15°F/hour for real changes
+        #     (generous — actual cold fronts do ~5-10°F/hr). For any
+        #     two readings <12 minutes apart, cap the allowable delta
+        #     at 3°F (well above any real sub-hourly ambient change).
         if temp_f is not None:
             if temp_f < -20 or temp_f > 115:
-                print(f"  ⚠️ obs sanity: {temp_f:.1f}°F out of bounds at {ts} — skipped")
+                print(f"  ⚠️ obs sanity: {temp_f:.1f}°F out of physical bounds at {ts} — skipped")
                 _skipped_bad += 1
                 continue
-            if _prev_temp_f is not None and abs(temp_f - _prev_temp_f) > 15:
-                print(f"  ⚠️ obs sanity: {temp_f:.1f}°F jump from {_prev_temp_f:.1f}°F at {ts} — skipped")
-                _skipped_bad += 1
-                continue
+
+            if _prev_temp_f is not None and _prev_ts_str is not None:
+                try:
+                    curr_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    prev_dt = datetime.fromisoformat(_prev_ts_str.replace("Z", "+00:00"))
+                    hours = abs((curr_dt - prev_dt).total_seconds()) / 3600.0
+                    delta_f = abs(temp_f - _prev_temp_f)
+                    # max_allowable: 5°F minimum covers legitimate SPECI reports
+                    # (special obs triggered by rapid change, ~5°F in 10-15 min).
+                    # Scales up at 15°F/hour for longer intervals (generous —
+                    # real cold fronts do ~5-10°F/hr; we allow up to 15).
+                    max_allowable = max(5.0, hours * 15.0)
+                    if delta_f > max_allowable:
+                        rate = delta_f / max(hours, 1/60)  # °F/hr
+                        print(f"  ⚠️ obs sanity: {temp_f:.1f}°F (prev {_prev_temp_f:.1f}°F, "
+                              f"{delta_f:.1f}°F in {hours*60:.0f}min ≈ {rate:.0f}°F/hr) — skipped")
+                        _skipped_bad += 1
+                        continue
+                except Exception:
+                    pass  # if timestamp parse fails, accept the reading
+
         _prev_temp_f = temp_f
+        _prev_ts_str = ts
         # ────────────────────────────────────────────────────────────────
 
         wind_kmh = props.get("windSpeed", {}).get("value")
@@ -1511,21 +1546,32 @@ def _fetch_observation_features(
         return nan_result
 
     # Second-line sanity gate: remove spike outliers already in Supabase.
-    # Rows are sorted asc by observed_at. Reject any reading that differs
-    # from its neighbor by >15°F — these are NWS API corruption artifacts,
-    # not real temperature changes (real ambient change is <5°F/hour).
+    # Rows come in ascending observed_at order. Uses the same time-aware
+    # rate check as collect_nws_observations() to handle bad data already
+    # stored before this fix was deployed.
     if len(valid_obs) > 1:
         filtered = [valid_obs[0]]
         for obs in valid_obs[1:]:
             prev_f = filtered[-1]["temp_f"]
             curr_f = obs["temp_f"]
-            if abs(curr_f - prev_f) > 15:
-                print(f"  ⚠️ obs filter: {curr_f:.1f}°F spike from {prev_f:.1f}°F at "
-                      f"{obs.get('observed_at','')} — excluded from ML features")
+            delta_f = abs(curr_f - prev_f)
+            try:
+                curr_dt = datetime.fromisoformat(
+                    obs["observed_at"].replace("Z", "+00:00"))
+                prev_dt = datetime.fromisoformat(
+                    filtered[-1]["observed_at"].replace("Z", "+00:00"))
+                hours = abs((curr_dt - prev_dt).total_seconds()) / 3600.0
+                max_allowable = max(5.0, hours * 15.0)
+            except Exception:
+                max_allowable = 15.0  # fallback if timestamp parse fails
+            if delta_f > max_allowable:
+                rate = delta_f / max(hours if 'hours' in dir() else 1, 1/60)
+                print(f"  ⚠️ obs filter: {curr_f:.1f}°F from {prev_f:.1f}°F "
+                      f"({delta_f:.1f}°F, rate too high) — excluded from ML features")
             else:
                 filtered.append(obs)
         if len(filtered) < len(valid_obs):
-            print(f"  ⚠️ Removed {len(valid_obs)-len(filtered)} spiked obs from feature input "
+            print(f"  ⚠️ Removed {len(valid_obs)-len(filtered)} spiked obs from ML features "
                   f"({len(filtered)} of {len(valid_obs)} kept)")
         valid_obs = filtered if filtered else valid_obs  # always keep at least one
 
