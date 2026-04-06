@@ -611,42 +611,28 @@ input[type="date"] {
         </div>
       </div>
 
-      <!-- Bias-corrected -->
+      <!-- ML Predictions (primary signal) -->
       <div class="prediction-grid" style="display:grid; grid-template-columns:repeat(2,1fr); gap:18px; margin-bottom:22px;">
-        <div class="prediction-card">
-        <div class="prediction-title">
-          Today’s Bias-Corrected Prediction
-          <span class="tip" tabindex="0" data-tip="Starts with yesterday’s forecast for today, updates if additional forecasts come in, and locks once the actual high is reported">i</span>
-        </div>
-          <div id="correctionBoxToday" class="prediction-content">Loading...</div>
-        </div>
-        <div class="prediction-card">
+        <div class="prediction-card" id="ml-signal-today-card">
           <div class="prediction-title">
-            Tomorrow’s Bias-Corrected Prediction
-            <span class="tip" tabindex="0" data-tip="Uses today’s forecasts for tomorrow. Once tomorrow begins, updates with that day’s forecasts if any are issued">i</span>
+            Today’s Prediction
+            <span class="tip" tabindex="0" data-tip="ML model prediction — recomputes when NWS or AccuWeather revises their forecast. Freezes once the official daily high is recorded.">i</span>
+          </div>
+          <div id="correctionBoxToday" class="prediction-content">Loading...</div>
+          <div id="overnight-warn-today"></div>
+        </div>
+        <div class="prediction-card" id="ml-signal-tomorrow-card">
+          <div class="prediction-title">
+            Tomorrow’s Prediction
+            <span class="tip" tabindex="0" data-tip="ML model prediction for tomorrow — updates throughout today as forecasts come in. This is the primary bet signal when the Kalshi market opens.">i</span>
           </div>
           <div id="correctionBoxTomorrow" class="prediction-content">Loading...</div>
-        </div>
-
-        <!-- ML Bet Signal (under predictions, above disclaimer) -->
-        <div class="kalshi-grid" style="grid-column:1 / span 2;" id="ml-bet-signal-grid">
-          <div class="kalshi-card" style="border-left:4px solid var(--border-subtle);" id="ml-signal-today-card">
-            <div class="metric-label">ML Bucket Pick (Today) <span style="color:#6366f1;font-size:0.7em;font-weight:400;">Atmospheric ML</span></div>
-            <div id="ml-signal-today" class="metric-value" style="font-size:18px;">Loading...</div>
-            <div id="ml-signal-today-detail" class="kalshi-note"></div>
-            <div id="overnight-warn-today"></div>
-          </div>
-          <div class="kalshi-card" style="border-left:4px solid var(--border-subtle);" id="ml-signal-tomorrow-card">
-            <div class="metric-label">ML Bucket Pick (Tomorrow) <span style="color:#6366f1;font-size:0.7em;font-weight:400;">Atmospheric ML</span></div>
-            <div id="ml-signal-tomorrow" class="metric-value" style="font-size:18px;">Loading...</div>
-            <div id="ml-signal-tomorrow-detail" class="kalshi-note"></div>
-            <div id="overnight-warn-tomorrow"></div>
-          </div>
+          <div id="overnight-warn-tomorrow"></div>
         </div>
 
         <div class="prediction-disclaimer" style="grid-column:1 / span 2; font-size:12px; color:var(--text-light); margin-top:-6px;">
-        Based on historical forecast accuracy patterns; updates as new forecasts arrive. Bias correction reduces average error over many days, but NWS can still miss on individual days.
-      </div>
+          Atmospheric ML model — updates when agencies revise, freezes on actual. Not financial advice; do your own research before placing bets.
+        </div>
       </div>
 
       <!-- Kalshi -->
@@ -746,7 +732,7 @@ input[type="date"] {
       <a href="/about.html" style="color:var(--accent-blue);font-size:12px;text-decoration:none;font-weight:500;">About</a>
     </div>
     <footer class="footer">
-      © 2025 Daily Dew Point ·
+      © 2026 Daily Dew Point ·
       <a href="/terms.html">Terms</a> ·
       <a href="/privacy.html">Privacy</a> ·
       <span>Informational only, not financial advice. Do your own due diligence before placing any bets or making financial decisions.</span>
@@ -3338,6 +3324,69 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
       renderMLBetSignal();
     }
 
+// ===== ML Bet Signal Helpers =====
+// Shared between renderMLBetSignal() and updateCorrectionBoxes()
+function _mlSignalStyle(sig) {
+  switch (sig) {
+    case "STRONG_BET": return { color: "#059669", bg: "#ecfdf5", border: "#059669", label: "STRONG BET", icon: "" };
+    case "BET":        return { color: "#16a34a", bg: "#f0fdf4", border: "#16a34a", label: "BET", icon: "" };
+    case "SKIP":       return { color: "#6b7280", bg: "#f3f4f6", border: "#9ca3af", label: "NO EDGE", icon: "" };
+    default:           return { color: "#6b7280", bg: "#f9fafb", border: "#d1d5db", label: sig || "---", icon: "" };
+  }
+}
+
+function _mlGetTop2(bucketProbsRaw, marketSnapshot) {
+  if (!bucketProbsRaw) return null;
+  try {
+    const probs = typeof bucketProbsRaw === 'string' ? JSON.parse(bucketProbsRaw) : bucketProbsRaw;
+    let aggregated = {};
+    if (marketSnapshot) {
+      try {
+        const mkt = typeof marketSnapshot === 'string' ? JSON.parse(marketSnapshot) : marketSnapshot;
+        // Aggregate ML 1°F probs into ALL Kalshi buckets (ranges + edges)
+        for (const [label, _prob] of Object.entries(mkt)) {
+          let sum = 0;
+          const rangeMatch = label.match(/^(\d+)-(\d+)$/);
+          const leMatch = label.match(/^<=(\d+)$/);
+          const geMatch = label.match(/^>=(\d+)$/);
+          if (rangeMatch) {
+            const [lo, hi] = [Number(rangeMatch[1]), Number(rangeMatch[2])];
+            for (let t = lo; t <= hi; t++) sum += (probs[`${t}-${t+1}`] || 0);
+          } else if (leMatch) {
+            // <=X: sum all ML buckets from very low up to X
+            const threshold = Number(leMatch[1]);
+            for (const [k, v] of Object.entries(probs)) {
+              const m = k.match(/^(\d+)-(\d+)$/);
+              if (m && Number(m[1]) <= threshold) sum += v;
+            }
+          } else if (geMatch) {
+            // >=X: sum all ML buckets where the LOW end >= X
+            // ML bucket "77-78" means high=77, so it should NOT be in >=78
+            const threshold = Number(geMatch[1]);
+            for (const [k, v] of Object.entries(probs)) {
+              const m = k.match(/^(\d+)-(\d+)$/);
+              if (m && Number(m[1]) >= threshold) sum += v;
+            }
+          }
+          if (sum > 0.001) aggregated[label] = sum;
+        }
+      } catch {
+        aggregated = probs;
+      }
+    } else {
+      // No market data — use raw ML buckets
+      aggregated = probs;
+    }
+    const sorted = Object.entries(aggregated).sort((a, b) => b[1] - a[1]);
+    if (sorted.length < 1) return null;
+    return {
+      first: { bucket: sorted[0][0], prob: sorted[0][1] },
+      second: sorted.length > 1 ? { bucket: sorted[1][0], prob: sorted[1][1] } : null,
+      combined: sorted.length > 1 ? sorted[0][1] + sorted[1][1] : sorted[0][1]
+    };
+  } catch { return null; }
+}
+
 function renderMLBetSignal() {
   const ml = window.mlPredictions || {};
   const grid = document.getElementById("ml-bet-signal-grid");
@@ -3353,69 +3402,9 @@ function renderMLBetSignal() {
   }
   grid.style.display = "";
 
-  // Signal styling — purely based on ML confidence
-  const signalStyle = (sig) => {
-    switch (sig) {
-      case "STRONG_BET": return { color: "#059669", bg: "#ecfdf5", border: "#059669", label: "STRONG BET", icon: "" };
-      case "BET":        return { color: "#16a34a", bg: "#f0fdf4", border: "#16a34a", label: "BET", icon: "" };
-      case "SKIP":       return { color: "#6b7280", bg: "#f3f4f6", border: "#9ca3af", label: "NO EDGE", icon: "" };
-      default:           return { color: "#6b7280", bg: "#f9fafb", border: "#d1d5db", label: sig || "---", icon: "" };
-    }
-  };
-
-  // Get top-2 buckets from bucket probs (mapped to Kalshi ranges if available)
-  const getTop2 = (bucketProbsRaw, marketSnapshot) => {
-    if (!bucketProbsRaw) return null;
-    try {
-      const probs = typeof bucketProbsRaw === 'string' ? JSON.parse(bucketProbsRaw) : bucketProbsRaw;
-      let aggregated = {};
-      if (marketSnapshot) {
-        try {
-          const mkt = typeof marketSnapshot === 'string' ? JSON.parse(marketSnapshot) : marketSnapshot;
-          // Aggregate ML 1°F probs into ALL Kalshi buckets (ranges + edges)
-          for (const [label, _prob] of Object.entries(mkt)) {
-            let sum = 0;
-            const rangeMatch = label.match(/^(\d+)-(\d+)$/);
-            const leMatch = label.match(/^<=(\d+)$/);
-            const geMatch = label.match(/^>=(\d+)$/);
-            if (rangeMatch) {
-              const [lo, hi] = [Number(rangeMatch[1]), Number(rangeMatch[2])];
-              for (let t = lo; t <= hi; t++) sum += (probs[`${t}-${t+1}`] || 0);
-            } else if (leMatch) {
-              // <=X: sum all ML buckets from very low up to X
-              const threshold = Number(leMatch[1]);
-              for (const [k, v] of Object.entries(probs)) {
-                const m = k.match(/^(\d+)-(\d+)$/);
-                if (m && Number(m[1]) <= threshold) sum += v;
-              }
-            } else if (geMatch) {
-              // >=X: sum all ML buckets where the LOW end >= X
-              // ML bucket "77-78" means high=77, so it should NOT be in >=78
-              const threshold = Number(geMatch[1]);
-              for (const [k, v] of Object.entries(probs)) {
-                const m = k.match(/^(\d+)-(\d+)$/);
-                if (m && Number(m[1]) >= threshold) sum += v;
-              }
-            }
-            if (sum > 0.001) aggregated[label] = sum;
-          }
-        } catch {
-          aggregated = probs;
-        }
-      } else {
-        // No market data — use raw ML buckets
-        aggregated = probs;
-      }
-
-      const sorted = Object.entries(aggregated).sort((a, b) => b[1] - a[1]);
-      if (sorted.length < 1) return null;
-      return {
-        first: { bucket: sorted[0][0], prob: sorted[0][1] },
-        second: sorted.length > 1 ? { bucket: sorted[1][0], prob: sorted[1][1] } : null,
-        combined: sorted.length > 1 ? sorted[0][1] + sorted[1][1] : sorted[0][1]
-      };
-    } catch { return null; }
-  };
+  // Signal styling and top-2 helper — defined at module level as _mlSignalStyle / _mlGetTop2
+  const signalStyle = _mlSignalStyle;
+  const getTop2 = _mlGetTop2;
 
   // Render a signal card
   const renderCard = (prefix, bucket, signal, confidence, edge, marketSnapshot) => {
@@ -4014,168 +4003,374 @@ window._predTomorrow = predTomorrow;
     const el0 = document.getElementById('correctionBoxToday');
     const el1 = document.getElementById('correctionBoxTomorrow');
     
+    // ─── Shared helper: build supporting context line from NWS + AccuWeather ─────
+    // Returns HTML like: NWS: 63°F · AccuWeather: 64°F · (agree)
+    const _buildSupportingContextHTML = (candidates) => {
+      const nwsVal  = Number.isFinite(Number(candidates?.D0_latest))  ? Number(candidates.D0_latest)
+                    : Number.isFinite(Number(candidates?.D1_latest))  ? Number(candidates.D1_latest)
+                    : null;
+      const accuVal = Number.isFinite(Number(candidates?.AccuWeather)) ? Number(candidates.AccuWeather) : null;
+      if (nwsVal == null && accuVal == null) return '';
+      const parts = [];
+      if (nwsVal  != null) parts.push(`NWS: ${nwsVal.toFixed(0)}°F`);
+      if (accuVal != null) parts.push(`AccuWeather: ${accuVal.toFixed(0)}°F`);
+      let agreeHTML = '';
+      if (nwsVal != null && accuVal != null) {
+        const diff = Math.abs(nwsVal - accuVal);
+        if (diff <= 1)      agreeHTML = ' <span style="color:#6b7280;">(agree)</span>';
+        else if (diff <= 3) agreeHTML = ` <span style="color:#d97706;">(${diff.toFixed(0)}° apart)</span>`;
+        else                agreeHTML = ` <span style="color:#dc2626;">(${diff.toFixed(0)}° apart)</span>`;
+      }
+      return `<span style="color:#6b7280;font-size:0.85em;">${parts.join(' · ')}${agreeHTML}</span>`;
+    };
+
+    // ─── Shared helper: build WIN/MISS result HTML for a settled day ──────────
+    // Returns { resultBadgeHTML, resultDetailHTML, borderColor }
+    const _buildWinMissResult = (mlBucket, mlTempF, actualHighF, marketSnapshot) => {
+      if (mlBucket == null) return null;
+      const bucketDisplay = cleanKalshiLabel(mlBucket);
+      const actualInt = Math.round(actualHighF);
+
+      let isWin = false;
+      const mktSnap = marketSnapshot;
+      if (mktSnap) {
+        try {
+          const mkt = typeof mktSnap === 'string' ? JSON.parse(mktSnap) : mktSnap;
+          const ranges = Object.keys(mkt);
+          const findBucket = (temp) => {
+            const t = Math.round(temp);
+            for (const label of ranges) {
+              const le = label.match(/^<=(\d+)$/);
+              if (le && t <= Number(le[1])) return label;
+              const ge = label.match(/^>=(\d+)$/);
+              if (ge && t >= Number(ge[1])) return label;
+              const rng = label.match(/^(\d+)-(\d+)$/);
+              if (rng && t >= Number(rng[1]) && t <= Number(rng[2])) return label;
+            }
+            return null;
+          };
+          const actualKalshi = findBucket(actualInt);
+          const mlKalshi = mlTempF != null ? findBucket(Math.round(mlTempF)) : null;
+          const mlPickKalshi = ranges.includes(mlBucket) ? mlBucket : null;
+          if (actualKalshi && (mlKalshi === actualKalshi || mlPickKalshi === actualKalshi)) isWin = true;
+        } catch {
+          // fallback below
+        }
+      }
+      if (!mktSnap) {
+        const leMatch = mlBucket.match(/^<=(\d+)$/);
+        const geMatch = mlBucket.match(/^>=(\d+)$/);
+        const rangeMatch = mlBucket.match(/^(\d+)-(\d+)$/);
+        if (leMatch)   isWin = actualInt <= Number(leMatch[1]);
+        else if (geMatch)   isWin = actualInt >= Number(geMatch[1]);
+        else if (rangeMatch) isWin = actualInt >= Number(rangeMatch[1]) && actualInt <= Number(rangeMatch[2]);
+      }
+
+      if (isWin) {
+        return {
+          bucketDisplay,
+          resultBadgeHTML: `<span class="signal-badge" style="background:#ecfdf5;color:#059669;padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid #059669;">✅ WIN</span>`,
+          resultDetailHTML: `<span style="color:#9ca3af;">Correct! Actual high: ${actualHighF}°F</span>`,
+          borderColor: "#059669"
+        };
+      } else {
+        return {
+          bucketDisplay,
+          resultBadgeHTML: `<span class="signal-badge" style="background:#fef2f2;color:#dc2626;padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid #dc2626;">❌ MISS (actual: ${actualInt}°F)</span>`,
+          resultDetailHTML: `<span style="color:#9ca3af;">Actual high: ${actualHighF}°F</span>`,
+          borderColor: "#dc2626"
+        };
+      }
+    };
+
+    // ─── TODAY card ───────────────────────────────────────────────────────────
     if (el0) {
+      const ml = window.mlPredictions || {};
+      const cfg = CITY_CONFIG[currentCity];
+      const hasML = cfg?.hasMLModel !== false && ml.today != null && Number(ml.today) > 20;
+
       if (hasActualFor(todayISO)) {
-        el0.innerHTML = `
-          <div class="prediction-value">—</div>
-          <div class="prediction-subtitle">Actual high published for ${todayISO}</div>
-        `;
-      } else if (Number.isFinite(predToday?.y) && predToday?.y > 0) {
-        const val = predToday.y.toFixed(1);
-        const bias = Number.isFinite(predToday.bias)
-          ? predToday.bias.toFixed(2)
-          : "0.00";
-        const sign = Number(bias) >= 0 ? "+" : "";
+        // Day is settled — show WIN/MISS when we have a bucket, else "—"
+        const actualRow = (Array.isArray(allRows) ? allRows : []).find(r =>
+          r.forecast_or_actual === "actual" && r.cli_date === todayISO &&
+          r.actual_high && String(r.actual_high).trim() !== ""
+        );
+        const actualHighF = actualRow ? Number(actualRow.actual_high) : null;
 
-        // Kalshi bucket with probability confidence
-        const ACCU_STD = window.accuMAE || 0.89;
-        const todayBucketProbs = (todayMarket?.ranges)
-          ? computeBucketProbabilities(predToday.y, todayMarket.ranges, ACCU_STD)
-          : [];
-        const todayTopProb = todayBucketProbs[0]?.prob;
-        const todayConfPct = todayTopProb ? Math.round(todayTopProb * 100) : null;
-        const todayConfColor = todayConfPct >= 60 ? "#16a34a" : todayConfPct >= 40 ? "#d97706" : "#dc2626";
-
-        let kalshiNote = "";
-        if (todayKalshiRange?.label) {
-          const bucketLabel = cleanKalshiLabel(todayKalshiRange.label);
-          const confTag = todayConfPct
-            ? ` <span style="color:${todayConfColor};font-size:0.85em">(${todayConfPct}%)</span>`
-            : "";
-          kalshiNote = ` • Bucket: <span style="color:#16a34a;font-weight:700">${bucketLabel}</span>${confTag}`;
-
-          // Always show runner-up bucket so user sees both options
-          if (todayBucketProbs[1]) {
-            const runnerLabel = cleanKalshiLabel(todayBucketProbs[1].range.label);
-            const runnerPct = Math.round(todayBucketProbs[1].prob * 100);
-            kalshiNote += ` <span style="color:#6b7280;font-size:0.85em">/ ${runnerLabel} (${runnerPct}%)</span>`;
-          }
-          kalshiNote += ` <span style="color:#9ca3af;font-size:0.75em">(ensemble est.)</span>`;
+        if (hasML && ml.todayMLBucket && actualHighF != null && !isNaN(actualHighF)) {
+          const result = _buildWinMissResult(ml.todayMLBucket, ml.today, actualHighF, ml.todayMarketSnapshot);
+          const card = document.getElementById("ml-signal-today-card");
+          if (card) card.style.borderLeftColor = result.borderColor;
+          el0.innerHTML = `
+            <div class="prediction-value">${Math.round(ml.today)}°F</div>
+            <div style="margin:4px 0 2px;">
+              <span style="font-weight:600;color:#6b7280;">${result.bucketDisplay}</span>
+              ${result.resultBadgeHTML}
+            </div>
+            <div style="font-size:12px;margin-top:2px;">${result.resultDetailHTML}</div>
+          `;
+        } else {
+          // No bucket or no actual high yet — generic settled display
+          el0.innerHTML = `
+            <div class="prediction-value">—</div>
+            <div class="prediction-subtitle">Actual high published for ${todayISO}</div>
+          `;
         }
 
-      // Add warning if present
-        const warningHTML = todayWarning 
+      } else if (hasML) {
+        // ── ML is primary ──────────────────────────────────────────────────────
+        const mlVal    = Number(ml.today);
+        const bucket   = ml.todayMLBucket;
+        const signal   = ml.todayBetSignal;
+        const top2     = _mlGetTop2(ml.todayBucketProbs, ml.todayMarketSnapshot);
+        const s        = _mlSignalStyle(signal);
+        const card     = document.getElementById("ml-signal-today-card");
+        if (card) card.style.borderLeftColor = s.border;
+
+        // Build top-2 bucket HTML
+        let bucketHTML = '';
+        if (top2 && top2.second) {
+          const p1 = Math.round(top2.first.prob * 100);
+          const p2 = Math.round(top2.second.prob * 100);
+          const combinedPct = Math.round(top2.combined * 100);
+          const combColor = combinedPct >= 75 ? "#059669" : combinedPct >= 60 ? "#16a34a" : "#d97706";
+          bucketHTML = `
+            <div style="margin:4px 0 2px;">
+              <span style="font-weight:700;color:#16a34a;">${cleanKalshiLabel(top2.first.bucket)}</span>
+              <span style="color:#6b7280;font-size:13px;">(${p1}%)</span>
+              <span style="color:#9ca3af;margin:0 4px;">or</span>
+              <span style="font-weight:700;color:#2563eb;">${cleanKalshiLabel(top2.second.bucket)}</span>
+              <span style="color:#6b7280;font-size:13px;">(${p2}%)</span>
+              ${signal ? `<span class="signal-badge" style="background:${s.bg};color:${s.color};padding:3px 8px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid ${s.border};margin-left:4px;">${s.icon} ${s.label}</span>` : ''}
+            </div>
+            <div style="font-size:12px;color:#9ca3af;">Combined top-2: <span style="color:${combColor};font-weight:600;">${combinedPct}%</span></div>
+          `;
+        } else if (bucket) {
+          const confPct = ml.todayMLConfidence != null ? Math.round(Number(ml.todayMLConfidence) * 100) : null;
+          const confColor = confPct >= 65 ? "#059669" : confPct >= 45 ? "#16a34a" : "#dc2626";
+          bucketHTML = `
+            <div style="margin:4px 0 2px;">
+              <span style="font-weight:700;color:#16a34a;">${cleanKalshiLabel(bucket)}</span>
+              ${signal ? `<span class="signal-badge" style="background:${s.bg};color:${s.color};padding:3px 8px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid ${s.border};margin-left:4px;">${s.icon} ${s.label}</span>` : ''}
+            </div>
+            ${confPct != null ? `<div style="font-size:12px;color:#9ca3af;">ML confidence: <span style="color:${confColor};font-weight:600;">${confPct}%</span></div>` : ''}
+          `;
+        }
+
+        // Supporting context: NWS + AccuWeather
+        const supportHTML = _buildSupportingContextHTML(builtToday.candidates);
+
+        // Boundary warning
+        const warningHTML = todayWarning
           ? `<div class="boundary-warning ${todayWarning.level}">
               ${todayWarning.message}<br>
               <strong>Recommendation: ${todayWarning.recommendation}</strong>
               ${todayWarning.details?.crossed ? '<br>⚠️ Prediction crossed this boundary today' : ''}
               ${(todayWarning.details?.forecastSpread && todayWarning.details.forecastSpread > 1) ? `<br>Forecast spread: ${todayWarning.details.forecastSpread}°F` : ''}
-            </div>` 
+            </div>`
           : '';
-        
-    // Add prediction history
-    const historyRange = predictionHistory.getRange('today');
-    const historyHTML = (historyRange
-      && Number.isFinite(historyRange.min)
-      && Number.isFinite(historyRange.max)
-      && Number.isFinite(historyRange.current))
-      ? `<div class="prediction-history">
-          ${historyRange.min === historyRange.max 
-            ? `Stable at ${Number(historyRange.current).toFixed(1)}°F` 
-            : `Range: ${Number(historyRange.min).toFixed(1)}°F - ${Number(historyRange.max).toFixed(1)}°F`} 
-          (${historyRange.changes} updates)
-        </div>`
-      : '';
 
-const exceedanceNote = (
-  exceedance &&
-  Number.isFinite(Number(exceedance.currentTemp)) &&
-  Number.isFinite(Number(exceedance.forecast)) &&
-  Number.isFinite(Number(exceedance.hour))
-) ? `<div class="boundary-warning" style="background: #dbeafe; border-color: #3b82f6; color: #1e40af;">
-      ℹ️ <strong>Note:</strong> Currently ${Number(exceedance.currentTemp).toFixed(1)}°F at ${Number(exceedance.hour)}:00 AM ${CC().tzAbbr} — already at/above forecast (${Number(exceedance.forecast).toFixed(1)}°F).
-      High may occur overnight. Forecast reflects expected daytime high.
-    </div>`
-  : '';
+        // Early-morning exceedance note
+        const exceedanceNote = (
+          exceedance &&
+          Number.isFinite(Number(exceedance.currentTemp)) &&
+          Number.isFinite(Number(exceedance.forecast)) &&
+          Number.isFinite(Number(exceedance.hour))
+        ) ? `<div class="boundary-warning" style="background:#dbeafe;border-color:#3b82f6;color:#1e40af;">
+              ℹ️ <strong>Note:</strong> Currently ${Number(exceedance.currentTemp).toFixed(1)}°F at ${Number(exceedance.hour)}:00 AM ${CC().tzAbbr} — already at/above forecast (${Number(exceedance.forecast).toFixed(1)}°F).
+              High may occur overnight. Forecast reflects expected daytime high.
+            </div>`
+          : '';
 
+        // Prediction history
+        const historyRange = predictionHistory.getRange('today');
+        const historyHTML = (historyRange && Number.isFinite(historyRange.min) && Number.isFinite(historyRange.max) && Number.isFinite(historyRange.current))
+          ? `<div class="prediction-history">
+              ${historyRange.min === historyRange.max
+                ? `Stable at ${Number(historyRange.current).toFixed(1)}°F`
+                : `Range: ${Number(historyRange.min).toFixed(1)}°F – ${Number(historyRange.max).toFixed(1)}°F`}
+              (${historyRange.changes} updates)
+            </div>`
+          : '';
 
-el0.innerHTML = `
-  ${limitedDataHTML}
-  <div class="prediction-value">${val}°F</div>
-  <div class="prediction-subtitle">
-    <small>Smart ensemble (${Object.keys(builtToday.candidates || {}).length} sources, weights learn daily) ${sign}${bias}°F${kalshiNote}</small>
-  </div>
-  ${exceedanceNote}
-  ${warningHTML}
-  ${historyHTML}
-`;
+        el0.innerHTML = `
+          ${limitedDataHTML}
+          <div class="prediction-value">${mlVal.toFixed(1)}°F</div>
+          ${bucketHTML}
+          ${supportHTML ? `<div style="margin-top:6px;">${supportHTML}</div>` : ''}
+          ${exceedanceNote}
+          ${warningHTML}
+          ${historyHTML}
+        `;
+
+      } else if (Number.isFinite(predToday?.y) && predToday?.y > 0) {
+        // ── ML not yet available — fall back to ensemble ───────────────────────
+        const val  = predToday.y.toFixed(1);
+        const bias = Number.isFinite(predToday.bias) ? predToday.bias.toFixed(2) : "0.00";
+        const sign = Number(bias) >= 0 ? "+" : "";
+
+        const exceedanceNote = (
+          exceedance &&
+          Number.isFinite(Number(exceedance.currentTemp)) &&
+          Number.isFinite(Number(exceedance.forecast)) &&
+          Number.isFinite(Number(exceedance.hour))
+        ) ? `<div class="boundary-warning" style="background:#dbeafe;border-color:#3b82f6;color:#1e40af;">
+              ℹ️ <strong>Note:</strong> Currently ${Number(exceedance.currentTemp).toFixed(1)}°F at ${Number(exceedance.hour)}:00 AM ${CC().tzAbbr} — already at/above forecast (${Number(exceedance.forecast).toFixed(1)}°F).
+              High may occur overnight. Forecast reflects expected daytime high.
+            </div>`
+          : '';
+
+        const warningHTML = todayWarning
+          ? `<div class="boundary-warning ${todayWarning.level}">
+              ${todayWarning.message}<br>
+              <strong>Recommendation: ${todayWarning.recommendation}</strong>
+              ${todayWarning.details?.crossed ? '<br>⚠️ Prediction crossed this boundary today' : ''}
+              ${(todayWarning.details?.forecastSpread && todayWarning.details.forecastSpread > 1) ? `<br>Forecast spread: ${todayWarning.details.forecastSpread}°F` : ''}
+            </div>`
+          : '';
+
+        const historyRange = predictionHistory.getRange('today');
+        const historyHTML = (historyRange && Number.isFinite(historyRange.min) && Number.isFinite(historyRange.max) && Number.isFinite(historyRange.current))
+          ? `<div class="prediction-history">
+              ${historyRange.min === historyRange.max
+                ? `Stable at ${Number(historyRange.current).toFixed(1)}°F`
+                : `Range: ${Number(historyRange.min).toFixed(1)}°F – ${Number(historyRange.max).toFixed(1)}°F`}
+              (${historyRange.changes} updates)
+            </div>`
+          : '';
+
+        el0.innerHTML = `
+          ${limitedDataHTML}
+          <div class="prediction-value">${val}°F</div>
+          <div class="prediction-subtitle">
+            <small>Ensemble (${Object.keys(builtToday.candidates || {}).length} sources) ${sign}${bias}°F · <em>ML model loading…</em></small>
+          </div>
+          ${exceedanceNote}
+          ${warningHTML}
+          ${historyHTML}
+        `;
       } else {
         el0.innerHTML = `<div class="prediction-value">—</div><div class="prediction-subtitle">Awaiting forecast data</div>`;
       }
     }
-    
-    
-if (el1) {
-  if (Number.isFinite(predTomorrow?.y)) {
-    const raw = Number(predTomorrow.y);
-    const bump = (typeof d1AdjF === "number" && Number.isFinite(d1AdjF)) ? d1AdjF : 0;
-    const final = Math.round((raw + bump) * 10) / 10;
-    const val = final.toFixed(1);
-    
 
-        const bias = predTomorrow?.bias != null ? Number(predTomorrow.bias).toFixed(2) : "0.00";
-        const sign = Number(bias) >= 0 ? "+" : "";
-        const showBump = Math.abs(bump) >= 0.05;
-        const bumpTxt = showBump ? ` • momentum ${bump >= 0 ? "+" : ""}${bump.toFixed(1)}°` : "";
+    // ─── TOMORROW card ────────────────────────────────────────────────────────
+    if (el1) {
+      const ml = window.mlPredictions || {};
+      const cfg = CITY_CONFIG[currentCity];
+      const hasML = cfg?.hasMLModel !== false && ml.tomorrow != null && Number(ml.tomorrow) > 20;
 
-        // Kalshi bucket with probability confidence
-        const tmrwBucketProbs = (tomorrowMarket?.ranges)
-          ? computeBucketProbabilities(final, tomorrowMarket.ranges, window.accuMAE || 0.89)
-          : [];
-        const tmrwTopProb = tmrwBucketProbs[0]?.prob;
-        const tmrwConfPct = tmrwTopProb ? Math.round(tmrwTopProb * 100) : null;
-        const tmrwConfColor = tmrwConfPct >= 60 ? "#16a34a" : tmrwConfPct >= 40 ? "#d97706" : "#dc2626";
+      if (hasML) {
+        // ── ML is primary ──────────────────────────────────────────────────────
+        const mlVal  = Number(ml.tomorrow);
+        const bucket = ml.tomorrowMLBucket;
+        const signal = ml.tomorrowBetSignal;
+        const top2   = _mlGetTop2(ml.tomorrowBucketProbs, ml.tomorrowMarketSnapshot);
+        const s      = _mlSignalStyle(signal);
+        const card   = document.getElementById("ml-signal-tomorrow-card");
+        if (card) card.style.borderLeftColor = s.border;
 
-        let kalshiNote = "";
-        if (tomorrowKalshiRange?.label) {
-          const bucketLabel = cleanKalshiLabel(tomorrowKalshiRange.label);
-          const confTag = tmrwConfPct
-            ? ` <span style="color:${tmrwConfColor};font-size:0.85em">(${tmrwConfPct}%)</span>`
-            : "";
-          kalshiNote = ` • Bucket: <span style="color:#16a34a;font-weight:700">${bucketLabel}</span>${confTag}`;
-
-          // Always show runner-up bucket so user sees both options
-          if (tmrwBucketProbs[1]) {
-            const runnerLabel = cleanKalshiLabel(tmrwBucketProbs[1].range.label);
-            const runnerPct = Math.round(tmrwBucketProbs[1].prob * 100);
-            kalshiNote += ` <span style="color:#6b7280;font-size:0.85em">/ ${runnerLabel} (${runnerPct}%)</span>`;
-          }
-          kalshiNote += ` <span style="color:#9ca3af;font-size:0.75em">(ensemble est.)</span>`;
+        // Build top-2 bucket HTML
+        let bucketHTML = '';
+        if (top2 && top2.second) {
+          const p1 = Math.round(top2.first.prob * 100);
+          const p2 = Math.round(top2.second.prob * 100);
+          const combinedPct = Math.round(top2.combined * 100);
+          const combColor = combinedPct >= 75 ? "#059669" : combinedPct >= 60 ? "#16a34a" : "#d97706";
+          bucketHTML = `
+            <div style="margin:4px 0 2px;">
+              <span style="font-weight:700;color:#16a34a;">${cleanKalshiLabel(top2.first.bucket)}</span>
+              <span style="color:#6b7280;font-size:13px;">(${p1}%)</span>
+              <span style="color:#9ca3af;margin:0 4px;">or</span>
+              <span style="font-weight:700;color:#2563eb;">${cleanKalshiLabel(top2.second.bucket)}</span>
+              <span style="color:#6b7280;font-size:13px;">(${p2}%)</span>
+              ${signal ? `<span class="signal-badge" style="background:${s.bg};color:${s.color};padding:3px 8px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid ${s.border};margin-left:4px;">${s.icon} ${s.label}</span>` : ''}
+            </div>
+            <div style="font-size:12px;color:#9ca3af;">Combined top-2: <span style="color:${combColor};font-weight:600;">${combinedPct}%</span></div>
+          `;
+        } else if (bucket) {
+          const confPct = ml.tomorrowMLConfidence != null ? Math.round(Number(ml.tomorrowMLConfidence) * 100) : null;
+          const confColor = confPct >= 65 ? "#059669" : confPct >= 45 ? "#16a34a" : "#dc2626";
+          bucketHTML = `
+            <div style="margin:4px 0 2px;">
+              <span style="font-weight:700;color:#16a34a;">${cleanKalshiLabel(bucket)}</span>
+              ${signal ? `<span class="signal-badge" style="background:${s.bg};color:${s.color};padding:3px 8px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid ${s.border};margin-left:4px;">${s.icon} ${s.label}</span>` : ''}
+            </div>
+            ${confPct != null ? `<div style="font-size:12px;color:#9ca3af;">ML confidence: <span style="color:${confColor};font-weight:600;">${confPct}%</span></div>` : ''}
+          `;
         }
 
-      // Add warning if present
-        const warningHTML = tomorrowWarning 
+        // Supporting context: NWS + AccuWeather
+        const supportHTML = _buildSupportingContextHTML(builtTomorrow.candidates);
+
+        // Boundary warning
+        const warningHTML = tomorrowWarning
           ? `<div class="boundary-warning ${tomorrowWarning.level}">
               ${tomorrowWarning.message}<br>
               <strong>Recommendation: ${tomorrowWarning.recommendation}</strong>
               ${tomorrowWarning.details?.crossed ? '<br>⚠️ Prediction crossed this boundary today' : ''}
               ${(tomorrowWarning.details?.forecastSpread && tomorrowWarning.details.forecastSpread > 1) ? `<br>Forecast spread: ${tomorrowWarning.details.forecastSpread}°F` : ''}
-            </div>` 
+            </div>`
           : '';
-        
-    // Add prediction history
-    const historyRange = predictionHistory.getRange('tomorrow');
-    const historyHTML = (historyRange
-      && Number.isFinite(historyRange.min)
-      && Number.isFinite(historyRange.max)
-      && Number.isFinite(historyRange.current))
-      ? `<div class="prediction-history">
-          ${historyRange.min === historyRange.max 
-            ? `Stable at ${Number(historyRange.current).toFixed(1)}°F` 
-            : `Range: ${Number(historyRange.min).toFixed(1)}°F - ${Number(historyRange.max).toFixed(1)}°F`} 
-          (${historyRange.changes} updates)
-        </div>`
-      : '';
-   
-  el1.innerHTML = `
-      ${limitedDataHTML}
-      <div class="prediction-value">${val}°F</div>
-      <div class="prediction-subtitle">
-        <small>Smart ensemble (${Object.keys(builtTomorrow.candidates || {}).length} sources, weights learn daily) ${sign}${bias}°F${bumpTxt}${kalshiNote}</small>
-      </div>
-      ${warningHTML}
-      ${historyHTML}
-    `;
+
+        const historyRange = predictionHistory.getRange('tomorrow');
+        const historyHTML = (historyRange && Number.isFinite(historyRange.min) && Number.isFinite(historyRange.max) && Number.isFinite(historyRange.current))
+          ? `<div class="prediction-history">
+              ${historyRange.min === historyRange.max
+                ? `Stable at ${Number(historyRange.current).toFixed(1)}°F`
+                : `Range: ${Number(historyRange.min).toFixed(1)}°F – ${Number(historyRange.max).toFixed(1)}°F`}
+              (${historyRange.changes} updates)
+            </div>`
+          : '';
+
+        el1.innerHTML = `
+          ${limitedDataHTML}
+          <div class="prediction-value">${mlVal.toFixed(1)}°F</div>
+          ${bucketHTML}
+          ${supportHTML ? `<div style="margin-top:6px;">${supportHTML}</div>` : ''}
+          ${warningHTML}
+          ${historyHTML}
+        `;
+
+      } else if (Number.isFinite(predTomorrow?.y)) {
+        // ── ML not yet available — fall back to ensemble ───────────────────────
+        const raw   = Number(predTomorrow.y);
+        const bump  = (typeof d1AdjF === "number" && Number.isFinite(d1AdjF)) ? d1AdjF : 0;
+        const final = Math.round((raw + bump) * 10) / 10;
+        const val   = final.toFixed(1);
+        const bias  = predTomorrow?.bias != null ? Number(predTomorrow.bias).toFixed(2) : "0.00";
+        const sign  = Number(bias) >= 0 ? "+" : "";
+        const showBump = Math.abs(bump) >= 0.05;
+        const bumpTxt  = showBump ? ` · momentum ${bump >= 0 ? "+" : ""}${bump.toFixed(1)}°` : "";
+
+        const warningHTML = tomorrowWarning
+          ? `<div class="boundary-warning ${tomorrowWarning.level}">
+              ${tomorrowWarning.message}<br>
+              <strong>Recommendation: ${tomorrowWarning.recommendation}</strong>
+              ${tomorrowWarning.details?.crossed ? '<br>⚠️ Prediction crossed this boundary today' : ''}
+              ${(tomorrowWarning.details?.forecastSpread && tomorrowWarning.details.forecastSpread > 1) ? `<br>Forecast spread: ${tomorrowWarning.details.forecastSpread}°F` : ''}
+            </div>`
+          : '';
+
+        const historyRange = predictionHistory.getRange('tomorrow');
+        const historyHTML = (historyRange && Number.isFinite(historyRange.min) && Number.isFinite(historyRange.max) && Number.isFinite(historyRange.current))
+          ? `<div class="prediction-history">
+              ${historyRange.min === historyRange.max
+                ? `Stable at ${Number(historyRange.current).toFixed(1)}°F`
+                : `Range: ${Number(historyRange.min).toFixed(1)}°F – ${Number(historyRange.max).toFixed(1)}°F`}
+              (${historyRange.changes} updates)
+            </div>`
+          : '';
+
+        el1.innerHTML = `
+          ${limitedDataHTML}
+          <div class="prediction-value">${val}°F</div>
+          <div class="prediction-subtitle">
+            <small>Ensemble (${Object.keys(builtTomorrow.candidates || {}).length} sources) ${sign}${bias}°F${bumpTxt} · <em>ML model loading…</em></small>
+          </div>
+          ${warningHTML}
+          ${historyHTML}
+        `;
       } else {
         el1.innerHTML = `<div class="prediction-value">—</div><div class="prediction-subtitle">Awaiting forecast data</div>`;
       }
@@ -4183,6 +4378,8 @@ if (el1) {
 
   // Re-apply any overnight exceedance note after the card re-render
   try { await handleOvernightExceedanceNote(); } catch {}
+  // Refresh overnight advisory banners now that cards have been redrawn
+  try { checkOvernightHighWarning(); } catch {}
 
   } catch (e) {
     console.warn("updateCorrectionBoxes() failed", e);

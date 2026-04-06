@@ -16,7 +16,7 @@ from sklearn.model_selection import TimeSeriesSplit
 
 from model_config import (
     FEATURE_COLS, FEATURE_COLS_V2, FEATURE_COLS_V3, ACCU_NWS_FALLBACK,
-    ATM_PREDICTOR_INPUT_COLS, ATM_PREDICTOR_COLS,
+    ATM_PREDICTOR_INPUT_COLS, ATM_PREDICTOR_COLS, FORECAST_REVISION_COLS,
 )
 
 warnings.filterwarnings("ignore")
@@ -192,6 +192,17 @@ class NYCTemperatureModelTrainer:
             "forecast_acceleration": self._calculate_acceleration(nws_values),
         }
 
+        # --- Intraday revision feature (NWS) ---
+        # How much did NWS revise its forecast after 9 AM local?
+        # Signal: agencies correcting their morning forecast predict actual follows revision.
+        # nws_forecasts["timestamp"] is already naive local time (via _safe_parse_ts).
+        nws_before_9am = nws_forecasts[nws_forecasts["timestamp"].dt.hour < 9]
+        if not nws_before_9am.empty and len(nws_values) > 0:
+            nws_at_9am = float(nws_before_9am.iloc[-1]["predicted_high"])
+            features["nws_post_9am_delta"] = features["nws_last"] - nws_at_9am
+        else:
+            features["nws_post_9am_delta"] = np.nan  # no pre-9am forecast (D1-only days)
+
         # --- AccuWeather features (full parity with NWS) ---
         has_accu = not accu_forecasts.empty
         if has_accu:
@@ -215,6 +226,17 @@ class NYCTemperatureModelTrainer:
             features["accu_std"] = 0.0
             features["accu_trend"] = 0.0
             features["accu_count"] = 0
+
+        # --- Intraday revision feature (AccuWeather) ---
+        if has_accu and not accu_forecasts.empty:
+            accu_before_9am = accu_forecasts[accu_forecasts["timestamp"].dt.hour < 9]
+            if not accu_before_9am.empty:
+                accu_at_9am = float(accu_before_9am.iloc[-1]["predicted_high"])
+                features["accu_post_9am_delta"] = features["accu_last"] - accu_at_9am
+            else:
+                features["accu_post_9am_delta"] = np.nan
+        else:
+            features["accu_post_9am_delta"] = np.nan
 
         # --- Cross-source features ---
         if not np.isnan(features["nws_last"]) and not np.isnan(features["accu_last"]):
@@ -699,6 +721,10 @@ class NYCTemperatureModelTrainer:
 
                 # Persistence proxy forecast — used as center by the classifier
                 "_persistence_forecast": persistence,
+
+                # Intraday revision features — NaN for multiyear (no intraday forecast data)
+                "nws_post_9am_delta": np.nan,
+                "accu_post_9am_delta": np.nan,
 
                 # Temporal features — computed from date
                 "day_of_year_sin": np.sin(2 * np.pi * doy / 365),

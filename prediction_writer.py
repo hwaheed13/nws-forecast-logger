@@ -20,6 +20,31 @@ from model_config import (
 
 MODEL_VERSION = os.environ.get("PREDICTION_MODEL_VERSION", "bcp_v1")
 
+
+def _ts_hour(ts_str: str) -> int | None:
+    """Extract local hour (0-23) from a CSV timestamp string.
+
+    Handles formats produced by nws_auto_logger.py, e.g.:
+      '2026-04-06 08:30:00 EDT'   → 8
+      '2026-04-06T14:45:00'       → 14
+      '2026-04-06 14:45:00'       → 14
+
+    Returns None on any parse failure (treated as unknown, NOT < 9).
+    """
+    try:
+        s = str(ts_str).strip()
+        # Strip tz suffix (EDT, EST, PDT, PST, ET, PT, UTC)
+        for sfx in (" EDT", " EST", " PDT", " PST", " ET", " PT", " UTC"):
+            if s.endswith(sfx):
+                s = s[: -len(sfx)].strip()
+                break
+        # Normalize 'T' separator → space
+        s = s.replace("T", " ")
+        # Hour lives at position 11-12 of 'YYYY-MM-DD HH:MM:SS'
+        return int(s[11:13])
+    except (ValueError, IndexError, TypeError):
+        return None
+
 # Kalshi API base URL (public, no auth needed)
 KALSHI_API_BASE = "https://api.elections.kalshi.com/trade-api/v2"
 
@@ -1003,6 +1028,26 @@ def _compute_ml_prediction(
 
     # --- 8b. MOS max temp — set to NaN initially, filled in v2 path ---
     features["mos_max_temp"] = np.nan
+
+    # --- 8c. Intraday forecast revision features ---
+    # How much did each agency revise its forecast after 9 AM local time?
+    # For D0 predictions (same-day), nws_fc contains both pre- and post-9am rows.
+    # For D1 predictions (next-day), forecasts were issued yesterday — all rows
+    # are from a prior calendar day so hour-of-day is irrelevant; delta = NaN.
+    #
+    # nws_fc is already sorted chronologically (ts strings sort correctly for
+    # the 'YYYY-MM-DD HH:MM:SS' format produced by nws_auto_logger.py).
+    nws_before_9 = [(ts, v) for ts, v in nws_fc if (_ts_hour(ts) or 25) < 9]
+    if nws_before_9 and nws_fc:
+        features["nws_post_9am_delta"] = features["nws_last"] - nws_before_9[-1][1]
+    else:
+        features["nws_post_9am_delta"] = np.nan
+
+    accu_before_9 = [(ts, v) for ts, v in accu_fc if (_ts_hour(ts) or 25) < 9]
+    if accu_before_9 and accu_fc:
+        features["accu_post_9am_delta"] = features["accu_last"] - accu_before_9[-1][1]
+    else:
+        features["accu_post_9am_delta"] = np.nan
 
     # --- 9. Build DataFrame, fill NaN AccuWeather with NWS fallbacks ---
     # Use model's own feature list (feature_names_in_) when available so that

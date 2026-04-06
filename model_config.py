@@ -135,6 +135,17 @@ MOS_COLS = [
     "mos_max_temp",             # MOS predicted max temperature for the target date
 ]
 
+# Intraday forecast revision features (2 features)
+# Captures how much NWS and AccuWeather revised their forecast after 9 AM.
+# Key signal: when an agency corrects its morning forecast significantly,
+# the actual high tends to follow the revision. Training data: last-before-9am
+# forecast vs. last forecast of the day. Live inference: 9am forecast vs. now.
+# NaN when no forecasts existed before 9 AM (pure overnight D1 rows).
+FORECAST_REVISION_COLS = [
+    "nws_post_9am_delta",   # nws_last - nws_at_9am: positive = NWS warmed up during day
+    "accu_post_9am_delta",  # accu_last - accu_at_9am: positive = AccuWeather warmed up
+]
+
 # NWS real-time observation features (12 features)
 # Source: NWS station observations API (live), Open-Meteo archive hourly (training proxy)
 # These provide GROUND TRUTH during live inference — the delta between forecasted
@@ -161,11 +172,12 @@ ATM_PREDICTOR_INPUT_COLS = ATMOSPHERIC_COLS + INTRADAY_CURVE_COLS + [
     "midnight_temp",
 ]
 
-# Combined v2 feature list (80 total: 31 + 21 + 5 + 7 + 10 + 3 + 2 + 1)
+# Combined v2 feature list (82 total: 31 + 21 + 5 + 7 + 10 + 3 + 2 + 1 + 2)
 # 31 = FEATURE_COLS (v1 + rolling_ml_error_7d), 21 = ATMOSPHERIC_COLS (incl 925mb + solar),
 # 5 = ENSEMBLE_COLS, 7 = MULTIMODEL_COLS (incl HRRR features), 10 = INTRADAY_CURVE_COLS,
-# 3 = OVERNIGHT_CARRYOVER_COLS, 2 = ATM_PREDICTOR_COLS, 1 = MOS_COLS
-FEATURE_COLS_V2 = FEATURE_COLS + ATMOSPHERIC_COLS + ENSEMBLE_COLS + MULTIMODEL_COLS + INTRADAY_CURVE_COLS + OVERNIGHT_CARRYOVER_COLS + ATM_PREDICTOR_COLS + MOS_COLS
+# 3 = OVERNIGHT_CARRYOVER_COLS, 2 = ATM_PREDICTOR_COLS, 1 = MOS_COLS,
+# 2 = FORECAST_REVISION_COLS (nws_post_9am_delta, accu_post_9am_delta)
+FEATURE_COLS_V2 = FEATURE_COLS + ATMOSPHERIC_COLS + ENSEMBLE_COLS + MULTIMODEL_COLS + INTRADAY_CURVE_COLS + OVERNIGHT_CARRYOVER_COLS + ATM_PREDICTOR_COLS + MOS_COLS + FORECAST_REVISION_COLS
 
 # v3 unified feature list (72 total — same features as v2)
 # The difference is architectural: v3 trains a SINGLE regression model on ALL
