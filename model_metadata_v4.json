@@ -1,27 +1,27 @@
 {
-  "trained_on": "2026-04-05T10:43:22.003956",
+  "trained_on": "2026-04-06T11:05:06.166642",
   "version": "v4_observation_features",
-  "num_days": 1554,
+  "num_days": 1555,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-04-04"
+    "end": "2026-04-05"
   },
   "v4_regression": {
-    "cv_mae": 1.18,
-    "cv_bucket_accuracy": 0.3023,
-    "residual_std": 1.69,
-    "num_features": 85
+    "cv_mae": 1.14,
+    "cv_bucket_accuracy": 0.2791,
+    "residual_std": 1.64,
+    "num_features": 92
   },
   "v4_classifier": {
-    "cv_bucket_accuracy": 0.4381,
-    "cv_log_loss": 0.4022,
-    "insample_bucket_accuracy": 0.5875,
-    "num_training_days": 259,
-    "num_classification_rows": 1799,
+    "cv_bucket_accuracy": 0.4326,
+    "cv_log_loss": 0.4039,
+    "insample_bucket_accuracy": 0.6448,
+    "num_training_days": 260,
+    "num_classification_rows": 1813,
     "n_candidate_buckets": 7,
-    "feature_cols_used": 89,
+    "feature_cols_used": 96,
     "positive_rate": 0.1429,
-    "residual_std": 1.695
+    "residual_std": 1.639
   },
   "observation_features": [
     "obs_latest_temp",
@@ -86,6 +86,10 @@
     "atm_morning_temp_6am",
     "atm_850mb_temp_max",
     "atm_850mb_temp_mean",
+    "atm_925mb_temp_max",
+    "atm_925mb_temp_mean",
+    "atm_solar_radiation_peak",
+    "atm_solar_radiation_mean",
     "ens_spread",
     "ens_std",
     "ens_iqr",
@@ -95,6 +99,9 @@
     "mm_std",
     "mm_mean",
     "mm_ecmwf_gfs_diff",
+    "mm_hrrr_max",
+    "mm_hrrr_ecmwf_diff",
+    "mm_hrrr_gfs_diff",
     "intra_temp_9am",
     "intra_temp_noon",
     "intra_temp_3pm",
