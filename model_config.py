@@ -40,7 +40,7 @@ ACCU_NWS_FALLBACK = {
 # v2 atmospheric features (27 columns) — from Open-Meteo APIs + NWS MOS
 # ═══════════════════════════════════════════════════════════════════════
 
-# Observed atmospheric conditions (17 features)
+# Observed atmospheric conditions (23 features)
 # Source: Open-Meteo archive (historical) or forecast API (live)
 ATMOSPHERIC_COLS = [
     "atm_wind_max",           # Max wind speed (mph) — high wind = temp moderation
@@ -64,6 +64,9 @@ ATMOSPHERIC_COLS = [
     "atm_925mb_temp_mean",    # Mean 925mb temperature
     "atm_solar_radiation_peak",  # Peak solar irradiance midday (W/m²) — high = strong afternoon heating
     "atm_solar_radiation_mean",  # Mean solar irradiance midday (W/m²)
+    "atm_bl_height_max",      # Max planetary boundary layer height (m) during peak heating (10am-4pm)
+                              # Deep BL (>2000m) + strong solar = spike-prone day (radiation-driven overshoot)
+    "atm_bl_height_mean",     # Mean PBL height during peak heating (10am-4pm) — sustained mixing depth
 ]
 
 # Ensemble uncertainty features (5 features)
@@ -172,8 +175,8 @@ ATM_PREDICTOR_INPUT_COLS = ATMOSPHERIC_COLS + INTRADAY_CURVE_COLS + [
     "midnight_temp",
 ]
 
-# Combined v2 feature list (82 total: 31 + 21 + 5 + 7 + 10 + 3 + 2 + 1 + 2)
-# 31 = FEATURE_COLS (v1 + rolling_ml_error_7d), 21 = ATMOSPHERIC_COLS (incl 925mb + solar),
+# Combined v2 feature list (84 total: 31 + 23 + 5 + 7 + 10 + 3 + 2 + 1 + 2)
+# 31 = FEATURE_COLS (v1 + rolling_ml_error_7d), 23 = ATMOSPHERIC_COLS (incl 925mb + solar + BL height),
 # 5 = ENSEMBLE_COLS, 7 = MULTIMODEL_COLS (incl HRRR features), 10 = INTRADAY_CURVE_COLS,
 # 3 = OVERNIGHT_CARRYOVER_COLS, 2 = ATM_PREDICTOR_COLS, 1 = MOS_COLS,
 # 2 = FORECAST_REVISION_COLS (nws_post_9am_delta, accu_post_9am_delta)

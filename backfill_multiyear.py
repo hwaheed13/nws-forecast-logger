@@ -256,6 +256,7 @@ def patch_live_columns(city_key: str, past_days: int = 90) -> None:
     # Ensure new columns exist
     new_cols = ["atm_925mb_temp_max", "atm_925mb_temp_mean",
                 "atm_solar_radiation_peak", "atm_solar_radiation_mean",
+                "atm_bl_height_max", "atm_bl_height_mean",
                 "mm_hrrr_max", "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff"]
     for col in new_cols:
         if col not in df.columns:
@@ -288,12 +289,12 @@ def patch_live_columns(city_key: str, past_days: int = 90) -> None:
         print(f"  ⚠️ Multi-model fetch failed: {e}")
         hrrr_by_date, ecmwf_by_date, gfs_by_date = {}, {}, {}
 
-    # Fetch 925hPa + solar via forecast API hourly (past_days)
-    print("  Fetching 925hPa + solar data from forecast API...")
+    # Fetch 925hPa + solar + boundary layer height via forecast API hourly (past_days)
+    print("  Fetching 925hPa + solar + BL height data from forecast API...")
     try:
         url2 = (f"https://api.open-meteo.com/v1/forecast"
                 f"?latitude={lat}&longitude={lon}"
-                f"&hourly=temperature_925hPa,shortwave_radiation"
+                f"&hourly=temperature_925hPa,shortwave_radiation,boundary_layer_height"
                 f"&temperature_unit=fahrenheit"
                 f"&timezone={tz_enc}"
                 f"&past_days={past_days}&forecast_days=1")
@@ -304,10 +305,12 @@ def patch_live_columns(city_key: str, past_days: int = 90) -> None:
         htimes = pd.to_datetime(hourly.get("time", []))
         t925 = hourly.get("temperature_925hPa", [None]*len(htimes))
         solar = hourly.get("shortwave_radiation", [None]*len(htimes))
-        hourly_df = pd.DataFrame({"time": htimes, "temperature_925hPa": t925, "shortwave_radiation": solar})
+        bl_h = hourly.get("boundary_layer_height", [None]*len(htimes))
+        hourly_df = pd.DataFrame({"time": htimes, "temperature_925hPa": t925,
+                                  "shortwave_radiation": solar, "boundary_layer_height": bl_h})
         print(f"    Got {len(hourly_df)} hourly rows")
     except Exception as e:
-        print(f"  ⚠️ Hourly 925/solar fetch failed: {e}")
+        print(f"  ⚠️ Hourly 925/solar/BL fetch failed: {e}")
         hourly_df = pd.DataFrame()
 
     # Patch each recent row
@@ -342,6 +345,12 @@ def patch_live_columns(city_key: str, past_days: int = 90) -> None:
             if len(sol_dt) > 0:
                 df.loc[idx, "atm_solar_radiation_peak"] = float(sol_dt.max())
                 df.loc[idx, "atm_solar_radiation_mean"] = float(sol_dt.mean())
+            # Boundary layer height — peak heating window 10am-4pm
+            peak_heat = day_h[(day_h["time"].dt.hour >= 10) & (day_h["time"].dt.hour <= 16)]
+            bl_dt = peak_heat["boundary_layer_height"].dropna()
+            if len(bl_dt) > 0:
+                df.loc[idx, "atm_bl_height_max"] = float(bl_dt.max())
+                df.loc[idx, "atm_bl_height_mean"] = float(bl_dt.mean())
 
         patched += 1
 
@@ -350,7 +359,8 @@ def patch_live_columns(city_key: str, past_days: int = 90) -> None:
 
     # Show sample
     sample = df[recent_mask][["target_date", "mm_hrrr_max", "mm_hrrr_ecmwf_diff",
-                               "atm_925mb_temp_max", "atm_solar_radiation_peak"]].tail(7)
+                               "atm_925mb_temp_max", "atm_solar_radiation_peak",
+                               "atm_bl_height_max"]].tail(7)
     print(f"\n  Recent patched values:\n{sample.to_string(index=False)}")
 
 

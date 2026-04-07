@@ -30,6 +30,7 @@ HOURLY_VARS = [
     "wind_speed_10m",
     "wind_direction_10m",
     "precipitation",
+    "boundary_layer_height",  # PBL height (m) — available in BOTH archive and forecast APIs
 ]
 
 # Pressure-level and additional hourly variables for live forecast API
@@ -335,6 +336,20 @@ def extract_daily_atmospheric(hourly_df: pd.DataFrame, target_date: str) -> dict
     else:
         features["atm_solar_radiation_peak"] = np.nan
         features["atm_solar_radiation_mean"] = np.nan
+
+    # Planetary boundary layer height — available in BOTH archive and forecast APIs.
+    # Deep BL (>2000m) combined with strong solar radiation is the physical mechanism
+    # behind radiation-driven temperature spikes that overshoot standard forecast models.
+    # Peak heating window (10am-4pm) captures the BL as it reaches maximum daily depth.
+    if "boundary_layer_height" in day.columns:
+        bl = day[
+            (day["time"].dt.hour >= 10) & (day["time"].dt.hour <= 16)
+        ]["boundary_layer_height"].dropna()
+        features["atm_bl_height_max"] = float(bl.max()) if len(bl) > 0 else np.nan
+        features["atm_bl_height_mean"] = float(bl.mean()) if len(bl) > 0 else np.nan
+    else:
+        features["atm_bl_height_max"] = np.nan
+        features["atm_bl_height_mean"] = np.nan
 
     # Temperature range (from hourly, more granular than daily min/max)
     temp = day["temperature_2m"].dropna()
