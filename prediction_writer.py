@@ -51,6 +51,15 @@ KALSHI_API_BASE = "https://api.elections.kalshi.com/trade-api/v2"
 # Module-level city key — set by _cli() before write functions run
 _CITY_KEY = "nyc"
 
+# D0 prediction cutoff hour (local time per city, expressed in ET for NYC,
+# PT for LAX). After this hour we freeze the ML prediction to prevent
+# AccuWeather retroactively echoing the observed high and intraday curve
+# features from leaking actual temperatures into the forecast.
+_D0_CUTOFF_HOUR_LOCAL = {
+    "nyc": 14,  # 2pm ET  — NYC high typically peaks 1–3pm
+    "lax": 14,  # 2pm PT  — LA  high typically peaks 2–4pm PT
+}
+
 # ---------------------------------------------------------------------------
 # ML model inference
 # ---------------------------------------------------------------------------
@@ -2070,6 +2079,44 @@ def _fetch_existing_prediction(target_date_iso: str):
         return _LOCK_ERROR
 
 
+def _score_bucket(ml_bucket: str, actual_int: int, kalshi_snapshot_raw) -> bool:
+    """Return True (WIN) if actual_int falls in ml_bucket."""
+    if kalshi_snapshot_raw:
+        try:
+            mkt = json.loads(kalshi_snapshot_raw) if isinstance(kalshi_snapshot_raw, str) else kalshi_snapshot_raw
+            actual_kalshi = _find_kalshi_bucket_for_temp(float(actual_int), mkt)
+            if "-" in ml_bucket:
+                ml_f_ref = float(ml_bucket.split("-")[0])
+            elif ml_bucket.startswith(">="):
+                ml_f_ref = float(ml_bucket[2:])
+            elif ml_bucket.startswith("<="):
+                ml_f_ref = float(ml_bucket[2:])
+            else:
+                ml_f_ref = None
+            ml_kalshi = _find_kalshi_bucket_for_temp(ml_f_ref, mkt) if ml_f_ref is not None else None
+            ml_pick = ml_bucket if ml_bucket in mkt else ml_kalshi
+            if actual_kalshi and ml_pick == actual_kalshi:
+                return True
+            return False
+        except Exception:
+            pass
+    # Fallback: direct bucket check
+    if ml_bucket.startswith("<="):
+        try: return actual_int <= int(ml_bucket[2:])
+        except ValueError: return False
+    elif ml_bucket.startswith(">="):
+        try: return actual_int >= int(ml_bucket[2:])
+        except ValueError: return False
+    elif "-" in ml_bucket:
+        parts = ml_bucket.split("-")
+        if len(parts) == 2:
+            try:
+                lo, hi = int(parts[0]), int(parts[1])
+                return lo <= actual_int <= hi
+            except ValueError: pass
+    return False
+
+
 def score_yesterday_prediction(rows: list[dict]) -> None:
     """
     Score yesterday's ML prediction against the actual high.
@@ -2095,7 +2142,8 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
         endpoint, key = _sb_endpoint()
         idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{yesterday_iso}"
         url = (f"{endpoint}?idempotency_key=eq.{idem_key}"
-               f"&select=ml_bucket,ml_f,ml_result,ml_actual_high,kalshi_market_snapshot")
+               f"&select=ml_bucket,ml_f,ml_result,ml_actual_high,kalshi_market_snapshot,"
+               f"ml_bucket_canonical,ml_f_canonical,ml_result_canonical")
         req = urllib.request.Request(url, headers={
             "apikey": key, "Authorization": f"Bearer {key}",
             "Accept": "application/json",
@@ -2173,11 +2221,24 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
 
         result = "WIN" if is_win else "MISS"
 
+        # Score canonical (first-of-day) prediction separately for comparison research.
+        patch_data: dict = {"ml_result": result, "ml_actual_high": actual_high}
+        canonical_bucket = pred.get("ml_bucket_canonical")
+        ks_raw = pred.get("kalshi_market_snapshot")
+        if canonical_bucket and canonical_bucket != ml_bucket:
+            # Canonical differs from latest — score both and log
+            canon_win = _score_bucket(canonical_bucket, actual_int, ks_raw)
+            canon_result = "WIN" if canon_win else "MISS"
+            patch_data["ml_result_canonical"] = canon_result
+            flip_icon = "🔄" if canon_win != is_win else ("✅" if canon_win else "❌")
+            print(f"{flip_icon} Canonical vs Latest: '{canonical_bucket}' → {canon_result} | "
+                  f"'{ml_bucket}' → {result} (actual={actual_high}°F)")
+        elif canonical_bucket:
+            # Canonical = latest — same result
+            patch_data["ml_result_canonical"] = result
+
         # Update prediction_logs with result
-        patch = json.dumps({
-            "ml_result": result,
-            "ml_actual_high": actual_high,
-        }).encode("utf-8")
+        patch = json.dumps(patch_data).encode("utf-8")
         patch_url = f"{endpoint}?idempotency_key=eq.{idem_key}"
         patch_req = urllib.request.Request(
             patch_url, data=patch, method="PATCH",
@@ -2194,6 +2255,57 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
 
     except Exception as e:
         print(f"⚠️ Could not score yesterday's prediction: {e}")
+
+
+def compare_canonical_vs_latest_accuracy() -> None:
+    """
+    Query all scored days from Supabase and compare first-of-day (canonical)
+    vs latest prediction accuracy. Logs a summary table to stdout.
+    Run periodically (e.g., weekly) to decide which prediction to use for scoring.
+    """
+    try:
+        endpoint, key = _sb_endpoint()
+        url = (f"{endpoint}?city=eq.{_CITY_KEY}"
+               f"&ml_result=not.is.null"
+               f"&ml_bucket_canonical=not.is.null"
+               f"&ml_result_canonical=not.is.null"
+               f"&select=target_date,ml_bucket,ml_bucket_canonical,"
+               f"ml_result,ml_result_canonical,ml_actual_high"
+               f"&order=target_date.desc&limit=90")
+        req = urllib.request.Request(url, headers={
+            "apikey": key, "Authorization": f"Bearer {key}",
+            "Accept": "application/json",
+        })
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            rows = json.loads(resp.read().decode("utf-8"))
+
+        if not rows:
+            print("📊 No scored days with diverging canonical/latest predictions yet.")
+            return
+
+        diverged = [r for r in rows if r["ml_bucket"] != r["ml_bucket_canonical"]]
+        if not diverged:
+            print(f"📊 Canonical vs Latest: {len(rows)} scored days — buckets never diverged.")
+            return
+
+        canon_wins   = sum(1 for r in diverged if r["ml_result_canonical"] == "WIN")
+        latest_wins  = sum(1 for r in diverged if r["ml_result"] == "WIN")
+        n = len(diverged)
+        print(f"\n📊 Canonical vs Latest accuracy on {n} days where prediction shifted:")
+        print(f"   First-of-day (canonical): {canon_wins}/{n} = {canon_wins/n:.0%}")
+        print(f"   Last-of-day  (latest):    {latest_wins}/{n} = {latest_wins/n:.0%}")
+
+        both_win  = sum(1 for r in diverged if r["ml_result_canonical"] == "WIN" and r["ml_result"] == "WIN")
+        flip_good = sum(1 for r in diverged if r["ml_result_canonical"] == "MISS" and r["ml_result"] == "WIN")
+        flip_bad  = sum(1 for r in diverged if r["ml_result_canonical"] == "WIN"  and r["ml_result"] == "MISS")
+        both_miss = sum(1 for r in diverged if r["ml_result_canonical"] == "MISS" and r["ml_result"] == "MISS")
+        print(f"   Both WIN: {both_win}  |  Both MISS: {both_miss}  |  "
+              f"Canon WIN→Latest MISS: {flip_bad}  |  Canon MISS→Latest WIN: {flip_good}")
+        recommendation = "canonical (first)" if canon_wins >= latest_wins else "latest (last)"
+        print(f"   → Recommend scoring by: {recommendation}\n")
+
+    except Exception as e:
+        print(f"⚠️ compare_canonical_vs_latest_accuracy failed: {e}")
 
 
 def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
@@ -2231,6 +2343,23 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     if has_actual_today and isinstance(existing, dict):
         # Day is over — actual recorded. Prediction is final.
         print(f"🔒 Actual high recorded — prediction frozen: {existing['ml_f']}°F → {existing.get('ml_bucket')}")
+        ml = {
+            "ml_f": existing["ml_f"],
+            "ml_bucket": existing["ml_bucket"],
+            "ml_confidence": existing["ml_confidence"],
+            "ml_bucket_probs": existing.get("ml_bucket_probs"),
+            "ml_version": existing.get("ml_version"),
+        }
+
+    elif isinstance(existing, dict) and existing.get("ml_f") is not None and \
+            now_nyc().hour >= _D0_CUTOFF_HOUR_LOCAL.get(_CITY_KEY, 14):
+        # Past the local D0 cutoff — freeze the canonical prediction.
+        # After peak heating, agencies often echo the observed high rather than
+        # forecasting; intraday curve features also reflect actual temps.
+        # Holding the existing prediction prevents thermometer-chasing.
+        cutoff_h = _D0_CUTOFF_HOUR_LOCAL.get(_CITY_KEY, 14)
+        print(f"⏸️ Past D0 cutoff ({cutoff_h}:00 local) — holding canonical ML prediction "
+              f"({existing['ml_f']}°F → {existing.get('ml_bucket')})")
         ml = {
             "ml_f": existing["ml_f"],
             "ml_bucket": existing["ml_bucket"],
@@ -2301,6 +2430,12 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         ml = _compute_ml_prediction(rows, target_date_iso)
         ml_recomputed = True
 
+    # Canonical = the first non-null ML prediction for this date.
+    # _LOCK_NOT_FOUND covers both "no row yet" and "row exists but ml_f is null".
+    # merge-duplicates semantics mean omitting ml_bucket_canonical on subsequent
+    # upserts preserves the value set here — it is never overwritten.
+    is_canonical_write = (existing is _LOCK_NOT_FOUND) and ml is not None
+
     if bcp is None and ml is None:
         print("⏭️ today_for_today: no BCP data and no ML prediction available."); return
 
@@ -2338,6 +2473,13 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             payload["ml_version"] = ml["ml_version"]
         if ml.get("ml_direct_bucket"):
             payload["ml_direct_bucket"] = ml["ml_direct_bucket"]
+        # Canonical fields — written once on first non-null ML prediction.
+        # Subsequent upserts omit these fields so merge-duplicates preserves them.
+        payload["is_canonical"] = is_canonical_write
+        if is_canonical_write:
+            payload["ml_bucket_canonical"] = ml["ml_bucket"]
+            payload["ml_f_canonical"] = ml["ml_f"]
+            print(f"🏛️ Canonical prediction set: {ml['ml_f']}°F → {ml['ml_bucket']}")
 
     # Fetch Kalshi market odds + compute bet signal
     market_probs = _fetch_kalshi_market_probs(target_date_iso)
@@ -2408,6 +2550,9 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     if bcp_tm is None and ml is None:
         print("⏭️ today_for_tomorrow: no BCP data and no ML prediction available."); return
 
+    # Canonical = first non-null ML prediction for tomorrow's date (from today's D1 run).
+    is_canonical_write = (existing is _LOCK_NOT_FOUND) and ml is not None
+
     ts = now_nyc().isoformat()
     idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{tomorrow_iso}"
 
@@ -2438,6 +2583,12 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
             payload["ml_version"] = ml["ml_version"]
         if ml.get("ml_direct_bucket"):
             payload["ml_direct_bucket"] = ml["ml_direct_bucket"]
+        # Canonical fields for D1 — set once on first non-null ML write for this date.
+        payload["is_canonical"] = is_canonical_write
+        if is_canonical_write:
+            payload["ml_bucket_canonical"] = ml["ml_bucket"]
+            payload["ml_f_canonical"] = ml["ml_f"]
+            print(f"🏛️ Canonical D1 prediction set: {ml['ml_f']}°F → {ml['ml_bucket']}")
 
     # Use already-fetched Kalshi market odds (from lock check above)
     market_probs = tomorrow_market_probs
@@ -2492,6 +2643,11 @@ def write_both_snapshots() -> None:
     # Compute and store server-side ensemble weights
     try: compute_ensemble_weights()
     except Exception as e: print("⚠️ compute_ensemble_weights failed:", e)
+    # Weekly: compare first-of-day vs last-of-day prediction accuracy
+    try:
+        if today_nyc().weekday() == 0:  # Monday only — keeps logs clean
+            compare_canonical_vs_latest_accuracy()
+    except Exception as e: print("⚠️ compare_canonical_vs_latest_accuracy failed:", e)
 
 
 # ---------------------------------------------------------------------------
