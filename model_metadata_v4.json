@@ -1,27 +1,27 @@
 {
-  "trained_on": "2026-04-06T11:05:06.166642",
+  "trained_on": "2026-04-07T11:06:35.524058",
   "version": "v4_observation_features",
-  "num_days": 1555,
+  "num_days": 1556,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-04-05"
+    "end": "2026-04-06"
   },
   "v4_regression": {
-    "cv_mae": 1.14,
-    "cv_bucket_accuracy": 0.2791,
-    "residual_std": 1.64,
-    "num_features": 92
+    "cv_mae": 1.15,
+    "cv_bucket_accuracy": 0.2884,
+    "residual_std": 1.65,
+    "num_features": 94
   },
   "v4_classifier": {
-    "cv_bucket_accuracy": 0.4326,
-    "cv_log_loss": 0.4039,
-    "insample_bucket_accuracy": 0.6448,
-    "num_training_days": 260,
+    "cv_bucket_accuracy": 0.4605,
+    "cv_log_loss": 0.4063,
+    "insample_bucket_accuracy": 0.6409,
+    "num_training_days": 261,
     "num_classification_rows": 1813,
     "n_candidate_buckets": 7,
-    "feature_cols_used": 96,
+    "feature_cols_used": 98,
     "positive_rate": 0.1429,
-    "residual_std": 1.639
+    "residual_std": 1.646
   },
   "observation_features": [
     "obs_latest_temp",
@@ -118,6 +118,8 @@
     "atm_predicted_high",
     "atm_vs_forecast_diff",
     "mos_max_temp",
+    "nws_post_9am_delta",
+    "accu_post_9am_delta",
     "obs_latest_temp",
     "obs_latest_hour",
     "obs_max_so_far",
