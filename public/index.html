@@ -3477,7 +3477,15 @@ function renderMLBetSignal() {
     const detail = document.getElementById("ml-signal-today-detail");
     const card = document.getElementById("ml-signal-today-card");
     if (el && ml.todayMLBucket) {
-      const bucketDisplay = cleanKalshiLabel(ml.todayMLBucket);
+      // Use canonical (first-of-day) bucket as the scored prediction when available.
+      // Late-day updates can be contaminated by AccuWeather echoing the observed high.
+      // If canonical differs from latest, we score the original pick and show a revision note.
+      const canonicalBucket = ml.todayMLBucketCanonical || null;
+      const latestBucket    = ml.todayMLBucket;
+      const scoringBucket   = canonicalBucket || latestBucket;
+      const bucketShifted   = canonicalBucket && canonicalBucket !== latestBucket;
+      const bucketDisplay   = cleanKalshiLabel(scoringBucket);
+      const latestDisplay   = bucketShifted ? cleanKalshiLabel(latestBucket) : null;
 
       // Get actual high from our own CSV data
       const actualRow = allRows.find(r =>
@@ -3489,11 +3497,11 @@ function renderMLBetSignal() {
 
       let resultBadge, resultDetail, borderColor;
 
-      if (actualHigh != null && ml.todayMLBucket) {
+      if (actualHigh != null && scoringBucket) {
         // Kalshi-aware scoring: check if actual and ML pick land in same Kalshi bucket
         const actualInt = Math.round(actualHigh);
         let isWin = false;
-        const bucket = ml.todayMLBucket;
+        const bucket = scoringBucket;
 
         // Try Kalshi-aware scoring using market snapshot
         const mktSnap = ml.todayMarketSnapshot;
@@ -3547,6 +3555,10 @@ function renderMLBetSignal() {
           resultDetail = `Actual high: ${actualHigh}°F`;
           borderColor = "#dc2626";
         }
+        // If prediction shifted late-day, note the revision
+        if (bucketShifted) {
+          resultDetail += ` · Late revision: ${latestDisplay} (original: ${bucketDisplay})`;
+        }
       } else {
         // No actual high available yet — show SETTLED as fallback
         resultBadge = '<span class="signal-badge" style="background:#f3f4f6;color:#6b7280;padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid #d1d5db;">SETTLED</span>';
@@ -3557,6 +3569,7 @@ function renderMLBetSignal() {
       el.innerHTML = `
         <span style="font-weight:700;color:#6b7280;">${bucketDisplay}</span>
         ${resultBadge}
+        ${bucketShifted ? `<span style="font-size:11px;color:#9ca3af;margin-left:4px;">orig</span>` : ''}
       `;
       if (detail) detail.innerHTML = `<span style="color:#9ca3af;">${resultDetail}</span>`;
       if (card) card.style.borderLeftColor = borderColor;
@@ -5263,6 +5276,9 @@ async function loadMLPredictions() {
         window.mlPredictions.todayMarketSnapshot = row.kalshi_market_snapshot || null;
         window.mlPredictions.todayMLVersion = row.ml_version || null;
         window.mlPredictions.todayBucketProbs = row.ml_bucket_probs || null;
+        // Canonical = first non-null ML prediction of the day (set once, never overwritten)
+        window.mlPredictions.todayMLBucketCanonical = row.ml_bucket_canonical || null;
+        window.mlPredictions.todayMLFCanonical = row.ml_f_canonical != null ? Number(row.ml_f_canonical) : null;
         gotToday = true;
       }
       if (row.target_date === tomorrow && !gotTomorrow) {
