@@ -779,12 +779,18 @@ def _compute_bet_signal(
 
 
 def _compute_ml_prediction(
-    rows: list[dict], target_date_iso: str
+    rows: list[dict], target_date_iso: str,
+    prefetched_atm: Optional[dict] = None,
 ) -> Optional[dict]:
     """
     Compute ML bias-corrected prediction for *target_date_iso* using the
     same 30 features as train_models.py (NWS stats, AccuWeather stats,
     cross-source, rolling bias, temporal).
+
+    prefetched_atm: if provided, skip the _fetch_atmospheric_features() call
+        and use this dict instead. Used when the caller already fetched live
+        atmospheric data for the intraday shift comparison, to avoid a redundant
+        set of 3 Open-Meteo API calls (~15-20 seconds each run).
 
     Returns {"ml_f": float, "ml_bucket": str, "ml_confidence": float}
     or None if insufficient data or models missing.
@@ -1138,8 +1144,13 @@ def _compute_ml_prediction(
 
     if active_classifier is not None:
         try:
-            # Fetch atmospheric features
-            atm_features = _fetch_atmospheric_features(target_date_iso)
+            # Fetch atmospheric features — use prefetched data when available
+            # (caller already fetched for intraday shift comparison, avoid double call)
+            if prefetched_atm is not None and len(prefetched_atm) > 0:
+                atm_features = prefetched_atm
+                print(f"🌤️ Using prefetched atmospheric features ({len(atm_features)} keys)")
+            else:
+                atm_features = _fetch_atmospheric_features(target_date_iso)
 
             # Merge atmospheric features into the feature dict
             v2_features = dict(features)
@@ -2059,7 +2070,7 @@ def _fetch_existing_prediction(target_date_iso: str):
         idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{target_date_iso}"
         url = (f"{endpoint}?idempotency_key=eq.{idem_key}"
                f"&select=ml_f,ml_bucket,ml_confidence,ml_bucket_probs,ml_version,"
-               f"kalshi_market_snapshot,nws_d0,accuweather")
+               f"kalshi_market_snapshot,nws_d0,accuweather,atm_snapshot")
         req = urllib.request.Request(url, headers={
             "apikey": key, "Authorization": f"Bearer {key}",
             "Accept": "application/json",
@@ -2077,6 +2088,96 @@ def _fetch_existing_prediction(target_date_iso: str):
     except Exception as e:
         print(f"⚠️ Could not check existing prediction: {e}")
         return _LOCK_ERROR
+
+
+def _check_atmospheric_shift(
+    live_atm: dict,
+    stored_snapshot_raw,
+) -> tuple:
+    """
+    Compare live atmospheric features against the morning baseline snapshot.
+    Returns (triggered: bool, reasons: list[str]).
+
+    Thresholds are physically motivated starting points, not empirically calibrated:
+      - BL height change > 500m  : spike risk changed materially
+      - Ensemble spread change > 2°F : uncertainty widened/narrowed significantly
+      - HRRR-ECMWF diff change > 3°F : model disagreement shifted (one is badly wrong)
+      - Ensemble mean shift > 2°F    : consensus moved (independent of agencies)
+
+    Only fires BEFORE the D0 cutoff (enforced by caller). Never fires when
+    stored_snapshot_raw is None (no baseline = canonical hasn't been written yet,
+    meaning this is the first run — ML fires anyway via LOCK_NOT_FOUND path).
+    """
+    if not live_atm or not stored_snapshot_raw:
+        return False, []
+    try:
+        stored = (
+            json.loads(stored_snapshot_raw)
+            if isinstance(stored_snapshot_raw, str)
+            else stored_snapshot_raw
+        )
+    except Exception:
+        return False, []
+
+    reasons = []
+
+    def _valid(d: dict, k: str):
+        v = d.get(k)
+        return v if (v is not None and isinstance(v, float) and not math.isnan(v)) else None
+
+    # BL height: >500m shift — spike risk changed
+    bl_live    = _valid(live_atm, "atm_bl_height_max")
+    bl_stored  = _valid(stored,   "atm_bl_height_max")
+    if bl_live is not None and bl_stored is not None:
+        delta = bl_live - bl_stored
+        if abs(delta) > 500:
+            reasons.append(
+                f"BL height {bl_stored:.0f}→{bl_live:.0f}m (Δ{delta:+.0f}m, "
+                f"{'spike risk ↑' if delta > 0 else 'spike risk ↓'})"
+            )
+
+    # Ensemble spread: >2°F change — uncertainty spiked or collapsed
+    ens_spread_live   = _valid(live_atm, "ens_spread")
+    ens_spread_stored = _valid(stored,   "ens_spread")
+    if ens_spread_live is not None and ens_spread_stored is not None:
+        delta = ens_spread_live - ens_spread_stored
+        if abs(delta) > 2.0:
+            reasons.append(
+                f"Ensemble spread {ens_spread_stored:.1f}→{ens_spread_live:.1f}°F (Δ{delta:+.1f}°F)"
+            )
+
+    # HRRR-ECMWF diff: >3°F change — one model diverging significantly
+    hrrr_live   = _valid(live_atm, "mm_hrrr_ecmwf_diff")
+    hrrr_stored = _valid(stored,   "mm_hrrr_ecmwf_diff")
+    if hrrr_live is not None and hrrr_stored is not None:
+        delta = hrrr_live - hrrr_stored
+        if abs(delta) > 3.0:
+            reasons.append(
+                f"HRRR-ECMWF diff {hrrr_stored:+.1f}→{hrrr_live:+.1f}°F (Δ{delta:+.1f}°F)"
+            )
+
+    # Ensemble mean: >2°F shift — consensus moved independently of agency forecasts
+    ens_mean_live   = _valid(live_atm, "ens_mean")
+    ens_mean_stored = _valid(stored,   "ens_mean")
+    if ens_mean_live is not None and ens_mean_stored is not None:
+        delta = ens_mean_live - ens_mean_stored
+        if abs(delta) > 2.0:
+            reasons.append(
+                f"Ensemble mean {ens_mean_stored:.1f}→{ens_mean_live:.1f}°F (Δ{delta:+.1f}°F)"
+            )
+
+    triggered = len(reasons) > 0
+    return triggered, reasons
+
+
+# Keys stored in atm_snapshot — enough to detect intraday shifts, small payload
+_ATM_SNAPSHOT_KEYS = (
+    "atm_bl_height_max", "atm_bl_height_mean",
+    "ens_spread", "ens_std", "ens_mean", "ens_skew",
+    "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff", "mm_ecmwf_gfs_diff", "mm_spread",
+    "atm_850mb_temp_max", "atm_925mb_temp_max",
+    "atm_solar_radiation_peak",
+)
 
 
 def _score_bucket(ml_bucket: str, actual_int: int, kalshi_snapshot_raw) -> bool:
@@ -2340,6 +2441,12 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     #              preserving the correct comparison point for future cycles.
     ml_recomputed = False
 
+    # Determine whether we're before the D0 cutoff and the day isn't settled.
+    # We only fetch live atmospheric features in this window — no point fetching
+    # after the cutoff since the model is frozen, and not if the actual is in.
+    past_cutoff = now_nyc().hour >= _D0_CUTOFF_HOUR_LOCAL.get(_CITY_KEY, 14)
+    live_atm: Optional[dict] = None
+
     if has_actual_today and isinstance(existing, dict):
         # Day is over — actual recorded. Prediction is final.
         print(f"🔒 Actual high recorded — prediction frozen: {existing['ml_f']}°F → {existing.get('ml_bucket')}")
@@ -2351,8 +2458,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             "ml_version": existing.get("ml_version"),
         }
 
-    elif isinstance(existing, dict) and existing.get("ml_f") is not None and \
-            now_nyc().hour >= _D0_CUTOFF_HOUR_LOCAL.get(_CITY_KEY, 14):
+    elif isinstance(existing, dict) and existing.get("ml_f") is not None and past_cutoff:
         # Past the local D0 cutoff — freeze the canonical prediction.
         # After peak heating, agencies often echo the observed high rather than
         # forecasting; intraday curve features also reflect actual temps.
@@ -2369,15 +2475,15 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         }
 
     elif isinstance(existing, dict) and existing.get("ml_f") is not None:
-        # A prediction exists. Re-run the model only if NWS or AccuWeather has
-        # issued a new forecast since our last ML run.  Temperature observations
-        # (thermometer readings) are deliberately excluded — they don't represent
-        # a new agency forecast and would cause thermometer-chasing.
-        #
-        # Threshold: ≥1°F difference (both sources round to integer °F, so any
-        # difference ≥1 is a genuine revision, not floating-point noise).
-        stored_nws  = existing.get("nws_d0")    # float or None from Supabase
-        stored_accu = existing.get("accuweather")  # float or None from Supabase
+        # A prediction exists and we're before the cutoff.
+        # Check three independent triggers for recomputing ML:
+        #   1. NWS revised their forecast by ≥1°F (agency new information)
+        #   2. AccuWeather revised their forecast by ≥1°F (agency new information)
+        #   3. Atmospheric conditions shifted materially (BL height, ensemble spread,
+        #      HRRR-ECMWF divergence, ensemble mean) — independent of agencies,
+        #      can fire BEFORE agencies update, giving us pre-market edge.
+        stored_nws  = existing.get("nws_d0")
+        stored_accu = existing.get("accuweather")
 
         nws_revised = (
             stored_nws is not None
@@ -2390,31 +2496,46 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             and abs(float(accu_latest) - float(stored_accu)) >= 1.0
         )
 
-        if nws_revised or accu_revised:
-            # Agency revised their forecast — this is new information.
-            reasons = []
+        # Fetch live atmospheric data and compare to morning snapshot.
+        # This is the key intraday signal: GFS updates 4x/day, ECMWF 2x/day,
+        # HRRR hourly. Fresh model runs appear here 1-3 hours before agencies
+        # update public forecasts and before market prices shift.
+        stored_atm_snapshot = existing.get("atm_snapshot")
+        try:
+            live_atm = _fetch_atmospheric_features(target_date_iso)
+        except Exception as _atm_e:
+            print(f"⚠️ Live atmospheric fetch failed: {_atm_e}")
+            live_atm = {}
+
+        atm_triggered, atm_reasons = _check_atmospheric_shift(live_atm, stored_atm_snapshot)
+
+        if nws_revised or accu_revised or atm_triggered:
+            trigger_reasons = []
             if nws_revised:
-                reasons.append(f"NWS {stored_nws:.0f}→{nws_latest:.0f}°F")
+                trigger_reasons.append(f"NWS {stored_nws:.0f}→{nws_latest:.0f}°F")
             if accu_revised:
-                reasons.append(f"AccuWeather {stored_accu:.0f}→{accu_latest:.0f}°F")
-            print(f"🔄 Forecast revised ({', '.join(reasons)}) — recomputing ML prediction")
-            ml = _compute_ml_prediction(rows, target_date_iso)
+                trigger_reasons.append(f"AccuWeather {stored_accu:.0f}→{accu_latest:.0f}°F")
+            if atm_triggered:
+                trigger_reasons.extend(atm_reasons)
+            print(f"🔄 ML recompute triggered: {', '.join(trigger_reasons)}")
+            # Pass prefetched atmospheric data — avoids redundant API calls (~15-20s)
+            ml = _compute_ml_prediction(rows, target_date_iso, prefetched_atm=live_atm)
             ml_recomputed = True
 
         elif stored_nws is None and stored_accu is None:
             # No stored baseline (row predates this logic). Recompute once to
-            # establish nws_d0/accuweather as the comparison baseline going forward.
+            # establish nws_d0/accuweather/atm_snapshot baseline going forward.
             print(f"🔄 No stored forecast baseline — recomputing to establish "
                   f"(previous: {existing['ml_f']}°F → {existing.get('ml_bucket')})")
-            ml = _compute_ml_prediction(rows, target_date_iso)
+            ml = _compute_ml_prediction(rows, target_date_iso, prefetched_atm=live_atm)
             ml_recomputed = True
 
         else:
-            # No revision since last ML run. Hold the existing prediction.
+            # No revision since last ML run — hold the existing prediction.
             nws_disp  = f"{nws_latest:.0f}°F"  if nws_latest  is not None else "N/A"
             accu_disp = f"{accu_latest:.0f}°F" if accu_latest is not None else "N/A"
-            print(f"⏸️ No forecast revision (NWS={nws_disp}, AccuWeather={accu_disp} unchanged) "
-                  f"— ML held: {existing['ml_f']}°F → {existing.get('ml_bucket')}")
+            print(f"⏸️ No triggers fired (NWS={nws_disp}, AccuWeather={accu_disp} unchanged, "
+                  f"atm stable) — ML held: {existing['ml_f']}°F → {existing.get('ml_bucket')}")
             ml = {
                 "ml_f": existing["ml_f"],
                 "ml_bucket": existing["ml_bucket"],
@@ -2425,6 +2546,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
 
     else:
         # No existing prediction (LOCK_NOT_FOUND or LOCK_ERROR) — compute fresh.
+        # Don't pre-fetch atmospheric here; _compute_ml_prediction will fetch inside.
         if isinstance(existing, dict):
             print(f"🔄 Recomputing ML prediction (previous: {existing.get('ml_f')}°F → {existing.get('ml_bucket')})")
         ml = _compute_ml_prediction(rows, target_date_iso)
@@ -2457,12 +2579,23 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         "source_card": "nws_auto_logger",
         "city": _CITY_KEY,
     }
-    # Only write nws_d0/accuweather when ML actually ran this cycle.
+    # Only write nws_d0/accuweather/atm_snapshot when ML actually ran this cycle.
     # This preserves the stored baseline (the values the model last ran with)
     # so future cycles can detect genuine forecast revisions correctly.
     if ml_recomputed:
         payload["nws_d0"] = nws_latest
         payload["accuweather"] = accu_latest
+        # Advance atmospheric snapshot to the current live values so the next
+        # comparison starts from the post-revision baseline, not the morning one.
+        # (Only on non-canonical writes — canonical write handled separately above.)
+        if not is_canonical_write and live_atm and any(
+            v is not None and not (isinstance(v, float) and math.isnan(v))
+            for v in live_atm.values()
+        ):
+            snap = {k: live_atm[k] for k in _ATM_SNAPSHOT_KEYS if k in live_atm}
+            if snap:
+                payload["atm_snapshot"] = json.dumps(snap)
+                print(f"📸 Atmospheric baseline advanced after recompute ({len(snap)} keys)")
     if ml:
         payload["ml_f"] = ml["ml_f"]
         payload["ml_bucket"] = ml["ml_bucket"]
@@ -2480,6 +2613,18 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             payload["ml_bucket_canonical"] = ml["ml_bucket"]
             payload["ml_f_canonical"] = ml["ml_f"]
             print(f"🏛️ Canonical prediction set: {ml['ml_f']}°F → {ml['ml_bucket']}")
+            # Store morning atmospheric baseline on canonical write.
+            # On subsequent runs, live_atm is compared against this snapshot to
+            # detect intraday shifts BEFORE agencies update public forecasts.
+            # Only store if we have valid atmospheric data (empty = don't overwrite default).
+            if live_atm and any(
+                v is not None and not (isinstance(v, float) and math.isnan(v))
+                for v in live_atm.values()
+            ):
+                snap = {k: live_atm[k] for k in _ATM_SNAPSHOT_KEYS if k in live_atm}
+                if snap:
+                    payload["atm_snapshot"] = json.dumps(snap)
+                    print(f"📸 Atmospheric baseline stored ({len(snap)} keys)")
 
     # Fetch Kalshi market odds + compute bet signal
     market_probs = _fetch_kalshi_market_probs(target_date_iso)
