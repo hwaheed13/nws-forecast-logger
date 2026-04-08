@@ -2598,6 +2598,10 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             print(f"🔄 Recomputing ML prediction (previous: {existing.get('ml_f')}°F → {existing.get('ml_bucket')})")
         ml = _compute_ml_prediction(rows, target_date_iso)
         ml_recomputed = True
+        # Log immediately for LOCK_ERROR case — canonical write logs separately below
+        # for LOCK_NOT_FOUND. Avoids double-logging on canonical write.
+        if ml and existing is not _LOCK_NOT_FOUND:
+            _log_ml_revision(target_date_iso, "today_for_today", ml, "lock_error_recompute")
 
     # Canonical = the first non-null ML prediction for this date.
     # _LOCK_NOT_FOUND covers both "no row yet" and "row exists but ml_f is null".
