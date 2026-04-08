@@ -1,27 +1,27 @@
 {
-  "trained_on": "2026-04-07T11:06:35.524058",
+  "trained_on": "2026-04-08T11:06:49.731219",
   "version": "v4_observation_features",
-  "num_days": 1556,
+  "num_days": 1557,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-04-06"
+    "end": "2026-04-07"
   },
   "v4_regression": {
-    "cv_mae": 1.15,
-    "cv_bucket_accuracy": 0.2884,
+    "cv_mae": 1.16,
+    "cv_bucket_accuracy": 0.3116,
     "residual_std": 1.65,
-    "num_features": 94
+    "num_features": 96
   },
   "v4_classifier": {
-    "cv_bucket_accuracy": 0.4605,
-    "cv_log_loss": 0.4063,
-    "insample_bucket_accuracy": 0.6409,
-    "num_training_days": 261,
-    "num_classification_rows": 1813,
+    "cv_bucket_accuracy": 0.414,
+    "cv_log_loss": 0.4022,
+    "insample_bucket_accuracy": 0.6207,
+    "num_training_days": 262,
+    "num_classification_rows": 1827,
     "n_candidate_buckets": 7,
-    "feature_cols_used": 98,
+    "feature_cols_used": 100,
     "positive_rate": 0.1429,
-    "residual_std": 1.646
+    "residual_std": 1.651
   },
   "observation_features": [
     "obs_latest_temp",
@@ -90,6 +90,8 @@
     "atm_925mb_temp_mean",
     "atm_solar_radiation_peak",
     "atm_solar_radiation_mean",
+    "atm_bl_height_max",
+    "atm_bl_height_mean",
     "ens_spread",
     "ens_std",
     "ens_iqr",
