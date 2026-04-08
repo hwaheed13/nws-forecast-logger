@@ -1009,16 +1009,22 @@ if (actualInBucket) {
     }
   }
   
-  // Check distance to upper boundary (e.g., 83.0 for "81° to 82°" bucket)
-  // Remember: "81° to 82°" goes up to 82.99, so the boundary is at 83.0
+  // Check distance to upper boundary (e.g., 52.0 for "50-51" bucket)
+  // Covers: prediction at boundary (0.0°), close to boundary (≤0.4°), or past it (<0°)
   if (actualInBucket.max !== null) {
-    const upperBoundary = actualInBucket.max + 1; // 82 -> 83
+    const upperBoundary = actualInBucket.max + 1; // 51 -> 52
     const distToUpper = upperBoundary - prediction;
-    if (distToUpper >= 0 && distToUpper <= 0.4) {
+    if (distToUpper <= 0.4) {
+      const distLabel = distToUpper <= 0
+        ? `at or above`
+        : `only ${distToUpper.toFixed(1)}° below`;
+      const rec = distToUpper <= 0
+        ? 'CAUTION - Ensemble crosses into next bucket'
+        : 'CAUTION - Close to next bucket';
       return {
-        level: 'warning', 
-        message: `⚠️ NEAR UPPER EDGE: ${prediction.toFixed(1)}°F is only ${distToUpper.toFixed(1)}° below the ${upperBoundary}° boundary`,
-        recommendation: 'CAUTION - Close to next bucket',
+        level: 'warning',
+        message: `⚠️ NEAR UPPER EDGE: ${prediction.toFixed(1)}°F is ${distLabel} the ${upperBoundary}° boundary`,
+        recommendation: rec,
         details: { forecastSpread: '0', forecastsDisagree: false }
       };
     }
@@ -3034,15 +3040,20 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
       const year = now.getFullYear();
       const dd = String(dateMatch[1]).padStart(2, "0");
       const mmMon = String(dateMatch[2]).padStart(2, "0");
-      const isoLocal = `${year}-${mmMon}-${dd}T${hh}:${mm}:00`;
       const dayISO = `${year}-${mmMon}-${dd}`;
-      const when = new Date(isoLocal);
+      // NWS DSM always reports time in Local Standard Time (LST), not current local time.
+      // For NYC: LST = EST = UTC-5. During EDT (summer), this means the displayed
+      // time must be shifted +1 hr to show the correct local time (e.g. 11:40 EST → 12:40 EDT).
+      // Force UTC-5 offset so Intl.DateTimeFormat handles the DST conversion automatically.
+      const lstOffset = CC().timezone === "America/Los_Angeles" ? "-08:00" : "-05:00";
+      const isoLST = `${year}-${mmMon}-${dd}T${hh}:${mm}:00${lstOffset}`;
+      const when = new Date(isoLST);
       const fmtET = new Intl.DateTimeFormat("en-US", {
         timeZone: CC().timezone,
         hour: "numeric",
         minute: "2-digit"
       }).format(when);
-      return { tempF, timeET: fmtET, iso: isoLocal, dayISO, raw: block };
+      return { tempF, timeET: fmtET, iso: isoLST, dayISO, raw: block };
     }
 
     // Month helpers (for table)
@@ -3078,12 +3089,16 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
       if (ampm === "PM" && hh < 12) hh += 12;
       if (ampm === "AM" && hh === 12) hh = 0;
       const hhStr = String(hh).padStart(2, "0");
-      const isoLocal = `${dayISO}T${hhStr}:${mi}:00`;
-      const when = new Date(isoLocal);
+      // NWS CLI always reports time in Local Standard Time (LST).
+      // LAX: PST = UTC-8. NYC: EST = UTC-5. Force the LST offset so Intl.DateTimeFormat
+      // correctly converts to the current local time (e.g. PDT/EDT during summer).
+      const lstOffset = CC().timezone === "America/Los_Angeles" ? "-08:00" : "-05:00";
+      const isoLST = `${dayISO}T${hhStr}:${mi}:00${lstOffset}`;
+      const when = new Date(isoLST);
       const fmtTime = new Intl.DateTimeFormat("en-US", {
         timeZone: CC().timezone, hour: "numeric", minute: "2-digit"
       }).format(when);
-      return { tempF, timeET: fmtTime, iso: isoLocal, dayISO, raw: `${tempF} at ${fmtTime}` };
+      return { tempF, timeET: fmtTime, iso: isoLST, dayISO, raw: `${tempF} at ${fmtTime}` };
     }
 
     // DSM (single, non-duplicated)

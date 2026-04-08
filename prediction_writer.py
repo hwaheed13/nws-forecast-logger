@@ -1763,6 +1763,49 @@ def _sb_endpoint():
         raise RuntimeError("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE")
     return f"{url}/rest/v1/prediction_logs", key
 
+def _log_ml_revision(
+    target_date_iso: str,
+    lead_used: str,
+    ml: dict,
+    trigger_reason: str,
+) -> None:
+    """Append one row to prediction_revision_log — pure insert, never overwrites.
+    Called on every ML compute: first write (trigger='first_write') and
+    every intraday recompute (trigger = comma-joined reason strings).
+    """
+    url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    key = os.environ.get("SUPABASE_SERVICE_ROLE", "")
+    if not url or not key:
+        return  # silently skip in non-Supabase environments
+    endpoint = f"{url}/rest/v1/prediction_revision_log"
+    row = {
+        "city": _CITY_KEY,
+        "target_date": target_date_iso,
+        "lead_used": lead_used,
+        "ml_bucket": ml.get("ml_bucket"),
+        "ml_f": ml.get("ml_f"),
+        "ml_confidence": ml.get("ml_confidence"),
+        "trigger_reason": trigger_reason,
+    }
+    data = json.dumps(row, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        endpoint,
+        data=data, method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Prefer": "return=minimal",
+            "apikey": key,
+            "Authorization": f"Bearer {key}",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            _ = resp.read()
+        print(f"📝 Revision logged: {ml.get('ml_bucket')} / {ml.get('ml_f')}°F [{trigger_reason}]")
+    except Exception as e:
+        print(f"⚠️ revision log write failed: {e}")
+
+
 def supabase_upsert(row: dict) -> None:
     endpoint, key = _sb_endpoint()
     data = json.dumps(row, ensure_ascii=False).encode("utf-8")
@@ -2521,6 +2564,8 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             # Pass prefetched atmospheric data — avoids redundant API calls (~15-20s)
             ml = _compute_ml_prediction(rows, target_date_iso, prefetched_atm=live_atm)
             ml_recomputed = True
+            if ml:
+                _log_ml_revision(target_date_iso, "today_for_today", ml, ", ".join(trigger_reasons))
 
         elif stored_nws is None and stored_accu is None:
             # No stored baseline (row predates this logic). Recompute once to
@@ -2529,6 +2574,8 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                   f"(previous: {existing['ml_f']}°F → {existing.get('ml_bucket')})")
             ml = _compute_ml_prediction(rows, target_date_iso, prefetched_atm=live_atm)
             ml_recomputed = True
+            if ml:
+                _log_ml_revision(target_date_iso, "today_for_today", ml, "baseline_reestablish")
 
         else:
             # No revision since last ML run — hold the existing prediction.
@@ -2613,6 +2660,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             payload["ml_bucket_canonical"] = ml["ml_bucket"]
             payload["ml_f_canonical"] = ml["ml_f"]
             print(f"🏛️ Canonical prediction set: {ml['ml_f']}°F → {ml['ml_bucket']}")
+            _log_ml_revision(target_date_iso, "today_for_today", ml, "first_write")
             # Store morning atmospheric baseline on canonical write.
             # On subsequent runs, live_atm is compared against this snapshot to
             # detect intraday shifts BEFORE agencies update public forecasts.
@@ -2691,6 +2739,9 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     if isinstance(existing, dict):
         print(f"🔄 Recomputing tomorrow's prediction (previous: {existing['ml_f']}°F → {existing.get('ml_bucket')})")
     ml = _compute_ml_prediction(rows, tomorrow_iso)
+    if ml:
+        trigger = "first_write" if existing is _LOCK_NOT_FOUND else "intraday_refresh"
+        _log_ml_revision(tomorrow_iso, "today_for_tomorrow", ml, trigger)
 
     if bcp_tm is None and ml is None:
         print("⏭️ today_for_tomorrow: no BCP data and no ML prediction available."); return
