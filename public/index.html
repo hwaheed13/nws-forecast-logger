@@ -3476,7 +3476,19 @@ function renderMLBetSignal() {
     const el = document.getElementById("ml-signal-today");
     const detail = document.getElementById("ml-signal-today-detail");
     const card = document.getElementById("ml-signal-today-card");
-    if (el && ml.todayMLBucket) {
+    if (el && !ml.todayMLBucket) {
+      // Actual is published but no ML prediction was recorded for today.
+      const actualRow = allRows.find(r =>
+        r.forecast_or_actual === "actual" && r.cli_date === todayISO &&
+        r.actual_high && String(r.actual_high).trim() !== ""
+      );
+      const actualHigh = actualRow ? Number(actualRow.actual_high) : null;
+      if (el) el.innerHTML = `<span style="color:#9ca3af;font-style:italic;">No ML prediction recorded</span>`;
+      if (detail) detail.innerHTML = actualHigh != null
+        ? `<span style="color:#9ca3af;">Actual high: ${actualHigh}°F</span>`
+        : `<span style="color:#9ca3af;">Actual high recorded</span>`;
+      if (card) card.style.borderLeftColor = "#d1d5db";
+    } else if (el && ml.todayMLBucket) {
       // Use canonical (first-of-day) bucket as the scored prediction when available.
       // Late-day updates can be contaminated by AccuWeather echoing the observed high.
       // If canonical differs from latest, we score the original pick and show a revision note.
