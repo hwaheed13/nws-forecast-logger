@@ -551,6 +551,11 @@ def _normalize_cli_time(raw: str, ampm: Optional[str]) -> str:
     """
     Normalize times like '154' -> '1:54', '0154' -> '1:54', '1226' -> '12:26',
     or pass through 'H:MM'. Preserve AM/PM if present.
+
+    NWS CLI always reports times in Local Standard Time (LST) year-round —
+    never switches to EDT/PDT. Convert to the city's current local time so
+    stored high_time values are correct during DST (e.g. 11:40 AM LST →
+    12:40 PM EDT). The LST→UTC offset is fixed per city: NYC=-5, LAX=-8.
     """
     raw = (raw or "").strip()
     ap = (ampm or "").strip().upper()
@@ -565,8 +570,40 @@ def _normalize_cli_time(raw: str, ampm: Optional[str]) -> str:
         hh_i = int(hh)
     except ValueError:
         return raw
-    clean = f"{hh_i}:{mm}"
-    return f"{clean} {ap}".strip()
+
+    # Convert 12-hour to 24-hour for timezone arithmetic
+    hh_24 = hh_i
+    if ap == "PM" and hh_i < 12:
+        hh_24 += 12
+    elif ap == "AM" and hh_i == 12:
+        hh_24 = 0
+
+    # NWS always reports in LST. Map city timezone → standard UTC offset.
+    tz_name = _CITY_CFG.get("timezone", "America/New_York")
+    lst_utc_offset = {
+        "America/New_York":    -5,
+        "America/Los_Angeles": -8,
+        "America/Chicago":     -6,
+        "America/Denver":      -7,
+    }.get(tz_name, -5)
+
+    # Build a UTC datetime and convert to city local time
+    try:
+        utc_hour = hh_24 - lst_utc_offset  # LST + offset = UTC
+        today = datetime.date.today()
+        utc_dt = datetime.datetime(today.year, today.month, today.day,
+                                   utc_hour % 24, int(mm), 0,
+                                   tzinfo=datetime.timezone.utc)
+        local_dt = utc_dt.astimezone(pytz.timezone(tz_name))
+        local_h = local_dt.hour
+        local_m = local_dt.minute
+        local_ap = "AM" if local_h < 12 else "PM"
+        display_h = local_h % 12 or 12
+        return f"{display_h}:{local_m:02d} {local_ap}"
+    except Exception:
+        # Fallback: return original string if conversion fails
+        clean = f"{hh_i}:{mm}"
+        return f"{clean} {ap}".strip()
 
 def _parse_cli_sections(cli_text: str) -> Dict[str, Optional[Tuple[str, str]]]:
     """
