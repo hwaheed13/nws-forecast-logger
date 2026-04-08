@@ -2213,6 +2213,130 @@ def _check_atmospheric_shift(
     return triggered, reasons
 
 
+def _add_obs_to_snap(snap: dict, live_obs: dict) -> None:
+    """
+    Add observation snapshot keys to an existing atm_snapshot dict in-place.
+    These keys are prefixed obs_snap_* to avoid collision with model feature names.
+    Called on both canonical write and post-recompute baseline advance.
+    """
+    if not live_obs:
+        return
+
+    def _safe(v):
+        """Return v if valid float, else None (JSON serializable)."""
+        if v is None:
+            return None
+        try:
+            f = float(v)
+            return None if math.isnan(f) else round(f, 3)
+        except (TypeError, ValueError):
+            return None
+
+    snap["obs_snap_temp"]        = _safe(live_obs.get("obs_latest_temp"))
+    snap["obs_snap_heating_rate"]= _safe(live_obs.get("obs_heating_rate"))
+    snap["obs_snap_vs_forecast"] = _safe(live_obs.get("obs_vs_intra_forecast"))
+    snap["obs_snap_hour"]        = _safe(live_obs.get("obs_latest_hour"))
+    obs_count = sum(
+        1 for v in live_obs.values()
+        if v is not None and not (isinstance(v, float) and math.isnan(v))
+    )
+    snap["obs_snap_populated"] = obs_count
+
+
+def _check_obs_trigger(
+    live_obs: dict,
+    stored_snapshot: dict,
+) -> tuple:
+    """
+    Check if ground-truth NWS station observations warrant an ML recompute.
+    Returns (triggered: bool, reasons: list[str]).
+
+    Three triggers — all require being in the morning heating window (before 2pm):
+
+    1. obs_daytime_first: canonical was set before 9am (pre-sunrise obs only,
+       no meaningful intraday signal). Now daytime obs are available for the
+       first time. Fires once so the model re-runs with real ground-truth temps.
+
+    2. obs_cold_vs_forecast: observed temp at this hour is 3°F+ colder than
+       what Open-Meteo predicted for the same hour (obs_vs_intra_forecast).
+       Only valid in the 9am-1pm window where intra_map has coverage.
+       Indicates the intraday heating curve is running behind — reality is
+       colder than the model assumed when it computed the canonical.
+
+    3. obs_slow_heating: observed heating rate < 0.5°F/hr after 9am. With a
+       freeze-warning start and barely-rising temps, the model needs to know
+       the actual trajectory, not just the forecasted curve.
+    """
+    if not live_obs:
+        return False, []
+
+    reasons = []
+
+    def _fval(d: dict, k: str):
+        """Return float value or None if missing/NaN."""
+        v = d.get(k)
+        if v is None:
+            return None
+        try:
+            f = float(v)
+            return None if math.isnan(f) else f
+        except (TypeError, ValueError):
+            return None
+
+    live_hour   = _fval(live_obs,       "obs_latest_hour")
+    live_temp   = _fval(live_obs,       "obs_latest_temp")
+    live_rate   = _fval(live_obs,       "obs_heating_rate")
+    live_vs_fc  = _fval(live_obs,       "obs_vs_intra_forecast")
+    stored_hour = _fval(stored_snapshot,"obs_snap_hour")
+
+    # Trigger 1: First daytime obs available after a pre-9am canonical write.
+    # Canonical set at e.g. 7:32am has obs_latest_hour=6 with no intraday signal.
+    # When obs_latest_hour crosses 9, we finally have a meaningful morning reading.
+    if (
+        live_hour is not None and live_hour >= 9
+        and stored_hour is not None and stored_hour < 9
+        and live_temp is not None
+    ):
+        reasons.append(
+            f"obs_daytime_first: {live_temp:.1f}°F observed at {int(live_hour)}:00 "
+            f"(canonical set at {int(stored_hour)}:00 — no daytime obs then)"
+        )
+
+    # Trigger 2: Observed temp running 3°F+ colder than intraday forecast.
+    # obs_vs_intra_forecast = obs_latest_temp - Open-Meteo forecasted temp at same hour.
+    # Negative = reality colder than model assumed. Only fire if this is NEW
+    # (wasn't already cold at canonical write — avoid re-firing on same cold reading).
+    stored_vs_fc = _fval(stored_snapshot, "obs_snap_vs_forecast")
+    if (
+        live_vs_fc is not None and live_vs_fc < -3.0
+        and live_hour is not None and 9 <= live_hour <= 13
+    ):
+        # Only trigger if we're seeing a new cold signal vs what was stored
+        if stored_vs_fc is None or live_vs_fc < stored_vs_fc - 1.0:
+            reasons.append(
+                f"obs_cold_vs_forecast: {live_vs_fc:+.1f}°F vs intraday forecast "
+                f"at {int(live_hour)}:00 (reality running cold)"
+            )
+
+    # Trigger 3: Observed heating rate < 0.5°F/hr after 9am — slow/no heating.
+    # Only trigger if the stored snapshot showed a different regime (faster heating
+    # or no obs yet). Avoids re-firing every run on the same slow-heating reading.
+    stored_rate = _fval(stored_snapshot, "obs_snap_heating_rate")
+    if (
+        live_rate is not None and live_hour is not None
+        and live_hour >= 9 and live_rate < 0.5
+    ):
+        # Fire if: no stored rate, or stored rate was in normal range (>=0.5)
+        if stored_rate is None or stored_rate >= 0.5:
+            reasons.append(
+                f"obs_slow_heating: {live_rate:+.2f}°F/hr at {int(live_hour)}:00 "
+                f"(below 0.5°F/hr threshold — cold start confirmed)"
+            )
+
+    triggered = len(reasons) > 0
+    return triggered, reasons
+
+
 # Keys stored in atm_snapshot — enough to detect intraday shifts, small payload
 _ATM_SNAPSHOT_KEYS = (
     "atm_bl_height_max", "atm_bl_height_mean",
@@ -2545,14 +2669,37 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         # update public forecasts and before market prices shift.
         stored_atm_snapshot = existing.get("atm_snapshot")
         try:
+            stored_snapshot_dict = (
+                json.loads(stored_atm_snapshot)
+                if isinstance(stored_atm_snapshot, str)
+                else (stored_atm_snapshot or {})
+            )
+        except Exception:
+            stored_snapshot_dict = {}
+
+        try:
             live_atm = _fetch_atmospheric_features(target_date_iso)
         except Exception as _atm_e:
             print(f"⚠️ Live atmospheric fetch failed: {_atm_e}")
             live_atm = {}
 
-        atm_triggered, atm_reasons = _check_atmospheric_shift(live_atm, stored_atm_snapshot)
+        # Also fetch live NWS station observations for ground-truth trigger check.
+        # This catches cold starts, slow heating, and reality diverging from the
+        # Open-Meteo intraday forecast — BEFORE agencies update public forecasts.
+        try:
+            live_obs = _fetch_observation_features(
+                target_date_iso,
+                nws_last=nws_latest,
+                atm_features=live_atm,
+            )
+        except Exception as _obs_e:
+            print(f"⚠️ Live obs fetch failed: {_obs_e}")
+            live_obs = {}
 
-        if nws_revised or accu_revised or atm_triggered:
+        atm_triggered, atm_reasons = _check_atmospheric_shift(live_atm, stored_atm_snapshot)
+        obs_triggered, obs_reasons = _check_obs_trigger(live_obs, stored_snapshot_dict)
+
+        if nws_revised or accu_revised or atm_triggered or obs_triggered:
             trigger_reasons = []
             if nws_revised:
                 trigger_reasons.append(f"NWS {stored_nws:.0f}→{nws_latest:.0f}°F")
@@ -2560,6 +2707,8 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 trigger_reasons.append(f"AccuWeather {stored_accu:.0f}→{accu_latest:.0f}°F")
             if atm_triggered:
                 trigger_reasons.extend(atm_reasons)
+            if obs_triggered:
+                trigger_reasons.extend(obs_reasons)
             print(f"🔄 ML recompute triggered: {', '.join(trigger_reasons)}")
             # Pass prefetched atmospheric data — avoids redundant API calls (~15-20s)
             ml = _compute_ml_prediction(rows, target_date_iso, prefetched_atm=live_atm)
@@ -2598,6 +2747,18 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             print(f"🔄 Recomputing ML prediction (previous: {existing.get('ml_f')}°F → {existing.get('ml_bucket')})")
         ml = _compute_ml_prediction(rows, target_date_iso)
         ml_recomputed = True
+        # Fetch obs for snapshot storage on canonical write (LOCK_NOT_FOUND path).
+        # This is a separate call from what _compute_ml_prediction fetched internally —
+        # we need the obs dict here to store the baseline in atm_snapshot.
+        if existing is _LOCK_NOT_FOUND:
+            try:
+                live_obs = _fetch_observation_features(
+                    target_date_iso,
+                    nws_last=nws_latest,
+                    atm_features=live_atm or {},
+                )
+            except Exception:
+                live_obs = {}
         # Log immediately for LOCK_ERROR case — canonical write logs separately below
         # for LOCK_NOT_FOUND. Avoids double-logging on canonical write.
         if ml and existing is not _LOCK_NOT_FOUND:
@@ -2636,15 +2797,17 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     if ml_recomputed:
         payload["nws_d0"] = nws_latest
         payload["accuweather"] = accu_latest
-        # Advance atmospheric snapshot to the current live values so the next
+        # Advance atmospheric + obs snapshot to the current live values so the next
         # comparison starts from the post-revision baseline, not the morning one.
-        # (Only on non-canonical writes — canonical write handled separately above.)
+        # (Only on non-canonical writes — canonical write handled separately below.)
         if not is_canonical_write and live_atm and any(
             v is not None and not (isinstance(v, float) and math.isnan(v))
             for v in live_atm.values()
         ):
             snap = {k: live_atm[k] for k in _ATM_SNAPSHOT_KEYS if k in live_atm}
             if snap:
+                # Also advance obs snapshot keys so triggers don't re-fire on same reading
+                _add_obs_to_snap(snap, live_obs)
                 payload["atm_snapshot"] = json.dumps(snap)
                 print(f"📸 Atmospheric baseline advanced after recompute ({len(snap)} keys)")
     if ml:
@@ -2665,18 +2828,27 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             payload["ml_f_canonical"] = ml["ml_f"]
             print(f"🏛️ Canonical prediction set: {ml['ml_f']}°F → {ml['ml_bucket']}")
             _log_ml_revision(target_date_iso, "today_for_today", ml, "first_write")
-            # Store morning atmospheric baseline on canonical write.
-            # On subsequent runs, live_atm is compared against this snapshot to
-            # detect intraday shifts BEFORE agencies update public forecasts.
-            # Only store if we have valid atmospheric data (empty = don't overwrite default).
+            # Store morning atmospheric + obs baseline on canonical write.
+            # On subsequent runs, live_atm and live_obs are compared against this
+            # snapshot to detect intraday shifts BEFORE agencies update forecasts.
+            # Only store if we have valid atmospheric data.
             if live_atm and any(
                 v is not None and not (isinstance(v, float) and math.isnan(v))
                 for v in live_atm.values()
             ):
                 snap = {k: live_atm[k] for k in _ATM_SNAPSHOT_KEYS if k in live_atm}
                 if snap:
+                    # Add obs snapshot keys — critical for cold-start trigger detection
+                    _add_obs_to_snap(snap, live_obs)
                     payload["atm_snapshot"] = json.dumps(snap)
-                    print(f"📸 Atmospheric baseline stored ({len(snap)} keys)")
+                    obs_populated = sum(
+                        1 for v in (live_obs or {}).values()
+                        if v is not None and not (isinstance(v, float) and math.isnan(v))
+                    )
+                    print(f"📸 Baseline stored: {len(snap)} atm keys, "
+                          f"obs_hour={snap.get('obs_snap_hour')}, "
+                          f"obs_temp={snap.get('obs_snap_temp')}, "
+                          f"obs_populated={obs_populated}")
 
     # Fetch Kalshi market odds + compute bet signal
     market_probs = _fetch_kalshi_market_probs(target_date_iso)
