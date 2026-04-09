@@ -747,9 +747,14 @@ class NYCTemperatureModelTrainer:
             for col in INTRADAY_CURVE_COLS:
                 features[col] = row.get(col, np.nan)
 
-            # Ensemble and multimodel — NaN for historical
-            for col in ENSEMBLE_COLS + MULTIMODEL_COLS:
+            # Ensemble — always NaN for historical (no ensemble archive)
+            for col in ENSEMBLE_COLS:
                 features[col] = np.nan
+
+            # Multimodel — use values from CSV when backfilled (HRRR/GFS/ECMWF historical
+            # forecast archive). Falls back to NaN for dates before backfill coverage.
+            for col in MULTIMODEL_COLS:
+                features[col] = row.get(col, np.nan)
 
             # MOS — NaN for historical (not available in archive)
             for col in MOS_COLS:
