@@ -2113,7 +2113,7 @@ def _fetch_existing_prediction(target_date_iso: str):
         idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{target_date_iso}"
         url = (f"{endpoint}?idempotency_key=eq.{idem_key}"
                f"&select=ml_f,ml_bucket,ml_confidence,ml_bucket_probs,ml_version,"
-               f"kalshi_market_snapshot,nws_d0,accuweather,atm_snapshot")
+               f"kalshi_market_snapshot,nws_d0,accuweather,atm_snapshot,ml_bucket_canonical")
         req = urllib.request.Request(url, headers={
             "apikey": key, "Authorization": f"Bearer {key}",
             "Accept": "application/json",
@@ -2423,11 +2423,18 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
             return
         pred = pred_rows[0]
 
-        # Already scored with same actual? Skip.
-        # But re-score if actual changed (e.g., CLI updated overnight)
+        # Already fully scored with same actual? Skip.
+        # Re-score if actual changed (e.g., CLI updated overnight), OR if
+        # ml_result_canonical is still null (canonical was written after scoring ran).
         prev_actual = _float_or_none(pred.get("ml_actual_high"))
-        if pred.get("ml_result") and prev_actual is not None and abs(prev_actual - actual_high) < 0.1:
-            return  # same actual, already scored
+        fully_scored = (
+            pred.get("ml_result") is not None
+            and pred.get("ml_result_canonical") is not None
+            and prev_actual is not None
+            and abs(prev_actual - actual_high) < 0.1
+        )
+        if fully_scored:
+            return  # both latest and canonical scored with same actual — nothing to do
 
         # Score against Kalshi's actual bucket structure (not ML's internal buckets)
         ml_bucket = pred["ml_bucket"]
@@ -2523,6 +2530,66 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
 
     except Exception as e:
         print(f"⚠️ Could not score yesterday's prediction: {e}")
+
+
+def backfill_canonical_results() -> None:
+    """
+    One-time (and ongoing) cleanup: score any historical rows that have
+    ml_bucket_canonical + ml_actual_high but are missing ml_result_canonical.
+
+    Runs on every write_both_snapshots call — idempotent, skips already-scored rows.
+    Fixes the gap left by the original settlement early-return bug.
+    """
+    try:
+        endpoint, key = _sb_endpoint()
+        # Fetch rows with canonical set + actual known but result missing
+        url = (f"{endpoint}?city=eq.{_CITY_KEY}"
+               f"&ml_bucket_canonical=not.is.null"
+               f"&ml_actual_high=not.is.null"
+               f"&ml_result_canonical=is.null"
+               f"&select=idempotency_key,ml_bucket_canonical,ml_f_canonical,"
+               f"ml_actual_high,kalshi_market_snapshot")
+        req = urllib.request.Request(url, headers={
+            "apikey": key, "Authorization": f"Bearer {key}",
+            "Accept": "application/json",
+        })
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            rows_to_score = json.loads(resp.read().decode("utf-8"))
+
+        if not rows_to_score:
+            return
+
+        print(f"🔁 Backfilling ml_result_canonical for {len(rows_to_score)} row(s)...")
+        for row in rows_to_score:
+            idem_key  = row.get("idempotency_key")
+            canonical = row.get("ml_bucket_canonical")
+            actual    = _float_or_none(row.get("ml_actual_high"))
+            ks_raw    = row.get("kalshi_market_snapshot")
+            if not idem_key or not canonical or actual is None:
+                continue
+
+            actual_int = int(round(actual))
+            canon_win  = _score_bucket(canonical, actual_int, ks_raw)
+            canon_result = "WIN" if canon_win else "MISS"
+
+            patch = json.dumps({"ml_result_canonical": canon_result}).encode("utf-8")
+            patch_url = f"{endpoint}?idempotency_key=eq.{idem_key}"
+            patch_req = urllib.request.Request(
+                patch_url, data=patch, method="PATCH",
+                headers={
+                    "Content-Type": "application/json",
+                    "apikey": key, "Authorization": f"Bearer {key}",
+                    "Prefer": "return=minimal",
+                },
+            )
+            with urllib.request.urlopen(patch_req, timeout=10) as resp:
+                _ = resp.read()
+            icon = "✅" if canon_win else "❌"
+            print(f"{icon} Backfilled canonical result: {canonical} vs {actual}°F → {canon_result} "
+                  f"({idem_key})")
+
+    except Exception as e:
+        print(f"⚠️ backfill_canonical_results failed: {e}")
 
 
 def compare_canonical_vs_latest_accuracy() -> None:
@@ -2699,12 +2766,14 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         atm_triggered, atm_reasons = _check_atmospheric_shift(live_atm, stored_atm_snapshot)
         obs_triggered, obs_reasons = _check_obs_trigger(live_obs, stored_snapshot_dict)
 
-        if nws_revised or accu_revised or atm_triggered or obs_triggered:
+        # AccuWeather revisions advance the stored baseline (so future comparisons are
+        # correct) but do NOT trigger an ML recompute — AccuWeather often echoes observed
+        # temps intraday, which would cause the ML to chase the thermometer.
+        # NWS, atmospheric shifts, and obs ground-truth are the independent signals.
+        if nws_revised or atm_triggered or obs_triggered:
             trigger_reasons = []
             if nws_revised:
                 trigger_reasons.append(f"NWS {stored_nws:.0f}→{nws_latest:.0f}°F")
-            if accu_revised:
-                trigger_reasons.append(f"AccuWeather {stored_accu:.0f}→{accu_latest:.0f}°F")
             if atm_triggered:
                 trigger_reasons.extend(atm_reasons)
             if obs_triggered:
@@ -2715,6 +2784,19 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             ml_recomputed = True
             if ml:
                 _log_ml_revision(target_date_iso, "today_for_today", ml, ", ".join(trigger_reasons))
+        elif accu_revised:
+            # AccuWeather revised — advance baseline only, no ML recompute.
+            accu_disp = f"{stored_accu:.0f}→{accu_latest:.0f}°F"
+            print(f"📌 AccuWeather revised ({accu_disp}) — advancing baseline, ML held: "
+                  f"{existing['ml_f']}°F → {existing.get('ml_bucket')}")
+            ml_recomputed = True  # causes nws_d0/accuweather baseline to advance in payload
+            ml = {
+                "ml_f": existing["ml_f"],
+                "ml_bucket": existing["ml_bucket"],
+                "ml_confidence": existing["ml_confidence"],
+                "ml_bucket_probs": existing.get("ml_bucket_probs"),
+                "ml_version": existing.get("ml_version"),
+            }
 
         elif stored_nws is None and stored_accu is None:
             # No stored baseline (row predates this logic). Recompute once to
@@ -2742,15 +2824,18 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
 
     else:
         # No existing prediction (LOCK_NOT_FOUND or LOCK_ERROR) — compute fresh.
-        # Don't pre-fetch atmospheric here; _compute_ml_prediction will fetch inside.
         if isinstance(existing, dict):
             print(f"🔄 Recomputing ML prediction (previous: {existing.get('ml_f')}°F → {existing.get('ml_bucket')})")
         ml = _compute_ml_prediction(rows, target_date_iso)
         ml_recomputed = True
-        # Fetch obs for snapshot storage on canonical write (LOCK_NOT_FOUND path).
-        # This is a separate call from what _compute_ml_prediction fetched internally —
-        # we need the obs dict here to store the baseline in atm_snapshot.
+        # Fetch atm + obs for canonical snapshot storage (LOCK_NOT_FOUND path).
+        # _compute_ml_prediction fetches atm internally but doesn't return it;
+        # we need it here to store the morning baseline for intraday shift detection.
         if existing is _LOCK_NOT_FOUND:
+            try:
+                live_atm = _fetch_atmospheric_features(target_date_iso)
+            except Exception:
+                live_atm = {}
             try:
                 live_obs = _fetch_observation_features(
                     target_date_iso,
@@ -2764,11 +2849,16 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         if ml and existing is not _LOCK_NOT_FOUND:
             _log_ml_revision(target_date_iso, "today_for_today", ml, "lock_error_recompute")
 
-    # Canonical = the first non-null ML prediction for this date.
-    # _LOCK_NOT_FOUND covers both "no row yet" and "row exists but ml_f is null".
-    # merge-duplicates semantics mean omitting ml_bucket_canonical on subsequent
-    # upserts preserves the value set here — it is never overwritten.
-    is_canonical_write = (existing is _LOCK_NOT_FOUND) and ml is not None
+    # Canonical = the morning ML prediction for this date (set once, never overwritten).
+    # Fires when: (a) no row exists yet, OR (b) a D1 row exists but lacks a canonical
+    # (the common case — D1 runs the evening before, D0 must claim canonical next morning).
+    # Guarded by `not past_cutoff` so we never retroactively set canonical after peak heating.
+    existing_has_canonical = isinstance(existing, dict) and existing.get("ml_bucket_canonical") is not None
+    is_canonical_write = (
+        (existing is _LOCK_NOT_FOUND or not existing_has_canonical)
+        and ml is not None
+        and not past_cutoff
+    )
 
     if bcp is None and ml is None:
         print("⏭️ today_for_today: no BCP data and no ML prediction available."); return
@@ -2922,8 +3012,11 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     if bcp_tm is None and ml is None:
         print("⏭️ today_for_tomorrow: no BCP data and no ML prediction available."); return
 
-    # Canonical = first non-null ML prediction for tomorrow's date (from today's D1 run).
-    is_canonical_write = (existing is _LOCK_NOT_FOUND) and ml is not None
+    # Canonical for D1 = first-ever ML prediction for tomorrow's date.
+    # Does not block D0 canonical — D0 will overwrite with its own canonical
+    # once the date arrives (via the existing_has_canonical fix in write_today_for_today).
+    existing_has_canonical_d1 = isinstance(existing, dict) and existing.get("ml_bucket_canonical") is not None
+    is_canonical_write = (existing is _LOCK_NOT_FOUND or not existing_has_canonical_d1) and ml is not None
 
     ts = now_nyc().isoformat()
     idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{tomorrow_iso}"
@@ -3008,6 +3101,9 @@ def write_both_snapshots() -> None:
     # Score yesterday's prediction against actual high
     try: score_yesterday_prediction(rows)
     except Exception as e: print("⚠️ score_yesterday_prediction failed:", e)
+    # Backfill any historical rows where canonical was set but result was never scored
+    try: backfill_canonical_results()
+    except Exception as e: print("⚠️ backfill_canonical_results failed:", e)
     try: write_today_for_today()
     except Exception as e: print("⚠️ write_today_for_today failed:", e)
     try: write_today_for_tomorrow()
