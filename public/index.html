@@ -2888,13 +2888,15 @@ await updateCorrectionBoxes();  // now uses the freshly-trained state
         // NOW reload CSV + full UI refresh (predictions will have ML + AccuWeather data)
         await reloadCSV({ skipHedgeTrain: true });
 
-        // Force ML Bet Signal re-render after city switch
+        // Force ML Bet Signal re-render after city switch.
+        // reloadCSV() above already triggers updateCorrectionBoxes → renderMLBetSignal,
+        // but call it explicitly here too in case CSV finishes before Supabase.
         renderMLBetSignal();
-        // Safety net: re-render after stale fire-and-forget updateSummaryBoxes
-        // calls from the previous city finish (they call renderMLBetSignal too,
-        // but if the Kalshi API for the old city is slow they can re-trigger a
-        // render after this synchronous call).  1.5s covers typical API latency.
-        setTimeout(() => renderMLBetSignal(), 1500);
+        // Safety nets: re-render at 1s, 2s, 4s — covers slow Supabase responses
+        // and stale fire-and-forget calls from the previous city finishing late.
+        setTimeout(() => renderMLBetSignal(), 1000);
+        setTimeout(() => renderMLBetSignal(), 2000);
+        setTimeout(() => renderMLBetSignal(), 4000);
 
         // Update city cache with freshly loaded data
         _cityDataCache[cityKey] = {
