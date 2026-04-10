@@ -4212,11 +4212,23 @@ window._predTomorrow = predTomorrow;
     
     // ─── Shared helper: build supporting context line from NWS + AccuWeather ─────
     // Returns HTML like: NWS: 63°F · AccuWeather: 64°F · (agree)
-    const _buildSupportingContextHTML = (candidates) => {
-      const nwsVal  = Number.isFinite(Number(candidates?.D0_latest))  ? Number(candidates.D0_latest)
-                    : Number.isFinite(Number(candidates?.D1_latest))  ? Number(candidates.D1_latest)
-                    : null;
-      const accuVal = Number.isFinite(Number(candidates?.AccuWeather)) ? Number(candidates.AccuWeather) : null;
+    const _buildSupportingContextHTML = (candidates, mlRef) => {
+      // NWS: prefer D0_latest (today-for-today), fall back to D1_latest (today-for-tomorrow),
+      // then fall back to ml.todayNwsD0 / ml.tomorrowNwsD0 stored in Supabase atm_snapshot
+      const ml = window.mlPredictions || {};
+      const nwsFromCands = Number.isFinite(Number(candidates?.D0_latest)) ? Number(candidates.D0_latest)
+                         : Number.isFinite(Number(candidates?.D1_latest)) ? Number(candidates.D1_latest)
+                         : null;
+      // Also try the stored nws_d0 column from Supabase (most reliable — what model actually ran with)
+      const nwsFromML = (mlRef === 'tomorrow')
+        ? (ml.tomorrowNwsD0 != null ? Number(ml.tomorrowNwsD0) : null)
+        : (ml.todayNwsD0    != null ? Number(ml.todayNwsD0)    : null);
+      const nwsVal = nwsFromCands ?? nwsFromML;
+      const accuFromML = (mlRef === 'tomorrow')
+        ? (ml.tomorrowAccuWeather != null ? Number(ml.tomorrowAccuWeather) : null)
+        : (ml.todayAccuWeather    != null ? Number(ml.todayAccuWeather)    : null);
+      const accuVal = Number.isFinite(Number(candidates?.AccuWeather)) ? Number(candidates.AccuWeather)
+                    : accuFromML;
       if (nwsVal == null && accuVal == null) return '';
       const parts = [];
       if (nwsVal  != null) parts.push(`NWS: ${nwsVal.toFixed(0)}°F`);
@@ -4369,7 +4381,7 @@ window._predTomorrow = predTomorrow;
         }
 
         // Supporting context: NWS + AccuWeather
-        const supportHTML = _buildSupportingContextHTML(builtToday.candidates);
+        const supportHTML = _buildSupportingContextHTML(builtToday.candidates, 'today');
 
         // Boundary warning
         const warningHTML = todayWarning
@@ -4516,7 +4528,7 @@ window._predTomorrow = predTomorrow;
         }
 
         // Supporting context: NWS + AccuWeather
-        const supportHTML = _buildSupportingContextHTML(builtTomorrow.candidates);
+        const supportHTML = _buildSupportingContextHTML(builtTomorrow.candidates, 'tomorrow');
 
         // Boundary warning
         const warningHTML = tomorrowWarning
@@ -4595,6 +4607,8 @@ window._predTomorrow = predTomorrow;
   try { await handleOvernightExceedanceNote(); } catch {}
   // Refresh overnight advisory banners now that cards have been redrawn
   try { checkOvernightHighWarning(); } catch {}
+  // Refresh live data sources panel
+  try { renderLiveSourcesPanel(); } catch {}
 
   } catch (e) {
     console.warn("updateCorrectionBoxes() failed", e);
