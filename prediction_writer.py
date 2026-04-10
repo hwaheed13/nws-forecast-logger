@@ -755,27 +755,43 @@ def _compute_bet_signal(
     ml_confidence: float,
     ml_bucket: str,
     market_probs: dict,
-) -> tuple[str, float]:
+) -> tuple[str, float, float]:
     """
-    Compute bet signal based on ML model confidence AND edge over market.
+    Compute bet signal using Kelly criterion for principled sizing.
 
-    Returns (signal, edge) where:
-      signal: "STRONG_BET" / "BET" / "LEAN" / "SKIP"
-      edge: model confidence - market probability
+    The ML pick (ml_bucket) is always the signal — market price only
+    determines how much to bet, not whether to bet.
+
+    Half-Kelly fraction:
+        kelly_f = 0.5 * (p_model - p_market) / (1 - p_market)
+
+    Returns (signal, edge, kelly_fraction) where:
+      signal:        "STRONG_BET" / "BET" / "LEAN" / "SKIP"
+      edge:          ml_confidence - market_prob (raw edge)
+      kelly_fraction: half-Kelly fraction of bankroll to wager (0 if no edge)
     """
-    market_prob = market_probs.get(ml_bucket, 0.0)
-    edge = ml_confidence - market_prob
+    market_prob = market_probs.get(ml_bucket, 0.0) if market_probs else 0.0
+    edge = round(ml_confidence - market_prob, 4)
 
-    if ml_confidence >= 0.65 and edge >= 0.20:
+    # Half-Kelly: requires positive market price to compute odds
+    if market_probs and 0.0 < market_prob < 1.0:
+        kelly_full = (ml_confidence - market_prob) / (1.0 - market_prob)
+        kelly_half = round(max(kelly_full * 0.5, 0.0), 4)
+    else:
+        # No live market price — can still pick but can't size
+        kelly_half = 0.0
+
+    # Signal derived from Kelly fraction (principled, not arbitrary thresholds)
+    if kelly_half >= 0.15:
         signal = "STRONG_BET"
-    elif ml_confidence >= 0.55 and edge >= 0.15:
+    elif kelly_half >= 0.08:
         signal = "BET"
-    elif ml_confidence >= 0.45 and edge >= 0.10:
+    elif kelly_half >= 0.03:
         signal = "LEAN"
     else:
         signal = "SKIP"
 
-    return signal, round(edge, 4)
+    return signal, edge, kelly_half
 
 
 def _compute_ml_prediction(
@@ -3016,27 +3032,31 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                     print(f"ℹ️ Direct map ({direct_bucket}) differs from prob-aligned ({kalshi_bucket}) "
                           f"— keeping prob-aligned (higher expected accuracy)")
 
-                signal, edge = _compute_bet_signal(
+                signal, edge, kelly_f = _compute_bet_signal(
                     payload["ml_confidence"], payload["ml_bucket"], market_probs
                 )
                 payload["bet_signal"] = signal
                 payload["ml_edge"] = edge
-                print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
+                print(f"🎯 Bet signal: {signal} (edge={edge:+.0%}, kelly={kelly_f:.1%})")
                 if is_canonical_write:
                     canonical_bucket = payload.get("ml_bucket", "")
                     payload["market_prob_at_prediction"] = round(market_probs.get(canonical_bucket, 0.0), 4)
+                    payload["kelly_fraction"] = kelly_f
                     print(f"📌 market_prob_at_prediction={payload['market_prob_at_prediction']:.4f} for bucket '{canonical_bucket}'")
+                    print(f"📐 kelly_fraction={kelly_f:.1%} (half-Kelly — bet this % of bankroll)")
         elif direct_bucket:
             payload["ml_bucket"] = direct_bucket
-            signal, edge = _compute_bet_signal(
+            signal, edge, kelly_f = _compute_bet_signal(
                 ml["ml_confidence"], direct_bucket, market_probs
             )
             payload["bet_signal"] = signal
             payload["ml_edge"] = edge
-            print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
+            print(f"🎯 Bet signal: {signal} (edge={edge:+.0%}, kelly={kelly_f:.1%})")
             if is_canonical_write:
                 payload["market_prob_at_prediction"] = round(market_probs.get(direct_bucket, 0.0), 4)
+                payload["kelly_fraction"] = kelly_f
                 print(f"📌 market_prob_at_prediction={payload['market_prob_at_prediction']:.4f} for bucket '{direct_bucket}'")
+                print(f"📐 kelly_fraction={kelly_f:.1%} (half-Kelly — bet this % of bankroll)")
 
     supabase_upsert(payload)
 
@@ -3139,27 +3159,31 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
                     print(f"ℹ️ Direct map ({direct_bucket}) differs from prob-aligned ({kalshi_bucket}) "
                           f"— keeping prob-aligned (higher expected accuracy)")
 
-                signal, edge = _compute_bet_signal(
+                signal, edge, kelly_f = _compute_bet_signal(
                     payload["ml_confidence"], payload["ml_bucket"], market_probs
                 )
                 payload["bet_signal"] = signal
                 payload["ml_edge"] = edge
-                print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
+                print(f"🎯 Bet signal: {signal} (edge={edge:+.0%}, kelly={kelly_f:.1%})")
                 if is_canonical_write:
                     canonical_bucket = payload.get("ml_bucket", "")
                     payload["market_prob_at_prediction"] = round(market_probs.get(canonical_bucket, 0.0), 4)
+                    payload["kelly_fraction"] = kelly_f
                     print(f"📌 market_prob_at_prediction={payload['market_prob_at_prediction']:.4f} for bucket '{canonical_bucket}'")
+                    print(f"📐 kelly_fraction={kelly_f:.1%} (half-Kelly — bet this % of bankroll)")
         elif direct_bucket:
             payload["ml_bucket"] = direct_bucket
-            signal, edge = _compute_bet_signal(
+            signal, edge, kelly_f = _compute_bet_signal(
                 ml["ml_confidence"], direct_bucket, market_probs
             )
             payload["bet_signal"] = signal
             payload["ml_edge"] = edge
-            print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
+            print(f"🎯 Bet signal: {signal} (edge={edge:+.0%}, kelly={kelly_f:.1%})")
             if is_canonical_write:
                 payload["market_prob_at_prediction"] = round(market_probs.get(direct_bucket, 0.0), 4)
+                payload["kelly_fraction"] = kelly_f
                 print(f"📌 market_prob_at_prediction={payload['market_prob_at_prediction']:.4f} for bucket '{direct_bucket}'")
+                print(f"📐 kelly_fraction={kelly_f:.1%} (half-Kelly — bet this % of bankroll)")
 
     supabase_upsert(payload)
 
