@@ -3090,11 +3090,12 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     if bcp_tm is None and ml is None:
         print("⏭️ today_for_tomorrow: no BCP data and no ML prediction available."); return
 
-    # Canonical for D1 = first-ever ML prediction for tomorrow's date.
-    # Does not block D0 canonical — D0 will overwrite with its own canonical
-    # once the date arrives (via the existing_has_canonical fix in write_today_for_today).
+    # Canonical for D1 = first ML prediction made AFTER the Kalshi market opens.
+    # Requiring market_probs ensures the bucket is mapped to real Kalshi structure,
+    # not the model's internal 1°F buckets (which don't match Kalshi's daily structure).
+    # Market opens ~10am ET the day before. Runs before 10am will skip canonical write.
     existing_has_canonical_d1 = isinstance(existing, dict) and existing.get("ml_bucket_canonical") is not None
-    is_canonical_write = (existing is _LOCK_NOT_FOUND or not existing_has_canonical_d1) and ml is not None
+    is_canonical_write = (existing is _LOCK_NOT_FOUND or not existing_has_canonical_d1) and ml is not None and bool(tomorrow_market_probs)
 
     ts = now_nyc().isoformat()
     idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{tomorrow_iso}"
