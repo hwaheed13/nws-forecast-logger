@@ -1224,6 +1224,49 @@ def _compute_ml_prediction(
                                 if v is not None and not (isinstance(v, float) and np.isnan(v)))
             print(f"🔭 Observation features: {obs_populated}/{len(obs_features)} populated")
 
+            # Fetch Weather Underground PWS features (hyper-local Central Park area stations)
+            # Requires WU_API_KEY secret. Auto-discovers nearby stations or uses WU_STATION_IDS.
+            try:
+                from wunderground_client import get_wu_obs_features
+                import nws_auto_logger as _nal_wu
+                _wu_cfg = _nal_wu._CITY_CFG
+                ambient_feats = get_wu_obs_features(
+                    lat=_wu_cfg.get("open_meteo_lat", 40.7834),
+                    lon=_wu_cfg.get("open_meteo_lon", -73.965),
+                    nws_last=features.get("nws_last"),
+                )
+                v2_features.update(ambient_feats)
+                amb_populated = sum(1 for v in ambient_feats.values()
+                                    if v is not None and not (isinstance(v, float) and np.isnan(v)))
+                if amb_populated > 0:
+                    print(f"🌤️ WU PWS features: {amb_populated}/{len(ambient_feats)} populated")
+            except Exception as _amb_e:
+                print(f"  ⚠️ WU PWS features skipped: {_amb_e}")
+                for col in ["obs_ambient_temp", "obs_ambient_vs_nws",
+                            "obs_ambient_spread", "obs_ambient_count"]:
+                    v2_features.setdefault(col, np.nan)
+
+            # NWS overnight jump: nws_first_d0 - nws_d1_final
+            # Captures when NWS made a suspicious overnight revision (like today:
+            # D-1 final=63°F, D0 3am=66°F → 3°F overnight warm jump → actual=63°F).
+            try:
+                nws_d1_final = _get_nws_d1_final(target_date_iso)
+                nws_first_d0 = features.get("nws_first")
+                v2_features["nws_d1_final"] = nws_d1_final if nws_d1_final is not None else np.nan
+                if nws_d1_final is not None and nws_first_d0 is not None:
+                    jump = round(float(nws_first_d0) - float(nws_d1_final), 1)
+                    v2_features["nws_overnight_jump"] = jump
+                    if abs(jump) >= 1.5:
+                        direction = "↑" if jump > 0 else "↓"
+                        print(f"  🌙 NWS overnight jump: D-1 final={nws_d1_final}°F → "
+                              f"D0 first={nws_first_d0}°F ({direction}{abs(jump):.1f}°F)")
+                else:
+                    v2_features["nws_overnight_jump"] = np.nan
+            except Exception as _seq_e:
+                print(f"  ⚠️ NWS sequence features skipped: {_seq_e}")
+                v2_features.setdefault("nws_d1_final", np.nan)
+                v2_features.setdefault("nws_overnight_jump", np.nan)
+
             # Run atmospheric predictor (first-stage model) if available
             if v2_atm_predictor is not None:
                 try:
