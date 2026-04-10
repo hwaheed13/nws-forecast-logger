@@ -2851,8 +2851,10 @@ await updateCorrectionBoxes();  // now uses the freshly-trained state
         const cached = _cityDataCache[cityKey];
         if (cached) {
           window.accuWeatherData = cached.accuWeatherData ? { ...cached.accuWeatherData } : { today: null, tomorrow: null };
-          window.mlPredictions = cached.mlPredictions ? { ...cached.mlPredictions } : { today: null, tomorrow: null };
-          console.log(`🔄 Restored cached data for ${cityKey}:`, window.accuWeatherData, window.mlPredictions);
+          // Always reset ML predictions on city switch — loadMLPredictions() below
+          // will fetch fresh from Supabase. Don't restore stale cached ML data.
+          window.mlPredictions = { today: null, tomorrow: null };
+          console.log(`🔄 Restored cached AccuWeather for ${cityKey}:`, window.accuWeatherData);
         } else {
           window.accuWeatherData = { today: null, tomorrow: null };
           window.mlPredictions = { today: null, tomorrow: null };
@@ -4287,7 +4289,7 @@ window._predTomorrow = predTomorrow;
           ${limitedDataHTML}
           <div class="prediction-value">${val}°F</div>
           <div class="prediction-subtitle">
-            <small>Ensemble (${Object.keys(builtToday.candidates || {}).length} sources) ${sign}${bias}°F · <em>ML model loading…</em></small>
+            <small>Ensemble (${Object.keys(builtToday.candidates || {}).length} sources) ${sign}${bias}°F</small>
           </div>
           ${exceedanceNote}
           ${warningHTML}
@@ -4414,7 +4416,7 @@ window._predTomorrow = predTomorrow;
           ${limitedDataHTML}
           <div class="prediction-value">${val}°F</div>
           <div class="prediction-subtitle">
-            <small>Ensemble (${Object.keys(builtTomorrow.candidates || {}).length} sources) ${sign}${bias}°F${bumpTxt} · <em>ML model loading…</em></small>
+            <small>Ensemble (${Object.keys(builtTomorrow.candidates || {}).length} sources) ${sign}${bias}°F${bumpTxt}</small>
           </div>
           ${warningHTML}
           ${historyHTML}
