@@ -1999,7 +1999,16 @@ function reloadCSV(opts = {}) {
 
     // ===== ET date helpers =====
     function etDateISOFromTS(ts) {
-      const s = (ts || "").replace(" ", "T"); const d = new Date(s);
+      let s = (ts || "").trim();
+      // Strip trailing timezone labels like "EDT", "EST", "PT", "PDT" etc.
+      s = s.replace(/\s+[A-Z]{2,4}$/, "");
+      s = s.replace(" ", "T");
+      // If no timezone info in string, treat as UTC so browser locale doesn't shift the date.
+      // Timestamps in the CSVs are stored in local city time but without tz suffix —
+      // treating as UTC keeps the date stable regardless of where the browser is running.
+      // The small hour offset (~3-8h) doesn't matter because we only compare the DATE portion.
+      if (!/Z|[+-]\d{2}:\d{2}$/.test(s)) s = s + "Z";
+      const d = new Date(s);
       if (!Number.isFinite(d.getTime())) return "";
       return new Intl.DateTimeFormat("en-CA", { timeZone: CC().timezone, year:"numeric", month:"2-digit", day:"2-digit" }).format(d);
     }
