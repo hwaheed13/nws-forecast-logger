@@ -2512,6 +2512,34 @@ def _add_obs_to_snap(snap: dict, live_obs: dict) -> None:
     snap["obs_snap_heating_rate"]= _safe(live_obs.get("obs_heating_rate"))
     snap["obs_snap_vs_forecast"] = _safe(live_obs.get("obs_vs_intra_forecast"))
     snap["obs_snap_hour"]        = _safe(live_obs.get("obs_latest_hour"))
+    snap["obs_snap_max_so_far"]  = _safe(live_obs.get("obs_max_so_far"))
+    snap["obs_snap_wind_speed"]  = _safe(live_obs.get("obs_wind_speed"))
+    snap["obs_snap_cloud_cover"] = _safe(live_obs.get("obs_cloud_cover"))
+    # Regional NWS stations (JFK / LGA)
+    snap["obs_snap_jfk"]         = _safe(live_obs.get("obs_jfk_temp"))
+    snap["obs_snap_lga"]         = _safe(live_obs.get("obs_lga_temp"))
+    snap["obs_snap_regional_spread"] = _safe(live_obs.get("obs_regional_spread"))
+    snap["obs_snap_regional_mean"]   = _safe(live_obs.get("obs_regional_mean"))
+    snap["obs_snap_regional_vs_nws"] = _safe(live_obs.get("obs_regional_vs_nws"))
+    # Synoptic Data (MesoWest) — 5mi Central Park
+    snap["obs_snap_syn_mean"]    = _safe(live_obs.get("obs_synoptic_mean"))
+    snap["obs_snap_syn_min"]     = _safe(live_obs.get("obs_synoptic_min"))
+    snap["obs_snap_syn_max"]     = _safe(live_obs.get("obs_synoptic_max"))
+    snap["obs_snap_syn_spread"]  = _safe(live_obs.get("obs_synoptic_spread"))
+    snap["obs_snap_syn_vs_nws"]  = _safe(live_obs.get("obs_synoptic_vs_nws"))
+    snap["obs_snap_syn_count"]   = live_obs.get("obs_synoptic_count")  # int OK
+    # NY State Mesonet (borough stations)
+    snap["obs_snap_nysm_mean"]   = _safe(live_obs.get("obs_nysm_mean"))
+    snap["obs_snap_nysm_min"]    = _safe(live_obs.get("obs_nysm_min"))
+    snap["obs_snap_nysm_max"]    = _safe(live_obs.get("obs_nysm_max"))
+    snap["obs_snap_nysm_spread"] = _safe(live_obs.get("obs_nysm_spread"))
+    snap["obs_snap_nysm_vs_nws"] = _safe(live_obs.get("obs_nysm_vs_nws"))
+    snap["obs_snap_nysm_count"]  = live_obs.get("obs_nysm_count")  # int OK
+    # WU PWS (ambient stations near Central Park)
+    snap["obs_snap_wu_mean"]     = _safe(live_obs.get("obs_ambient_temp"))
+    snap["obs_snap_wu_vs_nws"]   = _safe(live_obs.get("obs_ambient_vs_nws"))
+    snap["obs_snap_wu_spread"]   = _safe(live_obs.get("obs_ambient_spread"))
+    snap["obs_snap_wu_count"]    = live_obs.get("obs_ambient_count")  # int OK
     obs_count = sum(
         1 for v in live_obs.values()
         if v is not None and not (isinstance(v, float) and math.isnan(v))
@@ -2614,12 +2642,17 @@ def _check_obs_trigger(
 
 
 # Keys stored in atm_snapshot — enough to detect intraday shifts, small payload
+# Also used to populate the dashboard data-sources panel via atm_snapshot JSON column
 _ATM_SNAPSHOT_KEYS = (
     "atm_bl_height_max", "atm_bl_height_mean",
     "ens_spread", "ens_std", "ens_mean", "ens_skew",
     "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff", "mm_ecmwf_gfs_diff", "mm_spread",
+    "mm_hrrr_max", "mm_ecmwf_gfs_diff", "mm_icon_max", "mm_gem_max",
+    "mm_icon_gfs_diff", "mm_gem_ecmwf_diff", "mm_mean", "mm_std",
     "atm_850mb_temp_max", "atm_925mb_temp_max",
     "atm_solar_radiation_peak",
+    "nws_d1_final", "nws_overnight_jump",
+    "nws_last", "nws_first", "accu_last",
 )
 
 
