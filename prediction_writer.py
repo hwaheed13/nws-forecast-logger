@@ -60,6 +60,17 @@ _D0_CUTOFF_HOUR_LOCAL = {
     "lax": 14,  # 2pm PT  — LA  high typically peaks 2–4pm PT
 }
 
+# Atmospheric-only cutoff — later than the agency cutoff because BL height,
+# 925mb winds, and GFS/HRRR/ECMWF ensemble data are MODEL-derived, not
+# surface-observation-derived. A collapsing BL at 2:30pm is independent
+# evidence the mixing layer is done (high has peaked) without looking at
+# the thermometer — no contamination risk. Agency (NWS/AccuWeather) and obs
+# triggers still freeze at _D0_CUTOFF_HOUR_LOCAL to avoid thermometer-chasing.
+_D0_ATM_CUTOFF_HOUR_LOCAL = {
+    "nyc": 15,  # 3pm ET — GFS/HRRR update at ~2pm captures post-peak BL collapse
+    "lax": 15,  # 3pm PT — marine layer / BL feedback typically resolved by then
+}
+
 # ---------------------------------------------------------------------------
 # ML model inference
 # ---------------------------------------------------------------------------
@@ -2747,10 +2758,18 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     #              preserving the correct comparison point for future cycles.
     ml_recomputed = False
 
-    # Determine whether we're before the D0 cutoff and the day isn't settled.
-    # We only fetch live atmospheric features in this window — no point fetching
-    # after the cutoff since the model is frozen, and not if the actual is in.
-    past_cutoff = now_nyc().hour >= _D0_CUTOFF_HOUR_LOCAL.get(_CITY_KEY, 14)
+    # Two-tier D0 freeze:
+    #   agency_cutoff (2pm): freeze NWS/AccuWeather/obs triggers — these use observed
+    #     surface data and agency echoes, which contaminate the prediction after peak heating.
+    #   atm_cutoff (3pm): freeze atmospheric triggers — BL height, 925mb temps, GFS/HRRR
+    #     ensemble data are MODEL-derived (not surface-observation-derived), so they can
+    #     safely fire until 3pm. A collapsing BL at 2:30pm is independent evidence the
+    #     mixing layer is done without looking at the thermometer.
+    # The canonical write guard uses atm_cutoff (full freeze) so is_canonical_write is
+    # only True in the morning before any cutoff fires.
+    agency_cutoff = now_nyc().hour >= _D0_CUTOFF_HOUR_LOCAL.get(_CITY_KEY, 14)
+    atm_cutoff    = now_nyc().hour >= _D0_ATM_CUTOFF_HOUR_LOCAL.get(_CITY_KEY, 15)
+    past_cutoff   = atm_cutoff  # full freeze = atm cutoff (used for canonical write gate)
     live_atm: Optional[dict] = None
 
     if has_actual_today and isinstance(existing, dict):
@@ -2764,13 +2783,11 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             "ml_version": existing.get("ml_version"),
         }
 
-    elif isinstance(existing, dict) and existing.get("ml_f") is not None and past_cutoff:
-        # Past the local D0 cutoff — freeze the canonical prediction.
-        # After peak heating, agencies often echo the observed high rather than
-        # forecasting; intraday curve features also reflect actual temps.
-        # Holding the existing prediction prevents thermometer-chasing.
-        cutoff_h = _D0_CUTOFF_HOUR_LOCAL.get(_CITY_KEY, 14)
-        print(f"⏸️ Past D0 cutoff ({cutoff_h}:00 local) — holding canonical ML prediction "
+    elif isinstance(existing, dict) and existing.get("ml_f") is not None and atm_cutoff:
+        # Past the atmospheric cutoff (3pm) — full freeze.
+        # All signal types (agency, atmospheric, obs) are now stale or contaminated.
+        atm_h = _D0_ATM_CUTOFF_HOUR_LOCAL.get(_CITY_KEY, 15)
+        print(f"⏸️ Past D0 atm cutoff ({atm_h}:00 local) — full freeze "
               f"({existing['ml_f']}°F → {existing.get('ml_bucket')})")
         ml = {
             "ml_f": existing["ml_f"],
@@ -2806,6 +2823,8 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         # This is the key intraday signal: GFS updates 4x/day, ECMWF 2x/day,
         # HRRR hourly. Fresh model runs appear here 1-3 hours before agencies
         # update public forecasts and before market prices shift.
+        # Atmospheric fetch runs until the atm_cutoff (3pm); agency/obs checks
+        # only run until the agency_cutoff (2pm).
         stored_atm_snapshot = existing.get("atm_snapshot")
         try:
             stored_snapshot_dict = (
@@ -2822,21 +2841,30 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             print(f"⚠️ Live atmospheric fetch failed: {_atm_e}")
             live_atm = {}
 
-        # Also fetch live NWS station observations for ground-truth trigger check.
-        # This catches cold starts, slow heating, and reality diverging from the
-        # Open-Meteo intraday forecast — BEFORE agencies update public forecasts.
-        try:
-            live_obs = _fetch_observation_features(
-                target_date_iso,
-                nws_last=nws_latest,
-                atm_features=live_atm,
-            )
-        except Exception as _obs_e:
-            print(f"⚠️ Live obs fetch failed: {_obs_e}")
-            live_obs = {}
+        # NWS obs trigger: only before agency_cutoff (2pm). After 2pm, station
+        # temps reflect observed reality — using them is thermometer-chasing.
+        live_obs = {}
+        if not agency_cutoff:
+            try:
+                live_obs = _fetch_observation_features(
+                    target_date_iso,
+                    nws_last=nws_latest,
+                    atm_features=live_atm,
+                )
+            except Exception as _obs_e:
+                print(f"⚠️ Live obs fetch failed: {_obs_e}")
 
         atm_triggered, atm_reasons = _check_atmospheric_shift(live_atm, stored_atm_snapshot)
-        obs_triggered, obs_reasons = _check_obs_trigger(live_obs, stored_snapshot_dict)
+        obs_triggered, obs_reasons = (
+            _check_obs_trigger(live_obs, stored_snapshot_dict)
+            if not agency_cutoff else (False, [])
+        )
+
+        # After agency_cutoff: NWS/AccuWeather/obs triggers are silenced.
+        # Atmospheric trigger (BL collapse, ensemble shift) stays live until atm_cutoff.
+        if agency_cutoff:
+            nws_revised = False   # agencies echo observed temps after 2pm
+            accu_revised = False
 
         # AccuWeather revisions advance the stored baseline (so future comparisons are
         # correct) but do NOT trigger an ML recompute — AccuWeather often echoes observed
