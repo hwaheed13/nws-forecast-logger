@@ -3903,18 +3903,8 @@ window._predTomorrow = predTomorrow;
   }
   // ──────────────────────────────────────────────────────────────
 
-  // Check for limited data (new city with insufficient history)
-  const MIN_DAYS_THRESHOLD = 30;
-  const uniqueActualDates = new Set(
-    allRows
-      .filter(r => r.forecast_or_actual === "actual" && r.actual_high)
-      .map(r => r.cli_date || r.target_date)
-  );
-  const daysWithActualCount = uniqueActualDates.size;
-  const isLimitedData = daysWithActualCount < MIN_DAYS_THRESHOLD;
-  const limitedDataHTML = isLimitedData
-    ? `<div class="limited-data-banner">⚠️ Limited data — only ${daysWithActualCount} day(s) of history. Predictions and accuracy improve as more data accumulates.</div>`
-    : '';
+  // Model is trained on 1,500+ days of historical data — no limited data banner needed.
+  const limitedDataHTML = '';
 
   // Fetch Kalshi data to map predictions to ranges
     let todayKalshiRange = null;
