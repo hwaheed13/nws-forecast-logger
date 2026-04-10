@@ -2793,9 +2793,11 @@ await updateCorrectionBoxes();  // now uses the freshly-trained state
 
     async function switchCity(cityKey) {
       if (!CITY_CONFIG[cityKey] || cityKey === currentCity) return;
-
-      // Block intermediate updateCorrectionBoxes calls from side-effect callbacks
-      _citySwitching = true;
+      // Save city to localStorage and reload — simplest way to guarantee all
+      // data (ML, CSV, AccuWeather) loads cleanly for the new city.
+      localStorage.setItem("selectedCity", cityKey);
+      window.location.reload();
+      return;
 
       try {
         // Save current city's API data BEFORE clearing (so toggle-back can restore)
