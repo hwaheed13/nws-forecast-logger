@@ -4180,11 +4180,11 @@ window._predTomorrow = predTomorrow;
           bucketHTML = `
             <div style="margin:4px 0 2px;">
               <span style="font-weight:700;color:#16a34a;">${cleanKalshiLabel(top2.first.bucket)}</span>
+              ${signal ? `<span class="signal-badge" style="background:${s.bg};color:${s.color};padding:3px 8px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid ${s.border};margin:0 4px;">${s.icon} ${s.label}</span>` : ''}
               <span style="color:#6b7280;font-size:13px;">(${p1}%)</span>
-              <span style="color:#9ca3af;margin:0 4px;">or</span>
+              <span style="color:#9ca3af;margin:0 6px;">or</span>
               <span style="font-weight:700;color:#2563eb;">${cleanKalshiLabel(top2.second.bucket)}</span>
               <span style="color:#6b7280;font-size:13px;">(${p2}%)</span>
-              ${signal ? `<span class="signal-badge" style="background:${s.bg};color:${s.color};padding:3px 8px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid ${s.border};margin-left:4px;">${s.icon} ${s.label}</span>` : ''}
             </div>
             <div style="font-size:12px;color:#9ca3af;">Combined top-2: <span style="color:${combColor};font-weight:600;">${combinedPct}%</span></div>
             ${kellyF != null && kellyF > 0 ? `<div style="font-size:12px;color:#9ca3af;margin-top:2px;">📐 Bet <span style="color:#059669;font-weight:700;">${Math.round(kellyF*100)}% of bankroll</span>${mktProb != null ? ` · market was ${Math.round(mktProb*100)}%` : ''}</div>` : ''}
@@ -4327,11 +4327,11 @@ window._predTomorrow = predTomorrow;
           bucketHTML = `
             <div style="margin:4px 0 2px;">
               <span style="font-weight:700;color:#16a34a;">${cleanKalshiLabel(top2.first.bucket)}</span>
+              ${signal ? `<span class="signal-badge" style="background:${s.bg};color:${s.color};padding:3px 8px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid ${s.border};margin:0 4px;">${s.icon} ${s.label}</span>` : ''}
               <span style="color:#6b7280;font-size:13px;">(${p1}%)</span>
-              <span style="color:#9ca3af;margin:0 4px;">or</span>
+              <span style="color:#9ca3af;margin:0 6px;">or</span>
               <span style="font-weight:700;color:#2563eb;">${cleanKalshiLabel(top2.second.bucket)}</span>
               <span style="color:#6b7280;font-size:13px;">(${p2}%)</span>
-              ${signal ? `<span class="signal-badge" style="background:${s.bg};color:${s.color};padding:3px 8px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid ${s.border};margin-left:4px;">${s.icon} ${s.label}</span>` : ''}
             </div>
             <div style="font-size:12px;color:#9ca3af;">Combined top-2: <span style="color:${combColor};font-weight:600;">${combinedPct}%</span></div>
             ${kellyF != null && kellyF > 0 ? `<div style="font-size:12px;color:#9ca3af;margin-top:2px;">📐 Bet <span style="color:#059669;font-weight:700;">${Math.round(kellyF*100)}% of bankroll</span>${mktProb != null ? ` · market was ${Math.round(mktProb*100)}%` : ''}</div>` : ''}
