@@ -4226,14 +4226,13 @@ window._predTomorrow = predTomorrow;
       const nwsFromML = (mlRef === 'tomorrow')
         ? (ml.tomorrowNwsD0 != null ? Number(ml.tomorrowNwsD0) : null)
         : (ml.todayNwsD0    != null ? Number(ml.todayNwsD0)    : null);
-      // Final fallback: read latest NWS value directly from the loaded CSV rows
+      // Final fallback: read latest NWS value directly from allRows (already loaded CSV)
+      // Same logic as the "Tomorrow's Latest Forecast" / "Today's Latest Forecast" metric boxes
       const nwsFromCSV = (() => {
         try {
           const targetISO = mlRef === 'tomorrow' ? nycISODate(1) : nycISODate(0);
-          const lead      = mlRef === 'tomorrow' ? 'D1' : 'D0';
-          const rows = (typeof getForecastRowsFor === 'function')
-            ? getForecastRowsFor(targetISO, lead).filter(r => r.predicted_high != null && r.predicted_high !== '')
-            : [];
+          const rows = (typeof allRows !== 'undefined' ? allRows : [])
+            .filter(r => r.forecast_or_actual === 'forecast' && r.target_date === targetISO && r.predicted_high != null && r.predicted_high !== '');
           if (!rows.length) return null;
           rows.sort((a, b) => (b.timestamp || b.forecast_time || '').localeCompare(a.timestamp || a.forecast_time || ''));
           const v = Number(rows[0].predicted_high);
