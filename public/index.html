@@ -4337,12 +4337,9 @@ window._predTomorrow = predTomorrow;
           const card = document.getElementById("ml-signal-today-card");
           if (card) card.style.borderLeftColor = result.borderColor;
           el0.innerHTML = `
-            <div class="prediction-value">${Math.round(ml.today)}°F</div>
-            <div style="margin:4px 0 2px;">
-              <span style="font-weight:600;color:#6b7280;">${result.bucketDisplay}</span>
-              ${result.resultBadgeHTML}
-            </div>
-            <div style="font-size:12px;margin-top:2px;">${result.resultDetailHTML}</div>
+            <div style="font-size:32px;font-weight:800;line-height:1.1;color:var(--text-primary);">${result.bucketDisplay}</div>
+            <div style="margin:6px 0 4px;">${result.resultBadgeHTML}</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">ML: ${Number(ml.today).toFixed(1)}°F · ${result.resultDetailHTML}</div>
           `;
         } else {
           // No bucket or no actual high yet — generic settled display
@@ -4364,37 +4361,33 @@ window._predTomorrow = predTomorrow;
         const card     = document.getElementById("ml-signal-today-card");
         if (card) card.style.borderLeftColor = s.border;
 
-        // Build top-2 bucket HTML
-        let bucketHTML = '';
+        // ── Build card HTML — bucket is the hero ──────────────────────────────
+        const top2b1 = top2 ? cleanKalshiLabel(top2.first.bucket) : (bucket ? cleanKalshiLabel(bucket) : null);
+        const signalBadge = signal
+          ? `<span class="signal-badge" style="background:${s.bg};color:${s.color};padding:3px 9px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid ${s.border};">${s.icon} ${s.label}</span>`
+          : '';
+
+        let statsLine = '';
         if (top2 && top2.second) {
           const p1 = Math.round(top2.first.prob * 100);
           const p2 = Math.round(top2.second.prob * 100);
           const combinedPct = Math.round(top2.combined * 100);
           const combColor = combinedPct >= 75 ? "#059669" : combinedPct >= 60 ? "#16a34a" : "#d97706";
-          bucketHTML = `
-            <div style="margin:4px 0 2px;">
-              <span style="font-weight:700;color:#16a34a;">${cleanKalshiLabel(top2.first.bucket)}</span>
-              ${signal ? `<span class="signal-badge" style="background:${s.bg};color:${s.color};padding:3px 8px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid ${s.border};margin:0 4px;">${s.icon} ${s.label}</span>` : ''}
-              <span style="color:#6b7280;font-size:13px;">(${p1}%)</span>
-              <span style="color:#9ca3af;margin:0 6px;">or</span>
-              <span style="font-weight:700;color:#2563eb;">${cleanKalshiLabel(top2.second.bucket)}</span>
-              <span style="color:#6b7280;font-size:13px;">(${p2}%)</span>
-            </div>
-            <div style="font-size:12px;color:#9ca3af;">Combined top-2: <span style="color:${combColor};font-weight:600;">${combinedPct}%</span></div>
-            ${kellyF != null && kellyF > 0 ? `<div style="font-size:12px;color:#9ca3af;margin-top:2px;">📐 Bet <span style="color:#059669;font-weight:700;">${Math.round(kellyF*100)}% of bankroll</span>${mktProb != null ? ` · market was ${Math.round(mktProb*100)}%` : ''}</div>` : ''}
-          `;
+          statsLine = `<span style="color:#6b7280;">${p1}%</span>
+            <span style="color:#9ca3af;margin:0 5px;">or</span>
+            <span style="font-weight:700;color:#2563eb;">${cleanKalshiLabel(top2.second.bucket)}</span>
+            <span style="color:#6b7280;margin-left:3px;">${p2}%</span>
+            <span style="color:#9ca3af;margin:0 5px;">·</span>
+            <span style="color:${combColor};font-weight:600;">top-2: ${combinedPct}%</span>`;
         } else if (bucket) {
           const confPct = ml.todayMLConfidence != null ? Math.round(Number(ml.todayMLConfidence) * 100) : null;
-          const confColor = confPct >= 65 ? "#059669" : confPct >= 45 ? "#16a34a" : "#dc2626";
-          bucketHTML = `
-            <div style="margin:4px 0 2px;">
-              <span style="font-weight:700;color:#16a34a;">${cleanKalshiLabel(bucket)}</span>
-              ${signal ? `<span class="signal-badge" style="background:${s.bg};color:${s.color};padding:3px 8px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid ${s.border};margin-left:4px;">${s.icon} ${s.label}</span>` : ''}
-            </div>
-            ${confPct != null ? `<div style="font-size:12px;color:#9ca3af;">ML confidence: <span style="color:${confColor};font-weight:600;">${confPct}%</span></div>` : ''}
-            ${kellyF != null && kellyF > 0 ? `<div style="font-size:12px;color:#9ca3af;margin-top:2px;">📐 Bet <span style="color:#059669;font-weight:700;">${Math.round(kellyF*100)}% of bankroll</span>${mktProb != null ? ` · market was ${Math.round(mktProb*100)}%` : ''}</div>` : ''}
-          `;
+          const confColor = confPct != null ? (confPct >= 65 ? "#059669" : confPct >= 45 ? "#16a34a" : "#dc2626") : "#9ca3af";
+          statsLine = confPct != null ? `<span style="color:${confColor};font-weight:600;">${confPct}% confidence</span>` : '';
         }
+
+        const kellyLine = kellyF != null && kellyF > 0
+          ? `<div style="font-size:12px;color:#6b7280;margin-top:3px;">📐 Bet <span style="color:#059669;font-weight:700;">${Math.round(kellyF*100)}% of bankroll</span>${mktProb != null ? ` · market was ${Math.round(mktProb*100)}%` : ''}</div>`
+          : '';
 
         // Supporting context: NWS + AccuWeather
         const supportHTML = _buildSupportingContextHTML(builtToday.candidates, 'today');
@@ -4421,7 +4414,6 @@ window._predTomorrow = predTomorrow;
             </div>`
           : '';
 
-        // Prediction history
         const historyRange = predictionHistory.getRange('today');
         const historyHTML = (historyRange && Number.isFinite(historyRange.min) && Number.isFinite(historyRange.max) && Number.isFinite(historyRange.current))
           ? `<div class="prediction-history">
@@ -4434,9 +4426,13 @@ window._predTomorrow = predTomorrow;
 
         el0.innerHTML = `
           ${limitedDataHTML}
-          <div class="prediction-value">${mlVal.toFixed(1)}°F</div>
-          ${bucketHTML}
-          ${supportHTML ? `<div style="margin-top:6px;">${supportHTML}</div>` : ''}
+          ${top2b1 ? `<div style="font-size:32px;font-weight:800;line-height:1.1;color:var(--text-primary);">${top2b1}</div>` : `<div class="prediction-value">${mlVal.toFixed(1)}°F</div>`}
+          <div style="margin:6px 0 3px;display:flex;flex-wrap:wrap;align-items:center;gap:6px;">
+            ${signalBadge}
+            <span style="font-size:13px;">${statsLine}</span>
+          </div>
+          ${kellyLine}
+          <div style="font-size:12px;color:var(--text-muted);margin-top:5px;">ML: ${mlVal.toFixed(1)}°F${supportHTML ? ` · ${supportHTML}` : ''}</div>
           ${exceedanceNote}
           ${warningHTML}
           ${historyHTML}
@@ -4511,37 +4507,33 @@ window._predTomorrow = predTomorrow;
         const card    = document.getElementById("ml-signal-tomorrow-card");
         if (card) card.style.borderLeftColor = s.border;
 
-        // Build top-2 bucket HTML
-        let bucketHTML = '';
+        // ── Build card HTML — bucket is the hero ──────────────────────────────
+        const top2b1tm = top2 ? cleanKalshiLabel(top2.first.bucket) : (bucket ? cleanKalshiLabel(bucket) : null);
+        const signalBadgeTm = signal
+          ? `<span class="signal-badge" style="background:${s.bg};color:${s.color};padding:3px 9px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid ${s.border};">${s.icon} ${s.label}</span>`
+          : '';
+
+        let statsLineTm = '';
         if (top2 && top2.second) {
           const p1 = Math.round(top2.first.prob * 100);
           const p2 = Math.round(top2.second.prob * 100);
           const combinedPct = Math.round(top2.combined * 100);
           const combColor = combinedPct >= 75 ? "#059669" : combinedPct >= 60 ? "#16a34a" : "#d97706";
-          bucketHTML = `
-            <div style="margin:4px 0 2px;">
-              <span style="font-weight:700;color:#16a34a;">${cleanKalshiLabel(top2.first.bucket)}</span>
-              ${signal ? `<span class="signal-badge" style="background:${s.bg};color:${s.color};padding:3px 8px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid ${s.border};margin:0 4px;">${s.icon} ${s.label}</span>` : ''}
-              <span style="color:#6b7280;font-size:13px;">(${p1}%)</span>
-              <span style="color:#9ca3af;margin:0 6px;">or</span>
-              <span style="font-weight:700;color:#2563eb;">${cleanKalshiLabel(top2.second.bucket)}</span>
-              <span style="color:#6b7280;font-size:13px;">(${p2}%)</span>
-            </div>
-            <div style="font-size:12px;color:#9ca3af;">Combined top-2: <span style="color:${combColor};font-weight:600;">${combinedPct}%</span></div>
-            ${kellyF != null && kellyF > 0 ? `<div style="font-size:12px;color:#9ca3af;margin-top:2px;">📐 Bet <span style="color:#059669;font-weight:700;">${Math.round(kellyF*100)}% of bankroll</span>${mktProb != null ? ` · market was ${Math.round(mktProb*100)}%` : ''}</div>` : ''}
-          `;
+          statsLineTm = `<span style="color:#6b7280;">${p1}%</span>
+            <span style="color:#9ca3af;margin:0 5px;">or</span>
+            <span style="font-weight:700;color:#2563eb;">${cleanKalshiLabel(top2.second.bucket)}</span>
+            <span style="color:#6b7280;margin-left:3px;">${p2}%</span>
+            <span style="color:#9ca3af;margin:0 5px;">·</span>
+            <span style="color:${combColor};font-weight:600;">top-2: ${combinedPct}%</span>`;
         } else if (bucket) {
           const confPct = ml.tomorrowMLConfidence != null ? Math.round(Number(ml.tomorrowMLConfidence) * 100) : null;
-          const confColor = confPct >= 65 ? "#059669" : confPct >= 45 ? "#16a34a" : "#dc2626";
-          bucketHTML = `
-            <div style="margin:4px 0 2px;">
-              <span style="font-weight:700;color:#16a34a;">${cleanKalshiLabel(bucket)}</span>
-              ${signal ? `<span class="signal-badge" style="background:${s.bg};color:${s.color};padding:3px 8px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid ${s.border};margin-left:4px;">${s.icon} ${s.label}</span>` : ''}
-            </div>
-            ${confPct != null ? `<div style="font-size:12px;color:#9ca3af;">ML confidence: <span style="color:${confColor};font-weight:600;">${confPct}%</span></div>` : ''}
-            ${kellyF != null && kellyF > 0 ? `<div style="font-size:12px;color:#9ca3af;margin-top:2px;">📐 Bet <span style="color:#059669;font-weight:700;">${Math.round(kellyF*100)}% of bankroll</span>${mktProb != null ? ` · market was ${Math.round(mktProb*100)}%` : ''}</div>` : ''}
-          `;
+          const confColor = confPct != null ? (confPct >= 65 ? "#059669" : confPct >= 45 ? "#16a34a" : "#dc2626") : "#9ca3af";
+          statsLineTm = confPct != null ? `<span style="color:${confColor};font-weight:600;">${confPct}% confidence</span>` : '';
         }
+
+        const kellyLineTm = kellyF != null && kellyF > 0
+          ? `<div style="font-size:12px;color:#6b7280;margin-top:3px;">📐 Bet <span style="color:#059669;font-weight:700;">${Math.round(kellyF*100)}% of bankroll</span>${mktProb != null ? ` · market was ${Math.round(mktProb*100)}%` : ''}</div>`
+          : '';
 
         // Supporting context: NWS + AccuWeather
         const supportHTML = _buildSupportingContextHTML(builtTomorrow.candidates, 'tomorrow');
@@ -4568,9 +4560,13 @@ window._predTomorrow = predTomorrow;
 
         el1.innerHTML = `
           ${limitedDataHTML}
-          <div class="prediction-value">${mlVal.toFixed(1)}°F</div>
-          ${bucketHTML}
-          ${supportHTML ? `<div style="margin-top:6px;">${supportHTML}</div>` : ''}
+          ${top2b1tm ? `<div style="font-size:32px;font-weight:800;line-height:1.1;color:var(--text-primary);">${top2b1tm}</div>` : `<div class="prediction-value">${mlVal.toFixed(1)}°F</div>`}
+          <div style="margin:6px 0 3px;display:flex;flex-wrap:wrap;align-items:center;gap:6px;">
+            ${signalBadgeTm}
+            <span style="font-size:13px;">${statsLineTm}</span>
+          </div>
+          ${kellyLineTm}
+          <div style="font-size:12px;color:var(--text-muted);margin-top:5px;">ML: ${mlVal.toFixed(1)}°F${supportHTML ? ` · ${supportHTML}` : ''}</div>
           ${warningHTML}
           ${historyHTML}
         `;
