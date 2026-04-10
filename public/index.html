@@ -647,6 +647,9 @@ input[type="date"] {
         <div id="live-sources-grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:10px;">
           <!-- Populated by renderLiveSourcesPanel() -->
         </div>
+        <div style="font-size:11px;color:var(--text-light);margin-top:6px;">
+          Reflects inputs at last model run · JFK/LGA/Synoptic/NYSM populate once model runs with new data
+        </div>
       </div>
 
       <!-- Kalshi -->
@@ -3708,7 +3711,7 @@ function renderLiveSourcesPanel() {
     syn_spread != null ? `Spread: ${Number(syn_spread).toFixed(1)}°F` : "",
     syn_vs     != null ? `vs NWS: ${fSign(syn_vs)}` : "",
     syn_count  != null ? `${syn_count} stations` : "",
-  ].filter(Boolean).join(" · ") || "No data (add SYNOPTIC_TOKEN)";
+  ].filter(Boolean).join(" · ") || "Awaiting next cycle";
 
   // ── NY Mesonet (boroughs) ──
   const nysm_mean  = s.obs_snap_nysm_mean;
@@ -4223,7 +4226,21 @@ window._predTomorrow = predTomorrow;
       const nwsFromML = (mlRef === 'tomorrow')
         ? (ml.tomorrowNwsD0 != null ? Number(ml.tomorrowNwsD0) : null)
         : (ml.todayNwsD0    != null ? Number(ml.todayNwsD0)    : null);
-      const nwsVal = nwsFromCands ?? nwsFromML;
+      // Final fallback: read latest NWS value directly from the loaded CSV rows
+      const nwsFromCSV = (() => {
+        try {
+          const targetISO = mlRef === 'tomorrow' ? nycISODate(1) : nycISODate(0);
+          const lead      = mlRef === 'tomorrow' ? 'D1' : 'D0';
+          const rows = (typeof getForecastRowsFor === 'function')
+            ? getForecastRowsFor(targetISO, lead).filter(r => r.predicted_high != null && r.predicted_high !== '')
+            : [];
+          if (!rows.length) return null;
+          rows.sort((a, b) => (b.timestamp || b.forecast_time || '').localeCompare(a.timestamp || a.forecast_time || ''));
+          const v = Number(rows[0].predicted_high);
+          return Number.isFinite(v) ? v : null;
+        } catch { return null; }
+      })();
+      const nwsVal = nwsFromCands ?? nwsFromML ?? nwsFromCSV;
       const accuFromML = (mlRef === 'tomorrow')
         ? (ml.tomorrowAccuWeather != null ? Number(ml.tomorrowAccuWeather) : null)
         : (ml.todayAccuWeather    != null ? Number(ml.todayAccuWeather)    : null);
