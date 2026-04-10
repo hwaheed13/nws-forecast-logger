@@ -2988,7 +2988,12 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
 
     # Fetch Kalshi market odds + compute bet signal
     market_probs = _fetch_kalshi_market_probs(target_date_iso)
-    if market_probs:
+    # IMPORTANT: Only save the snapshot at canonical (first) write time.
+    # Subsequent 30-min upserts must NOT overwrite it — by end-of-day Kalshi
+    # shows settled prices (winner=0.995, losers=0.005) which completely inverts
+    # the edge calculation. The canonical snapshot captures live pre-settlement
+    # market prices, which is what the bet_signal and ml_edge should reflect.
+    if market_probs and is_canonical_write:
         payload["kalshi_market_snapshot"] = json.dumps(market_probs)
 
     # Map ML prediction → Kalshi's actual bucket structure for today
@@ -3017,6 +3022,10 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 payload["bet_signal"] = signal
                 payload["ml_edge"] = edge
                 print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
+                if is_canonical_write:
+                    canonical_bucket = payload.get("ml_bucket", "")
+                    payload["market_prob_at_prediction"] = round(market_probs.get(canonical_bucket, 0.0), 4)
+                    print(f"📌 market_prob_at_prediction={payload['market_prob_at_prediction']:.4f} for bucket '{canonical_bucket}'")
         elif direct_bucket:
             payload["ml_bucket"] = direct_bucket
             signal, edge = _compute_bet_signal(
@@ -3025,6 +3034,9 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             payload["bet_signal"] = signal
             payload["ml_edge"] = edge
             print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
+            if is_canonical_write:
+                payload["market_prob_at_prediction"] = round(market_probs.get(direct_bucket, 0.0), 4)
+                print(f"📌 market_prob_at_prediction={payload['market_prob_at_prediction']:.4f} for bucket '{direct_bucket}'")
 
     supabase_upsert(payload)
 
@@ -3103,7 +3115,9 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
 
     # Use already-fetched Kalshi market odds (from lock check above)
     market_probs = tomorrow_market_probs
-    if market_probs:
+    # Only save snapshot at canonical (first) write — same reason as write_today_for_today:
+    # settled end-of-day prices (0.995/0.005) overwrite live prices and invert bet_signal.
+    if market_probs and is_canonical_write:
         payload["kalshi_market_snapshot"] = json.dumps(market_probs)
 
     # Map ML prediction → Kalshi's actual bucket structure for tomorrow
@@ -3131,6 +3145,10 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
                 payload["bet_signal"] = signal
                 payload["ml_edge"] = edge
                 print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
+                if is_canonical_write:
+                    canonical_bucket = payload.get("ml_bucket", "")
+                    payload["market_prob_at_prediction"] = round(market_probs.get(canonical_bucket, 0.0), 4)
+                    print(f"📌 market_prob_at_prediction={payload['market_prob_at_prediction']:.4f} for bucket '{canonical_bucket}'")
         elif direct_bucket:
             payload["ml_bucket"] = direct_bucket
             signal, edge = _compute_bet_signal(
@@ -3139,6 +3157,9 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
             payload["bet_signal"] = signal
             payload["ml_edge"] = edge
             print(f"🎯 Bet signal: {signal} (edge={edge:+.0%})")
+            if is_canonical_write:
+                payload["market_prob_at_prediction"] = round(market_probs.get(direct_bucket, 0.0), 4)
+                print(f"📌 market_prob_at_prediction={payload['market_prob_at_prediction']:.4f} for bucket '{direct_bucket}'")
 
     supabase_upsert(payload)
 
