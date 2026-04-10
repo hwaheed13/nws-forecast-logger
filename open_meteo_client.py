@@ -541,6 +541,15 @@ def extract_multimodel_features(multimodel_data: dict, target_date: str) -> dict
     else:
         features["mm_hrrr_gfs_diff"] = np.nan
 
+    # ICON (German DWD) and GEM (Canadian CMC) — individual model predictions.
+    # Previously fetched but silently dropped. Now exposed as independent signals.
+    icon = day_data.get("icon")
+    gem = day_data.get("gem")
+    features["mm_icon_max"] = float(icon) if icon is not None else np.nan
+    features["mm_gem_max"] = float(gem) if gem is not None else np.nan
+    features["mm_icon_gfs_diff"] = float(icon - gfs) if (icon is not None and gfs is not None) else np.nan
+    features["mm_gem_ecmwf_diff"] = float(gem - ecmwf) if (gem is not None and ecmwf is not None) else np.nan
+
     return features
 
 

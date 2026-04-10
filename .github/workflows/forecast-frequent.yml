@@ -264,6 +264,7 @@ jobs:
           SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
           WU_API_KEY: ${{ secrets.WU_API_KEY }}
           WU_STATION_IDS: ${{ secrets.WU_STATION_IDS }}
+          SYNOPTIC_TOKEN: ${{ secrets.SYNOPTIC_TOKEN }}
           TZ: America/New_York
         run: python prediction_writer.py both
         continue-on-error: true

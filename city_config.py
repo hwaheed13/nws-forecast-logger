@@ -20,6 +20,9 @@ CITIES = {
         # Open-Meteo coordinates (same as NWS API endpoint)
         "open_meteo_lat": 40.7834,
         "open_meteo_lon": -73.965,
+        # Regional supplemental NWS stations — fetched alongside primary KNYC
+        # JFK often 3-5°F colder on sea-breeze days; LGA captures Queens/Bronx air mass
+        "regional_obs_stations": ["KJFK", "KLGA"],
     },
     "lax": {
         "label": "Los Angeles",

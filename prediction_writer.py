@@ -15,7 +15,9 @@ from nws_auto_logger import (
 )
 from model_config import (
     FEATURE_COLS, FEATURE_COLS_V2, FEATURE_COLS_V4, ACCU_NWS_FALLBACK,
-    ATM_PREDICTOR_INPUT_COLS, OBSERVATION_COLS, derive_bucket_probabilities,
+    ATM_PREDICTOR_INPUT_COLS, OBSERVATION_COLS, REGIONAL_OBS_COLS,
+    NWS_SEQUENCE_COLS, AMBIENT_OBS_COLS, SYNOPTIC_OBS_COLS, NYSM_OBS_COLS,
+    derive_bucket_probabilities,
 )
 
 MODEL_VERSION = os.environ.get("PREDICTION_MODEL_VERSION", "bcp_v1")
@@ -377,6 +379,35 @@ def _apply_observed_floor(bucket_probs: dict, observed_high: float) -> dict:
         print(f"🛡️ Floor guard: dropped {len(dropped)} impossible bucket(s) below {floor}°F")
 
     return filtered
+
+
+def _get_nws_d1_final(target_date_iso: str) -> Optional[float]:
+    """
+    Return the last NWS forecast for target_date that was issued the day BEFORE it.
+    Captures the overnight jump signal: D-1 final vs D0 morning.
+    April 10 2026: D-1 final=63°F, D0 3am=66°F → +3°F overnight jump → actual=63°F.
+    """
+    try:
+        import nws_auto_logger as _nal
+        cfg = _nal._CITY_CFG
+        nws_csv = cfg.get("nws_csv", "nws_forecast_log.csv")
+        import pandas as pd
+        df = pd.read_csv(nws_csv)
+        df["forecast_time"] = pd.to_datetime(df["forecast_time"], errors="coerce")
+        df["target_date_str"] = pd.to_datetime(df["target_date"], errors="coerce").dt.date.astype(str)
+        target = pd.Timestamp(target_date_iso).date()
+        d1_date = target - pd.Timedelta(days=1)
+        d1_rows = df[
+            (df["target_date_str"] == target_date_iso) &
+            (df["forecast_or_actual"] == "forecast") &
+            (df["forecast_time"].dt.date == d1_date)
+        ].dropna(subset=["predicted_high"])
+        if d1_rows.empty:
+            return None
+        return float(d1_rows.sort_values("forecast_time").iloc[-1]["predicted_high"])
+    except Exception as e:
+        print(f"  ⚠️ _get_nws_d1_final: {e}")
+        return None
 
 
 def _fetch_mos_forecast(target_date_iso: str) -> Optional[float]:
@@ -1267,6 +1298,41 @@ def _compute_ml_prediction(
                 v2_features.setdefault("nws_d1_final", np.nan)
                 v2_features.setdefault("nws_overnight_jump", np.nan)
 
+            # ── Synoptic Data (MesoWest) — 100+ stations within 5mi of Central Park ──
+            try:
+                from synoptic_client import get_synoptic_obs_features
+                import nws_auto_logger as _nal_syn
+                _syn_cfg = _nal_syn._CITY_CFG
+                syn_feats = get_synoptic_obs_features(
+                    lat=_syn_cfg.get("open_meteo_lat", 40.7834),
+                    lon=_syn_cfg.get("open_meteo_lon", -73.965),
+                    nws_last=features.get("nws_last"),
+                    radius_miles=5.0,
+                )
+                v2_features.update(syn_feats)
+                syn_pop = sum(1 for v in syn_feats.values()
+                              if v is not None and not (isinstance(v, float) and np.isnan(v)))
+                if syn_pop > 0:
+                    print(f"📡 Synoptic features: {syn_pop}/{len(syn_feats)} populated")
+            except Exception as _syn_e:
+                print(f"  ⚠️ Synoptic features skipped: {_syn_e}")
+                for col in SYNOPTIC_OBS_COLS:
+                    v2_features.setdefault(col, np.nan)
+
+            # ── NY State Mesonet — borough stations, no API key needed ──
+            try:
+                from nysmesonet_client import get_nysm_obs_features
+                nysm_feats = get_nysm_obs_features(nws_last=features.get("nws_last"))
+                v2_features.update(nysm_feats)
+                nysm_pop = sum(1 for v in nysm_feats.values()
+                               if v is not None and not (isinstance(v, float) and np.isnan(v)))
+                if nysm_pop > 0:
+                    print(f"🏙️ NYSM features: {nysm_pop}/{len(nysm_feats)} populated")
+            except Exception as _nysm_e:
+                print(f"  ⚠️ NYSM features skipped: {_nysm_e}")
+                for col in NYSM_OBS_COLS:
+                    v2_features.setdefault(col, np.nan)
+
             # Run atmospheric predictor (first-stage model) if available
             if v2_atm_predictor is not None:
                 try:
@@ -1408,17 +1474,25 @@ def _parse_metar_6hr_max(raw_message: str) -> float | None:
 
 def collect_nws_observations(city_key: str = None) -> int:
     """
-    Fetch recent NWS station observations and upsert into Supabase nws_observations table.
-
-    Returns the number of rows upserted.
+    Fetch recent NWS observations for primary + regional stations and upsert to Supabase.
+    For NYC: fetches KNYC (primary) + KJFK + KLGA (regional).
+    Returns total rows upserted across all stations.
     """
     import nws_auto_logger as _nal
     cfg = _nal._CITY_CFG
-    station = cfg.get("obs_station", "KNYC")
+    primary_station = cfg.get("obs_station", "KNYC")
     tz_name = cfg.get("timezone", "America/New_York")
     city = city_key or _CITY_KEY
+    all_stations = [primary_station] + cfg.get("regional_obs_stations", [])
+    total = 0
+    for stn in all_stations:
+        total += _collect_obs_single_station(stn, city, tz_name)
+    return total
 
-    # Fetch last 24 observations (~24 hours of hourly data)
+
+def _collect_obs_single_station(station: str, city: str, tz_name: str) -> int:
+    """Fetch and upsert NWS observations for a single station."""
+    # Fetch last 24 observations
     url = f"https://api.weather.gov/stations/{station}/observations?limit=24"
     req = urllib.request.Request(url, headers={
         "Accept": "application/geo+json",
@@ -1867,12 +1941,88 @@ def _fetch_observation_features(
     else:
         features["obs_temp_vs_forecast_max"] = np.nan
 
-    # Fill any missing keys with NaN
+    # Fill any missing OBSERVATION_COLS keys with NaN
     for col in OBSERVATION_COLS:
         if col not in features:
             features[col] = np.nan
 
+    # ── Regional multi-station features (JFK + LGA) ──────────────────────
+    try:
+        import nws_auto_logger as _nal
+        cfg_r = _nal._CITY_CFG
+        regional_stations = cfg_r.get("regional_obs_stations", [])
+        station_col_map = {"KJFK": "obs_jfk_temp", "KLGA": "obs_lga_temp"}
+
+        all_temps = []
+        primary_max = features.get("obs_max_so_far")
+        if primary_max is not None and not (isinstance(primary_max, float) and np.isnan(primary_max)):
+            all_temps.append(primary_max)
+
+        for stn in regional_stations:
+            col_key = station_col_map.get(stn)
+            stn_rows = _query_supabase_obs_by_station(target_date_iso, stn)
+            valid = [r for r in stn_rows if r.get("temp_f") is not None]
+            if valid and col_key:
+                t = valid[-1]["temp_f"]
+                features[col_key] = round(t, 1)
+                all_temps.append(t)
+                print(f"  🌡️ {stn}: {t:.1f}°F")
+            elif col_key:
+                features[col_key] = np.nan
+
+        if len(all_temps) >= 2:
+            features["obs_regional_spread"] = round(max(all_temps) - min(all_temps), 1)
+            features["obs_regional_mean"] = round(sum(all_temps) / len(all_temps), 1)
+            features["obs_regional_vs_nws"] = (
+                round(features["obs_regional_mean"] - nws_last, 1) if nws_last is not None else np.nan
+            )
+            print(f"  🗺️ Regional: spread={features['obs_regional_spread']:.1f}°F  "
+                  f"mean={features['obs_regional_mean']:.1f}°F  "
+                  f"vs NWS={features['obs_regional_vs_nws']:+.1f}°F" if nws_last else
+                  f"  🗺️ Regional: spread={features['obs_regional_spread']:.1f}°F  "
+                  f"mean={features['obs_regional_mean']:.1f}°F")
+        else:
+            for col in ["obs_regional_spread", "obs_regional_mean", "obs_regional_vs_nws"]:
+                features[col] = np.nan
+    except Exception as _reg_e:
+        print(f"  ⚠️ Regional obs failed: {_reg_e}")
+        for col in ["obs_jfk_temp", "obs_lga_temp", "obs_regional_spread",
+                    "obs_regional_mean", "obs_regional_vs_nws"]:
+            features.setdefault(col, np.nan)
+
     return features
+
+
+def _query_supabase_obs_by_station(target_date_iso: str, station: str, city: str = None) -> list[dict]:
+    """Query Supabase nws_observations for a specific date + station."""
+    sb_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    sb_key = os.environ.get("SUPABASE_SERVICE_ROLE", "")
+    if not sb_url or not sb_key:
+        return []
+    import nws_auto_logger as _nal
+    cfg = _nal._CITY_CFG
+    tz_name = cfg.get("timezone", "America/New_York")
+    city = city or _CITY_KEY
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo(tz_name)
+    start_local = datetime.fromisoformat(f"{target_date_iso}T00:00:00").replace(tzinfo=tz)
+    end_local = start_local + timedelta(days=1)
+    start_utc = start_local.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
+    end_utc = end_local.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
+    endpoint = f"{sb_url}/rest/v1/nws_observations"
+    params = (f"?city=eq.{city}&station=eq.{station}"
+              f"&observed_at=gte.{start_utc}&observed_at=lt.{end_utc}"
+              f"&order=observed_at.asc&limit=50")
+    req = urllib.request.Request(
+        endpoint + params,
+        headers={"apikey": sb_key, "Authorization": f"Bearer {sb_key}", "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        print(f"  ⚠️ Supabase obs query {station}: {e}")
+        return []
 
 
 def _sb_endpoint():

@@ -4,7 +4,7 @@
 import math
 
 # ═══════════════════════════════════════════════════════════════════════
-# v1 features (30 columns) — backward compatible, used by existing models
+# v1 features (31 columns) — backward compatible, used by existing models
 # ═══════════════════════════════════════════════════════════════════════
 FEATURE_COLS = [
     # NWS forecast statistics
@@ -37,136 +37,169 @@ ACCU_NWS_FALLBACK = {
 }
 
 # ═══════════════════════════════════════════════════════════════════════
-# v2 atmospheric features (27 columns) — from Open-Meteo APIs + NWS MOS
+# v2 atmospheric features — from Open-Meteo APIs + NWS MOS
 # ═══════════════════════════════════════════════════════════════════════
 
 # Observed atmospheric conditions (23 features)
-# Source: Open-Meteo archive (historical) or forecast API (live)
 ATMOSPHERIC_COLS = [
-    "atm_wind_max",           # Max wind speed (mph) — high wind = temp moderation
+    "atm_wind_max",           # Max wind speed (mph)
     "atm_wind_mean",          # Mean wind speed (mph)
     "atm_wind_dir_sin",       # Wind direction sin — onshore vs offshore
     "atm_wind_dir_cos",       # Wind direction cos
-    "atm_humidity_mean",      # Mean relative humidity (%) — dry air = volatile temps
+    "atm_humidity_mean",      # Mean relative humidity (%)
     "atm_humidity_min",       # Min humidity (%) — afternoon dryness
-    "atm_dewpoint_mean",      # Mean dewpoint (°F) — moisture content
+    "atm_dewpoint_mean",      # Mean dewpoint (°F)
     "atm_pressure_mean",      # Mean surface pressure (hPa)
-    "atm_pressure_change",    # Pressure change over day (hPa) — falling = approaching system
-    "atm_cloud_cover_mean",   # Mean cloud cover (%) — clouds cap heating
+    "atm_pressure_change",    # Pressure change over day (hPa)
+    "atm_cloud_cover_mean",   # Mean cloud cover (%)
     "atm_cloud_cover_max",    # Max cloud cover (%)
-    "atm_precip_total",       # Total precipitation (inches) — rain caps daytime high
-    "atm_temp_range",         # Daily temp range (°F) — volatility proxy
-    "atm_overnight_min",      # Overnight minimum (midnight-8am) — baseline
-    "atm_morning_temp_6am",   # Temperature at 6am — starting point
-    "atm_850mb_temp_max",     # Max 850mb temperature (daytime 10am-6pm) — warm air advection aloft
+    "atm_precip_total",       # Total precipitation (inches)
+    "atm_temp_range",         # Daily temp range (°F)
+    "atm_overnight_min",      # Overnight minimum (midnight-8am)
+    "atm_morning_temp_6am",   # Temperature at 6am
+    "atm_850mb_temp_max",     # Max 850mb temperature (daytime 10am-6pm)
     "atm_850mb_temp_mean",    # Mean 850mb temperature (daytime 10am-6pm)
-    "atm_925mb_temp_max",     # Max 925mb temperature — closer to surface than 850mb, more relevant for NYC BL
+    "atm_925mb_temp_max",     # Max 925mb temperature — surface-adjacent warm advection
     "atm_925mb_temp_mean",    # Mean 925mb temperature
-    "atm_solar_radiation_peak",  # Peak solar irradiance midday (W/m²) — high = strong afternoon heating
+    "atm_solar_radiation_peak",  # Peak solar irradiance midday (W/m²)
     "atm_solar_radiation_mean",  # Mean solar irradiance midday (W/m²)
-    "atm_bl_height_max",      # Max planetary boundary layer height (m) during peak heating (10am-4pm)
-                              # Deep BL (>2000m) + strong solar = spike-prone day (radiation-driven overshoot)
-    "atm_bl_height_mean",     # Mean PBL height during peak heating (10am-4pm) — sustained mixing depth
+    "atm_bl_height_max",      # Max planetary boundary layer height (m) 10am-4pm
+    "atm_bl_height_mean",     # Mean PBL height during peak heating 10am-4pm
 ]
 
 # Ensemble uncertainty features (5 features)
-# Source: Open-Meteo ECMWF 51-member ensemble (live forecast only, NaN for historical)
 ENSEMBLE_COLS = [
     "ens_spread",             # Max - min daily high across 51 members
-    "ens_std",                # Std dev across members — uncertainty width
-    "ens_iqr",                # IQR (p75 - p25) — robust spread
+    "ens_std",                # Std dev across members
+    "ens_iqr",                # IQR (p75 - p25)
     "ens_mean",               # Mean of ensemble members
     "ens_skew",               # Skewness — asymmetric risk
 ]
 
-# Multi-model cross-comparison features (7 features)
-# Source: Open-Meteo ECMWF, GFS, ICON, GEM, HRRR (live forecast only, NaN for historical)
-# HRRR (ncep_hrrr_conus) has known boundary-layer warm bias. Sophisticated Kalshi traders
-# watch HRRR vs ECMWF spread to detect when HRRR is "overmixing" (overestimating heating).
-# When HRRR and ECMWF diverge by >5°F, one of them is usually badly wrong.
+# Multi-model cross-comparison features (11 features)
+# ECMWF, GFS, ICON (German DWD), GEM (Canadian CMC), HRRR (NCEP mesoscale)
+# All 5 models fetched via Open-Meteo. Previously ICON and GEM were fetched
+# but dropped — now exposed as individual features.
 MULTIMODEL_COLS = [
     "mm_spread",              # Max model - min model daily high (all 5 models)
     "mm_std",                 # Std dev across models
-    "mm_mean",                # Multi-model mean consensus
-    "mm_ecmwf_gfs_diff",      # ECMWF - GFS difference — persistent model bias
-    "mm_hrrr_max",            # HRRR predicted daily max (warm-biased, high-res mesoscale)
-    "mm_hrrr_ecmwf_diff",     # HRRR - ECMWF: positive = HRRR warmer (overmix signal)
-    "mm_hrrr_gfs_diff",       # HRRR - GFS: HRRR mesoscale vs synoptic scale agreement
+    "mm_mean",                # Multi-model consensus mean
+    "mm_ecmwf_gfs_diff",      # ECMWF - GFS difference
+    "mm_hrrr_max",            # HRRR predicted daily max (warm-biased mesoscale)
+    "mm_hrrr_ecmwf_diff",     # HRRR - ECMWF: positive = HRRR overmixing
+    "mm_hrrr_gfs_diff",       # HRRR - GFS: mesoscale vs synoptic agreement
+    "mm_icon_max",            # ICON (German DWD) predicted daily max
+    "mm_gem_max",             # GEM (Canadian CMC) predicted daily max
+    "mm_icon_gfs_diff",       # ICON - GFS: European vs American disagreement
+    "mm_gem_ecmwf_diff",      # GEM - ECMWF: Canadian vs European disagreement
 ]
 
 # Intraday temperature curve features (10 features)
-# Source: Open-Meteo archive hourly temperature_2m (historical) or NWS observations (live)
-# These capture the SHAPE of the daily heating curve — crucial for predicting
-# whether the actual high will overshoot or undershoot the forecast.
 INTRADAY_CURVE_COLS = [
-    "intra_temp_9am",             # Temperature at 9am — morning baseline after sunrise heating
-    "intra_temp_noon",            # Temperature at noon — midday check
-    "intra_temp_3pm",             # Temperature at 3pm — near typical peak
-    "intra_temp_5pm",             # Temperature at 5pm — late afternoon (late push detection)
-    "intra_heating_rate_am",      # (noon - 9am) / 3 = °F/hr morning heating rate
-    "intra_heating_rate_pm",      # (3pm - noon) / 3 = °F/hr afternoon heating rate
-    "intra_peak_hour",            # Hour when max temperature occurred (0-23)
-    "intra_late_heating",         # 5pm - 3pm: positive = still warming late (midnight push signal)
-    "intra_rise_from_overnight",  # 9am temp - overnight min: morning warmup magnitude
-    "intra_high_vs_noon",         # actual daily max - noon temp: how much heating after noon
+    "intra_temp_9am",
+    "intra_temp_noon",
+    "intra_temp_3pm",
+    "intra_temp_5pm",
+    "intra_heating_rate_am",
+    "intra_heating_rate_pm",
+    "intra_peak_hour",
+    "intra_late_heating",
+    "intra_rise_from_overnight",
+    "intra_high_vs_noon",
 ]
 
 # Overnight carryover detection features (3 features)
-# Helps the model handle days where the CLI actual high is an overnight
-# carryover from the previous warm day, not the daytime peak.
 OVERNIGHT_CARRYOVER_COLS = [
-    "prev_day_high",          # Yesterday's actual high (°F) — from CSV or Open-Meteo
-    "prev_day_temp_drop",     # prev_day_high - nws_last: large positive = potential carryover
-    "midnight_temp",          # Temperature at midnight (12am) from Open-Meteo hourly
+    "prev_day_high",
+    "prev_day_temp_drop",
+    "midnight_temp",
 ]
 
 # Atmospheric predictor output features (2 features)
-# Source: First-stage ML model trained on 1,278 historical days
-# Learns: atmospheric_conditions + season → actual daily high
-# The classifier gets these as features so it knows what the atmosphere
-# "expects" vs what the forecast says — when they diverge, the forecast
-# is more likely to be wrong.
 ATM_PREDICTOR_COLS = [
-    "atm_predicted_high",       # Atmospheric model's predicted daily high (°F)
-    "atm_vs_forecast_diff",     # nws_last - atm_predicted_high: positive = NWS higher than atmosphere
+    "atm_predicted_high",
+    "atm_vs_forecast_diff",
 ]
 
-# NWS MOS (Model Output Statistics) features (1 feature)
-# Source: NWS MEX product (live inference only, NaN for historical/backfill)
-# MOS provides an independent statistical post-processing of GFS model output.
+# NWS MOS features (1 feature)
 MOS_COLS = [
-    "mos_max_temp",             # MOS predicted max temperature for the target date
+    "mos_max_temp",
 ]
 
 # Intraday forecast revision features (2 features)
-# Captures how much NWS and AccuWeather revised their forecast after 9 AM.
-# Key signal: when an agency corrects its morning forecast significantly,
-# the actual high tends to follow the revision. Training data: last-before-9am
-# forecast vs. last forecast of the day. Live inference: 9am forecast vs. now.
-# NaN when no forecasts existed before 9 AM (pure overnight D1 rows).
 FORECAST_REVISION_COLS = [
-    "nws_post_9am_delta",   # nws_last - nws_at_9am: positive = NWS warmed up during day
-    "accu_post_9am_delta",  # accu_last - accu_at_9am: positive = AccuWeather warmed up
+    "nws_post_9am_delta",
+    "accu_post_9am_delta",
 ]
 
-# NWS real-time observation features (12 features)
-# Source: NWS station observations API (live), Open-Meteo archive hourly (training proxy)
-# These provide GROUND TRUTH during live inference — the delta between forecasted
-# and observed conditions is where the strongest signal lives.
-# For D1 (tomorrow) predictions: all obs_* features are NaN except obs_temp_vs_forecast_max.
+# NWS real-time observation features — KNYC primary station (12 features)
 OBSERVATION_COLS = [
-    "obs_latest_temp",          # Most recent observed temp (°F) from NWS station
+    "obs_latest_temp",          # Most recent observed temp (°F) from NWS KNYC
     "obs_latest_hour",          # Hour (0-23) of latest observation (local time)
     "obs_max_so_far",           # Running daily max from hourly observations
-    "obs_6hr_max",              # NWS official 6-hour max (reported at :51 every 6 hrs)
+    "obs_6hr_max",              # NWS official 6-hour max
     "obs_vs_intra_forecast",    # obs_latest_temp - Open-Meteo forecasted temp at same hour
     "obs_wind_speed",           # Observed wind speed (mph)
     "obs_wind_gust",            # Observed wind gust (mph)
-    "obs_wind_dir_sin",         # Wind direction circular encoding (sin component)
-    "obs_wind_dir_cos",         # Wind direction circular encoding (cos component)
-    "obs_cloud_cover",          # Mapped from NWS textDescription (0.0=Clear → 1.0=Overcast)
-    "obs_heating_rate",         # Observed heating trajectory (°F/hr over last 3 hours)
-    "obs_temp_vs_forecast_max", # obs_max_so_far - nws_last: how reality compares to forecast
+    "obs_wind_dir_sin",         # Wind direction circular encoding (sin)
+    "obs_wind_dir_cos",         # Wind direction circular encoding (cos)
+    "obs_cloud_cover",          # Sky condition mapped to 0.0=Clear → 1.0=Overcast
+    "obs_heating_rate",         # °F/hr over last 3 hours
+    "obs_temp_vs_forecast_max", # obs_max_so_far - nws_last
+]
+
+# Regional NYC-metro NWS station features (5 features)
+# KJFK + KLGA supplement KNYC to capture mesoscale gradients.
+# Sea-breeze days: JFK often 3-5°F colder than Central Park by midday.
+REGIONAL_OBS_COLS = [
+    "obs_jfk_temp",             # Latest KJFK (JFK Airport) observed temp (°F)
+    "obs_lga_temp",             # Latest KLGA (LaGuardia) observed temp (°F)
+    "obs_regional_spread",      # max(KNYC,JFK,LGA) - min: mesoscale gradient width
+    "obs_regional_mean",        # Mean of all available NYC-area NWS station temps
+    "obs_regional_vs_nws",      # obs_regional_mean - nws_last: metro reality vs forecast
+]
+
+# NWS forecast sequence features (2 features)
+# Captures overnight NWS jumps — when D0 morning diverges from D-1 final.
+# April 10 2026: D-1 final=63°F, D0 3am=66°F (+3°F jump), actual=63°F.
+NWS_SEQUENCE_COLS = [
+    "nws_d1_final",             # Last NWS forecast issued the day BEFORE target date
+    "nws_overnight_jump",       # nws_first_d0 - nws_d1_final (positive = NWS warmed overnight)
+]
+
+# Weather Underground PWS features (4 features) — requires WU_API_KEY secret
+# Hyper-local citizen weather station data near Central Park.
+AMBIENT_OBS_COLS = [
+    "obs_ambient_temp",         # Mean temp across nearby PWS stations (°F)
+    "obs_ambient_vs_nws",       # obs_ambient_temp - nws_last
+    "obs_ambient_spread",       # Max - min temp across PWS stations
+    "obs_ambient_count",        # Number of stations with valid readings
+]
+
+# Synoptic Data (MesoWest) features (6 features) — requires SYNOPTIC_TOKEN secret
+# Aggregates 100+ station networks within 5 miles of Central Park:
+# ASOS, AWOS, NY Mesonet, maritime, campus sensors. Best multi-network consensus.
+SYNOPTIC_OBS_COLS = [
+    "obs_synoptic_mean",        # Mean temp across all nearby stations (°F)
+    "obs_synoptic_min",         # Coldest station — catches cold advection earliest
+    "obs_synoptic_max",         # Warmest station
+    "obs_synoptic_spread",      # Max - min across all stations
+    "obs_synoptic_vs_nws",      # obs_synoptic_mean - nws_last
+    "obs_synoptic_count",       # Number of valid stations
+]
+
+# NY State Mesonet features (6 features) — NO API KEY REQUIRED (public CSV)
+# SUNY Albany network. NYC borough stations: Manhattan (MANH), Brooklyn (BKLN),
+# Queens (QUEE), Bronx (BRON), Staten Island (STAT).
+# Captures urban heat island gradient: when BKLN = 59°F and MANH = 64°F while
+# NWS says 66°F, that's a strong signal the forecast is too warm.
+NYSM_OBS_COLS = [
+    "obs_nysm_mean",            # Mean temp across NYC borough NYSM stations (°F)
+    "obs_nysm_min",             # Coldest borough
+    "obs_nysm_max",             # Warmest borough
+    "obs_nysm_spread",          # Borough temp gradient
+    "obs_nysm_vs_nws",          # obs_nysm_mean - nws_last
+    "obs_nysm_count",           # Number of valid borough stations
 ]
 
 # Features used as INPUT to the atmospheric predictor (first-stage model)
@@ -175,32 +208,27 @@ ATM_PREDICTOR_INPUT_COLS = ATMOSPHERIC_COLS + INTRADAY_CURVE_COLS + [
     "midnight_temp",
 ]
 
-# Combined v2 feature list (84 total: 31 + 23 + 5 + 7 + 10 + 3 + 2 + 1 + 2)
-# 31 = FEATURE_COLS (v1 + rolling_ml_error_7d), 23 = ATMOSPHERIC_COLS (incl 925mb + solar + BL height),
-# 5 = ENSEMBLE_COLS, 7 = MULTIMODEL_COLS (incl HRRR features), 10 = INTRADAY_CURVE_COLS,
-# 3 = OVERNIGHT_CARRYOVER_COLS, 2 = ATM_PREDICTOR_COLS, 1 = MOS_COLS,
-# 2 = FORECAST_REVISION_COLS (nws_post_9am_delta, accu_post_9am_delta)
-FEATURE_COLS_V2 = FEATURE_COLS + ATMOSPHERIC_COLS + ENSEMBLE_COLS + MULTIMODEL_COLS + INTRADAY_CURVE_COLS + OVERNIGHT_CARRYOVER_COLS + ATM_PREDICTOR_COLS + MOS_COLS + FORECAST_REVISION_COLS
+# v2 base feature list
+FEATURE_COLS_V2 = (FEATURE_COLS + ATMOSPHERIC_COLS + ENSEMBLE_COLS + MULTIMODEL_COLS +
+                   INTRADAY_CURVE_COLS + OVERNIGHT_CARRYOVER_COLS + ATM_PREDICTOR_COLS +
+                   MOS_COLS + FORECAST_REVISION_COLS)
 
-# v3 unified feature list (72 total — same features as v2)
-# The difference is architectural: v3 trains a SINGLE regression model on ALL
-# data (1,540+ days) predicting actual_high directly, instead of separate
-# regression + classifier.  HistGradientBoosting handles NaN forecast features
-# natively for multi-year rows.
+# v3 = v2 (same features, single unified regression model)
 FEATURE_COLS_V3 = FEATURE_COLS_V2
 
-# v4 feature list (92 total: 80 + 12 observation features)
-# Adds real-time NWS observation features that give the model ground-truth
-# temperature/wind/sky data to compare against forecasts during live inference.
-FEATURE_COLS_V4 = FEATURE_COLS_V3 + OBSERVATION_COLS
+# v4 — full feature set including all real-time observation sources
+# Total: v3(84) + obs(12) + regional(5) + seq(2) + pws(4) + synoptic(6) + nysm(6) = 119
+# HistGradientBoosting handles NaN natively — all live-only cols degrade gracefully
+# for historical training rows.
+FEATURE_COLS_V4 = (FEATURE_COLS_V3 + OBSERVATION_COLS + REGIONAL_OBS_COLS +
+                   NWS_SEQUENCE_COLS + AMBIENT_OBS_COLS + SYNOPTIC_OBS_COLS + NYSM_OBS_COLS)
 
 # Additional features added per-candidate-bucket during classification (4)
-# These are NOT in FEATURE_COLS_V2 because they vary per candidate bucket, not per day
 BUCKET_POSITION_COLS = [
-    "bucket_center",          # Center temperature of candidate bucket
-    "dist_from_prediction",   # Distance from regression prediction to bucket center
-    "dist_from_accu",         # Distance from AccuWeather forecast to bucket center
-    "dist_from_nws",          # Distance from NWS forecast to bucket center
+    "bucket_center",
+    "dist_from_prediction",
+    "dist_from_accu",
+    "dist_from_nws",
 ]
 
 
@@ -218,9 +246,7 @@ def norm_cdf(x, mu, sigma):
 def derive_bucket_probabilities(predicted_temp, residual_std, spread=8):
     """
     Derive Kalshi bucket probabilities from a Gaussian centered on predicted_temp.
-
-    Each bucket is a 1-degree range [low, low+1). Returns dict like {"42-43": 0.27, ...}
-    with probabilities > 0.001, covering ±spread degrees around the prediction.
+    Each bucket is a 1-degree range [low, low+1).
     """
     center = int(round(predicted_temp))
     buckets = {}
