@@ -3343,9 +3343,10 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
 // Shared between renderMLBetSignal() and updateCorrectionBoxes()
 function _mlSignalStyle(sig) {
   switch (sig) {
-    case "STRONG_BET": return { color: "#059669", bg: "#ecfdf5", border: "#059669", label: "STRONG BET", icon: "" };
-    case "BET":        return { color: "#16a34a", bg: "#f0fdf4", border: "#16a34a", label: "BET", icon: "" };
-    case "SKIP":       return { color: "#6b7280", bg: "#f3f4f6", border: "#9ca3af", label: "NO EDGE", icon: "" };
+    case "STRONG_BET": return { color: "#059669", bg: "#ecfdf5", border: "#059669", label: "STRONG BET", icon: "🔥" };
+    case "BET":        return { color: "#16a34a", bg: "#f0fdf4", border: "#16a34a", label: "BET",        icon: "✅" };
+    case "LEAN":       return { color: "#d97706", bg: "#fffbeb", border: "#f59e0b", label: "LEAN",       icon: "📊" };
+    case "SKIP":       return { color: "#6b7280", bg: "#f3f4f6", border: "#9ca3af", label: "NO EDGE",    icon: "⏭️" };
     default:           return { color: "#6b7280", bg: "#f9fafb", border: "#d1d5db", label: sig || "---", icon: "" };
   }
 }
@@ -4162,6 +4163,8 @@ window._predTomorrow = predTomorrow;
         const mlVal    = Number(ml.today);
         const bucket   = ml.todayMLBucket;
         const signal   = ml.todayBetSignal;
+        const kellyF   = ml.todayKellyFraction;
+        const mktProb  = ml.todayMarketProbAtPrediction;
         const top2     = _mlGetTop2(ml.todayBucketProbs, ml.todayMarketSnapshot);
         const s        = _mlSignalStyle(signal);
         const card     = document.getElementById("ml-signal-today-card");
@@ -4184,6 +4187,7 @@ window._predTomorrow = predTomorrow;
               ${signal ? `<span class="signal-badge" style="background:${s.bg};color:${s.color};padding:3px 8px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid ${s.border};margin-left:4px;">${s.icon} ${s.label}</span>` : ''}
             </div>
             <div style="font-size:12px;color:#9ca3af;">Combined top-2: <span style="color:${combColor};font-weight:600;">${combinedPct}%</span></div>
+            ${kellyF != null && kellyF > 0 ? `<div style="font-size:12px;color:#9ca3af;margin-top:2px;">📐 Bet <span style="color:#059669;font-weight:700;">${Math.round(kellyF*100)}% of bankroll</span>${mktProb != null ? ` · market was ${Math.round(mktProb*100)}%` : ''}</div>` : ''}
           `;
         } else if (bucket) {
           const confPct = ml.todayMLConfidence != null ? Math.round(Number(ml.todayMLConfidence) * 100) : null;
@@ -4194,6 +4198,7 @@ window._predTomorrow = predTomorrow;
               ${signal ? `<span class="signal-badge" style="background:${s.bg};color:${s.color};padding:3px 8px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid ${s.border};margin-left:4px;">${s.icon} ${s.label}</span>` : ''}
             </div>
             ${confPct != null ? `<div style="font-size:12px;color:#9ca3af;">ML confidence: <span style="color:${confColor};font-weight:600;">${confPct}%</span></div>` : ''}
+            ${kellyF != null && kellyF > 0 ? `<div style="font-size:12px;color:#9ca3af;margin-top:2px;">📐 Bet <span style="color:#059669;font-weight:700;">${Math.round(kellyF*100)}% of bankroll</span>${mktProb != null ? ` · market was ${Math.round(mktProb*100)}%` : ''}</div>` : ''}
           `;
         }
 
@@ -4303,11 +4308,13 @@ window._predTomorrow = predTomorrow;
       if (hasML) {
         // ── ML is primary ──────────────────────────────────────────────────────
         const mlVal  = Number(ml.tomorrow);
-        const bucket = ml.tomorrowMLBucket;
-        const signal = ml.tomorrowBetSignal;
-        const top2   = _mlGetTop2(ml.tomorrowBucketProbs, ml.tomorrowMarketSnapshot);
-        const s      = _mlSignalStyle(signal);
-        const card   = document.getElementById("ml-signal-tomorrow-card");
+        const bucket  = ml.tomorrowMLBucket;
+        const signal  = ml.tomorrowBetSignal;
+        const kellyF  = ml.tomorrowKellyFraction;
+        const mktProb = ml.tomorrowMarketProbAtPrediction;
+        const top2    = _mlGetTop2(ml.tomorrowBucketProbs, ml.tomorrowMarketSnapshot);
+        const s       = _mlSignalStyle(signal);
+        const card    = document.getElementById("ml-signal-tomorrow-card");
         if (card) card.style.borderLeftColor = s.border;
 
         // Build top-2 bucket HTML
@@ -4327,6 +4334,7 @@ window._predTomorrow = predTomorrow;
               ${signal ? `<span class="signal-badge" style="background:${s.bg};color:${s.color};padding:3px 8px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid ${s.border};margin-left:4px;">${s.icon} ${s.label}</span>` : ''}
             </div>
             <div style="font-size:12px;color:#9ca3af;">Combined top-2: <span style="color:${combColor};font-weight:600;">${combinedPct}%</span></div>
+            ${kellyF != null && kellyF > 0 ? `<div style="font-size:12px;color:#9ca3af;margin-top:2px;">📐 Bet <span style="color:#059669;font-weight:700;">${Math.round(kellyF*100)}% of bankroll</span>${mktProb != null ? ` · market was ${Math.round(mktProb*100)}%` : ''}</div>` : ''}
           `;
         } else if (bucket) {
           const confPct = ml.tomorrowMLConfidence != null ? Math.round(Number(ml.tomorrowMLConfidence) * 100) : null;
@@ -4337,6 +4345,7 @@ window._predTomorrow = predTomorrow;
               ${signal ? `<span class="signal-badge" style="background:${s.bg};color:${s.color};padding:3px 8px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid ${s.border};margin-left:4px;">${s.icon} ${s.label}</span>` : ''}
             </div>
             ${confPct != null ? `<div style="font-size:12px;color:#9ca3af;">ML confidence: <span style="color:${confColor};font-weight:600;">${confPct}%</span></div>` : ''}
+            ${kellyF != null && kellyF > 0 ? `<div style="font-size:12px;color:#9ca3af;margin-top:2px;">📐 Bet <span style="color:#059669;font-weight:700;">${Math.round(kellyF*100)}% of bankroll</span>${mktProb != null ? ` · market was ${Math.round(mktProb*100)}%` : ''}</div>` : ''}
           `;
         }
 
@@ -5303,6 +5312,8 @@ async function loadMLPredictions() {
         window.mlPredictions.todayMarketSnapshot = row.kalshi_market_snapshot || null;
         window.mlPredictions.todayMLVersion = row.ml_version || null;
         window.mlPredictions.todayBucketProbs = row.ml_bucket_probs || null;
+        window.mlPredictions.todayKellyFraction = row.kelly_fraction != null ? Number(row.kelly_fraction) : null;
+        window.mlPredictions.todayMarketProbAtPrediction = row.market_prob_at_prediction != null ? Number(row.market_prob_at_prediction) : null;
         // Canonical = first non-null ML prediction of the day (set once, never overwritten)
         window.mlPredictions.todayMLBucketCanonical = row.ml_bucket_canonical || null;
         window.mlPredictions.todayMLFCanonical = row.ml_f_canonical != null ? Number(row.ml_f_canonical) : null;
@@ -5317,6 +5328,8 @@ async function loadMLPredictions() {
         window.mlPredictions.tomorrowMarketSnapshot = row.kalshi_market_snapshot || null;
         window.mlPredictions.tomorrowMLVersion = row.ml_version || null;
         window.mlPredictions.tomorrowBucketProbs = row.ml_bucket_probs || null;
+        window.mlPredictions.tomorrowKellyFraction = row.kelly_fraction != null ? Number(row.kelly_fraction) : null;
+        window.mlPredictions.tomorrowMarketProbAtPrediction = row.market_prob_at_prediction != null ? Number(row.market_prob_at_prediction) : null;
         gotTomorrow = true;
       }
       if (gotToday && gotTomorrow) break;
