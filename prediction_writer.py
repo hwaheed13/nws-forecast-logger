@@ -1118,26 +1118,29 @@ def _compute_ml_prediction(
     # --- 10. v1 regression prediction (if v1 models available) ---
     result = {}
     if temp_model is not None:
-        predicted_bias = float(temp_model.predict(X)[0])
-        ml_temp = base + predicted_bias
+        try:
+            predicted_bias = float(temp_model.predict(X)[0])
+            ml_temp = base + predicted_bias
 
-        residual_std = 2.0
-        if isinstance(bucket_info, dict) and "residual_std" in bucket_info:
-            residual_std = bucket_info["residual_std"]
+            residual_std = 2.0
+            if isinstance(bucket_info, dict) and "residual_std" in bucket_info:
+                residual_std = bucket_info["residual_std"]
 
-        bucket_dict = derive_bucket_probabilities(ml_temp, residual_std)
-        best_bucket = max(bucket_dict, key=bucket_dict.get)
-        confidence = bucket_dict[best_bucket]
+            bucket_dict = derive_bucket_probabilities(ml_temp, residual_std)
+            best_bucket = max(bucket_dict, key=bucket_dict.get)
+            confidence = bucket_dict[best_bucket]
 
-        print(f"🤖 ML v1 prediction for {target_date_iso}: {ml_temp:.1f}°F "
-              f"(base={base_src}={base:.0f}, bias={predicted_bias:+.2f}, "
-              f"bucket={best_bucket}, conf={confidence:.2%})")
+            print(f"🤖 ML v1 prediction for {target_date_iso}: {ml_temp:.1f}°F "
+                  f"(base={base_src}={base:.0f}, bias={predicted_bias:+.2f}, "
+                  f"bucket={best_bucket}, conf={confidence:.2%})")
 
-        result = {
-            "ml_f": round(ml_temp, 1),
-            "ml_bucket": best_bucket,
-            "ml_confidence": round(confidence, 4),
-        }
+            result = {
+                "ml_f": round(ml_temp, 1),
+                "ml_bucket": best_bucket,
+                "ml_confidence": round(confidence, 4),
+            }
+        except Exception as _v1_e:
+            print(f"⚠️ v1 regression predict failed (skipping to v4/v2): {_v1_e}")
 
     # --- 11. Try v4 models first (v2 + observation features), fall back to v2 ---
     v4_regressor, v4_bucket_info, v4_classifier = _load_v4_models()
@@ -1886,11 +1889,18 @@ def supabase_upsert(row: dict) -> None:
             _ = resp.read()
         print("✅ upsert:", {k: row.get(k) for k in ("lead_used","target_date","timestamp","prediction_value","ml_f")})
     except Exception as e:
+        err_body = ""
         if hasattr(e, "read"):
-            try: print("❌ supabase:", getattr(e,'code','?'), e.read().decode("utf-8", "ignore"))
-            except: print("❌ supabase:", e)
+            try:
+                err_body = e.read().decode("utf-8", "ignore")
+                print(f"❌ supabase {getattr(e,'code','?')}: {err_body}")
+            except Exception:
+                print(f"❌ supabase: {e}")
         else:
-            print("❌ supabase:", e)
+            print(f"❌ supabase: {e}")
+        # Re-raise so callers know the upsert failed. write_both_snapshots wraps
+        # each write in try/except and will log the failure without crashing.
+        raise RuntimeError(f"supabase upsert failed: {err_body or e}") from e
 
 def _latest_forecast(rows: list[dict], date_iso: str, source: Optional[str]) -> Optional[float]:
     """source=None → NWS; source='accu' → AccuWeather"""
