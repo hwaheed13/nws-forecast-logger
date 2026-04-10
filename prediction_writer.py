@@ -1160,11 +1160,34 @@ def _compute_ml_prediction(
             mos_temp = _fetch_mos_forecast(target_date_iso)
             v2_features["mos_max_temp"] = float(mos_temp) if mos_temp is not None else np.nan
 
+            # For D+1 predictions, compute today's NWS forecast so we can measure
+            # whether NWS is currently biased warm/cold in the actual airmass today.
+            # This is used as a pattern-stability-gated signal in _fetch_observation_features.
+            _today_nws_last = None
+            _today_iso = today_nyc().isoformat()
+            if target_date_iso != _today_iso:
+                _today_nws_fc = []
+                for _r in rows:
+                    if _r.get("forecast_or_actual") != "forecast":
+                        continue
+                    if _r.get("target_date") != _today_iso:
+                        continue
+                    if (_r.get("source") or "").lower() == "accuweather":
+                        continue
+                    _ph = _float_or_none(_r.get("predicted_high"))
+                    if _ph is None:
+                        continue
+                    _ts = _r.get("timestamp") or _r.get("forecast_time") or ""
+                    _today_nws_fc.append((_ts, _ph))
+                if _today_nws_fc:
+                    _today_nws_last = sorted(_today_nws_fc)[-1][1]
+
             # Fetch observation features (real-time NWS station data)
             obs_features = _fetch_observation_features(
                 target_date_iso,
                 nws_last=features.get("nws_last"),
                 atm_features=atm_features,
+                today_nws_last=_today_nws_last,
             )
             v2_features.update(obs_features)
             obs_populated = sum(1 for v in obs_features.values()
@@ -1573,14 +1596,20 @@ def _fetch_observation_features(
     target_date_iso: str,
     nws_last: float = None,
     atm_features: dict = None,
+    today_nws_last: float = None,
 ) -> dict:
     """
     Compute observation-derived features from NWS observations stored in Supabase.
 
     Args:
         target_date_iso: The date we're predicting for (YYYY-MM-DD)
-        nws_last: Latest NWS forecast value (°F) for obs_temp_vs_forecast_max
+        nws_last: Latest NWS forecast value (°F) for target date (used for D0 obs signal)
         atm_features: Dict of atmospheric features (for obs_vs_intra_forecast)
+        today_nws_last: Latest NWS forecast for TODAY (used for D1 pattern-stability signal).
+            When predicting tomorrow, we compare today's running max vs today's NWS forecast
+            (not tomorrow's) to measure whether NWS is currently biased warm/cold.
+            Gated on pattern stability: if a big temp swing is expected overnight (front
+            passage), the signal is noise and is set to NaN so 925mb/solar/HRRR carry it.
 
     Returns dict with all OBSERVATION_COLS. NaN for any unavailable feature.
     """
@@ -1589,8 +1618,13 @@ def _fetch_observation_features(
     # Only fetch observations for today (no observations exist for future dates)
     today = today_nyc().isoformat()
     if target_date_iso != today:
-        # For D1 (tomorrow) predictions, we can still provide today's overshoot
-        if nws_last is not None:
+        # For D1 (tomorrow) predictions: measure today's NWS bias and gate on pattern stability.
+        #
+        # Signal: today_max - today_nws_last (how wrong is NWS about TODAY's airmass?)
+        # Gate: if today_max vs tomorrow_nws swing is large (>7°F), a front is passing
+        #       overnight — today's NWS bias tells us nothing about tomorrow's pattern.
+        #       Leave NaN and let 925mb/solar/HRRR features carry the D+1 prediction.
+        if today_nws_last is not None:
             today_obs = _query_supabase_observations(today)
             if today_obs:
                 today_max = max(
@@ -1598,7 +1632,19 @@ def _fetch_observation_features(
                     default=None,
                 )
                 if today_max is not None:
-                    nan_result["obs_temp_vs_forecast_max"] = round(today_max - nws_last, 1)
+                    today_nws_bias = today_max - today_nws_last  # how biased is NWS today?
+                    # Pattern stability check: how different is today's temp from tomorrow's forecast?
+                    pattern_swing = abs(today_max - nws_last) if nws_last is not None else 999.0
+                    if pattern_swing < 7.0:
+                        # Stable pattern — NWS bias in today's airmass likely carries forward
+                        nan_result["obs_temp_vs_forecast_max"] = round(today_nws_bias, 1)
+                        print(f"  🌡️ D+1 NWS bias signal: today_max={today_max:.1f}°F, "
+                              f"today_nws={today_nws_last:.1f}°F → bias={today_nws_bias:+.1f}°F "
+                              f"(pattern stable, swing={pattern_swing:.1f}°F)")
+                    else:
+                        # Front passage / big pattern change — signal is noise, leave NaN
+                        print(f"  ⚡ D+1 pattern change detected (swing={pattern_swing:.1f}°F ≥ 7°F) "
+                              f"— suppressing NWS bias signal, 925mb/solar/HRRR carry the prediction")
         return nan_result
 
     obs_rows = _query_supabase_observations(target_date_iso)
