@@ -49,6 +49,11 @@ jobs:
           python backfill_multiyear.py --all --patch-live-cols
         continue-on-error: true
 
+      - name: Backfill current-season atmospheric data (NWS-logged days)
+        run: |
+          python backfill_atmospheric.py --all
+        continue-on-error: true
+
       - name: Run model training (v1 + v2 + v4 for all cities)
         run: |
           python train_models.py --all
@@ -73,7 +78,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add *.pkl *model_metadata*.json *multiyear_atmospheric.csv *observation_data.csv 2>/dev/null || true
+          git add *.pkl *model_metadata*.json *multiyear_atmospheric.csv *observation_data.csv *atmospheric_data.csv 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "No model changes to commit"
           else
