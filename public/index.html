@@ -4704,13 +4704,23 @@ window._predTomorrow = predTomorrow;
         );
 
         const _overnightSuppressed = (
-          // Original: NWS forecasts ≥2°F above overnight peak before 2pm
+          // NWS D0 confirmed high is ≥2°F above overnight peak — regardless of
+          // time of day. ml.todayNwsD0 comes from Supabase row.nws_d0 and is
+          // available immediately on page load (no async API wait). This is the
+          // primary guard that prevents the overnight note flashing on hard refresh
+          // before the 6-hr NWS API call returns.
+          (_overnightObsMax != null &&
+           ml.todayNwsD0 != null &&
+           Number(ml.todayNwsD0) >= _overnightObsMax + 2)
+          ||
+          // Legacy: NWS candidates/forecast value ≥2°F above overnight peak before 2pm
+          // (kept for cases where ml.todayNwsD0 is null)
           (_overnightObsMax != null &&
            _nwsForTodayGuard != null &&
            _nwsForTodayGuard >= _overnightObsMax + 2 &&
            _nowHourLocal < 14)
           ||
-          // New: 6-hour NWS max already exceeds the overnight peak by >1.5°F —
+          // 6-hour NWS max already exceeds the overnight peak by >1.5°F —
           // means a new daytime high has been set regardless of what the live
           // API returned to obs_snap_max_so_far (two different data sources).
           (_overnightObsMax != null &&
