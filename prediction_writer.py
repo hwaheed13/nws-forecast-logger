@@ -3239,18 +3239,43 @@ def _check_obs_trigger(
     return triggered, reasons
 
 
-# Keys stored in atm_snapshot — enough to detect intraday shifts, small payload
-# Also used to populate the dashboard data-sources panel via atm_snapshot JSON column
+# Keys stored in atm_snapshot — full feature set at prediction time.
+# Stored as JSONB in Supabase so the training pipeline can read them back
+# directly (features-at-prediction-time → actual outcome = gold-standard rows).
 _ATM_SNAPSHOT_KEYS = (
+    # Boundary layer / mixing
     "atm_bl_height_max", "atm_bl_height_mean",
-    "ens_spread", "ens_std", "ens_mean", "ens_skew",
-    "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff", "mm_ecmwf_gfs_diff", "mm_spread",
-    "mm_hrrr_max", "mm_ecmwf_gfs_diff", "mm_icon_max", "mm_gem_max",
-    "mm_icon_gfs_diff", "mm_gem_ecmwf_diff", "mm_mean", "mm_std",
-    "atm_850mb_temp_max", "atm_925mb_temp_max",
-    "atm_solar_radiation_peak",
+    # Cloud cover & solar
+    "atm_cloud_cover_mean", "atm_cloud_cover_max",
+    "atm_solar_radiation_peak", "atm_solar_radiation_mean",
+    # Surface wind (speed + circular encoding)
+    "atm_wind_max", "atm_wind_mean",
+    "atm_wind_dir_sin", "atm_wind_dir_cos",
+    # Humidity / dewpoint / pressure
+    "atm_humidity_mean", "atm_humidity_min",
+    "atm_dewpoint_mean",
+    "atm_pressure_mean", "atm_pressure_change",
+    # Temperature structure
+    "atm_temp_range", "atm_overnight_min", "atm_morning_temp_6am",
+    "atm_850mb_temp_max", "atm_850mb_temp_mean",
+    "atm_925mb_temp_max", "atm_925mb_temp_mean",
+    "atm_precip_total",
+    # Ensemble uncertainty
+    "ens_spread", "ens_std", "ens_mean", "ens_skew", "ens_iqr",
+    # Multi-model spread
+    "mm_spread", "mm_std", "mm_mean",
+    "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff", "mm_ecmwf_gfs_diff",
+    "mm_hrrr_max", "mm_icon_max", "mm_gem_max",
+    "mm_icon_gfs_diff", "mm_gem_ecmwf_diff",
+    # NWS sequence
     "nws_d1_final", "nws_overnight_jump",
-    "nws_last", "nws_first", "accu_last",
+    "nws_last", "nws_first", "nws_mean", "nws_spread",
+    "accu_last", "accu_mean",
+    # Intraday revision deltas
+    "nws_post_9am_delta", "accu_post_9am_delta",
+    # Carryover
+    "prev_day_high", "prev_day_temp_drop", "midnight_temp",
+    "atm_predicted_high", "atm_vs_forecast_diff",
 )
 
 

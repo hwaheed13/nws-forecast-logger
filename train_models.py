@@ -838,6 +838,128 @@ class NYCTemperatureModelTrainer:
             print(f"     Run: python backfill_atmospheric.py --city {self.city_key}")
             return None
 
+    def _load_supabase_snapshot_features(self) -> pd.DataFrame | None:
+        """
+        Load atmospheric feature snapshots directly from Supabase prediction_logs.
+
+        These rows capture the EXACT features the model saw at inference time
+        (Open-Meteo FORECAST data), which is higher quality than re-fetching
+        from the Open-Meteo ARCHIVE (which returns actuals, not forecasts).
+
+        Returns a DataFrame keyed by target_date with all atm_snapshot keys
+        plus nws_last / accu_last / ml_actual_high, ready to merge into
+        self.features_df as supplementary / override rows.
+        """
+        import os, json
+        url = os.environ.get("SUPABASE_URL")
+        key = os.environ.get("SUPABASE_SERVICE_ROLE") or os.environ.get("SUPABASE_KEY")
+        if not url or not key:
+            print("  ⚠️ Supabase creds not set — skipping snapshot training path")
+            return None
+        try:
+            from supabase import create_client
+            sb = create_client(url, key)
+            resp = (
+                sb.table("prediction_logs")
+                .select(
+                    "target_date,ml_actual_high,atm_snapshot,"
+                    "nws_last,accu_last,nws_first,nws_mean,nws_spread,"
+                    "ml_f,rolling_bias_7d,rolling_bias_21d"
+                )
+                .eq("city", self.city_key)
+                .in_("lead_used", ["today_for_today", "D0"])
+                .not_.is_("atm_snapshot", "null")
+                .not_.is_("ml_actual_high", "null")
+                .execute()
+            )
+            rows = resp.data or []
+            if not rows:
+                print("  ℹ️  No scored Supabase snapshot rows yet — will grow daily")
+                return None
+
+            records = []
+            for r in rows:
+                snap_raw = r.get("atm_snapshot") or {}
+                snap = json.loads(snap_raw) if isinstance(snap_raw, str) else snap_raw
+                record = {"target_date": str(r["target_date"])[:10]}
+                record["actual_high"]          = r.get("ml_actual_high")
+                record["nws_last"]             = r.get("nws_last") or snap.get("nws_last")
+                record["accu_last"]            = r.get("accu_last") or snap.get("accu_last")
+                record["nws_first"]            = r.get("nws_first") or snap.get("nws_first")
+                record["nws_mean"]             = snap.get("nws_mean")
+                record["nws_spread"]           = snap.get("nws_spread")
+                record["rolling_bias_7d"]      = r.get("rolling_bias_7d") or snap.get("rolling_bias_7d")
+                record["rolling_bias_21d"]     = r.get("rolling_bias_21d") or snap.get("rolling_bias_21d")
+                # Unpack all atm_snapshot keys as training features
+                for k, v in snap.items():
+                    if k not in record:
+                        record[k] = v
+                records.append(record)
+
+            df = pd.DataFrame(records)
+            df["target_date"] = df["target_date"].astype(str)
+            print(f"  📦 Supabase snapshots: {len(df)} scored rows with atm features "
+                  f"(features-at-prediction-time → gold-standard training data)")
+            return df
+
+        except Exception as e:
+            print(f"  ⚠️ Supabase snapshot load failed: {e}")
+            return None
+
+    def _merge_supabase_snapshots(self, snap_df: pd.DataFrame) -> None:
+        """
+        Merge Supabase snapshot rows into self.features_df.
+
+        Strategy:
+          • For dates already in features_df: override atmospheric columns
+            with the snapshot values (forecast-at-inference > archive-actual).
+          • For dates only in snap_df (not yet in CSV backfill): append as
+            new training rows so they count immediately.
+        """
+        if snap_df is None or snap_df.empty or self.features_df is None:
+            return
+
+        atm_cols = [c for c in snap_df.columns
+                    if c not in ("target_date", "actual_high",
+                                 "nws_last", "accu_last", "nws_first",
+                                 "nws_mean", "nws_spread",
+                                 "rolling_bias_7d", "rolling_bias_21d")]
+
+        existing_dates = set(self.features_df["target_date"].astype(str))
+
+        # 1. Override atmospheric features for dates we already have
+        override_df = snap_df[snap_df["target_date"].isin(existing_dates)].copy()
+        if not override_df.empty:
+            for col in atm_cols:
+                if col not in self.features_df.columns:
+                    self.features_df[col] = np.nan
+            self.features_df = self.features_df.merge(
+                override_df[["target_date"] + atm_cols].rename(
+                    columns={c: f"_sb_{c}" for c in atm_cols}),
+                on="target_date", how="left",
+            )
+            for col in atm_cols:
+                sb_col = f"_sb_{col}"
+                if sb_col in self.features_df.columns:
+                    mask = self.features_df[sb_col].notna()
+                    self.features_df.loc[mask, col] = self.features_df.loc[mask, sb_col]
+                    self.features_df.drop(columns=[sb_col], inplace=True)
+            print(f"  ↑ Overrode atmospheric features for {len(override_df)} existing dates "
+                  f"with Supabase forecast-time snapshots")
+
+        # 2. Append net-new dates (not yet in the CSV backfill)
+        new_df = snap_df[~snap_df["target_date"].isin(existing_dates)].copy()
+        if not new_df.empty:
+            # Ensure all columns align
+            for col in self.features_df.columns:
+                if col not in new_df.columns:
+                    new_df[col] = np.nan
+            self.features_df = pd.concat(
+                [self.features_df, new_df[self.features_df.columns]],
+                ignore_index=True,
+            ).sort_values("target_date").reset_index(drop=True)
+            print(f"  + Appended {len(new_df)} net-new training rows from Supabase snapshots")
+
     def _merge_atmospheric_features(self, atm_df: pd.DataFrame) -> None:
         """Merge atmospheric features into self.features_df by target_date."""
         if atm_df is None or self.features_df is None:
@@ -1519,6 +1641,11 @@ class NYCTemperatureModelTrainer:
         if obs_df is not None:
             self._merge_observation_features(obs_df)
 
+        # Supabase snapshot override (forecast-at-inference-time > archive actuals)
+        sb_snap_df = self._load_supabase_snapshot_features()
+        if sb_snap_df is not None:
+            self._merge_supabase_snapshots(sb_snap_df)
+
         # Ensure all v4 columns exist (fill missing with NaN)
         available_v4_cols = [c for c in FEATURE_COLS_V4 if c in self.features_df.columns]
         missing_v4 = [c for c in FEATURE_COLS_V4 if c not in self.features_df.columns]
@@ -1697,6 +1824,15 @@ class NYCTemperatureModelTrainer:
         obs_df = self._load_observation_features()
         if obs_df is not None:
             self._merge_observation_features(obs_df)
+
+        # ── Supabase snapshot override ─────────────────────────────────────
+        # Load features-at-prediction-time from Supabase prediction_logs.
+        # These override the Open-Meteo archive values for the same dates
+        # (forecast data > archive actuals for training/inference consistency),
+        # and add net-new rows for dates not yet in the CSV backfill.
+        sb_snap_df = self._load_supabase_snapshot_features()
+        if sb_snap_df is not None:
+            self._merge_supabase_snapshots(sb_snap_df)
 
         # Ensure all v5 columns exist
         missing_v5 = [c for c in FEATURE_COLS_V5 if c not in self.features_df.columns]
