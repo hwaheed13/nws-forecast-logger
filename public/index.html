@@ -638,6 +638,20 @@ input[type="date"] {
         </div>
       </div>
 
+      <!-- Atmospheric Signals Panel -->
+      <div id="atm-signals-panel" style="margin-bottom:18px; display:none;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+          <div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted);">
+            Live Atmospheric Signals
+            <span class="tip" tabindex="0" data-tip="These are the intraday inputs the v5 ML model ingests every 30 min. BL height controls how much surface heating mixes upward. Cloud cover and solar radiation drive afternoon warming intensity. 850mb/925mb temps reveal warm or cold air advection aloft.">i</span>
+          </div>
+          <div id="atm-signals-ts" style="font-size:11px; color:var(--text-light);"></div>
+        </div>
+        <div id="atm-signals-grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(175px,1fr)); gap:10px;">
+          <!-- Populated by renderAtmSignals() -->
+        </div>
+      </div>
+
       <!-- Kalshi -->
       <div class="kalshi-grid" style="margin-top:-10px;">
         <div class="kalshi-card">
@@ -1933,6 +1947,7 @@ function reloadCSV(opts = {}) {
     await updateCorrectionBoxes();
     updateObservations();
     try { await fetchLiveRegionalObs(); } catch {}
+    try { fetchAtmFeatures && fetchAtmFeatures(); } catch {}
 
   })
   .catch(err => {
@@ -3666,6 +3681,99 @@ async function fetchLiveRegionalObs() {
     };
     renderLiveSourcesPanel();
   } catch {}
+}
+
+// ── Atmospheric Signals ──────────────────────────────────────────────────
+window._atmFeatures = null;
+
+async function fetchAtmFeatures() {
+  if (currentCity !== 'nyc') return; // Only wired for NYC (Open-Meteo lat/lon)
+  try {
+    const r = await fetch('/api/atm-features?cb=' + Date.now(), { signal: AbortSignal.timeout(15000) });
+    if (!r.ok) return;
+    const d = await r.json();
+    window._atmFeatures = d;
+    renderAtmSignals();
+  } catch {}
+}
+
+function renderAtmSignals() {
+  const panel = document.getElementById('atm-signals-panel');
+  const grid  = document.getElementById('atm-signals-grid');
+  const ts    = document.getElementById('atm-signals-ts');
+  if (!panel || !grid) return;
+
+  const d = window._atmFeatures;
+  if (!d || currentCity !== 'nyc') { panel.style.display = 'none'; return; }
+
+  const pk = d.peak_heating || {};
+  const cur = d.current || {};
+
+  // Helper: signal card
+  const sig = (label, value, unit, tip, color) =>
+    `<div style="background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:10px;padding:10px 12px;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-bottom:4px;">${label}</div>
+      <div style="font-size:18px;font-weight:800;color:${color || 'var(--text-primary)'};">${value}<span style="font-size:12px;font-weight:600;color:var(--text-muted);margin-left:3px;">${unit}</span></div>
+      ${tip ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:3px;">${tip}</div>` : ''}
+    </div>`;
+
+  const fmt = (v, dec=0) => v != null ? v.toFixed(dec) : '–';
+
+  // BL height coloring
+  const blM   = pk.bl_height_max_m;
+  const blCat = pk.bl_category;
+  const blColor = blCat === 'very-shallow' ? '#dc2626'
+                : blCat === 'shallow'      ? '#d97706'
+                : blCat === 'deep'         ? '#2563eb'
+                : 'var(--accent-green)';
+  const blLabel = blCat === 'very-shallow' ? 'Very shallow — strong cap'
+                : blCat === 'shallow'      ? 'Shallow — moderate cap'
+                : blCat === 'deep'         ? 'Deep — good mixing'
+                : 'Normal mixing';
+
+  // Cloud cover coloring
+  const cloud = pk.cloud_cover_pct;
+  const cloudColor = cloud == null ? 'var(--text-primary)'
+                   : cloud < 20   ? '#16a34a'   // sunny
+                   : cloud < 50   ? '#d97706'   // partly cloudy
+                   : '#dc2626';                 // overcast
+
+  // Wind direction — flag sea breeze risk (E, ESE, ENE, SE)
+  const wdir = cur.wind_dir_card;
+  const wSea = wdir && ['E','ESE','ENE','SE'].includes(wdir);
+  const windColor = wSea ? '#d97706' : 'var(--text-primary)';
+  const windTip   = wSea ? '⚠️ Onshore flow — sea breeze risk' : (wdir ? wdir + ' flow' : '');
+
+  // 850mb warm advection
+  const t850 = pk.temp_850hPa;
+  const advColor = pk.warm_advection === 'warm' ? '#dc2626'
+                 : pk.warm_advection === 'cold' ? '#2563eb'
+                 : 'var(--text-primary)';
+  const advTip = pk.warm_advection === 'warm' ? 'Warm advection aloft'
+               : pk.warm_advection === 'cold' ? 'Cold advection aloft'
+               : 'Neutral advection';
+
+  // Solar
+  const solar = pk.solar_peak_wm2;
+  const solarColor = solar == null ? 'var(--text-primary)'
+                   : solar > 700  ? '#16a34a'
+                   : solar > 400  ? '#d97706'
+                   : '#dc2626';
+
+  grid.innerHTML = [
+    sig('Mixing Layer', fmt(blM), 'm peak', blLabel, blColor),
+    sig('Cloud Cover',  fmt(cloud), '%', cloud != null ? (cloud < 20 ? 'Mostly clear' : cloud < 50 ? 'Partly cloudy' : 'Mostly cloudy') : '', cloudColor),
+    sig('Solar Peak',   fmt(solar), 'W/m²', solar != null ? (solar > 700 ? 'Strong heating' : solar > 400 ? 'Moderate' : 'Weak — suppressed') : '', solarColor),
+    sig('850mb Temp',   fmt(t850, 1), '°F', advTip, advColor),
+    sig('925mb Temp',   fmt(pk.temp_925hPa, 1), '°F', 'Near-surface advection', 'var(--text-primary)'),
+    sig('Surface Wind', cur.wind_mph != null ? fmt(cur.wind_mph, 0) : '–', 'mph', windTip, windColor),
+  ].join('');
+
+  if (ts && d.fetchedAt) {
+    const t = new Date(d.fetchedAt).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
+    ts.textContent = `as of ${t}`;
+  }
+  panel.style.display = '';
 }
 
 function renderLiveSourcesPanel() {
@@ -5861,6 +5969,9 @@ async function bootApp() {
     try { await handleOvernightExceedanceNote(); } catch {}
     setInterval(() => { try { window.updateObservations && window.updateObservations(); } catch {} }, 5 * 60 * 1000);
     setInterval(() => { try { fetchLiveRegionalObs && fetchLiveRegionalObs(); } catch {} }, 5 * 60 * 1000);
+    // Atmospheric signals from Open-Meteo — refresh every 30 min (matches prediction writer cadence)
+    try { fetchAtmFeatures && fetchAtmFeatures(); } catch {}
+    setInterval(() => { try { fetchAtmFeatures && fetchAtmFeatures(); } catch {} }, 30 * 60 * 1000);
     setInterval(() => { try { window.updateDSM && window.updateDSM(); } catch {} }, 10 * 60 * 1000);
     setInterval(() => { try { window.updateSixHourMax && window.updateSixHourMax(); } catch {} }, 10 * 60 * 1000);
     setInterval(() => { try { window.updateSummaryBoxes && window.updateSummaryBoxes(); } catch {} }, 60 * 1000);
