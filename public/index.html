@@ -4728,6 +4728,62 @@ window._predTomorrow = predTomorrow;
             </div>`
           : '';
 
+        // ── Live data invalidation check ─────────────────────────────────────
+        // If observed max already exceeds the ML bucket upper bound, the
+        // prediction is wrong in real-time. Show a prominent warning with the
+        // implied bucket from the live Kalshi market structure.
+        const _liveObsMax = _overnightObsMax ?? (Number.isFinite(window._sixHourMaxF) ? window._sixHourMaxF : null);
+        const _mlBucketUpper = (() => {
+          if (!bucket) return null;
+          if (bucket.startsWith('>=')) return Infinity; // already upper edge
+          if (bucket.startsWith('<=')) return parseFloat(bucket.slice(2));
+          const parts = bucket.split('-');
+          if (parts.length === 2) return parseFloat(parts[1]);
+          return null;
+        })();
+        const _liveInvalidated = (
+          _liveObsMax != null &&
+          _mlBucketUpper != null &&
+          _mlBucketUpper !== Infinity &&
+          _liveObsMax > _mlBucketUpper + 0.5  // 0.5°F buffer — ignore borderline
+        );
+        let liveInvalidationBanner = '';
+        if (_liveInvalidated) {
+          const _impliedRange = todayMarket ? mapToKalshiRange(_liveObsMax, todayMarket) : null;
+          const _impliedLabel = _impliedRange
+            ? (_impliedRange.label || (_impliedRange.max == null
+                ? `${_impliedRange.min}°F or above`
+                : `${_impliedRange.min}–${_impliedRange.max}°F`))
+            : `${Math.floor(_liveObsMax)}–${Math.ceil(_liveObsMax)}°F`;
+          const _mlLabel = cleanKalshiLabel(bucket) || bucket;
+          // Count how many buckets away the implied range is from the ML pick
+          const _bucketsAway = (() => {
+            if (!todayMarket?.ranges || !_impliedRange) return null;
+            const bClean = bucket.replace(/[°\s]/g, '').toLowerCase();
+            const mlIdx = todayMarket.ranges.findIndex(r =>
+              (r.label||'').replace(/[°\s]/g,'').toLowerCase() === bClean
+            );
+            const impliedIdx = todayMarket.ranges.indexOf(_impliedRange);
+            return (mlIdx >= 0 && impliedIdx >= 0) ? (impliedIdx - mlIdx) : null;
+          })();
+          const _dayStillOpen = _nowHourLocal < 15; // before 3 PM local
+          const _critical = _bucketsAway != null && _bucketsAway >= 2;
+          liveInvalidationBanner = `
+            <div style="background:${_critical ? '#fef2f2' : '#fff7ed'};border-left:4px solid ${_critical ? '#dc2626' : '#ea580c'};padding:8px 12px;margin-bottom:6px;border-radius:4px;font-size:12px;">
+              <div style="font-weight:700;color:${_critical ? '#b91c1c' : '#c2410c'};margin-bottom:3px;">
+                ⛔ LIVE DATA EXCEEDS PREDICTION
+              </div>
+              <div style="color:#374151;">
+                ML predicted <strong>${_mlLabel}</strong> · Observed max so far: <strong>${_liveObsMax.toFixed(1)}°F</strong>
+              </div>
+              <div style="color:#374151;margin-top:2px;">
+                Implied bucket: <strong>${_impliedLabel}</strong>${_critical ? ` <span style="color:#dc2626;font-weight:700;">(${_bucketsAway} buckets off)</span>` : ''}
+              </div>
+              ${_dayStillOpen ? `<div style="color:#9a3412;margin-top:3px;font-weight:600;">⚠️ Day still open — could go higher still</div>` : ''}
+              <div style="color:#6b7280;margin-top:3px;font-style:italic;">Do not act on this prediction.</div>
+            </div>`;
+        }
+
         // Show amber "Prediction revised" note when bucket shifted this session
         const bucketRevisedNote = _bucketRevisedRecently
           ? `<div style="font-size:12px;background:#fffbeb;border-left:3px solid #d97706;padding:6px 10px;margin-top:6px;border-radius:4px;color:#92400e;">
@@ -4737,6 +4793,7 @@ window._predTomorrow = predTomorrow;
           : '';
 
         el0.innerHTML = `
+          ${liveInvalidationBanner}
           ${limitedDataHTML}
           ${top2b1 ? `<div style="font-size:32px;font-weight:800;line-height:1.1;color:var(--text-primary);">${top2b1}</div>` : `<div class="prediction-value">${mlVal.toFixed(1)}°F</div>`}
           <div style="margin:6px 0 3px;display:flex;flex-wrap:wrap;align-items:center;gap:6px;">
