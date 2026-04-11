@@ -926,10 +926,10 @@ class NYCTemperatureModelTrainer:
 
         For dates where real NWS observations exist in observation_data.csv,
         replaces the proxy obs features (obs_vs_intra_forecast=0) with real
-        values (obs_vs_intra_forecast=actual delta). This is critical —
-        the model needs real non-zero deltas to learn.
+        values (obs_vs_intra_forecast=actual delta). Also merges regional obs
+        cols (JFK/LGA temps, metro spread, etc.) that IEM backfill provides.
         """
-        from model_config import OBSERVATION_COLS
+        from model_config import OBSERVATION_COLS, REGIONAL_OBS_COLS
 
         if obs_df is None or self.features_df is None:
             return
@@ -943,8 +943,9 @@ class NYCTemperatureModelTrainer:
             print(f"  ⚠️ Removed {n_dupes} duplicate target_dates from observation_data.csv")
             obs_df = obs_df[~dupes].copy()
 
-        # Only merge observation feature columns (not city, target_date)
-        obs_cols_in_csv = [c for c in obs_df.columns if c in OBSERVATION_COLS]
+        # Merge BOTH OBSERVATION_COLS and REGIONAL_OBS_COLS from the CSV
+        all_obs_cols = OBSERVATION_COLS + REGIONAL_OBS_COLS
+        obs_cols_in_csv = [c for c in obs_df.columns if c in all_obs_cols]
         if not obs_cols_in_csv:
             print(f"  ⚠️ No observation feature columns found in CSV")
             return
@@ -1526,14 +1527,17 @@ class NYCTemperatureModelTrainer:
             for col in missing_v4:
                 self.features_df[col] = np.nan
 
-        # Check observation feature coverage
+        # Check observation feature coverage (OBSERVATION_COLS + REGIONAL_OBS_COLS)
+        from model_config import REGIONAL_OBS_COLS as _REG_COLS
+        all_obs_check = OBSERVATION_COLS + _REG_COLS
         obs_populated = 0
-        for col in OBSERVATION_COLS:
+        for col in all_obs_check:
             if col in self.features_df.columns:
                 n = self.features_df[col].notna().sum()
                 if n > 0:
                     obs_populated += 1
-        print(f"  Observation features with data: {obs_populated}/{len(OBSERVATION_COLS)}")
+        print(f"  Observation features with data: {obs_populated}/{len(all_obs_check)} "
+              f"({len(OBSERVATION_COLS)} base + {len(_REG_COLS)} regional)")
         print(f"  Using {len(FEATURE_COLS_V4)} v4 features ({len(available_v4_cols)} with data, "
               f"{len(missing_v4)} NaN)")
 
