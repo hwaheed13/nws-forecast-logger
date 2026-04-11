@@ -626,7 +626,7 @@ input[type="date"] {
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
           <div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted);">
             Live Observation Sources
-            <span class="tip" tabindex="0" data-tip="Real-time data feeding today's ML prediction. KNYC is the official Central Park station. JFK/LGA capture sea-breeze gradients. Synoptic aggregates 100+ stations within 5mi. NYSM shows NYC borough temps.">i</span>
+            <span class="tip" tabindex="0" id="live-sources-tip" data-tip="Real-time data feeding today's ML prediction. KNYC is the official Central Park station. JFK/LGA capture sea-breeze gradients. Synoptic aggregates 100+ stations within 5mi. NYSM shows NYC borough temps.">i</span>
           </div>
           <div id="live-sources-ts" style="font-size:11px; color:var(--text-light);"></div>
         </div>
@@ -4000,14 +4000,17 @@ function renderLiveSourcesPanel() {
   // Show it as a dedicated card so bettors see the actual measured location, not just KLAX airport.
   const kcqt_live = isLax && lro.city === 'lax' && lro.kcqt != null ? lro.kcqt : null;
   const kcqt_obs_label = lro.kcqtObsAt ? `obs ${lro.kcqtObsAt}` : (kcqt_live != null ? "live" : "");
+  // Distinguish "fetch not started" (lro.fetchedAt = null) from "fetch returned no data"
+  const kcqt_fetched = lro.fetchedAt != null && lro.city === 'lax';
+  const kcqt_sub = kcqt_live != null ? "Kalshi reference station"
+                 : kcqt_fetched       ? "No obs available"
+                 :                      "Fetching…";
   const kcqtCard = isLax
     ? card("USC Downtown (KCQT)",
            kcqt_live != null
              ? `${f1(kcqt_live)} <span style="font-size:12px;font-weight:400;color:var(--text-muted);">${kcqt_obs_label}</span>`
              : "–",
-           kcqt_live != null
-             ? `Kalshi reference station`
-             : "Fetching…",
+           kcqt_sub,
            kcqt_live != null ? "var(--accent-green)" : "var(--border-default)")
     : "";
 
@@ -4038,10 +4041,23 @@ function renderLiveSourcesPanel() {
     wu_mean != null ? card("WU PWS (Citizen Wx)", f1(wu_mean), wu_sub, "var(--accent-blue)") : "",
   ].join("");
 
-  // Footnote: only show when Synoptic/NYSM data is missing (i.e. hasn't run yet)
+  // Footnote: city-specific text + only show when Synoptic data is missing
   if (foot) {
     const needsRun = syn_mean == null;
     foot.style.display = needsRun ? "" : "none";
+    if (needsRun) {
+      foot.textContent = isLax
+        ? "Reflects inputs at last model run · USC Area/Overnight Jump/Spread populate once model runs"
+        : "Reflects inputs at last model run · JFK/LGA/Synoptic/NYSM populate once model runs with new data";
+    }
+  }
+
+  // Tooltip — city-specific description
+  const tip = document.getElementById("live-sources-tip");
+  if (tip) {
+    tip.dataset.tip = isLax
+      ? "Real-time data feeding today's ML prediction. KLAX is the airport station. KCQT (USC Downtown) is the NWS/Kalshi official measurement reference. LAX/BUR spread signals marine layer depth. USC Area aggregates 100+ stations within 8mi of downtown."
+      : "Real-time data feeding today's ML prediction. KNYC is the official Central Park station. JFK/LGA capture sea-breeze gradients. Synoptic aggregates 100+ stations within 5mi. NYSM shows NYC borough temps.";
   }
 
   // Timestamp

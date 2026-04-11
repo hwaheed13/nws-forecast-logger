@@ -4053,11 +4053,15 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         "source_card": "nws_auto_logger",
         "city": _CITY_KEY,
     }
-    # Only write nws_d0/accuweather/atm_snapshot when ML actually ran this cycle.
-    # This preserves the stored baseline (the values the model last ran with)
-    # so future cycles can detect genuine forecast revisions correctly.
+    # Always write nws_d0 so the dashboard fallback (ml.todayNwsD0) and the
+    # NWS Overnight Jump card always have a current value — even on stable cycles
+    # where ml_recomputed=False. The ATM trigger check already reads
+    # existing.get("nws_d0") earlier in this function, so updating the payload
+    # here does NOT affect trigger detection (it reads the OLD stored value).
+    payload["nws_d0"] = nws_latest
+    # accuweather baseline: only advance when ML ran (preserves the baseline
+    # the model actually used so future ATM checks detect genuine revisions).
     if ml_recomputed:
-        payload["nws_d0"] = nws_latest
         payload["accuweather"] = accu_latest
         # Advance atmospheric + obs snapshot to the current live values so the next
         # comparison starts from the post-revision baseline, not the morning one.
