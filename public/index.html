@@ -3806,7 +3806,7 @@ function renderLiveSourcesPanel() {
          knyc_sub, "var(--accent-blue)"),
     card("JFK / LGA" + (seaBreeze ? " ⚠️" : ""),
          jfk_lga_main,
-         jfk_lga_sub + (seaBreeze ? " · 🌊 Sea breeze" : ""),
+         jfk_lga_sub + (seaBreeze ? "<br>🌊 Sea breeze" : ""),
          seaBreeze ? "#d97706" : "var(--accent-blue)"),
     card("Synoptic (5mi)",
          f1(syn_mean), syn_sub,
