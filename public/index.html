@@ -3792,14 +3792,17 @@ function renderAtmSignals() {
                  : pk.warm_advection === 'cold' ? 'Cold advection aloft'
                  : 'Neutral advection';
 
-  // 925mb advection label — use same warm_advection signal as 850mb since
-  // 925mb sits just above the surface and tracks the same airmass character.
-  const t925       = pk.temp_925hPa;
-  const adv925Color = pk.warm_advection === 'warm' ? '#dc2626'
-                    : pk.warm_advection === 'cold' ? '#2563eb'
+  // 925mb — independently computed from the actual 925mb temperature value.
+  // 925mb ≈ 750m altitude, just above the surface layer. Thresholds are
+  // slightly higher than 850mb (which is ~1500m) since near-surface air
+  // is warmer. > 55°F = warm airmass, < 45°F = cold airmass.
+  const t925        = pk.temp_925hPa;
+  const adv925Cat   = t925 == null ? 'neutral' : t925 > 55 ? 'warm' : t925 < 45 ? 'cold' : 'neutral';
+  const adv925Color = adv925Cat === 'warm' ? '#dc2626'
+                    : adv925Cat === 'cold' ? '#2563eb'
                     : 'var(--text-primary)';
-  const adv925Tip   = pk.warm_advection === 'warm' ? 'Warm near-surface air'
-                    : pk.warm_advection === 'cold' ? 'Cold near-surface air'
+  const adv925Tip   = adv925Cat === 'warm' ? 'Warm near-surface air'
+                    : adv925Cat === 'cold' ? 'Cold near-surface air'
                     : 'Neutral near-surface air';
 
   // Solar
@@ -3822,8 +3825,11 @@ function renderAtmSignals() {
   // 850mb advection: warm = warm-day, cold = cool-day
   if (pk.warm_advection === 'warm') _warmSigs++;
   else if (pk.warm_advection === 'cold') _coolSigs++;
-  // Wind: sea breeze / onshore = cool, offshore = neutral/warm
-  if (wSea) _coolSigs++;
+  // Wind: sea breeze / onshore = cool; continental NW/N/W flow = also cool
+  // (NW flow in NYC = dry, cold continental air off the continent — always a suppressor)
+  const _windDir = (cur.wind_dir_card || '').toUpperCase();
+  const _isContiBlow = ['N', 'NW', 'NNW', 'WNW', 'W'].includes(_windDir);
+  if (wSea || _isContiBlow) _coolSigs++;
 
   const _totalSigs = _warmSigs + _coolSigs;
   let _consensusHTML = '';
