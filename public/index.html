@@ -3951,7 +3951,7 @@ function renderLiveSourcesPanel() {
   // ── NWS overnight jump — from model snapshot
   const d1_final = s.nws_d1_final;
   const o_jump   = s.nws_overnight_jump;
-  const nws_last = s.nws_last;
+  const nws_last = s.nws_last ?? (ml.todayNwsD0 != null ? Number(ml.todayNwsD0) : null);
   const jump_color = o_jump != null && Math.abs(Number(o_jump)) >= 2 ? "#d97706" : "var(--accent-blue)";
   const jump_sub = [
     d1_final != null ? `D-1 final: ${f0(d1_final)}` : "",

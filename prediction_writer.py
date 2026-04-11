@@ -4245,6 +4245,10 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                         "obs_snap_wu_mean", "obs_snap_wu_vs_nws",
                         "obs_snap_wu_spread", "obs_snap_wu_count",
                         "obs_snap_populated",
+                        # Synoptic network keys — written by _add_obs_to_snap but were
+                        # previously missing here, causing Synoptic card to stay "Awaiting"
+                        "obs_snap_syn_mean", "obs_snap_syn_min", "obs_snap_syn_max",
+                        "obs_snap_syn_spread", "obs_snap_syn_vs_nws", "obs_snap_syn_count",
                     )
                     # _fetch_observation_features returns raw feature keys (obs_*),
                     # not the snap keys (obs_snap_*).  Map via _add_obs_to_snap
