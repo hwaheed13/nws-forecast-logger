@@ -4425,6 +4425,22 @@ window._predTomorrow = predTomorrow;
         // Supporting context: NWS + AccuWeather
         const supportHTML = _buildSupportingContextHTML(builtToday.candidates, 'today');
 
+        // ── Overnight / early-morning high warning ───────────────────────────
+        const _snap = ml.todayAtmSnapshot || {};
+        const _overnightFlag = _snap.obs_snap_is_overnight_high;
+        const _peakHour      = _snap.obs_snap_high_peak_hour;
+        const _fallingHrs    = _snap.obs_snap_temp_falling_hrs;
+        const overnightHighNote = (_overnightFlag == 1 && _peakHour != null)
+          ? `<div style="font-size:12px;background:#eff6ff;border-left:3px solid #3b82f6;padding:6px 10px;margin-top:6px;border-radius:4px;">
+              🌙 <strong>Overnight high detected</strong> — peak ${_snap.obs_snap_max_so_far != null ? `${Number(_snap.obs_snap_max_so_far).toFixed(1)}°F ` : ''}at ${Math.round(_peakHour)}:00.
+              Day's high likely already in the books. Prediction locked.
+             </div>`
+          : (_fallingHrs != null && Number(_fallingHrs) >= 3)
+          ? `<div style="font-size:12px;background:#fefce8;border-left:3px solid #eab308;padding:6px 10px;margin-top:6px;border-radius:4px;">
+              📉 Temp falling for ${Math.round(_fallingHrs)}h — high likely past its peak.
+             </div>`
+          : '';
+
         // ── MOAT risk line: NWS divergence + historical hit rate + model spread
         const _nwsTdVal = (() => {
           const nc = Number(builtToday.candidates?.D0_latest);
@@ -4485,6 +4501,7 @@ window._predTomorrow = predTomorrow;
           ${kellyLine}
           <div style="font-size:12px;color:var(--text-muted);margin-top:5px;">ML: ${mlVal.toFixed(1)}°F${supportHTML ? ` · ${supportHTML}` : ''}</div>
           ${moatRiskHTMLTd}
+          ${overnightHighNote}
           ${exceedanceNote}
           ${warningHTML}
           ${historyHTML}

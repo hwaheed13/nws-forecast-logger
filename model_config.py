@@ -202,6 +202,21 @@ NYSM_OBS_COLS = [
     "obs_nysm_count",           # Number of valid borough stations
 ]
 
+# High-timing features (3 features)
+# Captures WHEN the daily max occurs — critical for non-textbook heating profiles:
+#   - Overnight/pre-dawn highs: warm fronts peak at 1–3am, then cold air floods in
+#   - Late afternoon/evening highs: summer sea-breeze collapse, convective clearing
+#   - Normal solar max: 1–3pm — already well-modelled; these features add the edge cases
+# All three are NaN-safe — HistGradientBoosting handles missing values natively.
+HIGH_TIMING_COLS = [
+    "obs_high_peak_hour",      # Hour (0-23) when obs_max_so_far was recorded today
+                               # NaN = no obs yet. Tells model "is the day's max at 1am or 3pm?"
+    "obs_is_overnight_high",   # 1 if obs_high_peak_hour < 9, else 0 (NaN if no obs)
+                               # Strong prior: if high happened before 9am, bucket is likely lower
+    "obs_temp_falling_hrs",    # Consecutive hours the temp has been falling from the peak
+                               # 0 = still heating/flat; 3+ = clearly post-peak
+]
+
 # Features used as INPUT to the atmospheric predictor (first-stage model)
 ATM_PREDICTOR_INPUT_COLS = ATMOSPHERIC_COLS + INTRADAY_CURVE_COLS + [
     "day_of_year_sin", "day_of_year_cos", "month", "is_summer", "is_winter",
@@ -222,6 +237,10 @@ FEATURE_COLS_V3 = FEATURE_COLS_V2
 # for historical training rows.
 FEATURE_COLS_V4 = (FEATURE_COLS_V3 + OBSERVATION_COLS + REGIONAL_OBS_COLS +
                    NWS_SEQUENCE_COLS + AMBIENT_OBS_COLS + SYNOPTIC_OBS_COLS + NYSM_OBS_COLS)
+
+# v5 — adds high-timing features for overnight/late-day high detection (3 new features)
+# Total: v4(119) + high_timing(3) = 122
+FEATURE_COLS_V5 = FEATURE_COLS_V4 + HIGH_TIMING_COLS
 
 # Additional features added per-candidate-bucket during classification (4)
 BUCKET_POSITION_COLS = [

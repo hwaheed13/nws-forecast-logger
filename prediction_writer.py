@@ -231,6 +231,137 @@ def _load_v4_models():
     )
 
 
+def _detect_high_locked(target_date_iso: str) -> dict:
+    """
+    Dynamically detect whether today's calendar-day high has already been recorded,
+    regardless of clock time.  Handles three distinct meteorological regimes:
+
+      1. Overnight / pre-dawn high  — warm front passes at 1–3am, then cold air floods in.
+         Signature: obs_max occurred before 09:00 local AND current temp is well below it.
+
+      2. Late-afternoon / evening high — summer sea-breeze collapse, afternoon convection.
+         The hard 3pm atm_cutoff already extends coverage here, but if the high has
+         *clearly* peaked (temp has been falling for 2+ consecutive hours, down ≥3°F from
+         the day's max), we lock early regardless of clock time.
+
+      3. Classic mid-afternoon high — normal solar-forced heating; the existing 2pm/3pm
+         clock cutoffs handle this fine.
+
+    Returns a dict:
+      {
+        "locked":       bool,          # True → freeze the prediction now
+        "reason":       str,           # human-readable explanation
+        "obs_high_f":   float | None,  # calendar-day max observed so far
+        "obs_high_hour":int | None,    # local hour when that max occurred
+        "current_f":    float | None,  # most recent observed temp
+        "falling_hrs":  int,           # consecutive hours the temp has been falling
+      }
+    """
+    result = dict(locked=False, reason="", obs_high_f=None,
+                  obs_high_hour=None, current_f=None, falling_hrs=0)
+    try:
+        import nws_auto_logger as _nal
+        cfg   = _nal._CITY_CFG
+        station  = cfg.get("obs_station", "KNYC")
+        tz_name  = cfg.get("timezone", "America/New_York")
+
+        today = today_nyc().isoformat()
+        if target_date_iso != today:
+            return result  # only makes sense for today
+
+        url = (f"https://api.weather.gov/stations/{station}"
+               f"/observations?limit=150")
+        req = urllib.request.Request(url, headers={
+            "Accept": "application/geo+json",
+            "User-Agent": "nws-forecast-logger/1.0",
+        })
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(tz_name)
+
+        # Build chronological list of (hour, temp_f, datetime_local) for today
+        obs_today: list[tuple[datetime, int, float]] = []
+        for feat in data.get("features", []):
+            props = feat.get("properties", {})
+            ts    = props.get("timestamp", "")
+            if not ts:
+                continue
+            obs_dt    = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            obs_local = obs_dt.astimezone(tz)
+            if obs_local.strftime("%Y-%m-%d") != target_date_iso:
+                continue
+            temp_c = props.get("temperature", {}).get("value")
+            if temp_c is None:
+                continue
+            temp_f = round(temp_c * 9.0 / 5.0 + 32.0, 1)
+            obs_today.append((obs_local, obs_local.hour, temp_f))
+
+        if not obs_today:
+            return result
+
+        # Sort oldest→newest
+        obs_today.sort(key=lambda x: x[0])
+
+        # Day's running max
+        max_f    = max(o[2] for o in obs_today)
+        max_hour = next(o[1] for o in reversed(obs_today) if o[2] == max_f)
+        # Most recent reading
+        current_f    = obs_today[-1][2]
+        current_hour = obs_today[-1][1]
+
+        result["obs_high_f"]    = max_f
+        result["obs_high_hour"] = max_hour
+        result["current_f"]     = current_f
+
+        # ── Consecutive falling hours ─────────────────────────────────────
+        # Walk backwards through hourly obs to count how long the temp has
+        # been trending down from the peak.
+        falling = 0
+        prev_t  = current_f
+        for dt_obs, _hr, t in reversed(obs_today[:-1]):
+            if t > prev_t:
+                break   # found an obs that was warmer than the one after it → stop
+            falling += 1
+            prev_t = t
+        result["falling_hrs"] = falling
+
+        gap = max_f - current_f  # °F below day's max right now
+
+        now_hour = now_nyc().hour
+
+        # ── Regime 1: Overnight / pre-dawn high ──────────────────────────
+        if max_hour < 9 and gap >= 2.0 and now_hour >= 8:
+            result["locked"] = True
+            result["reason"] = (
+                f"Overnight high: {max_f}°F at {max_hour:02d}:00, "
+                f"currently {current_f}°F ({gap:.1f}°F below peak)"
+            )
+            print(f"🌙 {result['reason']}")
+            return result
+
+        # ── Regime 2: Late high clearly past its peak ────────────────────
+        # Require: at least noon, 3°F gap, 2 consecutive falling hours
+        if now_hour >= 12 and gap >= 3.0 and falling >= 2:
+            result["locked"] = True
+            result["reason"] = (
+                f"Dynamic lock: {max_f}°F at {max_hour:02d}:00, "
+                f"{gap:.1f}°F below peak, falling {falling}h consecutive"
+            )
+            print(f"📉 {result['reason']}")
+            return result
+
+        print(
+            f"🌡️ High detector: max={max_f}°F @{max_hour:02d}:00, "
+            f"current={current_f}°F, gap={gap:.1f}°F, falling={falling}h"
+            f" → NOT locked"
+        )
+    except Exception as e:
+        print(f"⚠️ _detect_high_locked: {e}")
+    return result
+
+
 def _fetch_observed_high_so_far(target_date_iso: str) -> tuple:
     """
     Fetch today's observed high temperature from NWS station observations.
@@ -1941,6 +2072,42 @@ def _fetch_observation_features(
     else:
         features["obs_temp_vs_forecast_max"] = np.nan
 
+    # ── High-timing features (HIGH_TIMING_COLS) ──────────────────────────
+    # Populated from the same observation set — no extra API call.
+    # Find the hour when obs_max_so_far was recorded and detect overnight pattern.
+    try:
+        max_val = features.get("obs_max_so_far")
+        if max_val is not None and not (isinstance(max_val, float) and np.isnan(max_val)):
+            # Find which observation had the max temp
+            peak_hour = None
+            for r in reversed(valid_obs):
+                if abs(r["temp_f"] - max_val) < 0.15:
+                    try:
+                        dt = datetime.fromisoformat(r["observed_at"].replace("Z", "+00:00"))
+                        peak_hour = dt.astimezone(tz).hour
+                    except Exception:
+                        pass
+                    break
+            features["obs_high_peak_hour"]    = float(peak_hour) if peak_hour is not None else np.nan
+            features["obs_is_overnight_high"] = float(peak_hour < 9) if peak_hour is not None else np.nan
+            # Consecutive falling hours from the peak
+            falling = 0
+            prev_t  = valid_obs[-1]["temp_f"] if valid_obs else None
+            for r in reversed(valid_obs[:-1]):
+                if prev_t is None or r["temp_f"] > prev_t:
+                    break
+                falling += 1
+                prev_t = r["temp_f"]
+            features["obs_temp_falling_hrs"] = float(falling)
+        else:
+            features["obs_high_peak_hour"]    = np.nan
+            features["obs_is_overnight_high"] = np.nan
+            features["obs_temp_falling_hrs"]  = np.nan
+    except Exception as _ht_e:
+        features["obs_high_peak_hour"]    = np.nan
+        features["obs_is_overnight_high"] = np.nan
+        features["obs_temp_falling_hrs"]  = np.nan
+
     # Fill any missing OBSERVATION_COLS keys with NaN
     for col in OBSERVATION_COLS:
         if col not in features:
@@ -2513,6 +2680,10 @@ def _add_obs_to_snap(snap: dict, live_obs: dict) -> None:
     snap["obs_snap_vs_forecast"] = _safe(live_obs.get("obs_vs_intra_forecast"))
     snap["obs_snap_hour"]        = _safe(live_obs.get("obs_latest_hour"))
     snap["obs_snap_max_so_far"]  = _safe(live_obs.get("obs_max_so_far"))
+    # High-timing signals — for dashboard overnight-high warning + future model training
+    snap["obs_snap_high_peak_hour"]    = _safe(live_obs.get("obs_high_peak_hour"))
+    snap["obs_snap_is_overnight_high"] = _safe(live_obs.get("obs_is_overnight_high"))
+    snap["obs_snap_temp_falling_hrs"]  = _safe(live_obs.get("obs_temp_falling_hrs"))
     snap["obs_snap_wind_speed"]  = _safe(live_obs.get("obs_wind_speed"))
     snap["obs_snap_cloud_cover"] = _safe(live_obs.get("obs_cloud_cover"))
     # Regional NWS stations (JFK / LGA)
@@ -2998,6 +3169,18 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     past_cutoff   = atm_cutoff  # full freeze = atm cutoff (used for canonical write gate)
     live_atm: Optional[dict] = None
 
+    # ── Dynamic high-lock: detects overnight highs and clearly-peaked late highs
+    # regardless of clock time.  Runs BEFORE the hard clock cutoffs so it can
+    # lock a prediction at 9am if the high occurred at 1am, or at 4pm if the
+    # high peaked at 2pm and has been falling for 2+ hours.
+    _dlock = _detect_high_locked(target_date_iso)
+    if _dlock["locked"] and not past_cutoff:
+        # Override both cutoffs — treat as if atm_cutoff already fired
+        agency_cutoff = True
+        atm_cutoff    = True
+        past_cutoff   = True
+        print(f"🔒 Dynamic high-lock overrides clock cutoffs: {_dlock['reason']}")
+
     if has_actual_today and isinstance(existing, dict):
         # Day is over — actual recorded. Prediction is final.
         print(f"🔒 Actual high recorded — prediction frozen: {existing['ml_f']}°F → {existing.get('ml_bucket')}")
@@ -3009,12 +3192,12 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             "ml_version": existing.get("ml_version"),
         }
 
-    elif isinstance(existing, dict) and existing.get("ml_f") is not None and atm_cutoff:
-        # Past the atmospheric cutoff (3pm) — full freeze.
+    elif isinstance(existing, dict) and existing.get("ml_f") is not None and past_cutoff:
+        # Past the full freeze point (atm cutoff OR dynamic lock).
         # All signal types (agency, atmospheric, obs) are now stale or contaminated.
-        atm_h = _D0_ATM_CUTOFF_HOUR_LOCAL.get(_CITY_KEY, 15)
-        print(f"⏸️ Past D0 atm cutoff ({atm_h}:00 local) — full freeze "
-              f"({existing['ml_f']}°F → {existing.get('ml_bucket')})")
+        lock_label = _dlock["reason"] if _dlock["locked"] else f"atm cutoff ({_D0_ATM_CUTOFF_HOUR_LOCAL.get(_CITY_KEY, 15)}:00 local)"
+        print(f"⏸️ Full freeze [{lock_label}] — ML held: "
+              f"{existing['ml_f']}°F → {existing.get('ml_bucket')}")
         ml = {
             "ml_f": existing["ml_f"],
             "ml_bucket": existing["ml_bucket"],
