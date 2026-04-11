@@ -3715,10 +3715,8 @@ function renderLiveSourcesPanel() {
   const lga = lro.lga ?? s.obs_snap_lga;
   const jfk_live = lro.jfk != null;
   const reg_spread = (jfk != null && lga != null) ? Math.abs(Number(lga) - Number(jfk)) : (s.obs_snap_regional_spread ?? null);
-  const nws_for_reg = s.nws_last ?? ml.todayNwsD0;
-  const reg_vs = (jfk != null && lga != null && nws_for_reg != null)
-    ? ((Number(jfk) + Number(lga)) / 2 - Number(nws_for_reg))
-    : s.obs_snap_regional_vs_nws;
+  // reg_vs: only use snapshot (model-run-time value) — live temps vs high forecast is meaningless in evening
+  const reg_vs = s.obs_snap_regional_vs_nws ?? null;
   const seaBreeze = jfk != null && lga != null && (Number(lga) - Number(jfk)) >= 3;
   const jfk_lga_main = (jfk != null && lga != null) ? `${f0(jfk)} / ${f0(lga)}` : (jfk != null ? f0(jfk) : "–");
   const jfk_lga_sub = [
@@ -4421,6 +4419,24 @@ window._predTomorrow = predTomorrow;
         // Supporting context: NWS + AccuWeather
         const supportHTML = _buildSupportingContextHTML(builtToday.candidates, 'today');
 
+        // ── MOAT risk line: NWS divergence + historical hit rate + model spread
+        const _nwsTdVal = (() => {
+          const nc = Number(builtToday.candidates?.D0_latest);
+          if (Number.isFinite(nc)) return nc;
+          const nm = ml.todayNwsD0;
+          if (nm != null) return Number(nm);
+          try {
+            const iso = nycISODate(0);
+            const rows = (typeof allRows !== 'undefined' ? allRows : [])
+              .filter(r => r.forecast_or_actual === 'forecast' && r.target_date === iso && r.predicted_high != null);
+            rows.sort((a,b) => (b.timestamp||'').localeCompare(a.timestamp||''));
+            const v = Number(rows[0]?.predicted_high);
+            return Number.isFinite(v) ? v : null;
+          } catch { return null; }
+        })();
+        const _mmSpreadTd = ml.todayAtmSnapshot?.mm_spread ?? null;
+        const moatRiskHTMLTd = _buildMoatRiskHTML(mlVal, _nwsTdVal, _mmSpreadTd);
+
         // Boundary warning
         const warningHTML = todayWarning
           ? `<div class="boundary-warning ${todayWarning.level}">
@@ -4462,6 +4478,7 @@ window._predTomorrow = predTomorrow;
           </div>
           ${kellyLine}
           <div style="font-size:12px;color:var(--text-muted);margin-top:5px;">ML: ${mlVal.toFixed(1)}°F${supportHTML ? ` · ${supportHTML}` : ''}</div>
+          ${moatRiskHTMLTd}
           ${exceedanceNote}
           ${warningHTML}
           ${historyHTML}
@@ -4567,6 +4584,24 @@ window._predTomorrow = predTomorrow;
         // Supporting context: NWS + AccuWeather
         const supportHTML = _buildSupportingContextHTML(builtTomorrow.candidates, 'tomorrow');
 
+        // ── MOAT risk line: NWS divergence + historical hit rate + model spread
+        const _nwsTmVal = (() => {
+          const nc = Number(builtTomorrow.candidates?.D1_latest ?? builtTomorrow.candidates?.D0_latest);
+          if (Number.isFinite(nc)) return nc;
+          const nm = ml.tomorrowNwsD0;
+          if (nm != null) return Number(nm);
+          try {
+            const iso = nycISODate(1);
+            const rows = (typeof allRows !== 'undefined' ? allRows : [])
+              .filter(r => r.forecast_or_actual === 'forecast' && r.target_date === iso && r.predicted_high != null);
+            rows.sort((a,b) => (b.timestamp||'').localeCompare(a.timestamp||''));
+            const v = Number(rows[0]?.predicted_high);
+            return Number.isFinite(v) ? v : null;
+          } catch { return null; }
+        })();
+        const _mmSpreadTm = ml.tomorrowAtmSnapshot?.mm_spread ?? null;
+        const moatRiskHTMLTm = _buildMoatRiskHTML(mlVal, _nwsTmVal, _mmSpreadTm);
+
         // Boundary warning
         const warningHTML = tomorrowWarning
           ? `<div class="boundary-warning ${tomorrowWarning.level}">
@@ -4596,6 +4631,7 @@ window._predTomorrow = predTomorrow;
           </div>
           ${kellyLineTm}
           <div style="font-size:12px;color:var(--text-muted);margin-top:5px;">ML: ${mlVal.toFixed(1)}°F${supportHTML ? ` · ${supportHTML}` : ''}</div>
+          ${moatRiskHTMLTm}
           ${warningHTML}
           ${historyHTML}
         `;
@@ -5604,6 +5640,86 @@ async function loadMLBucketStats() {
   }
 }
 
+// ── MOAT: historical bucket hit rate bucketed by NWS divergence ───────────────
+// Brackets: <1°F | 1-2°F | 2-3°F | 3-4°F | 4°F+
+// Stored as window.mlDivergenceStats = { "<1": {wins,total,rate}, "1-2": …, … }
+window.mlDivergenceStats = null;
+async function loadMLDivergenceStats() {
+  try {
+    const { data, error } = await supabase
+      .from('prediction_logs')
+      .select('ml_result, ml_f, nws_d0')
+      .eq('city', currentCity)
+      .not('ml_result', 'is', null)
+      .not('nws_d0',    'is', null)
+      .not('ml_f',      'is', null);
+    if (error || !data || data.length === 0) return;
+
+    const brackets = [
+      { key: '<1',  label: 'within 1°F', min: 0,   max: 1   },
+      { key: '1-2', label: '1–2°F apart', min: 1,   max: 2   },
+      { key: '2-3', label: '2–3°F apart', min: 2,   max: 3   },
+      { key: '3-4', label: '3–4°F apart', min: 3,   max: 4   },
+      { key: '4+',  label: '4°F+ apart',  min: 4,   max: 999 },
+    ];
+    const stats = {};
+    brackets.forEach(b => { stats[b.key] = { wins: 0, total: 0, rate: null, label: b.label }; });
+
+    for (const row of data) {
+      const div = Math.abs(Number(row.ml_f) - Number(row.nws_d0));
+      if (!Number.isFinite(div)) continue;
+      const bkt = brackets.find(b => div >= b.min && div < b.max);
+      if (!bkt) continue;
+      stats[bkt.key].total++;
+      if (row.ml_result === 'WIN') stats[bkt.key].wins++;
+    }
+    brackets.forEach(b => {
+      const s = stats[b.key];
+      s.rate = s.total >= 3 ? Math.round(s.wins / s.total * 100) : null;
+    });
+    window.mlDivergenceStats = stats;
+    console.log("ML divergence stats:", stats);
+  } catch (e) {
+    console.debug("loadMLDivergenceStats error:", e?.message);
+  }
+}
+
+// Helper: given |ml - nws| divergence °F, return the MOAT risk line HTML
+function _buildMoatRiskHTML(mlTempF, nwsVal, mmSpread) {
+  const parts = [];
+
+  // ── NWS divergence risk ──────────────────────────────────────────────────
+  if (nwsVal != null && Number.isFinite(Number(nwsVal)) && Number.isFinite(mlTempF)) {
+    const div = mlTempF - Number(nwsVal);
+    const absDev = Math.abs(div);
+    const dir = div > 0 ? `+${div.toFixed(0)}°F warmer than NWS` : `${div.toFixed(0)}°F cooler than NWS`;
+    const bktKey = absDev < 1 ? '<1' : absDev < 2 ? '1-2' : absDev < 3 ? '2-3' : absDev < 4 ? '3-4' : '4+';
+    const ds = window.mlDivergenceStats;
+    const bktStats = ds ? ds[bktKey] : null;
+
+    let rateHTML = '';
+    if (bktStats && bktStats.rate != null) {
+      const rc = bktStats.rate >= 65 ? '#059669' : bktStats.rate >= 50 ? '#d97706' : '#dc2626';
+      rateHTML = ` · <span style="color:${rc};font-weight:700;">${bktStats.rate}% hit rate</span> historically when ${bktStats.label}`;
+    }
+
+    const divColor = absDev < 1 ? '#059669' : absDev < 2 ? '#16a34a' : absDev < 3 ? '#d97706' : '#dc2626';
+    const divIcon  = absDev < 1 ? '✅' : absDev < 2 ? '🟡' : '⚠️';
+    parts.push(`<span style="color:${divColor};">${divIcon} NWS: ${dir}${rateHTML}</span>`);
+  }
+
+  // ── Multi-model spread ───────────────────────────────────────────────────
+  if (mmSpread != null && Number.isFinite(Number(mmSpread))) {
+    const sp = Number(mmSpread);
+    const spColor = sp < 2 ? '#059669' : sp < 4 ? '#d97706' : '#dc2626';
+    const spLabel = sp < 2 ? 'models agree' : sp < 4 ? 'some model spread' : 'high model spread';
+    parts.push(`<span style="color:${spColor};">Models: ${sp.toFixed(1)}°F spread (${spLabel})</span>`);
+  }
+
+  if (parts.length === 0) return '';
+  return `<div style="font-size:11.5px;margin-top:5px;line-height:1.6;">${parts.join('<br>')}</div>`;
+}
+
   const gate = document.getElementById("gate");
   function gateMsg(msg){
     const sub = gate && gate.querySelector(".gate-sub");
@@ -5650,6 +5766,8 @@ async function bootApp() {
     // Load today's prediction history + ML predictions from Supabase
     try { await loadTodaysPredictionHistory(); } catch {}
     try { await loadMLPredictions(); } catch {}
+    try { loadMLBucketStats(); } catch {}
+    try { loadMLDivergenceStats(); } catch {}
 
     // light, defensive calls
     try { window.showTodayDate && window.showTodayDate(); } catch {}
