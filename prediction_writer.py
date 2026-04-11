@@ -2000,25 +2000,36 @@ def _fetch_observation_features(
         #       Leave NaN and let 925mb/solar/HRRR features carry the D+1 prediction.
         if today_nws_last is not None:
             today_obs = _query_supabase_observations(today)
-            if today_obs:
-                today_max = max(
-                    (r["temp_f"] for r in today_obs if r.get("temp_f") is not None),
-                    default=None,
-                )
-                if today_max is not None:
-                    today_nws_bias = today_max - today_nws_last  # how biased is NWS today?
-                    # Pattern stability check: how different is today's temp from tomorrow's forecast?
-                    pattern_swing = abs(today_max - nws_last) if nws_last is not None else 999.0
-                    if pattern_swing < 7.0:
-                        # Stable pattern — NWS bias in today's airmass likely carries forward
-                        nan_result["obs_temp_vs_forecast_max"] = round(today_nws_bias, 1)
-                        print(f"  🌡️ D+1 NWS bias signal: today_max={today_max:.1f}°F, "
-                              f"today_nws={today_nws_last:.1f}°F → bias={today_nws_bias:+.1f}°F "
-                              f"(pattern stable, swing={pattern_swing:.1f}°F)")
-                    else:
-                        # Front passage / big pattern change — signal is noise, leave NaN
-                        print(f"  ⚡ D+1 pattern change detected (swing={pattern_swing:.1f}°F ≥ 7°F) "
-                              f"— suppressing NWS bias signal, 925mb/solar/HRRR carry the prediction")
+            today_max = max(
+                (r["temp_f"] for r in today_obs if r.get("temp_f") is not None),
+                default=None,
+            ) if today_obs else None
+            # Cross-check with the NWS API live reading (_detect_high_locked uses
+            # api.weather.gov directly, which has the latest obs including readings
+            # that may not yet be in Supabase due to ingestion lag).  Use the higher
+            # of the two sources so an overnight spike never depresses the bias signal
+            # when the afternoon high has already been observed.
+            try:
+                _dlock_today = _detect_high_locked(today)
+                _api_max = _dlock_today.get("obs_high_f")
+                if _api_max is not None:
+                    today_max = max(today_max, _api_max) if today_max is not None else _api_max
+            except Exception:
+                pass
+            if today_max is not None:
+                today_nws_bias = today_max - today_nws_last  # how biased is NWS today?
+                # Pattern stability check: how different is today's temp from tomorrow's forecast?
+                pattern_swing = abs(today_max - nws_last) if nws_last is not None else 999.0
+                if pattern_swing < 7.0:
+                    # Stable pattern — NWS bias in today's airmass likely carries forward
+                    nan_result["obs_temp_vs_forecast_max"] = round(today_nws_bias, 1)
+                    print(f"  🌡️ D+1 NWS bias signal: today_max={today_max:.1f}°F, "
+                          f"today_nws={today_nws_last:.1f}°F → bias={today_nws_bias:+.1f}°F "
+                          f"(pattern stable, swing={pattern_swing:.1f}°F)")
+                else:
+                    # Front passage / big pattern change — signal is noise, leave NaN
+                    print(f"  ⚡ D+1 pattern change detected (swing={pattern_swing:.1f}°F ≥ 7°F) "
+                          f"— suppressing NWS bias signal, 925mb/solar/HRRR carry the prediction")
         return nan_result
 
     obs_rows = _query_supabase_observations(target_date_iso)
