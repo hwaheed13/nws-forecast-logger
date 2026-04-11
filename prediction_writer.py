@@ -231,13 +231,17 @@ def _load_v4_models():
     )
 
 
-def _detect_high_locked(target_date_iso: str) -> dict:
+def _detect_high_locked(target_date_iso: str,
+                        nws_forecast: float | None = None) -> dict:
     """
     Dynamically detect whether today's calendar-day high has already been recorded,
     regardless of clock time.  Handles three distinct meteorological regimes:
 
       1. Overnight / pre-dawn high  — warm front passes at 1–3am, then cold air floods in.
          Signature: obs_max occurred before 09:00 local AND current temp is well below it.
+         Suppressed if NWS is still forecasting ≥2°F above the overnight max, which means
+         the daytime high has not yet been reached (e.g. overnight spike of 59°F but NWS
+         still calls for 62°F → do not lock at 8am).
 
       2. Late-afternoon / evening high — summer sea-breeze collapse, afternoon convection.
          The hard 3pm atm_cutoff already extends coverage here, but if the high has
@@ -246,6 +250,12 @@ def _detect_high_locked(target_date_iso: str) -> dict:
 
       3. Classic mid-afternoon high — normal solar-forced heating; the existing 2pm/3pm
          clock cutoffs handle this fine.
+
+    Args:
+        target_date_iso: ISO date string for today.
+        nws_forecast:    Latest NWS high forecast for today (°F).  When provided,
+                         Regime 1 is suppressed if NWS is still calling for ≥2°F
+                         above the overnight max — indicating the real high is still ahead.
 
     Returns a dict:
       {
@@ -333,13 +343,24 @@ def _detect_high_locked(target_date_iso: str) -> dict:
 
         # ── Regime 1: Overnight / pre-dawn high ──────────────────────────
         if max_hour < 9 and gap >= 2.0 and now_hour >= 8:
-            result["locked"] = True
-            result["reason"] = (
-                f"Overnight high: {max_f}°F at {max_hour:02d}:00, "
-                f"currently {current_f}°F ({gap:.1f}°F below peak)"
-            )
-            print(f"🌙 {result['reason']}")
-            return result
+            # Suppress if NWS is still forecasting substantially above the overnight
+            # high — the real daytime high hasn't arrived yet.
+            # Example: overnight spike 59°F, NWS says 62°F → 3°F margin → don't lock.
+            if nws_forecast is not None and nws_forecast >= max_f + 2.0:
+                print(
+                    f"🌡️ Overnight lock suppressed: NWS forecasting {nws_forecast:.0f}°F, "
+                    f"{nws_forecast - max_f:.1f}°F above overnight peak "
+                    f"({max_f}°F at {max_hour:02d}:00) — daytime high not yet set"
+                )
+                # Fall through to NOT locked
+            else:
+                result["locked"] = True
+                result["reason"] = (
+                    f"Overnight high: {max_f}°F at {max_hour:02d}:00, "
+                    f"currently {current_f}°F ({gap:.1f}°F below peak)"
+                )
+                print(f"🌙 {result['reason']}")
+                return result
 
         # ── Regime 2: Late high clearly past its peak ────────────────────
         # Require: at least noon, 3°F gap, 2 consecutive falling hours
@@ -3803,7 +3824,8 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     # regardless of clock time.  Runs BEFORE the hard clock cutoffs so it can
     # lock a prediction at 9am if the high occurred at 1am, or at 4pm if the
     # high peaked at 2pm and has been falling for 2+ hours.
-    _dlock = _detect_high_locked(target_date_iso)
+    _dlock = _detect_high_locked(target_date_iso,
+                                 nws_forecast=float(nws_latest) if nws_latest is not None else None)
     if _dlock["locked"] and not past_cutoff:
         # Override both cutoffs — treat as if atm_cutoff already fired
         agency_cutoff = True
@@ -4048,15 +4070,21 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
 
     # ── Unconditional obs-panel refresh ──────────────────────────────────────
     # On stable days (ml_recomputed = False) the existing atm_snapshot is never
-    # rewritten above, so Synoptic / NYSM / NWS Overnight Jump stay stale
-    # forever.  We merge fresh obs-display keys into the stored snapshot every
-    # cycle without touching the ATM trigger-baseline keys (those must stay at
-    # their morning values for change-detection to work correctly).
+    # rewritten above, so Synoptic / NWS Overnight Jump stay stale forever.
+    # We merge fresh obs-display keys into the stored snapshot every cycle without
+    # touching the ATM trigger-baseline keys (those must stay at their morning
+    # values for change-detection to work correctly).
+    #
+    # IMPORTANT: run even when existing atm_snapshot is null/empty.  If a prior
+    # recompute wiped the snapshot (e.g. Synoptic failed mid-day, or the canonical
+    # write happened on a Full Freeze day with live_atm={}), the stable cycle must
+    # be able to self-heal by writing display keys from scratch.  The `if _ex_snap:`
+    # guard was the bug: a null snapshot can never recover if we skip the block.
     if not is_canonical_write and not ml_recomputed and isinstance(existing, dict):
         try:
             _ex_snap_str = existing.get("atm_snapshot")
             _ex_snap = json.loads(_ex_snap_str) if _ex_snap_str else {}
-            if _ex_snap:
+            if True:  # always run — see comment above re: self-healing null snapshots
                 # ── Sanitize NaN → None across entire snapshot before any writes ──
                 # Python json.dumps serializes float('nan') as the non-standard token
                 # NaN, which Postgres JSONB rejects and stores as null.  On the next
