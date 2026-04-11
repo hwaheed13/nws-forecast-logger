@@ -3665,9 +3665,17 @@ async function fetchLiveRegionalObs() {
       fetchNwsCurrentTemp('KJFK'),
       fetchNwsCurrentTemp('KLGA'),
     ]);
+    const _fmtObsTime = iso => {
+      if (!iso) return null;
+      try {
+        return new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true });
+      } catch { return null; }
+    };
     window._liveRegionalObs = {
-      jfk: jfkRes.status === 'fulfilled' && jfkRes.value?.currentF != null ? Number(jfkRes.value.currentF) : null,
-      lga: lgaRes.status === 'fulfilled' && lgaRes.value?.currentF != null ? Number(lgaRes.value.currentF) : null,
+      jfk:      jfkRes.status === 'fulfilled' && jfkRes.value?.currentF != null ? Number(jfkRes.value.currentF) : null,
+      lga:      lgaRes.status === 'fulfilled' && lgaRes.value?.currentF != null ? Number(lgaRes.value.currentF) : null,
+      jfkObsAt: jfkRes.status === 'fulfilled' ? _fmtObsTime(jfkRes.value?.atISO) : null,
+      lgaObsAt: lgaRes.status === 'fulfilled' ? _fmtObsTime(lgaRes.value?.atISO) : null,
       fetchedAt: new Date(),
     };
     renderLiveSourcesPanel();
@@ -3730,10 +3738,12 @@ function renderLiveSourcesPanel() {
   const reg_vs = s.obs_snap_regional_vs_nws ?? null;
   const seaBreeze = jfk != null && lga != null && (Number(lga) - Number(jfk)) >= 3;
   const jfk_lga_main = (jfk != null && lga != null) ? `${f0(jfk)} / ${f0(lga)}` : (jfk != null ? f0(jfk) : "–");
+  // Show actual observation timestamp (from NWS API) so user can tell if reading is genuinely stale
+  const jfk_obs_label = lro.jfkObsAt ? `obs ${lro.jfkObsAt}` : (jfk_live ? "live" : "");
   const jfk_lga_sub = [
     reg_spread != null ? `Gradient: ${Number(reg_spread).toFixed(1)}°F` : "",
     reg_vs     != null ? `Metro vs NWS: ${fSign(reg_vs)}` : "",
-    jfk_live ? "live" : "",
+    jfk_obs_label || "",
   ].filter(Boolean).join(" · ") || "Fetching…";
 
   // ── Synoptic Data (MesoWest) — from model snapshot
