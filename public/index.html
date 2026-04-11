@@ -3906,7 +3906,7 @@ function renderLiveSourcesPanel() {
   const knyc_sub = [
     knyc_max  != null ? `Max: ${f0(knyc_max)}` : "",
     (_snapRecent && knyc_vs   != null) ? `vs fcst: ${fSign(knyc_vs)}` : "",
-    (_snapRecent && knyc_rate != null) ? `${Number(knyc_rate) >= 0 ? "+" : ""}${Number(knyc_rate).toFixed(1)}°/hr` : "",
+    (_snapRecent && knyc_rate != null && Math.abs(Number(knyc_rate)) >= 0.2) ? `${Number(knyc_rate) >= 0 ? "+" : ""}${Number(knyc_rate).toFixed(1)}°/hr` : "",
   ].filter(Boolean).join(" · ") || "–";
 
   // ── Regional stations (JFK/LGA for NYC, LAX/BUR for LAX)
