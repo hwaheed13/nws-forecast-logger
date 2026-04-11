@@ -5708,7 +5708,8 @@ async function loadMLDivergenceStats() {
 }
 
 // Helper: given |ml - nws| divergence °F, return the MOAT risk line HTML
-function _buildMoatRiskHTML(mlTempF, nwsVal, mmSpread) {
+// Assigned to window so it's accessible from updateCorrectionBoxes (script block 1)
+window._buildMoatRiskHTML = function _buildMoatRiskHTML(mlTempF, nwsVal, mmSpread) {
   const parts = [];
 
   // ── NWS divergence risk ──────────────────────────────────────────────────
