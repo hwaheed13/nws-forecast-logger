@@ -3,14 +3,22 @@
 // Returns BL height, cloud cover, solar radiation, 850/925mb temps,
 // surface wind — the key intraday features feeding the v5 ML model.
 // Updates whenever the ML prediction reruns (every ~30 min).
+//
+// Query params:
+//   city=nyc (default) | lax
+
+const CITIES = {
+  nyc: { lat: 40.7834, lon: -73.965,  tz: "America/New_York",      label: "NYC" },
+  lax: { lat: 33.94,   lon: -118.39,  tz: "America/Los_Angeles",   label: "LAX" },
+};
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Cache-Control", "public, max-age=900"); // 15-min CDN cache
 
-  const LAT = 40.7834;
-  const LON = -73.965;
-  const TZ  = "America/New_York";
+  const cityKey = (req.query?.city || "nyc").toLowerCase();
+  const cfg = CITIES[cityKey] || CITIES.nyc;
+  const { lat, lon, tz } = cfg;
 
   const HOURLY_VARS = [
     "boundary_layer_height",   // PBL mixing depth (m)
@@ -25,11 +33,11 @@ export default async function handler(req, res) {
 
   const url =
     `https://api.open-meteo.com/v1/forecast` +
-    `?latitude=${LAT}&longitude=${LON}` +
+    `?latitude=${lat}&longitude=${lon}` +
     `&hourly=${HOURLY_VARS}` +
     `&temperature_unit=fahrenheit` +
     `&wind_speed_unit=mph` +
-    `&timezone=${encodeURIComponent(TZ)}` +
+    `&timezone=${encodeURIComponent(tz)}` +
     `&forecast_days=2`;
 
   try {
@@ -40,12 +48,8 @@ export default async function handler(req, res) {
     const hourly = raw.hourly || {};
     const times  = hourly.time || [];
 
-    // Build a lookup: hour string → index
     const now = new Date();
-    // ET local time — use UTC offset for Eastern (EST=-5, EDT=-4)
-    // We'll identify "today" rows by the date portion of the time strings,
-    // which Open-Meteo returns in the requested timezone.
-    const todayStr = now.toLocaleDateString("en-CA", { timeZone: TZ }); // YYYY-MM-DD
+    const todayStr = now.toLocaleDateString("en-CA", { timeZone: tz }); // YYYY-MM-DD
 
     const rows = times.map((t, i) => {
       const [datePart, timePart] = t.split("T");
@@ -65,8 +69,8 @@ export default async function handler(req, res) {
     }).filter(r => r.date === todayStr);
 
     // Peak heating window: 10am–5pm local
-    const peak = rows.filter(r => r.hour >= 10 && r.hour <= 17);
-    const morning = rows.filter(r => r.hour >= 6 && r.hour <= 9);
+    const peak    = rows.filter(r => r.hour >= 10 && r.hour <= 17);
+    const morning = rows.filter(r => r.hour >= 6  && r.hour <= 9);
 
     const avg = (arr, key) => {
       const vals = arr.map(r => r[key]).filter(v => v != null && !isNaN(v));
@@ -77,26 +81,30 @@ export default async function handler(req, res) {
       return vals.length ? Math.max(...vals) : null;
     };
 
-    // Wind direction helpers
     const degToCard = (deg) => {
       if (deg == null) return null;
       const dirs = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
       return dirs[Math.round(deg / 22.5) % 16];
     };
 
-    // Current-hour reading (or most recent available)
-    const currentHour = now.getHours(); // local system hour — close enough for display
+    const currentHour = parseInt(now.toLocaleString("en-US", { timeZone: tz, hour: "numeric", hour12: false }), 10);
     const currentRow  = rows.reduce((best, r) =>
       r.hour <= currentHour && (!best || r.hour > best.hour) ? r : best, null);
 
-    // BL height category
     const blCat = (m) => {
       if (m == null) return null;
-      if (m < 500)  return "very-shallow";   // strong suppression
-      if (m < 1000) return "shallow";         // moderate suppression
-      if (m < 2000) return "moderate";        // normal mixing
-      return "deep";                           // good mixing, supports high end
+      if (m < 500)  return "very-shallow";
+      if (m < 1000) return "shallow";
+      if (m < 2000) return "moderate";
+      return "deep";
     };
+
+    // Sea-breeze onshore directions differ by city:
+    //   NYC: E / ENE / ESE / SE  (ocean is to the east)
+    //   LAX: SW / W / WSW / SSW  (ocean is to the west)
+    const SEA_BREEZE_DIRS = cityKey === "lax"
+      ? ["SW", "W", "WSW", "SSW", "S"]
+      : ["E", "ENE", "ESE", "SE"];
 
     const blPeak   = max(peak, "bl");
     const blMean   = avg(peak, "bl");
@@ -109,19 +117,20 @@ export default async function handler(req, res) {
     const wdirNow  = currentRow?.wdir;
     const tempNow  = currentRow?.temp;
     const temp6am  = rows.find(r => r.hour === 6)?.temp;
+    const wdirCard = degToCard(wdirNow);
 
-    // Model pressure-level interpretation: warm 850mb = warm air advection
-    // NYC typical: 850mb ~50°F in spring, each +5°F ≈ +2-3°F surface boost
     const warmAdv = t850Pk != null ? (t850Pk > 50 ? "warm" : t850Pk < 40 ? "cold" : "neutral") : null;
 
     res.status(200).json({
       fetchedAt:      new Date().toISOString(),
       date:           todayStr,
+      city:           cityKey,
       current: {
-        temp:         tempNow != null ? Math.round(tempNow * 10) / 10 : null,
-        wind_mph:     windNow != null ? Math.round(windNow * 10) / 10 : null,
-        wind_dir_deg: wdirNow != null ? Math.round(wdirNow) : null,
-        wind_dir_card: degToCard(wdirNow),
+        temp:          tempNow  != null ? Math.round(tempNow  * 10) / 10 : null,
+        wind_mph:      windNow  != null ? Math.round(windNow  * 10) / 10 : null,
+        wind_dir_deg:  wdirNow  != null ? Math.round(wdirNow) : null,
+        wind_dir_card: wdirCard,
+        sea_breeze:    wdirCard ? SEA_BREEZE_DIRS.includes(wdirCard) : false,
       },
       peak_heating: {
         bl_height_max_m:  blPeak  != null ? Math.round(blPeak)  : null,
@@ -130,13 +139,13 @@ export default async function handler(req, res) {
         cloud_cover_pct:  cloudPk != null ? Math.round(cloudPk) : null,
         solar_peak_wm2:   solarPk != null ? Math.round(solarPk) : null,
         solar_mean_wm2:   solarMn != null ? Math.round(solarMn) : null,
-        temp_850hPa:      t850Pk  != null ? Math.round(t850Pk * 10) / 10 : null,
-        temp_925hPa:      t925Pk  != null ? Math.round(t925Pk * 10) / 10 : null,
+        temp_850hPa:      t850Pk  != null ? Math.round(t850Pk  * 10) / 10 : null,
+        temp_925hPa:      t925Pk  != null ? Math.round(t925Pk  * 10) / 10 : null,
         warm_advection:   warmAdv,
       },
       morning: {
-        temp_6am:    temp6am != null ? Math.round(temp6am * 10) / 10 : null,
-        avg_wind:    avg(morning, "wind") != null ? Math.round(avg(morning, "wind") * 10) / 10 : null,
+        temp_6am: temp6am != null ? Math.round(temp6am * 10) / 10 : null,
+        avg_wind: avg(morning, "wind") != null ? Math.round(avg(morning, "wind") * 10) / 10 : null,
       },
     });
   } catch (err) {

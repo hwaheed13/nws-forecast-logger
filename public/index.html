@@ -3687,9 +3687,8 @@ async function fetchLiveRegionalObs() {
 window._atmFeatures = null;
 
 async function fetchAtmFeatures() {
-  if (currentCity !== 'nyc') return; // Only wired for NYC (Open-Meteo lat/lon)
   try {
-    const r = await fetch('/api/atm-features?cb=' + Date.now(), { signal: AbortSignal.timeout(15000) });
+    const r = await fetch(`/api/atm-features?city=${currentCity}&cb=${Date.now()}`, { signal: AbortSignal.timeout(15000) });
     if (!r.ok) return;
     const d = await r.json();
     window._atmFeatures = d;
@@ -3704,10 +3703,15 @@ function renderAtmSignals() {
   if (!panel || !grid) return;
 
   const d = window._atmFeatures;
-  if (!d || currentCity !== 'nyc') { panel.style.display = 'none'; return; }
+  if (!d) { panel.style.display = 'none'; return; }
+  // Stale guard: don't show data from a different city
+  if (d.city && d.city !== currentCity) { panel.style.display = 'none'; return; }
 
-  const pk = d.peak_heating || {};
+  const pk  = d.peak_heating || {};
   const cur = d.current || {};
+
+  // Timezone for timestamp display
+  const dispTZ = currentCity === 'lax' ? 'America/Los_Angeles' : 'America/New_York';
 
   // Helper: signal card
   const sig = (label, value, unit, tip, color) =>
@@ -3717,7 +3721,7 @@ function renderAtmSignals() {
       ${tip ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:3px;">${tip}</div>` : ''}
     </div>`;
 
-  const fmt = (v, dec=0) => v != null ? v.toFixed(dec) : '–';
+  const fmt = (v, dec=0) => v != null ? Number(v).toFixed(dec) : '–';
 
   // BL height coloring
   const blM   = pk.bl_height_max_m;
@@ -3734,24 +3738,25 @@ function renderAtmSignals() {
   // Cloud cover coloring
   const cloud = pk.cloud_cover_pct;
   const cloudColor = cloud == null ? 'var(--text-primary)'
-                   : cloud < 20   ? '#16a34a'   // sunny
-                   : cloud < 50   ? '#d97706'   // partly cloudy
-                   : '#dc2626';                 // overcast
+                   : cloud < 20   ? '#16a34a'
+                   : cloud < 50   ? '#d97706'
+                   : '#dc2626';
 
-  // Wind direction — flag sea breeze risk (E, ESE, ENE, SE)
+  // Wind direction — sea-breeze flag is computed server-side per city
   const wdir = cur.wind_dir_card;
-  const wSea = wdir && ['E','ESE','ENE','SE'].includes(wdir);
+  const wSea = cur.sea_breeze === true;
   const windColor = wSea ? '#d97706' : 'var(--text-primary)';
-  const windTip   = wSea ? '⚠️ Onshore flow — sea breeze risk' : (wdir ? wdir + ' flow' : '');
+  const seaLabel  = currentCity === 'lax' ? '⚠️ Onshore — marine layer risk' : '⚠️ Onshore — sea breeze risk';
+  const windTip   = wSea ? seaLabel : (wdir ? wdir + ' flow' : '');
 
   // 850mb warm advection
-  const t850 = pk.temp_850hPa;
+  const t850    = pk.temp_850hPa;
   const advColor = pk.warm_advection === 'warm' ? '#dc2626'
                  : pk.warm_advection === 'cold' ? '#2563eb'
                  : 'var(--text-primary)';
-  const advTip = pk.warm_advection === 'warm' ? 'Warm advection aloft'
-               : pk.warm_advection === 'cold' ? 'Cold advection aloft'
-               : 'Neutral advection';
+  const advTip   = pk.warm_advection === 'warm' ? 'Warm advection aloft'
+                 : pk.warm_advection === 'cold' ? 'Cold advection aloft'
+                 : 'Neutral advection';
 
   // Solar
   const solar = pk.solar_peak_wm2;
@@ -3761,16 +3766,16 @@ function renderAtmSignals() {
                    : '#dc2626';
 
   grid.innerHTML = [
-    sig('Mixing Layer', fmt(blM), 'm peak', blLabel, blColor),
-    sig('Cloud Cover',  fmt(cloud), '%', cloud != null ? (cloud < 20 ? 'Mostly clear' : cloud < 50 ? 'Partly cloudy' : 'Mostly cloudy') : '', cloudColor),
-    sig('Solar Peak',   fmt(solar), 'W/m²', solar != null ? (solar > 700 ? 'Strong heating' : solar > 400 ? 'Moderate' : 'Weak — suppressed') : '', solarColor),
-    sig('850mb Temp',   fmt(t850, 1), '°F', advTip, advColor),
+    sig('Mixing Layer', fmt(blM),   'm peak',  blLabel, blColor),
+    sig('Cloud Cover',  fmt(cloud), '%',        cloud != null ? (cloud < 20 ? 'Mostly clear' : cloud < 50 ? 'Partly cloudy' : 'Mostly cloudy') : '', cloudColor),
+    sig('Solar Peak',   fmt(solar), 'W/m²',    solar != null ? (solar > 700 ? 'Strong heating' : solar > 400 ? 'Moderate' : 'Weak — suppressed') : '', solarColor),
+    sig('850mb Temp',   fmt(t850, 1), '°F',    advTip, advColor),
     sig('925mb Temp',   fmt(pk.temp_925hPa, 1), '°F', 'Near-surface advection', 'var(--text-primary)'),
     sig('Surface Wind', cur.wind_mph != null ? fmt(cur.wind_mph, 0) : '–', 'mph', windTip, windColor),
   ].join('');
 
   if (ts && d.fetchedAt) {
-    const t = new Date(d.fetchedAt).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
+    const t = new Date(d.fetchedAt).toLocaleTimeString('en-US', { timeZone: dispTZ, hour: 'numeric', minute: '2-digit' });
     ts.textContent = `as of ${t}`;
   }
   panel.style.display = '';
