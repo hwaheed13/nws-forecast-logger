@@ -4057,6 +4057,39 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             _ex_snap_str = existing.get("atm_snapshot")
             _ex_snap = json.loads(_ex_snap_str) if _ex_snap_str else {}
             if _ex_snap:
+                # ── Sanitize NaN → None across entire snapshot before any writes ──
+                # Python json.dumps serializes float('nan') as the non-standard token
+                # NaN, which Postgres JSONB rejects and stores as null.  On the next
+                # read those keys come back as None and get written as None on every
+                # subsequent stable cycle.  Sanitize once here so all values that
+                # survived as Python nan are written as JSON null (not NaN).
+                def _san(v):
+                    if isinstance(v, float) and math.isnan(v):
+                        return None
+                    return v
+                _ex_snap = {k: _san(v) for k, v in _ex_snap.items()}
+
+                # ── Re-inject mm_spread and companion ATM keys if null ─────────
+                # mm_spread is set during ML recompute via _fetch_atmospheric_features.
+                # On Full Freeze days ML never reruns, so if the canonical write had
+                # live_atm={} (lock fired before first run), mm_spread stays null.
+                # Fetch fresh ATM features here so the panel has data.
+                _MM_KEYS = ("mm_spread", "mm_std", "mm_mean",
+                            "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff", "mm_ecmwf_gfs_diff",
+                            "mm_hrrr_max", "mm_icon_max", "mm_gem_max",
+                            "mm_icon_gfs_diff", "mm_gem_ecmwf_diff")
+                if _ex_snap.get("mm_spread") is None:
+                    try:
+                        _fresh_atm = _fetch_atmospheric_features(target_date_iso)
+                        for _k in _MM_KEYS:
+                            if _k in _fresh_atm:
+                                v = _fresh_atm[_k]
+                                _ex_snap[_k] = None if (v is None or (isinstance(v, float) and math.isnan(v))) else v
+                        if _ex_snap.get("mm_spread") is not None:
+                            print(f"  📊 Injected mm_spread={_ex_snap['mm_spread']:.1f}°F into stable snapshot")
+                    except Exception as _mm_e:
+                        print(f"  ⚠️  mm_spread refresh skipped: {_mm_e}")
+
                 # Refresh NWS display values (always overwrite — not setdefault)
                 if nws_latest is not None:
                     _ex_snap["nws_last"] = float(nws_latest)
