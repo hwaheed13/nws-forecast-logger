@@ -2531,6 +2531,134 @@ def backfill_observation_features(city_key: str = None) -> str:
     return csv_path
 
 
+def backfill_high_timing_features(city_key: str = None) -> str:
+    """
+    Compute high-timing features for all historical dates using the
+    pre-dawn observation window (midnight–07:59 local), simulating what
+    the model sees at its ~6am prediction run.
+
+    Features computed:
+      obs_high_peak_hour    — hour (0-23) of the running max in the midnight-8am window
+      obs_is_overnight_high — 1 if the overnight max is the calendar-day high AND
+                              temp was already falling by 8am (warm-front passage)
+      obs_temp_falling_hrs  — consecutive falling hours from the running max by 8am
+
+    Overnight-high detection logic (same as _detect_high_locked):
+      peak_hour < 9 AND gap (peak - 8am temp) >= 2°F
+
+    Saves to {prefix}high_timing_data.csv.
+    Returns the CSV path.
+    """
+    import nws_auto_logger as _nal
+    cfg    = _nal._CITY_CFG
+    prefix = cfg.get("model_prefix", "")
+    city   = city_key or _CITY_KEY
+    tz_name = cfg.get("timezone", "America/New_York")
+
+    sb_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    sb_key = os.environ.get("SUPABASE_SERVICE_ROLE", "")
+    if not sb_url or not sb_key:
+        print("⚠️ Missing SUPABASE_URL/SUPABASE_SERVICE_ROLE — cannot backfill high-timing")
+        return ""
+
+    # ── Fetch all obs from Supabase (paginated) ───────────────────────────
+    endpoint = f"{sb_url}/rest/v1/nws_observations"
+    all_obs: list[dict] = []
+    offset, page_size = 0, 1000
+    while True:
+        params = (f"?city=eq.{city}&order=observed_at.asc"
+                  f"&limit={page_size}&offset={offset}")
+        req = urllib.request.Request(
+            endpoint + params,
+            headers={"apikey": sb_key, "Authorization": f"Bearer {sb_key}",
+                     "Accept": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                rows = json.loads(resp.read().decode("utf-8"))
+            all_obs.extend(rows)
+            if len(rows) < page_size:
+                break
+            offset += page_size
+        except Exception as e:
+            print(f"⚠️ Obs fetch failed at offset {offset}: {e}")
+            break
+
+    if not all_obs:
+        print(f"⚠️ No observations found for {city}")
+        return ""
+    print(f"📊 Fetched {len(all_obs)} obs for {city} across all dates")
+
+    # ── Group by local date ───────────────────────────────────────────────
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo(tz_name)
+    obs_by_date: dict[str, list] = {}
+    for obs in all_obs:
+        ts = obs.get("observed_at")
+        if not ts or obs.get("temp_f") is None:
+            continue
+        local_dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(tz)
+        d = local_dt.strftime("%Y-%m-%d")
+        obs_by_date.setdefault(d, []).append((local_dt, obs["temp_f"]))
+
+    print(f"📅 Spans {len(obs_by_date)} unique dates")
+
+    # ── Compute features per date ─────────────────────────────────────────
+    rows_out = []
+    overnight_count = 0
+    for date_str in sorted(obs_by_date.keys()):
+        day_obs = sorted(obs_by_date[date_str], key=lambda x: x[0])  # chrono
+
+        # Pre-dawn window: midnight–07:59 local (what model sees at ~6am run)
+        pre_dawn = [(dt, t) for dt, t in day_obs if dt.hour < 8]
+        if not pre_dawn:
+            # No pre-dawn obs — use first available obs of the day
+            pre_dawn = day_obs[:3] if day_obs else []
+        if not pre_dawn:
+            continue
+
+        temps_pd = [t for _, t in pre_dawn]
+        max_t    = max(temps_pd)
+        # Hour of running max in pre-dawn window
+        peak_hr  = next(dt.hour for dt, t in pre_dawn if t == max_t)
+        # Current temp at end of pre-dawn window (closest to 8am)
+        curr_t   = pre_dawn[-1][1]
+        gap      = max_t - curr_t  # °F the temp has fallen from peak
+
+        # Consecutive falling hours from peak (in pre-dawn window)
+        falling = 0
+        prev_t  = curr_t
+        for _, t in reversed(pre_dawn[:-1]):
+            if t > prev_t:
+                break
+            falling += 1
+            prev_t = t
+
+        # Overnight-high flag: peak was pre-9am AND temp already falling ≥2°F
+        is_overnight = int(peak_hr < 9 and gap >= 2.0)
+        if is_overnight:
+            overnight_count += 1
+
+        rows_out.append({
+            "target_date":          date_str,
+            "city":                 city,
+            "obs_high_peak_hour":   float(peak_hr),
+            "obs_is_overnight_high": float(is_overnight),
+            "obs_temp_falling_hrs": float(falling),
+        })
+
+    if not rows_out:
+        print("⚠️ No high-timing features computed")
+        return ""
+
+    csv_path = f"{prefix}high_timing_data.csv"
+    pd.DataFrame(rows_out).to_csv(csv_path, index=False)
+    print(f"✅ Saved {len(rows_out)} high-timing rows → {csv_path}")
+    print(f"   Overnight highs detected: {overnight_count} "
+          f"({overnight_count/len(rows_out)*100:.1f}% of days)")
+    return csv_path
+
+
 _LOCK_NOT_FOUND = "not_found"
 _LOCK_ERROR = "error"
 
@@ -3906,6 +4034,7 @@ def _cli():
     s.add_parser("both")
     s.add_parser("collect_obs")
     s.add_parser("backfill_obs")
+    s.add_parser("backfill_high_timing")
     args = p.parse_args()
 
     set_city(args.city)
@@ -3913,8 +4042,9 @@ def _cli():
     _CITY_KEY = args.city
     print(f"[prediction_writer] city={args.city}")
 
-    if args.cmd == "collect_obs":        collect_nws_observations(args.city)
-    elif args.cmd == "backfill_obs":     backfill_observation_features(args.city)
+    if args.cmd == "collect_obs":              collect_nws_observations(args.city)
+    elif args.cmd == "backfill_obs":           backfill_observation_features(args.city)
+    elif args.cmd == "backfill_high_timing":   backfill_high_timing_features(args.city)
     elif args.cmd == "today_for_today":    write_today_for_today(args.date)
     elif args.cmd == "today_for_tomorrow": write_today_for_tomorrow(args.date)
     else: write_both_snapshots()

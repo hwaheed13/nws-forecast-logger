@@ -865,6 +865,46 @@ class NYCTemperatureModelTrainer:
 
         self.features_df = merged
 
+    def _load_high_timing_features(self) -> pd.DataFrame | None:
+        """Load high-timing features CSV (from backfill_high_timing_features)."""
+        prefix = self.model_prefix
+        csv = f"{prefix}high_timing_data.csv"
+        try:
+            df = pd.read_csv(csv)
+            overnight = int(df["obs_is_overnight_high"].sum()) if "obs_is_overnight_high" in df.columns else 0
+            print(f"  Loaded {len(df)} high-timing rows from {csv} "
+                  f"({overnight} overnight highs, "
+                  f"{overnight/len(df)*100:.1f}%)")
+            return df
+        except FileNotFoundError:
+            print(f"  ⚠️ No high-timing data: {csv}")
+            print(f"     Run: python prediction_writer.py --city {self.city_key} backfill_high_timing")
+            return None
+
+    def _merge_high_timing_features(self, ht_df: pd.DataFrame) -> None:
+        """Merge high-timing features into self.features_df."""
+        from model_config import HIGH_TIMING_COLS
+        if ht_df is None or self.features_df is None:
+            return
+        ht_df = ht_df.copy()
+        ht_df["target_date"] = ht_df["target_date"].astype(str)
+        # Deduplicate
+        ht_df = ht_df.drop_duplicates(subset="target_date", keep="last")
+        ht_indexed = ht_df.set_index("target_date")
+        cols_to_merge = [c for c in HIGH_TIMING_COLS if c in ht_df.columns]
+        dates_updated = 0
+        for date_str in ht_indexed.index:
+            mask = self.features_df["target_date"] == date_str
+            if mask.sum() == 0:
+                continue
+            for col in cols_to_merge:
+                val = ht_indexed.loc[date_str, col]
+                if pd.notna(val):
+                    self.features_df.loc[mask, col] = val
+            dates_updated += 1
+        print(f"  Merged high-timing features for {dates_updated} dates "
+              f"({', '.join(cols_to_merge)})")
+
     def _load_observation_features(self) -> pd.DataFrame | None:
         """Load real NWS observation features CSV if it exists."""
         prefix = self.model_prefix
@@ -1619,7 +1659,158 @@ class NYCTemperatureModelTrainer:
         print(f"  v4 Classifier Bucket: {classifier.cv_bucket_accuracy:.1%}")
         print(f"{'─'*50}")
 
-    def run(self, v2: bool = False, v4: bool = False):
+    def train_v5(self) -> None:
+        """
+        Train v5 model: v4 + HIGH_TIMING_COLS (3 features = 122 total).
+
+        Adds obs_high_peak_hour, obs_is_overnight_high, obs_temp_falling_hrs.
+        These capture the three meteorological regimes that the 2pm/3pm clock
+        cutoffs miss:
+          1. Overnight/pre-dawn highs (warm-front passage, high at 1-3am)
+          2. Late afternoon/evening highs (sea-breeze collapse, high at 4-6pm)
+          3. Normal solar peak (1-3pm) — these new features add nothing but don't hurt
+
+        Requires high_timing_data.csv from:
+          python prediction_writer.py --city nyc backfill_high_timing
+        """
+        from model_config import FEATURE_COLS_V5, HIGH_TIMING_COLS
+        from train_classifier import BucketClassifier
+
+        print(f"\n{'═'*60}")
+        print(f"v5 Training: v4 + High-Timing Features ({len(FEATURE_COLS_V5)} features)")
+        print(f"{'═'*60}")
+
+        if self.features_df is None or self.features_df.empty:
+            print("  ⚠️ No feature data. Run train_v4() first.")
+            return
+
+        # Load and merge high-timing features
+        ht_df = self._load_high_timing_features()
+        if ht_df is not None:
+            self._merge_high_timing_features(ht_df)
+
+        # Also ensure obs features are merged (in case train_v4 wasn't called)
+        obs_df = self._load_observation_features()
+        if obs_df is not None:
+            self._merge_observation_features(obs_df)
+
+        # Ensure all v5 columns exist
+        missing_v5 = [c for c in FEATURE_COLS_V5 if c not in self.features_df.columns]
+        if missing_v5:
+            print(f"  Missing v5 cols (NaN): {missing_v5}")
+            for col in missing_v5:
+                self.features_df[col] = np.nan
+
+        # High-timing coverage report
+        for col in HIGH_TIMING_COLS:
+            n = self.features_df[col].notna().sum() if col in self.features_df.columns else 0
+            print(f"  {col}: {n} non-null rows")
+
+        has_forecast_mask = self.features_df["nws_last"].notna()
+        forecast_df = self.features_df[has_forecast_mask].copy()
+        n_forecast = len(forecast_df)
+        print(f"\n  Regression: {n_forecast} rows with forecasts")
+
+        if n_forecast < MIN_DAYS_FOR_TRAINING:
+            print(f"  ⚠️ Need {MIN_DAYS_FOR_TRAINING} rows, have {n_forecast}. Skipping.")
+            return
+
+        X_v5 = forecast_df[FEATURE_COLS_V5]
+        y_actual = forecast_df["actual_high"]
+        nws_last = forecast_df["nws_last"]
+        accu_last = forecast_df["accu_last"]
+        base = accu_last.copy()
+        base[base.isna()] = nws_last[base.isna()]
+        y_bias = y_actual - base
+
+        tscv = TimeSeriesSplit(n_splits=5)
+        mae_scores, bucket_acc, all_residuals = [], [], []
+
+        for tr, te in tscv.split(X_v5):
+            model = HistGradientBoostingRegressor(
+                max_iter=300, max_depth=3, learning_rate=0.03,
+                min_samples_leaf=20, l2_regularization=1.0,
+                max_leaf_nodes=15, random_state=42,
+            )
+            model.fit(X_v5.iloc[tr], y_bias.iloc[tr])
+            pred_bias = model.predict(X_v5.iloc[te])
+            pred_temp = base.iloc[te].values + pred_bias
+            mae_scores.append(mean_absolute_error(y_actual.iloc[te], pred_temp))
+            all_residuals.extend((y_actual.iloc[te].values - pred_temp).tolist())
+            pred_buckets   = [f"{int(p)}-{int(p)+1}" for p in pred_temp]
+            actual_buckets = [f"{int(a)}-{int(a)+1}" for a in y_actual.iloc[te]]
+            correct = sum(1 for pb, ab in zip(pred_buckets, actual_buckets) if pb == ab)
+            bucket_acc.append(correct / len(actual_buckets))
+
+        residual_std = float(np.std(all_residuals))
+        print(f"  v5 CV MAE:        {np.mean(mae_scores):.2f}°F")
+        print(f"  v5 CV Bucket Acc: {np.mean(bucket_acc):.1%}")
+        print(f"  v5 Residual Std:  {residual_std:.2f}°F")
+
+        # Train final model on all data
+        v5_regressor = HistGradientBoostingRegressor(
+            max_iter=300, max_depth=3, learning_rate=0.03,
+            min_samples_leaf=20, l2_regularization=1.0,
+            max_leaf_nodes=15, random_state=42,
+        )
+        v5_regressor.fit(X_v5, y_bias)
+
+        # Feature importance for high-timing cols
+        try:
+            fi = dict(zip(FEATURE_COLS_V5, v5_regressor.feature_importances_))
+            print("  High-timing feature importances:")
+            for col in HIGH_TIMING_COLS:
+                print(f"    {col}: {fi.get(col, 0):.4f}")
+        except Exception:
+            pass
+
+        # Bucket classifier
+        classifier = BucketClassifier(city_key=self.city_key)
+        classifier.train(forecast_df, feature_cols=FEATURE_COLS_V5, residual_std=residual_std)
+
+        # Save models
+        prefix = self.model_prefix
+        import pickle
+        with open(f"{prefix}bcp_v5_regressor.pkl", "wb") as f:
+            pickle.dump(v5_regressor, f)
+        with open(f"{prefix}bcp_v5_classifier.pkl", "wb") as f:
+            pickle.dump(classifier, f)
+        with open(f"{prefix}bcp_v5_feature_cols.pkl", "wb") as f:
+            pickle.dump(list(FEATURE_COLS_V5), f)
+
+        v5_meta = {
+            "v5_regression": {
+                "cv_mae": float(np.mean(mae_scores)),
+                "cv_bucket_accuracy": float(np.mean(bucket_acc)),
+                "residual_std": residual_std,
+                "n_features": len(FEATURE_COLS_V5),
+                "n_training_rows": n_forecast,
+            },
+            "feature_columns_v5": list(FEATURE_COLS_V5),
+        }
+        import json as _json
+        with open(f"{prefix}model_metadata_v5.json", "w") as f:
+            _json.dump(v5_meta, f, indent=2)
+
+        print(f"\n  ✅ Saved v5 models: bcp_v5_regressor.pkl, bcp_v5_classifier.pkl")
+        print(f"  v5 Classifier Bucket Acc: {classifier.cv_bucket_accuracy:.1%}")
+
+        # Compare v4 vs v5
+        try:
+            import json as _j
+            with open(f"{prefix}model_metadata_v4.json") as f:
+                v4_meta = _j.load(f)
+            v4_mae = v4_meta.get("v4_regression", {}).get("cv_mae")
+            v4_bkt = v4_meta.get("v4_regression", {}).get("cv_bucket_accuracy")
+            print(f"\n{'─'*50}")
+            print(f"COMPARISON: v4 vs v5")
+            if v4_mae: print(f"  MAE:        v4={v4_mae:.2f}°F → v5={np.mean(mae_scores):.2f}°F")
+            if v4_bkt: print(f"  Bucket Acc: v4={v4_bkt:.1%} → v5={np.mean(bucket_acc):.1%}")
+            print(f"{'─'*50}")
+        except Exception:
+            pass
+
+    def run(self, v2: bool = False, v4: bool = False, v5: bool = False):
         label = self.city_cfg["label"]
         print("=" * 60)
         print(f"{label} Temperature Model Training")
@@ -1659,10 +1850,17 @@ class NYCTemperatureModelTrainer:
 
         if v4:
             if not v2:
-                # v4 needs v2 to run first (builds feature matrix with atmospheric + obs proxy)
                 self.train_v2()
                 self.train_v3()
             self.train_v4()
+
+        if v5:
+            if not v2:
+                self.train_v2()
+                self.train_v3()
+            if not v4:
+                self.train_v4()
+            self.train_v5()
 
         print("\nTraining complete.")
 
@@ -1676,6 +1874,8 @@ if __name__ == "__main__":
                         help="Also train v2 (atmospheric features + bucket classifier)")
     parser.add_argument("--v4", action="store_true",
                         help="Also train v4 (v2 + real-time observation features)")
+    parser.add_argument("--v5", action="store_true",
+                        help="Train v5 (v4 + high-timing features: overnight/late-day high detection)")
     args = parser.parse_args()
 
     if args.all:
@@ -1685,7 +1885,7 @@ if __name__ == "__main__":
             print(f"# Training: {city_key}")
             print(f"{'#' * 60}\n")
             trainer = NYCTemperatureModelTrainer(city_key=city_key)
-            trainer.run(v2=args.v2, v4=args.v4)
+            trainer.run(v2=args.v2, v4=args.v4, v5=args.v5)
     else:
         trainer = NYCTemperatureModelTrainer(city_key=args.city)
-        trainer.run(v2=args.v2, v4=args.v4)
+        trainer.run(v2=args.v2, v4=args.v4, v5=args.v5)
