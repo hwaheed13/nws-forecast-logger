@@ -3658,25 +3658,52 @@ function renderMLBetSignal() {
 // Live obs cache: fetched independently every 5 min, not tied to atm_snapshot
 window._liveRegionalObs = { jfk: null, lga: null, fetchedAt: null };
 
+// Per-city regional station config (mirrors city_config.py)
+const REGIONAL_STATIONS = {
+  nyc: {
+    s1: 'KJFK', s2: 'KLGA',
+    s1Label: 'JFK', s2Label: 'LGA',
+    cardLabel: 'JFK / LGA',
+    tz: 'America/New_York',
+    // Marine/sea-breeze signal: s2 (LGA, inland Queens) warmer than s1 (JFK, coastal)
+    marineSignal: (s1, s2) => s2 - s1 >= 3,
+    marineLabel: '🌊 Sea breeze',
+    gradLabel: (s1, s2) => `Gradient: ${Math.abs(s2 - s1).toFixed(1)}°F`,
+  },
+  lax: {
+    s1: 'KLAX', s2: 'KBUR',
+    s1Label: 'LAX', s2Label: 'BUR',
+    cardLabel: 'LAX / BUR',
+    tz: 'America/Los_Angeles',
+    // Marine layer signal: s2 (KBUR, inland valley) much hotter than s1 (KLAX, coastal)
+    // Large gap = marine layer coastal only, inland heating uncapped → higher highs
+    // Narrow gap = marine layer pushed inland, suppressing temps
+    marineSignal: (s1, s2) => s2 - s1 >= 8,
+    marineLabel: '☀️ Inland heating — marine layer coastal',
+    gradLabel: (s1, s2) => `Valley/Coast: +${Math.abs(s2 - s1).toFixed(1)}°F`,
+  },
+};
+
 async function fetchLiveRegionalObs() {
-  // JFK and LGA use same NWS API as KNYC — free, no key
   if (typeof fetchNwsCurrentTemp !== 'function') return;
+  const cfg = REGIONAL_STATIONS[currentCity] || REGIONAL_STATIONS.nyc;
   try {
-    const [jfkRes, lgaRes] = await Promise.allSettled([
-      fetchNwsCurrentTemp('KJFK'),
-      fetchNwsCurrentTemp('KLGA'),
+    const [s1Res, s2Res] = await Promise.allSettled([
+      fetchNwsCurrentTemp(cfg.s1),
+      fetchNwsCurrentTemp(cfg.s2),
     ]);
     const _fmtObsTime = iso => {
       if (!iso) return null;
       try {
-        return new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true });
+        return new Date(iso).toLocaleTimeString('en-US', { timeZone: cfg.tz, hour: 'numeric', minute: '2-digit', hour12: true });
       } catch { return null; }
     };
     window._liveRegionalObs = {
-      jfk:      jfkRes.status === 'fulfilled' && jfkRes.value?.currentF != null ? Number(jfkRes.value.currentF) : null,
-      lga:      lgaRes.status === 'fulfilled' && lgaRes.value?.currentF != null ? Number(lgaRes.value.currentF) : null,
-      jfkObsAt: jfkRes.status === 'fulfilled' ? _fmtObsTime(jfkRes.value?.atISO) : null,
-      lgaObsAt: lgaRes.status === 'fulfilled' ? _fmtObsTime(lgaRes.value?.atISO) : null,
+      jfk:      s1Res.status === 'fulfilled' && s1Res.value?.currentF != null ? Number(s1Res.value.currentF) : null,
+      lga:      s2Res.status === 'fulfilled' && s2Res.value?.currentF != null ? Number(s2Res.value.currentF) : null,
+      jfkObsAt: s1Res.status === 'fulfilled' ? _fmtObsTime(s1Res.value?.atISO) : null,
+      lgaObsAt: s2Res.status === 'fulfilled' ? _fmtObsTime(s2Res.value?.atISO) : null,
+      city:     currentCity,
       fetchedAt: new Date(),
     };
     renderLiveSourcesPanel();
@@ -3787,9 +3814,8 @@ function renderLiveSourcesPanel() {
   const foot  = document.getElementById("live-sources-foot");
   if (!panel || !grid) return;
 
-  // Only show for NYC (only city with multi-station obs)
-  if (currentCity !== "nyc") { panel.style.display = "none"; return; }
   panel.style.display = "";
+  const rcfg = REGIONAL_STATIONS[currentCity] || REGIONAL_STATIONS.nyc;
 
   const ml = window.mlPredictions || {};
   const snap = ml.todayAtmSnapshot;
@@ -3808,18 +3834,17 @@ function renderLiveSourcesPanel() {
       <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${sub}</div>
     </div>`;
 
-  // ── KNYC: use live obs from window._recentObservedF (same as metric box)
+  // ── Primary station (KNYC for NYC, KLAX for LAX)
+  const _cityTZ   = CC()?.timezone || "America/New_York";
+  const _primaryLabel = currentCity === 'lax' ? 'KLAX (Los Angeles Airport)' : 'KNYC (Central Park)';
   const knyc_live = window._recentObservedF != null ? Number(window._recentObservedF) : null;
   const knyc_snap_temp = s.obs_snap_temp;
   const knyc_vs   = s.obs_snap_vs_forecast;
   const knyc_rate = s.obs_snap_heating_rate;
   const knyc_max  = s.obs_snap_max_so_far;
-  // Show live temp if available, fall back to snapshot
   const knyc_display = knyc_live ?? knyc_snap_temp;
   const knyc_label = knyc_live != null ? "live" : (s.obs_snap_hour != null ? `@${Math.round(s.obs_snap_hour)}:00` : "");
-  // Only show snapshot sub-stats (vs forecast, heating rate) before 3pm ET —
-  // after 3pm the prediction is locked and the heating rate is no longer meaningful
-  const _nowHour  = parseInt(new Date().toLocaleString("en-US", { timeZone: CC()?.timezone || "America/New_York", hour: "numeric", hour12: false }), 10);
+  const _nowHour  = parseInt(new Date().toLocaleString("en-US", { timeZone: _cityTZ, hour: "numeric", hour12: false }), 10);
   const _snapRecent = _nowHour < 15;
   const knyc_sub = [
     knyc_max  != null ? `Max: ${f0(knyc_max)}` : "",
@@ -3827,21 +3852,23 @@ function renderLiveSourcesPanel() {
     (_snapRecent && knyc_rate != null) ? `${Number(knyc_rate) >= 0 ? "+" : ""}${Number(knyc_rate).toFixed(1)}°/hr` : "",
   ].filter(Boolean).join(" · ") || "–";
 
-  // ── JFK / LGA: live NWS fetch (same API as KNYC, no key needed)
+  // ── Regional stations (JFK/LGA for NYC, LAX/BUR for LAX)
   const lro = window._liveRegionalObs || {};
-  const jfk = lro.jfk ?? s.obs_snap_jfk;
-  const lga = lro.lga ?? s.obs_snap_lga;
-  const jfk_live = lro.jfk != null;
+  // Only use lro if it's from the current city (avoid stale cross-city data on switch)
+  const lroValid = !lro.city || lro.city === currentCity;
+  const jfk = (lroValid ? lro.jfk : null) ?? s.obs_snap_jfk;
+  const lga = (lroValid ? lro.lga : null) ?? s.obs_snap_lga;
+  const jfk_live = lroValid && lro.jfk != null;
   const reg_spread = (jfk != null && lga != null) ? Math.abs(Number(lga) - Number(jfk)) : (s.obs_snap_regional_spread ?? null);
-  // reg_vs: only use snapshot (model-run-time value) — live temps vs high forecast is meaningless in evening
   const reg_vs = s.obs_snap_regional_vs_nws ?? null;
-  const seaBreeze = jfk != null && lga != null && (Number(lga) - Number(jfk)) >= 3;
-  const jfk_lga_main = (jfk != null && lga != null) ? `${f0(jfk)} / ${f0(lga)}` : (jfk != null ? f0(jfk) : "–");
-  // Show actual observation timestamp (from NWS API) so user can tell if reading is genuinely stale
+  // City-specific marine/gradient signal
+  const marineActive = jfk != null && lga != null && rcfg.marineSignal(Number(jfk), Number(lga));
+  const reg_main = (jfk != null && lga != null) ? `${f0(jfk)} / ${f0(lga)}` : (jfk != null ? f0(jfk) : "–");
   const jfk_obs_label = lro.jfkObsAt ? `obs ${lro.jfkObsAt}` : (jfk_live ? "live" : "");
-  const jfk_lga_sub = [
-    reg_spread != null ? `Gradient: ${Number(reg_spread).toFixed(1)}°F` : "",
-    reg_vs     != null ? `Metro vs NWS: ${fSign(reg_vs)}` : "",
+  const reg_grad_label = (jfk != null && lga != null) ? rcfg.gradLabel(Number(jfk), Number(lga)) : (reg_spread != null ? `Spread: ${Number(reg_spread).toFixed(1)}°F` : "");
+  const reg_sub = [
+    reg_grad_label,
+    reg_vs != null ? `vs NWS: ${fSign(reg_vs)}` : "",
     jfk_obs_label || "",
   ].filter(Boolean).join(" · ") || "Fetching…";
 
@@ -3856,15 +3883,17 @@ function renderLiveSourcesPanel() {
     syn_count  != null ? `${syn_count} stations` : "",
   ].filter(Boolean).join(" · ") || "Awaiting next cycle";
 
-  // ── NY Mesonet (boroughs) — from model snapshot
+  // ── NY Mesonet (boroughs) — from model snapshot (NYC only; LAX uses CA Mesonet via Synoptic)
+  const _nysmLabel  = currentCity === 'lax' ? 'CA Mesonet (SoCal)' : 'NY Mesonet (Boroughs)';
   const nysm_mean   = s.obs_snap_nysm_mean;
   const nysm_spread = s.obs_snap_nysm_spread;
   const nysm_vs     = s.obs_snap_nysm_vs_nws;
   const nysm_count  = s.obs_snap_nysm_count;
+  const _nysmUnit   = currentCity === 'lax' ? 'stations' : 'boroughs';
   const nysm_sub = [
     nysm_spread != null ? `Spread: ${Number(nysm_spread).toFixed(1)}°F` : "",
     nysm_vs     != null ? `vs NWS: ${fSign(nysm_vs)}` : "",
-    nysm_count  != null ? `${nysm_count} boroughs` : "",
+    nysm_count  != null ? `${nysm_count} ${_nysmUnit}` : "",
   ].filter(Boolean).join(" · ") || "Awaiting next cycle";
 
   // ── NWS overnight jump — from model snapshot
@@ -3898,19 +3927,19 @@ function renderLiveSourcesPanel() {
   ].filter(Boolean).join(" · ") || "Awaiting next cycle";
 
   grid.innerHTML = [
-    card("KNYC (Central Park)",
+    card(_primaryLabel,
          knyc_display != null
            ? `${f1(knyc_display)} <span style="font-size:12px;font-weight:400;color:var(--text-muted);">${knyc_label}</span>`
            : "–",
          knyc_sub, "var(--accent-blue)"),
-    card("JFK / LGA" + (seaBreeze ? " ⚠️" : ""),
-         jfk_lga_main,
-         jfk_lga_sub + (seaBreeze ? "<br>🌊 Sea breeze" : ""),
-         seaBreeze ? "#d97706" : "var(--accent-blue)"),
+    card(rcfg.cardLabel + (marineActive ? " ⚠️" : ""),
+         reg_main,
+         reg_sub + (marineActive ? `<br>${rcfg.marineLabel}` : ""),
+         marineActive ? "#d97706" : "var(--accent-blue)"),
     card("Synoptic (5mi)",
          f1(syn_mean), syn_sub,
          syn_mean != null ? "var(--accent-green)" : "var(--border-default)"),
-    card("NY Mesonet (Boroughs)",
+    card(_nysmLabel,
          f1(nysm_mean), nysm_sub,
          nysm_mean != null ? "var(--accent-green)" : "var(--border-default)"),
     card("NWS Overnight Jump",
@@ -3932,8 +3961,9 @@ function renderLiveSourcesPanel() {
   // Timestamp
   const ts = document.getElementById("live-sources-ts");
   if (ts) {
-    const nowET = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit", hour12: true });
-    ts.textContent = `Updated ${nowET} ET`;
+    const tzAbbr = currentCity === 'lax' ? 'PT' : 'ET';
+    const nowLocal = new Date().toLocaleString("en-US", { timeZone: _cityTZ, hour: "numeric", minute: "2-digit", hour12: true });
+    ts.textContent = `Updated ${nowLocal} ${tzAbbr}`;
   }
 }
 

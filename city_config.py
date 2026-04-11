@@ -42,6 +42,11 @@ CITIES = {
         # Open-Meteo coordinates (same as NWS API endpoint)
         "open_meteo_lat": 33.94,
         "open_meteo_lon": -118.39,
+        # Regional supplemental NWS stations — fetched alongside primary KLAX
+        # KBUR (Burbank) is in the San Fernando Valley and runs 8-15°F hotter on sunny days.
+        # A large KBUR-KLAX gap means marine layer is pinned to the coast (inland heating uncapped).
+        # KCQT (USC Downtown) is near the NWS/Kalshi reference point for the official LA high.
+        "regional_obs_stations": ["KBUR", "KCQT"],
     },
 }
 
