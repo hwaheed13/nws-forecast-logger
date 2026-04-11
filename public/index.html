@@ -4418,8 +4418,15 @@ window._predTomorrow = predTomorrow;
           statsLine = confPct != null ? `<span style="color:${confColor};font-weight:600;">${confPct}% confidence</span>` : '';
         }
 
+        // Live market prob for ML bucket (falls back to stored value if live unavailable)
+        const _liveMktProbTd = (() => {
+          if (!todayMarket?.ranges || !bucket) return mktProb;
+          const bClean = bucket.replace(/[°\s]/g, '').toLowerCase();
+          const match = todayMarket.ranges.find(r => (r.label||'').replace(/[°\s]/g,'').toLowerCase() === bClean);
+          return match?.prob ?? mktProb;
+        })();
         const kellyLine = kellyF != null && kellyF > 0
-          ? `<div style="font-size:12px;color:#6b7280;margin-top:3px;">📐 Bet <span style="color:#059669;font-weight:700;">${Math.round(kellyF*100)}% of bankroll</span>${mktProb != null ? ` · market was ${Math.round(mktProb*100)}%` : ''}</div>`
+          ? `<div style="font-size:12px;color:#6b7280;margin-top:3px;">📐 Kelly: <span style="color:#059669;font-weight:700;">${Math.round(kellyF*100)}%</span>${_liveMktProbTd != null ? ` · <span style="color:#16a34a;font-size:10px;">●</span> Market: <span style="font-weight:600;">${Math.round(_liveMktProbTd*100)}%</span>` : ''}</div>`
           : '';
 
         // Supporting context: NWS + AccuWeather
@@ -4600,8 +4607,15 @@ window._predTomorrow = predTomorrow;
           statsLineTm = confPct != null ? `<span style="color:${confColor};font-weight:600;">${confPct}% confidence</span>` : '';
         }
 
+        // Live market prob for ML bucket (falls back to stored value if live unavailable)
+        const _liveMktProbTm = (() => {
+          if (!tomorrowMarket?.ranges || !bucket) return mktProb;
+          const bClean = bucket.replace(/[°\s]/g, '').toLowerCase();
+          const match = tomorrowMarket.ranges.find(r => (r.label||'').replace(/[°\s]/g,'').toLowerCase() === bClean);
+          return match?.prob ?? mktProb;
+        })();
         const kellyLineTm = kellyF != null && kellyF > 0
-          ? `<div style="font-size:12px;color:#6b7280;margin-top:3px;">📐 Bet <span style="color:#059669;font-weight:700;">${Math.round(kellyF*100)}% of bankroll</span>${mktProb != null ? ` · market was ${Math.round(mktProb*100)}%` : ''}</div>`
+          ? `<div style="font-size:12px;color:#6b7280;margin-top:3px;">📐 Kelly: <span style="color:#059669;font-weight:700;">${Math.round(kellyF*100)}%</span>${_liveMktProbTm != null ? ` · <span style="color:#16a34a;font-size:10px;">●</span> Market: <span style="font-weight:600;">${Math.round(_liveMktProbTm*100)}%</span>` : ''}</div>`
           : '';
 
         // Supporting context: NWS + AccuWeather
@@ -5724,7 +5738,7 @@ window._buildMoatRiskHTML = function _buildMoatRiskHTML(mlTempF, nwsVal, mmSprea
     let rateHTML = '';
     if (bktStats && bktStats.rate != null) {
       const rc = bktStats.rate >= 65 ? '#059669' : bktStats.rate >= 50 ? '#d97706' : '#dc2626';
-      rateHTML = ` · <span style="color:${rc};font-weight:700;">${bktStats.rate}% hit rate</span> historically`;
+      rateHTML = ` · <span style="color:${rc};font-weight:700;">${bktStats.rate}% accuracy</span> at this gap`;
     }
 
     const divColor = absDev < 1 ? '#059669' : absDev < 2 ? '#16a34a' : absDev < 3 ? '#d97706' : '#dc2626';
