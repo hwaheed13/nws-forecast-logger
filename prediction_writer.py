@@ -1445,6 +1445,12 @@ def _compute_ml_prediction(
                               if v is not None and not (isinstance(v, float) and np.isnan(v)))
                 if syn_pop > 0:
                     print(f"📡 Synoptic features: {syn_pop}/{len(syn_feats)} populated")
+                # Write-back to prefetched_atm so the caller can store them in atm_snapshot
+                # (live_atm only contains Open-Meteo data; Synoptic comes from a separate API)
+                if prefetched_atm is not None and syn_pop > 0:
+                    for _sk, _sv in syn_feats.items():
+                        if _sk.startswith("obs_synoptic_"):
+                            prefetched_atm[_sk] = _sv
             except Exception as _syn_e:
                 print(f"  ⚠️ Synoptic features skipped: {_syn_e}")
                 for col in SYNOPTIC_OBS_COLS:
@@ -1459,6 +1465,11 @@ def _compute_ml_prediction(
                                if v is not None and not (isinstance(v, float) and np.isnan(v)))
                 if nysm_pop > 0:
                     print(f"🏙️ NYSM features: {nysm_pop}/{len(nysm_feats)} populated")
+                # Write-back to prefetched_atm so the caller can store them in atm_snapshot
+                if prefetched_atm is not None and nysm_pop > 0:
+                    for _nk, _nv in nysm_feats.items():
+                        if _nk.startswith("obs_nysm_"):
+                            prefetched_atm[_nk] = _nv
             except Exception as _nysm_e:
                 print(f"  ⚠️ NYSM features skipped: {_nysm_e}")
                 for col in NYSM_OBS_COLS:
@@ -2088,8 +2099,24 @@ def _fetch_observation_features(
                     except Exception:
                         pass
                     break
-            features["obs_high_peak_hour"]    = float(peak_hour) if peak_hour is not None else np.nan
-            features["obs_is_overnight_high"] = float(peak_hour < 9) if peak_hour is not None else np.nan
+            features["obs_high_peak_hour"] = float(peak_hour) if peak_hour is not None else np.nan
+            # Only flag as overnight high if the NWS daytime forecast is NOT
+            # substantially above the observed overnight peak. If NWS still
+            # forecasts 3+ °F above the overnight max, the day's actual high
+            # hasn't been set yet — don't lock the prediction prematurely.
+            if peak_hour is not None and peak_hour < 9:
+                nws_last_val = features.get("nws_last")
+                nws_ok = (nws_last_val is not None
+                          and not (isinstance(nws_last_val, float) and np.isnan(nws_last_val)))
+                if nws_ok and float(nws_last_val) >= float(max_val) + 3.0:
+                    # NWS still expects a significantly higher daytime high — suppress
+                    features["obs_is_overnight_high"] = 0.0
+                    print(f"  ℹ️  Overnight peak {max_val:.1f}°F @{peak_hour}h suppressed "
+                          f"(NWS still forecasts {nws_last_val:.0f}°F → daytime high not yet set)")
+                else:
+                    features["obs_is_overnight_high"] = 1.0
+            else:
+                features["obs_is_overnight_high"] = 0.0
             # Consecutive falling hours from the peak
             falling = 0
             prev_t  = valid_obs[-1]["temp_f"] if valid_obs else None
@@ -3083,14 +3110,20 @@ def _check_atmospheric_shift(
     return triggered, reasons
 
 
-def _add_obs_to_snap(snap: dict, live_obs: dict) -> None:
+def _add_obs_to_snap(snap: dict, live_obs: dict, live_atm: dict = None) -> None:
     """
     Add observation snapshot keys to an existing atm_snapshot dict in-place.
     These keys are prefixed obs_snap_* to avoid collision with model feature names.
     Called on both canonical write and post-recompute baseline advance.
+
+    live_atm (optional): atmospheric dict that may carry Synoptic/NYSM keys written
+        back by _compute_ml_prediction() via prefetched_atm. Used as fallback when
+        live_obs doesn't have them (since _fetch_observation_features() skips them).
     """
-    if not live_obs:
+    if not live_obs and not live_atm:
         return
+
+    obs = live_obs or {}
 
     def _safe(v):
         """Return v if valid float, else None (JSON serializable)."""
@@ -3102,44 +3135,57 @@ def _add_obs_to_snap(snap: dict, live_obs: dict) -> None:
         except (TypeError, ValueError):
             return None
 
-    snap["obs_snap_temp"]        = _safe(live_obs.get("obs_latest_temp"))
-    snap["obs_snap_heating_rate"]= _safe(live_obs.get("obs_heating_rate"))
-    snap["obs_snap_vs_forecast"] = _safe(live_obs.get("obs_vs_intra_forecast"))
-    snap["obs_snap_hour"]        = _safe(live_obs.get("obs_latest_hour"))
-    snap["obs_snap_max_so_far"]  = _safe(live_obs.get("obs_max_so_far"))
+    def _atm_fallback(obs_key: str, atm_key: str = None):
+        """Read from live_obs; fall back to live_atm if null/missing."""
+        v = obs.get(obs_key)
+        if v is not None:
+            return v
+        if live_atm and atm_key:
+            return live_atm.get(atm_key)
+        return None
+
+    snap["obs_snap_temp"]        = _safe(obs.get("obs_latest_temp"))
+    snap["obs_snap_heating_rate"]= _safe(obs.get("obs_heating_rate"))
+    snap["obs_snap_vs_forecast"] = _safe(obs.get("obs_vs_intra_forecast"))
+    snap["obs_snap_hour"]        = _safe(obs.get("obs_latest_hour"))
+    snap["obs_snap_max_so_far"]  = _safe(obs.get("obs_max_so_far"))
     # High-timing signals — for dashboard overnight-high warning + future model training
-    snap["obs_snap_high_peak_hour"]    = _safe(live_obs.get("obs_high_peak_hour"))
-    snap["obs_snap_is_overnight_high"] = _safe(live_obs.get("obs_is_overnight_high"))
-    snap["obs_snap_temp_falling_hrs"]  = _safe(live_obs.get("obs_temp_falling_hrs"))
-    snap["obs_snap_wind_speed"]  = _safe(live_obs.get("obs_wind_speed"))
-    snap["obs_snap_cloud_cover"] = _safe(live_obs.get("obs_cloud_cover"))
+    snap["obs_snap_high_peak_hour"]    = _safe(obs.get("obs_high_peak_hour"))
+    snap["obs_snap_is_overnight_high"] = _safe(obs.get("obs_is_overnight_high"))
+    snap["obs_snap_temp_falling_hrs"]  = _safe(obs.get("obs_temp_falling_hrs"))
+    snap["obs_snap_wind_speed"]  = _safe(obs.get("obs_wind_speed"))
+    snap["obs_snap_cloud_cover"] = _safe(obs.get("obs_cloud_cover"))
     # Regional NWS stations (JFK / LGA)
-    snap["obs_snap_jfk"]         = _safe(live_obs.get("obs_jfk_temp"))
-    snap["obs_snap_lga"]         = _safe(live_obs.get("obs_lga_temp"))
-    snap["obs_snap_regional_spread"] = _safe(live_obs.get("obs_regional_spread"))
-    snap["obs_snap_regional_mean"]   = _safe(live_obs.get("obs_regional_mean"))
-    snap["obs_snap_regional_vs_nws"] = _safe(live_obs.get("obs_regional_vs_nws"))
-    # Synoptic Data (MesoWest) — 5mi Central Park
-    snap["obs_snap_syn_mean"]    = _safe(live_obs.get("obs_synoptic_mean"))
-    snap["obs_snap_syn_min"]     = _safe(live_obs.get("obs_synoptic_min"))
-    snap["obs_snap_syn_max"]     = _safe(live_obs.get("obs_synoptic_max"))
-    snap["obs_snap_syn_spread"]  = _safe(live_obs.get("obs_synoptic_spread"))
-    snap["obs_snap_syn_vs_nws"]  = _safe(live_obs.get("obs_synoptic_vs_nws"))
-    snap["obs_snap_syn_count"]   = live_obs.get("obs_synoptic_count")  # int OK
-    # NY State Mesonet (borough stations)
-    snap["obs_snap_nysm_mean"]   = _safe(live_obs.get("obs_nysm_mean"))
-    snap["obs_snap_nysm_min"]    = _safe(live_obs.get("obs_nysm_min"))
-    snap["obs_snap_nysm_max"]    = _safe(live_obs.get("obs_nysm_max"))
-    snap["obs_snap_nysm_spread"] = _safe(live_obs.get("obs_nysm_spread"))
-    snap["obs_snap_nysm_vs_nws"] = _safe(live_obs.get("obs_nysm_vs_nws"))
-    snap["obs_snap_nysm_count"]  = live_obs.get("obs_nysm_count")  # int OK
+    snap["obs_snap_jfk"]         = _safe(obs.get("obs_jfk_temp"))
+    snap["obs_snap_lga"]         = _safe(obs.get("obs_lga_temp"))
+    snap["obs_snap_regional_spread"] = _safe(obs.get("obs_regional_spread"))
+    snap["obs_snap_regional_mean"]   = _safe(obs.get("obs_regional_mean"))
+    snap["obs_snap_regional_vs_nws"] = _safe(obs.get("obs_regional_vs_nws"))
+    # Synoptic Data (MesoWest) — 5mi radius.
+    # _fetch_observation_features() doesn't fetch Synoptic; it's fetched inside
+    # _compute_ml_prediction() and written back to prefetched_atm (live_atm here).
+    snap["obs_snap_syn_mean"]    = _safe(_atm_fallback("obs_synoptic_mean",   "obs_synoptic_mean"))
+    snap["obs_snap_syn_min"]     = _safe(_atm_fallback("obs_synoptic_min",    "obs_synoptic_min"))
+    snap["obs_snap_syn_max"]     = _safe(_atm_fallback("obs_synoptic_max",    "obs_synoptic_max"))
+    snap["obs_snap_syn_spread"]  = _safe(_atm_fallback("obs_synoptic_spread", "obs_synoptic_spread"))
+    snap["obs_snap_syn_vs_nws"]  = _safe(_atm_fallback("obs_synoptic_vs_nws", "obs_synoptic_vs_nws"))
+    _syn_count = _atm_fallback("obs_synoptic_count", "obs_synoptic_count")
+    snap["obs_snap_syn_count"]   = _syn_count  # int OK
+    # NY State Mesonet (borough stations) — same pattern as Synoptic
+    snap["obs_snap_nysm_mean"]   = _safe(_atm_fallback("obs_nysm_mean",   "obs_nysm_mean"))
+    snap["obs_snap_nysm_min"]    = _safe(_atm_fallback("obs_nysm_min",    "obs_nysm_min"))
+    snap["obs_snap_nysm_max"]    = _safe(_atm_fallback("obs_nysm_max",    "obs_nysm_max"))
+    snap["obs_snap_nysm_spread"] = _safe(_atm_fallback("obs_nysm_spread", "obs_nysm_spread"))
+    snap["obs_snap_nysm_vs_nws"] = _safe(_atm_fallback("obs_nysm_vs_nws", "obs_nysm_vs_nws"))
+    _nysm_count = _atm_fallback("obs_nysm_count", "obs_nysm_count")
+    snap["obs_snap_nysm_count"]  = _nysm_count  # int OK
     # WU PWS (ambient stations near Central Park)
-    snap["obs_snap_wu_mean"]     = _safe(live_obs.get("obs_ambient_temp"))
-    snap["obs_snap_wu_vs_nws"]   = _safe(live_obs.get("obs_ambient_vs_nws"))
-    snap["obs_snap_wu_spread"]   = _safe(live_obs.get("obs_ambient_spread"))
-    snap["obs_snap_wu_count"]    = live_obs.get("obs_ambient_count")  # int OK
+    snap["obs_snap_wu_mean"]     = _safe(obs.get("obs_ambient_temp"))
+    snap["obs_snap_wu_vs_nws"]   = _safe(obs.get("obs_ambient_vs_nws"))
+    snap["obs_snap_wu_spread"]   = _safe(obs.get("obs_ambient_spread"))
+    snap["obs_snap_wu_count"]    = obs.get("obs_ambient_count")  # int OK
     obs_count = sum(
-        1 for v in live_obs.values()
+        1 for v in obs.values()
         if v is not None and not (isinstance(v, float) and math.isnan(v))
     )
     snap["obs_snap_populated"] = obs_count
@@ -3242,6 +3288,50 @@ def _check_obs_trigger(
 # Keys stored in atm_snapshot — full feature set at prediction time.
 # Stored as JSONB in Supabase so the training pipeline can read them back
 # directly (features-at-prediction-time → actual outcome = gold-standard rows).
+def _inject_nws_sequence_to_snap(
+    snap: dict,
+    nws_latest: float | None,
+    target_date_iso: str,
+    rows: list[dict],
+) -> None:
+    """
+    Inject NWS sequence features (nws_last, nws_d1_final, nws_overnight_jump)
+    into an existing atm_snapshot dict in-place.
+
+    These are computed inside _compute_ml_prediction() as model features but
+    are not returned via live_atm (Open-Meteo only). Without this injection
+    the dashboard "NWS Overnight Jump" card always shows "Awaiting next cycle".
+    """
+    # nws_last: the most recent NWS forecast used by the model
+    if nws_latest is not None and "nws_last" not in snap:
+        snap["nws_last"] = float(nws_latest)
+
+    # nws_d1_final and nws_overnight_jump — require reading the D-1 final NWS value
+    if "nws_d1_final" not in snap or "nws_overnight_jump" not in snap:
+        try:
+            d1f = _get_nws_d1_final(target_date_iso)
+            if d1f is not None:
+                snap.setdefault("nws_d1_final", float(d1f))
+                # First D0 forecast = earliest NWS row for today
+                d0_fc = sorted(
+                    [
+                        (str(r.get("timestamp", "") or r.get("forecast_time", "")),
+                         float(r["predicted_high"]))
+                        for r in rows
+                        if r.get("forecast_or_actual") == "forecast"
+                        and str(r.get("target_date", "")) == target_date_iso
+                        and r.get("predicted_high") is not None
+                        and (r.get("source") or "").lower() != "accuweather"
+                    ],
+                    key=lambda x: x[0],
+                )
+                if d0_fc:
+                    jump = round(d0_fc[0][1] - float(d1f), 1)
+                    snap.setdefault("nws_overnight_jump", jump)
+        except Exception:
+            pass
+
+
 _ATM_SNAPSHOT_KEYS = (
     # Boundary layer / mixing
     "atm_bl_height_max", "atm_bl_height_mean",
@@ -3875,8 +3965,14 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         ):
             snap = {k: live_atm[k] for k in _ATM_SNAPSHOT_KEYS if k in live_atm}
             if snap:
+                # Inject NWS sequence features — computed inside _compute_ml_prediction()
+                # but not returned via live_atm (which is Open-Meteo only).
+                # These power the "NWS Overnight Jump" dashboard card.
+                _inject_nws_sequence_to_snap(snap, nws_latest, target_date_iso, rows)
                 # Also advance obs snapshot keys so triggers don't re-fire on same reading
-                _add_obs_to_snap(snap, live_obs)
+                # Pass live_atm so Synoptic/NYSM keys written back by _compute_ml_prediction
+                # via prefetched_atm are also included (they're not in live_obs).
+                _add_obs_to_snap(snap, live_obs, live_atm)
                 payload["atm_snapshot"] = json.dumps(snap)
                 print(f"📸 Atmospheric baseline advanced after recompute ({len(snap)} keys)")
     if ml:
@@ -3907,8 +4003,13 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             ):
                 snap = {k: live_atm[k] for k in _ATM_SNAPSHOT_KEYS if k in live_atm}
                 if snap:
+                    # Inject NWS sequence features — computed inside _compute_ml_prediction()
+                    # but not returned via live_atm (which is Open-Meteo only).
+                    _inject_nws_sequence_to_snap(snap, nws_latest, target_date_iso, rows)
                     # Add obs snapshot keys — critical for cold-start trigger detection
-                    _add_obs_to_snap(snap, live_obs)
+                    # Pass live_atm so Synoptic/NYSM written back by _compute_ml_prediction
+                    # via prefetched_atm are included (they're not in live_obs).
+                    _add_obs_to_snap(snap, live_obs, live_atm)
                     payload["atm_snapshot"] = json.dumps(snap)
                     obs_populated = sum(
                         1 for v in (live_obs or {}).values()
