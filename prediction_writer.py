@@ -2562,8 +2562,10 @@ def backfill_obs_historical(city_key: str = None) -> str:
     tz = ZoneInfo(tz_name)
 
     # ── IEM station mapping ────────────────────────────────────────────────
+    # KNYC (Central Park) is NOT in the ASOS network — IEM uses "NYC" for it.
+    # KJFK / KLGA are standard ICAO ASOS codes and work with IEM directly.
     IEM_STATIONS = {
-        "KNYC": "nyc_cp",   # Central Park NYC (primary KNYC station)
+        "NYC":  "nyc_cp",   # Central Park NYC → IEM station code "NYC"
         "KJFK": "jfk",
         "KLGA": "lga",
     }
@@ -2586,19 +2588,27 @@ def backfill_obs_historical(city_key: str = None) -> str:
             f"&year1={start_date.year}&month1={start_date.month}&day1={start_date.day}"
             f"&year2={end_date.year}&month2={end_date.month}&day2={end_date.day}"
             "&tz=America%2FNew_York"
-            "&format=comma&latlon=no&direct=no&report_type=1"
+            "&format=comma&latlon=no&direct=no"
         )
         print(f"  Fetching {station} from IEM ({start_date} → {end_date})…")
         req = urllib.request.Request(url, headers={"User-Agent": "nws-forecast-logger/1.0"})
         try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
+            with urllib.request.urlopen(req, timeout=90) as resp:
                 raw = resp.read().decode("utf-8", errors="replace")
         except Exception as exc:
             print(f"  ⚠️  Failed to fetch {station}: {exc}")
             return []
 
+        # IEM prepends comment lines starting with '#' — strip them before parsing CSV
+        clean_lines = [ln for ln in raw.splitlines() if not ln.startswith("#")]
+        clean_csv   = "\n".join(clean_lines)
+
+        if not clean_csv.strip():
+            print(f"  ⚠️  Empty response for {station}")
+            return []
+
         rows = []
-        reader = _csv.DictReader(io.StringIO(raw))
+        reader = _csv.DictReader(io.StringIO(clean_csv))
         for row in reader:
             try:
                 tmpf = row.get("tmpf", "").strip()
@@ -2606,9 +2616,9 @@ def backfill_obs_historical(city_key: str = None) -> str:
                     continue
                 t_f = float(tmpf)
                 valid_str = row.get("valid", "").strip()   # "2022-01-01 01:00"
-                if not valid_str:
+                if not valid_str or valid_str == "valid":
                     continue
-                # Parse as local time (IEM already converted for us with tz=…)
+                # Parse as local time (IEM already converted via tz=America/New_York)
                 obs_local = datetime.strptime(valid_str, "%Y-%m-%d %H:%M")
                 obs_local = obs_local.replace(tzinfo=tz)
 
@@ -2624,9 +2634,9 @@ def backfill_obs_historical(city_key: str = None) -> str:
                     "date_str":   obs_local.strftime("%Y-%m-%d"),
                     "hour":       obs_local.hour,
                     "temp_f":     t_f,
-                    "wind_kts":   float(sknt) if sknt and sknt != "M" else None,
-                    "gust_kts":   float(gust) if gust and gust != "M" else None,
-                    "wind_dir":   float(drct) if drct and drct != "M" else None,
+                    "wind_kts":   float(sknt) if sknt and sknt not in ("M", "") else None,
+                    "gust_kts":   float(gust) if gust and gust not in ("M", "") else None,
+                    "wind_dir":   float(drct) if drct and drct not in ("M", "") else None,
                     "sky":        skyc,
                 })
             except Exception:
@@ -2678,7 +2688,7 @@ def backfill_obs_historical(city_key: str = None) -> str:
 
     # ── Compute features for every date that has KJFK or KLGA data ────────
     all_dates = sorted(
-        set(by_date["KJFK"]) | set(by_date["KLGA"]) | set(by_date.get("KNYC", {}))
+        set(by_date.get("KJFK", {})) | set(by_date.get("KLGA", {})) | set(by_date.get("NYC", {}))
     )
     print(f"📅 Computing obs features for {len(all_dates)} dates…")
 
@@ -2698,7 +2708,7 @@ def backfill_obs_historical(city_key: str = None) -> str:
                 key=lambda r: r["obs_local"],
             )
 
-        nyc_rows = _snap("KNYC")
+        nyc_rows = _snap("NYC")
         jfk_rows = _snap("KJFK")
         lga_rows = _snap("KLGA")
 
