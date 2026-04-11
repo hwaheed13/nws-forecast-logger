@@ -35,13 +35,21 @@ jobs:
           echo "Backfilling atmospheric data through $YESTERDAY"
           python backfill_multiyear.py --all --end "$YESTERDAY"
 
-      - name: Backfill real NWS observation features
+      - name: Backfill real NWS observation features (Supabase — recent 14 days)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
         run: |
-          python prediction_writer.py backfill_obs
+          python prediction_writer.py --city nyc backfill_obs
           python prediction_writer.py --city lax backfill_obs
+        continue-on-error: true
+
+      - name: Backfill historical obs from IEM ASOS (NYC JFK/LGA/Central Park, 2022–today)
+        run: |
+          # No API key needed — Iowa State ASOS archive is public
+          # Pulls ~130k hourly rows for NYC/JFK/LGA and computes per-date obs features
+          # Merges with Supabase rows (Supabase wins for most recent 14 days)
+          python prediction_writer.py --city nyc backfill_obs_historical
         continue-on-error: true
 
       - name: Patch live-API columns (HRRR, 925mb, solar — past 90 days)
@@ -54,11 +62,12 @@ jobs:
           python backfill_atmospheric.py --all
         continue-on-error: true
 
-      - name: Run model training (v1 + v2 + v4 for all cities)
+      - name: Run model training (v1 + v2 + v4 + v5 for all cities)
         run: |
           python train_models.py --all
           python train_models.py --all --v2
           python train_models.py --all --v4
+          python train_models.py --all --v5
 
       - name: Show training results
         run: |
@@ -78,14 +87,15 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add *.pkl *model_metadata*.json *multiyear_atmospheric.csv *observation_data.csv *atmospheric_data.csv 2>/dev/null || true
+          git add *.pkl *model_metadata*.json *multiyear_atmospheric.csv *observation_data.csv *atmospheric_data.csv *high_timing_data.csv 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "No model changes to commit"
           else
-            git commit -m "Retrain ML models v1+v2+v4 with latest data ($(date +%Y-%m-%d))
+            git commit -m "Retrain ML models v1+v2+v4+v5 with latest data ($(date +%Y-%m-%d))
 
-          Automated daily retrain using train_models.py --all (v1 + v2 + v4).
-          v4 includes 12 observation features (92 total) for intraday re-prediction.
+          Automated daily retrain using train_models.py --all (v1 + v2 + v4 + v5).
+          v4/v5 include JFK/LGA/regional obs features from IEM ASOS backfill.
+          v5 adds high-timing features (overnight/late-day high detection).
           Cities with <60 days of data are skipped automatically.
           See model_metadata*.json for updated performance metrics."
             git push
