@@ -3793,6 +3793,12 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     past_cutoff   = atm_cutoff  # full freeze = atm cutoff (used for canonical write gate)
     live_atm: Optional[dict] = None
 
+    # Initialize live_atm / live_obs here so they're always defined regardless
+    # of which branch below executes (full-freeze, cutoff, normal, first-write).
+    # The stable-day snapshot refresh block references both unconditionally.
+    live_atm: dict = {}
+    live_obs: dict = {}
+
     # ── Dynamic high-lock: detects overnight highs and clearly-peaked late highs
     # regardless of clock time.  Runs BEFORE the hard clock cutoffs so it can
     # lock a prediction at 9am if the high occurred at 1am, or at 4pm if the
