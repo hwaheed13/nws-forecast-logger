@@ -1,0 +1,77 @@
+name: Overnight D+1 Prediction Refresh
+
+# Runs during the dead window of forecast-frequent.yml:
+#   UTC 4:00-8:59 = EDT midnight to ~5 AM / EST 11 PM to 4 AM
+#
+# Purpose: capture overnight atmospheric model runs (0Z HRRR/GFS at ~00:30 UTC,
+#   3Z HRRR at ~03:30 UTC, 6Z HRRR at ~06:30 UTC) and overnight low progression
+#   for D+1 (tomorrow) prediction quality.
+#
+# Does NOT log NWS CSVs or AccuWeather (those have stale-data issues overnight).
+# Only writes ML + BCP predictions to Supabase — no repo commits needed.
+
+on:
+  schedule:
+    - cron: "0,30 4-8 * * *"   # 4:00-8:30 UTC = midnight-4:30 AM EDT (D+1 refresh only)
+  workflow_dispatch: {}
+
+permissions:
+  contents: read   # read-only — no CSV commits in this workflow
+
+concurrency:
+  group: overnight-d1
+  cancel-in-progress: true
+
+jobs:
+  overnight-d1:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 pytz numpy==1.24.3 pandas==2.2.3 scikit-learn==1.3.0
+
+      # Write D+1 (and today's) ML + BCP predictions to Supabase — NYC
+      # write_today_for_tomorrow has no time cutoff so it always runs.
+      # No AccuWeather key needed; prediction_writer reads from accuweather_log.csv.
+      - name: Write Supabase predictions - NYC (overnight D+1)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+          WU_API_KEY: ${{ secrets.WU_API_KEY }}
+          WU_STATION_IDS: ${{ secrets.WU_STATION_IDS }}
+          SYNOPTIC_TOKEN: ${{ secrets.SYNOPTIC_TOKEN }}
+          TZ: America/New_York
+        run: python prediction_writer.py both
+        continue-on-error: true
+
+      # Write D+1 (and today's) ML + BCP predictions to Supabase — LAX
+      - name: Write Supabase predictions - LAX (overnight D+1)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+          TZ: America/Los_Angeles
+        run: python prediction_writer.py --city lax both
+        continue-on-error: true
+
+      # Collect fresh NWS hourly observations — valuable overnight signal
+      # (stations still report; gives overnight low confirmation)
+      - name: Collect NWS observations - NYC (overnight)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+          TZ: America/New_York
+        run: python prediction_writer.py collect_obs
+        continue-on-error: true
+
+      - name: Collect NWS observations - LAX (overnight)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+        run: python prediction_writer.py --city lax collect_obs
+        continue-on-error: true
