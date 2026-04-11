@@ -4039,6 +4039,53 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 _add_obs_to_snap(snap, live_obs, live_atm)
                 payload["atm_snapshot"] = json.dumps(snap)
                 print(f"📸 Atmospheric baseline advanced after recompute ({len(snap)} keys)")
+
+    # ── Unconditional obs-panel refresh ──────────────────────────────────────
+    # On stable days (ml_recomputed = False) the existing atm_snapshot is never
+    # rewritten above, so Synoptic / NYSM / NWS Overnight Jump stay stale
+    # forever.  We merge fresh obs-display keys into the stored snapshot every
+    # cycle without touching the ATM trigger-baseline keys (those must stay at
+    # their morning values for change-detection to work correctly).
+    if not is_canonical_write and not ml_recomputed and isinstance(existing, dict):
+        try:
+            _ex_snap_str = existing.get("atm_snapshot")
+            _ex_snap = json.loads(_ex_snap_str) if _ex_snap_str else {}
+            if _ex_snap:
+                # Refresh NWS display values (always overwrite — not setdefault)
+                if nws_latest is not None:
+                    _ex_snap["nws_last"] = float(nws_latest)
+                try:
+                    _d1f = _get_nws_d1_final(target_date_iso)
+                    if _d1f is not None:
+                        _ex_snap["nws_d1_final"] = float(_d1f)
+                        _d0_fc = sorted([
+                            (str(r.get("timestamp", "")), float(r["predicted_high"]))
+                            for r in rows
+                            if r.get("forecast_or_actual") == "forecast"
+                            and str(r.get("target_date", "")) == target_date_iso
+                            and r.get("predicted_high") is not None
+                            and (r.get("source") or "").lower() != "accuweather"
+                        ], key=lambda x: x[0])
+                        if _d0_fc:
+                            _ex_snap["nws_overnight_jump"] = round(
+                                _d0_fc[0][1] - float(_d1f), 1
+                            )
+                except Exception:
+                    pass
+                # Refresh Synoptic / NYSM keys written back to live_atm by
+                # _compute_ml_prediction → prefetched_atm write-back.
+                if live_atm:
+                    for _k, _v in live_atm.items():
+                        if _k.startswith("obs_synoptic_") or _k.startswith("obs_nysm_"):
+                            _ex_snap[_k] = _v
+                # Refresh live-obs keys (station temp, max-so-far, overnight flag…)
+                _add_obs_to_snap(_ex_snap, live_obs, live_atm)
+                payload["atm_snapshot"] = json.dumps(_ex_snap)
+                print(f"📸 Obs panel refreshed in stable snapshot "
+                      f"({len(_ex_snap)} keys, ml_recomputed=False)")
+        except Exception as _e:
+            print(f"⚠️  Obs panel refresh skipped: {_e}")
+
     if ml:
         payload["ml_f"] = ml["ml_f"]
         payload["ml_bucket"] = ml["ml_bucket"]

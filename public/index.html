@@ -3759,8 +3759,8 @@ function renderAtmSignals() {
                 : 'var(--accent-green)';
   const blLabel = blCat === 'very-shallow' ? 'Very shallow — strong cap'
                 : blCat === 'shallow'      ? 'Shallow — moderate cap'
-                : blCat === 'deep'         ? 'Deep — good mixing'
-                : 'Normal mixing';
+                : blCat === 'deep'         ? 'Deep — strong mixing'
+                : 'Moderate depth';
 
   // Cloud cover coloring
   const cloud = pk.cloud_cover_pct;
@@ -3769,11 +3769,18 @@ function renderAtmSignals() {
                    : cloud < 50   ? '#d97706'
                    : '#dc2626';
 
-  // Wind direction — sea-breeze flag is computed server-side per city
+  // Wind direction — sea-breeze flag: union of server-side flag AND live JFK/LGA gradient.
+  // Using both gives earliest-possible warning: gradient fires from obs, flag fires from model.
   const wdir = cur.wind_dir_card;
-  const wSea = cur.sea_breeze === true;
+  const _lroNow   = window._liveRegionalObs || {};
+  const _lroOk    = !_lroNow.city || _lroNow.city === currentCity;
+  const _gradJfk  = _lroOk && _lroNow.jfk != null ? Number(_lroNow.jfk) : null;
+  const _gradLga  = _lroOk && _lroNow.lga != null ? Number(_lroNow.lga) : null;
+  const _gradFire = _gradJfk != null && _gradLga != null
+                  && (REGIONAL_STATIONS[currentCity] || REGIONAL_STATIONS.nyc).marineSignal(_gradJfk, _gradLga);
+  const wSea = cur.sea_breeze === true || _gradFire;
   const windColor = wSea ? '#d97706' : 'var(--text-primary)';
-  const seaLabel  = currentCity === 'lax' ? '⚠️ Onshore — marine layer risk' : '⚠️ Onshore — sea breeze risk';
+  const seaLabel  = currentCity === 'lax' ? '🌊 Marine layer — onshore flow' : '🌊 Sea breeze';
   const windTip   = wSea ? seaLabel : (wdir ? wdir + ' flow' : '');
 
   // 850mb warm advection
@@ -3785,6 +3792,16 @@ function renderAtmSignals() {
                  : pk.warm_advection === 'cold' ? 'Cold advection aloft'
                  : 'Neutral advection';
 
+  // 925mb advection label — use same warm_advection signal as 850mb since
+  // 925mb sits just above the surface and tracks the same airmass character.
+  const t925       = pk.temp_925hPa;
+  const adv925Color = pk.warm_advection === 'warm' ? '#dc2626'
+                    : pk.warm_advection === 'cold' ? '#2563eb'
+                    : 'var(--text-primary)';
+  const adv925Tip   = pk.warm_advection === 'warm' ? 'Warm near-surface air'
+                    : pk.warm_advection === 'cold' ? 'Cold near-surface air'
+                    : 'Neutral near-surface air';
+
   // Solar
   const solar = pk.solar_peak_wm2;
   const solarColor = solar == null ? 'var(--text-primary)'
@@ -3792,14 +3809,48 @@ function renderAtmSignals() {
                    : solar > 400  ? '#d97706'
                    : '#dc2626';
 
+  // ── Signal agreement summary ─────────────────────────────────────────────
+  // Count warm vs cool signals across the 5 key atmospheric indicators.
+  let _warmSigs = 0, _coolSigs = 0;
+  // Mixing layer: deep = warm-leaning (less concentration), shallow = cool-leaning
+  if (blCat === 'deep')         _warmSigs++;
+  else if (blCat === 'very-shallow' || blCat === 'shallow') _coolSigs++;
+  // Cloud cover: clear = more solar = warm
+  if (cloud != null) { if (cloud < 20) _warmSigs++; else if (cloud >= 50) _coolSigs++; }
+  // Solar: strong = warm, weak = cool
+  if (solar != null) { if (solar > 700) _warmSigs++; else if (solar < 400) _coolSigs++; }
+  // 850mb advection: warm = warm-day, cold = cool-day
+  if (pk.warm_advection === 'warm') _warmSigs++;
+  else if (pk.warm_advection === 'cold') _coolSigs++;
+  // Wind: sea breeze / onshore = cool, offshore = neutral/warm
+  if (wSea) _coolSigs++;
+
+  const _totalSigs = _warmSigs + _coolSigs;
+  let _consensusHTML = '';
+  if (_totalSigs >= 3) {
+    if (_warmSigs >= _totalSigs * 0.75) {
+      _consensusHTML = `<div style="font-size:11px;margin-top:6px;color:#16a34a;font-weight:600;">
+        ☀️ Signals aligned warm (${_warmSigs}/${_totalSigs} indicators)
+      </div>`;
+    } else if (_coolSigs >= _totalSigs * 0.75) {
+      _consensusHTML = `<div style="font-size:11px;margin-top:6px;color:#2563eb;font-weight:600;">
+        ❄️ Signals aligned cool (${_coolSigs}/${_totalSigs} indicators)
+      </div>`;
+    } else {
+      _consensusHTML = `<div style="font-size:11px;margin-top:6px;color:var(--text-secondary);">
+        ↔️ Mixed signals (${_warmSigs} warm · ${_coolSigs} cool)
+      </div>`;
+    }
+  }
+
   grid.innerHTML = [
     sig('Mixing Layer', fmt(blM),   'm peak',  blLabel, blColor),
     sig('Cloud Cover',  fmt(cloud), '%',        cloud != null ? (cloud < 20 ? 'Mostly clear' : cloud < 50 ? 'Partly cloudy' : 'Mostly cloudy') : '', cloudColor),
     sig('Solar Peak',   fmt(solar), 'W/m²',    solar != null ? (solar > 700 ? 'Strong heating' : solar > 400 ? 'Moderate' : 'Weak — suppressed') : '', solarColor),
     sig('850mb Temp',   fmt(t850, 1), '°F',    advTip, advColor),
-    sig('925mb Temp',   fmt(pk.temp_925hPa, 1), '°F', 'Near-surface advection', 'var(--text-primary)'),
+    sig('925mb Temp',   fmt(t925, 1), '°F',    adv925Tip, adv925Color),
     sig('Surface Wind', cur.wind_mph != null ? fmt(cur.wind_mph, 0) : '–', 'mph', windTip, windColor),
-  ].join('');
+  ].join('') + _consensusHTML;
 
   if (ts && d.fetchedAt) {
     const t = new Date(d.fetchedAt).toLocaleTimeString('en-US', { timeZone: dispTZ, hour: 'numeric', minute: '2-digit' });
@@ -5971,11 +6022,17 @@ window._buildMoatRiskHTML = function _buildMoatRiskHTML(mlTempF, nwsVal, mmSprea
   }
 
   // ── Multi-model spread ───────────────────────────────────────────────────
+  // Only surface when models disagree — hiding the "agree" case removes noise.
   if (mmSpread != null && Number.isFinite(Number(mmSpread))) {
     const sp = Number(mmSpread);
-    const spColor = sp < 2 ? '#059669' : sp < 4 ? '#d97706' : '#dc2626';
-    const spLabel = sp < 2 ? 'models agree' : sp < 4 ? 'some model spread' : 'high model spread';
-    parts.push(`<span style="color:${spColor};">Models: ${sp.toFixed(1)}°F spread (${spLabel})</span>`);
+    if (sp >= 4) {
+      // High spread — prominent warning
+      parts.push(`<span style="color:#dc2626;">⚠️ High model spread: ${sp.toFixed(1)}°F</span>`);
+    } else if (sp >= 2) {
+      // Mild disagreement — compact inline, no full sentence
+      parts.push(`<span style="color:#d97706;">⚠️ ${sp.toFixed(1)}°F model spread</span>`);
+    }
+    // sp < 2 → models agree → omit entirely (no signal worth showing)
   }
 
   if (parts.length === 0) return '';
