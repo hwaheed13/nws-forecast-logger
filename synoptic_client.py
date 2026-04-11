@@ -145,10 +145,6 @@ def get_synoptic_obs_features(
     if not temps:
         return nan_result
 
-    # Debug: log all returned STIDs so we can identify NYSM naming in Synoptic
-    all_stids = [s.get("STID", "?") for s in stations]
-    print(f"  🔍 Synoptic radius STIDs: {all_stids}")
-
     mean_t = sum(temps) / len(temps)
     nan_result["obs_synoptic_mean"] = round(mean_t, 1)
     nan_result["obs_synoptic_min"] = round(min(temps), 1)

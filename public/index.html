@@ -3940,19 +3940,6 @@ function renderLiveSourcesPanel() {
     syn_count  != null ? `${syn_count} stations` : "",
   ].filter(Boolean).join(" · ") || "Awaiting next cycle";
 
-  // ── NY Mesonet (boroughs) — from model snapshot (NYC only; LAX uses CA Mesonet via Synoptic)
-  const _nysmLabel  = currentCity === 'lax' ? 'CA Mesonet (SoCal)' : 'NY Mesonet (Boroughs)';
-  const nysm_mean   = s.obs_snap_nysm_mean;
-  const nysm_spread = s.obs_snap_nysm_spread;
-  const nysm_vs     = s.obs_snap_nysm_vs_nws;
-  const nysm_count  = s.obs_snap_nysm_count;
-  const _nysmUnit   = currentCity === 'lax' ? 'stations' : 'boroughs';
-  const nysm_sub = [
-    nysm_spread != null ? `Spread: ${Number(nysm_spread).toFixed(1)}°F` : "",
-    nysm_vs     != null ? `vs NWS: ${fSign(nysm_vs)}` : "",
-    nysm_count  != null ? `${nysm_count} ${_nysmUnit}` : "",
-  ].filter(Boolean).join(" · ") || "Awaiting next cycle";
-
   // ── NWS overnight jump — from model snapshot
   const d1_final = s.nws_d1_final;
   const o_jump   = s.nws_overnight_jump;
@@ -3996,9 +3983,6 @@ function renderLiveSourcesPanel() {
     card("Synoptic (5mi)",
          f1(syn_mean), syn_sub,
          syn_mean != null ? "var(--accent-green)" : "var(--border-default)"),
-    card(_nysmLabel,
-         f1(nysm_mean), nysm_sub,
-         nysm_mean != null ? "var(--accent-green)" : "var(--border-default)"),
     card("NWS Overnight Jump",
          o_jump != null ? fSign(o_jump) : "–",
          jump_sub, jump_color),
@@ -4011,7 +3995,7 @@ function renderLiveSourcesPanel() {
 
   // Footnote: only show when Synoptic/NYSM data is missing (i.e. hasn't run yet)
   if (foot) {
-    const needsRun = syn_mean == null || nysm_mean == null;
+    const needsRun = syn_mean == null;
     foot.style.display = needsRun ? "" : "none";
   }
 
