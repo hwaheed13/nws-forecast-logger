@@ -112,7 +112,14 @@ def get_nysm_obs_features(
 
     all_obs = fetch_nysm_latest_csv()
     if not all_obs:
-        return nan_result
+        # DNS failure on GitHub Actions — fall back to Synoptic API borough query
+        print("  ℹ️  NYSM CSV unavailable — trying Synoptic borough fallback")
+        try:
+            from synoptic_client import get_nysm_via_synoptic
+            return get_nysm_via_synoptic(nws_last=nws_last)
+        except Exception as _fb_e:
+            print(f"  ⚠️ Synoptic NYSM fallback failed: {_fb_e}")
+            return nan_result
 
     temps = []
     for stid in target_stations:

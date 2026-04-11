@@ -145,6 +145,89 @@ def get_synoptic_obs_features(
     return nan_result
 
 
+def get_nysm_via_synoptic(nws_last: Optional[float] = None) -> dict:
+    """
+    Fetch NYC borough temperatures via Synoptic API using specific NY Mesonet station IDs.
+    This is a fallback for when the nysmesonet.nysed.gov endpoint is unreachable
+    (e.g. DNS failure on GitHub Actions runners).
+
+    Uses the same Synoptic token already set for the radius-based fetch.
+    Borough stations: MANH (Manhattan), BRON (Bronx), QUEE (Queens), BKLN (Brooklyn), STAT (Staten Island).
+
+    Returns dict with obs_nysm_* keys (same schema as nysmesonet_client.get_nysm_obs_features).
+    """
+    import numpy as np
+
+    nan_result = {
+        "obs_nysm_mean": np.nan,
+        "obs_nysm_min": np.nan,
+        "obs_nysm_max": np.nan,
+        "obs_nysm_spread": np.nan,
+        "obs_nysm_vs_nws": np.nan,
+        "obs_nysm_count": np.nan,
+    }
+
+    token = _token()
+    if not token:
+        return nan_result
+
+    # The five NYC borough NY Mesonet stations available via Synoptic
+    stids = "MANH,BRON,QUEE,BKLN,STAT"
+    params = {
+        "token": token,
+        "stid": stids,
+        "vars": "air_temp",
+        "units": "english",
+        "within": "90",
+        "output": "json",
+    }
+    qs = "&".join(f"{k}={urllib.parse.quote(str(v))}" for k, v in params.items())
+    url = f"{SYNOPTIC_BASE}/stations/nearesttime?{qs}"
+    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        summary = data.get("SUMMARY", {})
+        if summary.get("RESPONSE_CODE") != 1:
+            print(f"  ⚠️ Synoptic NYSM: {summary.get('RESPONSE_MESSAGE', 'unknown error')}")
+            return nan_result
+        stations = data.get("STATION", [])
+    except Exception as e:
+        print(f"  ⚠️ Synoptic NYSM fetch failed: {e}")
+        return nan_result
+
+    temps = []
+    for stn in stations:
+        obs = stn.get("OBSERVATIONS", {})
+        temp_val = obs.get("air_temp_value_1", {})
+        t = temp_val.get("value") if isinstance(temp_val, dict) else temp_val
+        if t is not None:
+            try:
+                temps.append(float(t))
+            except (ValueError, TypeError):
+                pass
+
+    if not temps:
+        return nan_result
+
+    mean_t = sum(temps) / len(temps)
+    nan_result["obs_nysm_mean"]   = round(mean_t, 1)
+    nan_result["obs_nysm_min"]    = round(min(temps), 1)
+    nan_result["obs_nysm_max"]    = round(max(temps), 1)
+    nan_result["obs_nysm_spread"] = round(max(temps) - min(temps), 1)
+    nan_result["obs_nysm_count"]  = float(len(temps))
+    if nws_last is not None:
+        nan_result["obs_nysm_vs_nws"] = round(mean_t - nws_last, 1)
+
+    vs_str = f"  vs NWS={nan_result['obs_nysm_vs_nws']:+.1f}°F" if nws_last else ""
+    print(f"  🏙️ NYSM via Synoptic: {len(temps)} boroughs — "
+          f"min={nan_result['obs_nysm_min']:.1f}°F  "
+          f"mean={mean_t:.1f}°F  "
+          f"max={nan_result['obs_nysm_max']:.1f}°F{vs_str}")
+
+    return nan_result
+
+
 if __name__ == "__main__":
     # Test: list nearby stations and their current temps
     print("Fetching Synoptic stations near Central Park...")
