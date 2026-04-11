@@ -4210,6 +4210,46 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 # IEM fallback returns empty data, Synoptic free tier doesn't expose
                 # NYSM STIDs. Dashboard card also removed. No-op here.
 
+                # ── Refresh KNYC / obs display keys for dashboard ─────────────
+                # agency_cutoff silences live_obs for ML trigger purposes (correct —
+                # avoids thermometer-chasing), but the dashboard still needs fresh
+                # obs_snap_max_so_far, obs_snap_is_overnight_high, obs_snap_temp,
+                # obs_snap_jfk, obs_snap_lga etc. so KNYC Max and the overnight
+                # note don't go stale after 2 PM.  Fetch obs purely for display.
+                try:
+                    _obs_disp = _fetch_observation_features(
+                        target_date_iso,
+                        nws_last=_nws_for_obs,
+                        atm_features=live_atm,
+                    )
+                    _OBS_DISPLAY_KEYS = (
+                        "obs_snap_temp", "obs_snap_max_so_far",
+                        "obs_snap_is_overnight_high", "obs_snap_high_peak_hour",
+                        "obs_snap_temp_falling_hrs", "obs_snap_heating_rate",
+                        "obs_snap_vs_forecast", "obs_snap_hour",
+                        "obs_snap_jfk", "obs_snap_lga",
+                        "obs_snap_regional_spread", "obs_snap_regional_mean",
+                        "obs_snap_regional_vs_nws",
+                        "obs_snap_wind_speed", "obs_snap_cloud_cover",
+                        "obs_snap_wu_mean", "obs_snap_wu_vs_nws",
+                        "obs_snap_wu_spread", "obs_snap_wu_count",
+                        "obs_snap_populated",
+                    )
+                    # _fetch_observation_features returns raw feature keys (obs_*),
+                    # not the snap keys (obs_snap_*).  Map via _add_obs_to_snap
+                    # into a temp dict, then cherry-pick display keys.
+                    _tmp_snap: dict = {}
+                    _add_obs_to_snap(_tmp_snap, _obs_disp, live_atm)
+                    for _dk in _OBS_DISPLAY_KEYS:
+                        if _dk in _tmp_snap and _tmp_snap[_dk] is not None:
+                            _ex_snap[_dk] = _tmp_snap[_dk]
+                    print(f"  🌡️ Stable-cycle obs refresh: "
+                          f"temp={_ex_snap.get('obs_snap_temp')} "
+                          f"max={_ex_snap.get('obs_snap_max_so_far')} "
+                          f"overnight_flag={_ex_snap.get('obs_snap_is_overnight_high')}")
+                except Exception as _obs_disp_e:
+                    print(f"  ⚠️  Stable-cycle obs display refresh skipped: {_obs_disp_e}")
+
                 payload["atm_snapshot"] = json.dumps(_ex_snap)
                 print(f"📸 Obs panel refreshed in stable snapshot "
                       f"({len(_ex_snap)} keys, ml_recomputed=False)")
