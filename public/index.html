@@ -5716,7 +5716,7 @@ window._buildMoatRiskHTML = function _buildMoatRiskHTML(mlTempF, nwsVal, mmSprea
   if (nwsVal != null && Number.isFinite(Number(nwsVal)) && Number.isFinite(mlTempF)) {
     const div = mlTempF - Number(nwsVal);
     const absDev = Math.abs(div);
-    const dir = div > 0 ? `+${div.toFixed(0)}°F warmer than NWS` : `${div.toFixed(0)}°F cooler than NWS`;
+    const dir = div > 0 ? `ML runs +${div.toFixed(0)}°F above NWS` : `ML runs ${div.toFixed(0)}°F below NWS`;
     const bktKey = absDev < 1 ? '<1' : absDev < 2 ? '1-2' : absDev < 3 ? '2-3' : absDev < 4 ? '3-4' : '4+';
     const ds = window.mlDivergenceStats;
     const bktStats = ds ? ds[bktKey] : null;
@@ -5724,12 +5724,12 @@ window._buildMoatRiskHTML = function _buildMoatRiskHTML(mlTempF, nwsVal, mmSprea
     let rateHTML = '';
     if (bktStats && bktStats.rate != null) {
       const rc = bktStats.rate >= 65 ? '#059669' : bktStats.rate >= 50 ? '#d97706' : '#dc2626';
-      rateHTML = ` · <span style="color:${rc};font-weight:700;">${bktStats.rate}% hit rate</span> historically when ${bktStats.label}`;
+      rateHTML = ` · <span style="color:${rc};font-weight:700;">${bktStats.rate}% hit rate</span> historically`;
     }
 
     const divColor = absDev < 1 ? '#059669' : absDev < 2 ? '#16a34a' : absDev < 3 ? '#d97706' : '#dc2626';
     const divIcon  = absDev < 1 ? '✅' : absDev < 2 ? '🟡' : '⚠️';
-    parts.push(`<span style="color:${divColor};">${divIcon} NWS: ${dir}${rateHTML}</span>`);
+    parts.push(`<span style="color:${divColor};">${divIcon} ${dir}${rateHTML}</span>`);
   }
 
   // ── Multi-model spread ───────────────────────────────────────────────────
