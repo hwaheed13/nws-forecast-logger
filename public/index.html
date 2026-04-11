@@ -3195,7 +3195,18 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
     
     // Re-evaluate the overnight note after 6-hr max updates
     try { await handleOvernightExceedanceNote(); } catch {}
-    
+
+    // Re-render live sources panel and today's ML card now that _sixHourMaxF is
+    // available — fixes Max showing stale overnight value on hard refresh, and
+    // ensures overnight-note suppression fires before the invalidation banner.
+    try { if (typeof renderLiveSourcesPanel === 'function') renderLiveSourcesPanel(); } catch {}
+    try {
+      const _ml = window.mlPredictions || {};
+      if (_ml.todayMLBucket && typeof renderCard === 'function') {
+        renderCard("today", _ml.todayMLBucket, _ml.todayBetSignal, _ml.todayMLConfidence, _ml.todayEdge, _ml.todayMarketSnapshot);
+      }
+    } catch {}
+
     }
 
     // Observations: current temp only
@@ -4668,6 +4679,30 @@ window._predTomorrow = predTomorrow;
           const fromML = ml.todayNwsD0 != null ? Number(ml.todayNwsD0) : null;
           return (fromML != null && Number.isFinite(fromML)) ? fromML : null;
         })();
+        // ── Pre-compute live invalidation so overnight note can reference it ──
+        // (full banner is built later, but we need _liveInvalidated here)
+        const _liveObsMaxEarly = (() => {
+          const candidates = [
+            _overnightObsMax,
+            Number.isFinite(window._sixHourMaxF) ? window._sixHourMaxF : null,
+          ].filter(v => v != null);
+          return candidates.length ? Math.max(...candidates) : null;
+        })();
+        const _mlBucketUpperEarly = (() => {
+          if (!bucket) return null;
+          if (bucket.startsWith('>=')) return Infinity;
+          if (bucket.startsWith('<=')) return parseFloat(bucket.slice(2));
+          const parts = bucket.split('-');
+          if (parts.length === 2) return parseFloat(parts[1]);
+          return null;
+        })();
+        const _liveInvalidatedEarly = (
+          _liveObsMaxEarly != null &&
+          _mlBucketUpperEarly != null &&
+          _mlBucketUpperEarly !== Infinity &&
+          _liveObsMaxEarly > _mlBucketUpperEarly + 0.5
+        );
+
         const _overnightSuppressed = (
           // Original: NWS forecasts ≥2°F above overnight peak before 2pm
           (_overnightObsMax != null &&
@@ -4683,7 +4718,9 @@ window._predTomorrow = predTomorrow;
            window._sixHourMaxF > _overnightObsMax + 1.5)
         );
 
-        const overnightHighNote = (_overnightFlag == 1 && _peakHour != null && !_overnightSuppressed)
+        // Suppress overnight note if live data already invalidates the prediction —
+        // the two messages are contradictory and the banner takes priority.
+        const overnightHighNote = (_overnightFlag == 1 && _peakHour != null && !_overnightSuppressed && !_liveInvalidatedEarly)
           ? `<div style="font-size:12px;background:#eff6ff;border-left:3px solid #3b82f6;padding:6px 10px;margin-top:6px;border-radius:4px;">
               🌙 <strong>Overnight high detected</strong> — peak ${_snap.obs_snap_max_so_far != null ? `${Number(_snap.obs_snap_max_so_far).toFixed(1)}°F ` : ''}at ${Math.round(_peakHour)}:00.
               Day's high likely already in the books. Prediction locked.
@@ -4745,33 +4782,11 @@ window._predTomorrow = predTomorrow;
           : '';
 
         // ── Live data invalidation check ─────────────────────────────────────
-        // If observed max already exceeds the ML bucket upper bound, the
-        // prediction is wrong in real-time. Show a prominent warning with the
-        // implied bucket from the live Kalshi market structure.
-        // Use the best available max — take highest of snapshot max and 6hr NWS max.
-        // ?? would skip _sixHourMaxF when _overnightObsMax=59 (not null), causing the
-        // invalidation banner to miss real highs that exceed the ML bucket ceiling.
-        const _liveObsMax = (() => {
-          const candidates = [
-            _overnightObsMax,
-            Number.isFinite(window._sixHourMaxF) ? window._sixHourMaxF : null,
-          ].filter(v => v != null);
-          return candidates.length ? Math.max(...candidates) : null;
-        })();
-        const _mlBucketUpper = (() => {
-          if (!bucket) return null;
-          if (bucket.startsWith('>=')) return Infinity; // already upper edge
-          if (bucket.startsWith('<=')) return parseFloat(bucket.slice(2));
-          const parts = bucket.split('-');
-          if (parts.length === 2) return parseFloat(parts[1]);
-          return null;
-        })();
-        const _liveInvalidated = (
-          _liveObsMax != null &&
-          _mlBucketUpper != null &&
-          _mlBucketUpper !== Infinity &&
-          _liveObsMax > _mlBucketUpper + 0.5  // 0.5°F buffer — ignore borderline
-        );
+        // Reuse values computed earlier (before overnightHighNote) so we don't
+        // duplicate the logic — _liveObsMaxEarly/_mlBucketUpperEarly/_liveInvalidatedEarly.
+        const _liveObsMax      = _liveObsMaxEarly;
+        const _mlBucketUpper   = _mlBucketUpperEarly;
+        const _liveInvalidated = _liveInvalidatedEarly;
         let liveInvalidationBanner = '';
         if (_liveInvalidated) {
           const _impliedRange = todayMarket ? mapToKalshiRange(_liveObsMax, todayMarket) : null;
