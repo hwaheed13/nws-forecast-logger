@@ -647,7 +647,7 @@ input[type="date"] {
         <div id="live-sources-grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:10px;">
           <!-- Populated by renderLiveSourcesPanel() -->
         </div>
-        <div style="font-size:11px;color:var(--text-light);margin-top:6px;">
+        <div id="live-sources-foot" style="font-size:11px;color:var(--text-light);margin-top:6px;">
           Reflects inputs at last model run · JFK/LGA/Synoptic/NYSM populate once model runs with new data
         </div>
       </div>
@@ -1946,6 +1946,7 @@ function reloadCSV(opts = {}) {
     resetFilter();
     await updateCorrectionBoxes();
     updateObservations();
+    try { await fetchLiveRegionalObs(); } catch {}
 
   })
   .catch(err => {
@@ -3646,25 +3647,44 @@ function renderMLBetSignal() {
 }
 
 // ===== Live Data Sources Panel =====
+// Live obs cache: fetched independently every 5 min, not tied to atm_snapshot
+window._liveRegionalObs = { jfk: null, lga: null, fetchedAt: null };
+
+async function fetchLiveRegionalObs() {
+  // JFK and LGA use same NWS API as KNYC — free, no key
+  if (typeof fetchNwsCurrentTemp !== 'function') return;
+  try {
+    const [jfkRes, lgaRes] = await Promise.allSettled([
+      fetchNwsCurrentTemp('KJFK'),
+      fetchNwsCurrentTemp('KLGA'),
+    ]);
+    window._liveRegionalObs = {
+      jfk: jfkRes.status === 'fulfilled' && jfkRes.value?.currentF != null ? Number(jfkRes.value.currentF) : null,
+      lga: lgaRes.status === 'fulfilled' && lgaRes.value?.currentF != null ? Number(lgaRes.value.currentF) : null,
+      fetchedAt: new Date(),
+    };
+    renderLiveSourcesPanel();
+  } catch {}
+}
+
 function renderLiveSourcesPanel() {
   const panel = document.getElementById("live-sources-panel");
   const grid  = document.getElementById("live-sources-grid");
+  const foot  = document.getElementById("live-sources-foot");
   if (!panel || !grid) return;
 
   // Only show for NYC (only city with multi-station obs)
   if (currentCity !== "nyc") { panel.style.display = "none"; return; }
+  panel.style.display = "";
 
   const ml = window.mlPredictions || {};
   const snap = ml.todayAtmSnapshot;
-  // Show panel even if snap is null — display "--" for each source
-  panel.style.display = "";
+  const s = snap || {};
 
   const f1 = v => (v != null && !isNaN(Number(v))) ? `${Number(v).toFixed(1)}°F` : "–";
   const f0 = v => (v != null && !isNaN(Number(v))) ? `${Math.round(Number(v))}°F` : "–";
   const fSign = v => (v != null && !isNaN(Number(v))) ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(1)}°F` : "–";
-  const fN = v => (v != null && !isNaN(Number(v))) ? Number(v).toFixed(1) : "–";
 
-  // Helper to create a mini source card
   const card = (title, main, sub, accent) => `
     <div style="background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:10px;
                 padding:10px 12px;border-left:3px solid ${accent || 'var(--accent-blue)'};">
@@ -3674,113 +3694,122 @@ function renderLiveSourcesPanel() {
       <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${sub}</div>
     </div>`;
 
-  const s = snap || {};
-
-  // ── KNYC (primary station) ──
-  const knyc_temp = s.obs_snap_temp;
-  const knyc_hour = s.obs_snap_hour;
+  // ── KNYC: use live obs from window._recentObservedF (same as metric box)
+  const knyc_live = window._recentObservedF != null ? Number(window._recentObservedF) : null;
+  const knyc_snap_temp = s.obs_snap_temp;
   const knyc_vs   = s.obs_snap_vs_forecast;
   const knyc_rate = s.obs_snap_heating_rate;
   const knyc_max  = s.obs_snap_max_so_far;
-  const hourStr   = knyc_hour != null ? `${Math.round(knyc_hour)}:00` : "";
-  const knyc_sub  = [
-    knyc_max != null ? `Max so far: ${f0(knyc_max)}` : "",
-    knyc_vs  != null ? `vs fcst: ${fSign(knyc_vs)}` : "",
+  // Show live temp if available, fall back to snapshot
+  const knyc_display = knyc_live ?? knyc_snap_temp;
+  const knyc_label = knyc_live != null ? "live" : (s.obs_snap_hour != null ? `@${Math.round(s.obs_snap_hour)}:00` : "");
+  const knyc_sub = [
+    knyc_max  != null ? `Max so far: ${f0(knyc_max)}` : "",
+    knyc_vs   != null ? `vs fcst: ${fSign(knyc_vs)}` : "",
     knyc_rate != null ? `${Number(knyc_rate) >= 0 ? "+" : ""}${Number(knyc_rate).toFixed(1)}°/hr` : "",
-  ].filter(Boolean).join(" · ") || "No data";
+  ].filter(Boolean).join(" · ") || "Fetching…";
 
-  // ── JFK / LGA gradient ──
-  const jfk = s.obs_snap_jfk;
-  const lga = s.obs_snap_lga;
-  const reg_spread = s.obs_snap_regional_spread;
-  const reg_vs = s.obs_snap_regional_vs_nws;
+  // ── JFK / LGA: live NWS fetch (same API as KNYC, no key needed)
+  const lro = window._liveRegionalObs || {};
+  const jfk = lro.jfk ?? s.obs_snap_jfk;
+  const lga = lro.lga ?? s.obs_snap_lga;
+  const jfk_live = lro.jfk != null;
+  const reg_spread = (jfk != null && lga != null) ? Math.abs(Number(lga) - Number(jfk)) : (s.obs_snap_regional_spread ?? null);
+  const nws_for_reg = s.nws_last ?? ml.todayNwsD0;
+  const reg_vs = (jfk != null && lga != null && nws_for_reg != null)
+    ? ((Number(jfk) + Number(lga)) / 2 - Number(nws_for_reg))
+    : s.obs_snap_regional_vs_nws;
+  const seaBreeze = jfk != null && lga != null && (Number(lga) - Number(jfk)) >= 3;
   const jfk_lga_main = (jfk != null && lga != null) ? `${f0(jfk)} / ${f0(lga)}` : (jfk != null ? f0(jfk) : "–");
-  const jfk_lga_sub  = [
+  const jfk_lga_sub = [
     reg_spread != null ? `Gradient: ${Number(reg_spread).toFixed(1)}°F` : "",
     reg_vs     != null ? `Metro vs NWS: ${fSign(reg_vs)}` : "",
-  ].filter(Boolean).join(" · ") || "No data";
-  // Sea-breeze alert: JFK 3°F+ colder than LGA
-  const seaBreeze = jfk != null && lga != null && (Number(lga) - Number(jfk)) >= 3;
+    jfk_live ? "live" : "",
+  ].filter(Boolean).join(" · ") || "Fetching…";
 
-  // ── Synoptic Data (MesoWest) ──
-  const syn_mean  = s.obs_snap_syn_mean;
+  // ── Synoptic Data (MesoWest) — from model snapshot
+  const syn_mean   = s.obs_snap_syn_mean;
   const syn_spread = s.obs_snap_syn_spread;
-  const syn_vs    = s.obs_snap_syn_vs_nws;
-  const syn_count = s.obs_snap_syn_count;
-  const syn_sub   = [
+  const syn_vs     = s.obs_snap_syn_vs_nws;
+  const syn_count  = s.obs_snap_syn_count;
+  const syn_sub = [
     syn_spread != null ? `Spread: ${Number(syn_spread).toFixed(1)}°F` : "",
     syn_vs     != null ? `vs NWS: ${fSign(syn_vs)}` : "",
     syn_count  != null ? `${syn_count} stations` : "",
   ].filter(Boolean).join(" · ") || "Awaiting next cycle";
 
-  // ── NY Mesonet (boroughs) ──
-  const nysm_mean  = s.obs_snap_nysm_mean;
+  // ── NY Mesonet (boroughs) — from model snapshot
+  const nysm_mean   = s.obs_snap_nysm_mean;
   const nysm_spread = s.obs_snap_nysm_spread;
-  const nysm_vs    = s.obs_snap_nysm_vs_nws;
-  const nysm_count = s.obs_snap_nysm_count;
-  const nysm_sub   = [
+  const nysm_vs     = s.obs_snap_nysm_vs_nws;
+  const nysm_count  = s.obs_snap_nysm_count;
+  const nysm_sub = [
     nysm_spread != null ? `Spread: ${Number(nysm_spread).toFixed(1)}°F` : "",
     nysm_vs     != null ? `vs NWS: ${fSign(nysm_vs)}` : "",
     nysm_count  != null ? `${nysm_count} boroughs` : "",
-  ].filter(Boolean).join(" · ") || "No data";
+  ].filter(Boolean).join(" · ") || "Awaiting next cycle";
 
-  // ── NWS overnight jump ──
+  // ── NWS overnight jump — from model snapshot
   const d1_final = s.nws_d1_final;
   const o_jump   = s.nws_overnight_jump;
   const nws_last = s.nws_last;
   const jump_color = o_jump != null && Math.abs(Number(o_jump)) >= 2 ? "#d97706" : "var(--accent-blue)";
-  const jump_sub  = [
+  const jump_sub = [
     d1_final != null ? `D-1 final: ${f0(d1_final)}` : "",
-    nws_last  != null ? `D0 current: ${f0(nws_last)}` : "",
-  ].filter(Boolean).join(" · ") || "No data";
+    nws_last  != null ? `D0 at model run: ${f0(nws_last)}` : "",
+  ].filter(Boolean).join(" · ") || "Awaiting next cycle";
 
-  // ── Multi-model spread ──
-  const mm_spread = s.mm_spread;
-  const mm_mean   = s.mm_mean;
-  const hrrr      = s.mm_hrrr_max;
+  // ── Multi-model spread — from model snapshot
+  const mm_spread  = s.mm_spread;
+  const mm_mean    = s.mm_mean;
+  const hrrr       = s.mm_hrrr_max;
   const hrrr_ecmwf = s.mm_hrrr_ecmwf_diff;
-  const mm_sub    = [
-    mm_mean   != null ? `Consensus: ${f0(mm_mean)}` : "",
-    hrrr      != null ? `HRRR: ${f0(hrrr)}` : "",
+  const mm_sub = [
+    mm_mean    != null ? `Consensus: ${f0(mm_mean)}` : "",
+    hrrr       != null ? `HRRR: ${f0(hrrr)}` : "",
     hrrr_ecmwf != null ? `HRRR-ECMWF: ${fSign(hrrr_ecmwf)}` : "",
-  ].filter(Boolean).join(" · ") || "No data";
+  ].filter(Boolean).join(" · ") || "Awaiting next cycle";
 
-  // ── WU PWS ──
+  // ── WU PWS (citizen weather stations)
   const wu_mean  = s.obs_snap_wu_mean;
   const wu_vs    = s.obs_snap_wu_vs_nws;
   const wu_count = s.obs_snap_wu_count;
-  const wu_sub   = [
+  const wu_sub = [
     wu_vs    != null ? `vs NWS: ${fSign(wu_vs)}` : "",
     wu_count != null ? `${wu_count} stations` : "",
-  ].filter(Boolean).join(" · ") || "No data (add WU_API_KEY)";
+  ].filter(Boolean).join(" · ") || "Awaiting next cycle";
 
   grid.innerHTML = [
     card("KNYC (Central Park)",
-         knyc_temp != null ? `${f1(knyc_temp)}${hourStr ? ` <span style="font-size:13px;font-weight:400;color:var(--text-muted);">@${hourStr}</span>` : ""}` : "–",
-         knyc_sub,
-         "var(--accent-blue)"),
+         knyc_display != null
+           ? `${f1(knyc_display)} <span style="font-size:12px;font-weight:400;color:var(--text-muted);">${knyc_label}</span>`
+           : "–",
+         knyc_sub, "var(--accent-blue)"),
     card("JFK / LGA" + (seaBreeze ? " ⚠️" : ""),
          jfk_lga_main,
          jfk_lga_sub + (seaBreeze ? " · 🌊 Sea breeze" : ""),
          seaBreeze ? "#d97706" : "var(--accent-blue)"),
     card("Synoptic (5mi)",
-         f1(syn_mean),
-         syn_sub,
+         f1(syn_mean), syn_sub,
          syn_mean != null ? "var(--accent-green)" : "var(--border-default)"),
     card("NY Mesonet (Boroughs)",
-         f1(nysm_mean),
-         nysm_sub,
+         f1(nysm_mean), nysm_sub,
          nysm_mean != null ? "var(--accent-green)" : "var(--border-default)"),
     card("NWS Overnight Jump",
          o_jump != null ? fSign(o_jump) : "–",
-         jump_sub,
-         jump_color),
+         jump_sub, jump_color),
     card("Multi-Model Spread",
          mm_spread != null ? `${Number(mm_spread).toFixed(1)}°F` : "–",
          mm_sub,
          mm_spread != null && Number(mm_spread) >= 3 ? "#d97706" : "var(--accent-blue)"),
     wu_mean != null ? card("WU PWS (Citizen Wx)", f1(wu_mean), wu_sub, "var(--accent-blue)") : "",
   ].join("");
+
+  // Footnote: only show when Synoptic/NYSM data is missing (i.e. hasn't run yet)
+  if (foot) {
+    const needsRun = syn_mean == null || nysm_mean == null;
+    foot.style.display = needsRun ? "" : "none";
+  }
 
   // Timestamp
   const ts = document.getElementById("live-sources-ts");
@@ -5642,6 +5671,7 @@ async function bootApp() {
     try { window.pollCsvAndUpdate && window.pollCsvAndUpdate(); } catch {}
     try { await handleOvernightExceedanceNote(); } catch {}
     setInterval(() => { try { window.updateObservations && window.updateObservations(); } catch {} }, 5 * 60 * 1000);
+    setInterval(() => { try { fetchLiveRegionalObs && fetchLiveRegionalObs(); } catch {} }, 5 * 60 * 1000);
     setInterval(() => { try { window.updateDSM && window.updateDSM(); } catch {} }, 10 * 60 * 1000);
     setInterval(() => { try { window.updateSixHourMax && window.updateSixHourMax(); } catch {} }, 10 * 60 * 1000);
     setInterval(() => { try { window.updateSummaryBoxes && window.updateSummaryBoxes(); } catch {} }, 60 * 1000);
