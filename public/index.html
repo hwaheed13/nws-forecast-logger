@@ -4748,7 +4748,16 @@ window._predTomorrow = predTomorrow;
         // If observed max already exceeds the ML bucket upper bound, the
         // prediction is wrong in real-time. Show a prominent warning with the
         // implied bucket from the live Kalshi market structure.
-        const _liveObsMax = _overnightObsMax ?? (Number.isFinite(window._sixHourMaxF) ? window._sixHourMaxF : null);
+        // Use the best available max — take highest of snapshot max and 6hr NWS max.
+        // ?? would skip _sixHourMaxF when _overnightObsMax=59 (not null), causing the
+        // invalidation banner to miss real highs that exceed the ML bucket ceiling.
+        const _liveObsMax = (() => {
+          const candidates = [
+            _overnightObsMax,
+            Number.isFinite(window._sixHourMaxF) ? window._sixHourMaxF : null,
+          ].filter(v => v != null);
+          return candidates.length ? Math.max(...candidates) : null;
+        })();
         const _mlBucketUpper = (() => {
           if (!bucket) return null;
           if (bucket.startsWith('>=')) return Infinity; // already upper edge
