@@ -3699,10 +3699,12 @@ async function fetchLiveRegionalObs() {
   if (typeof fetchNwsCurrentTemp !== 'function') return;
   const cfg = REGIONAL_STATIONS[currentCity] || REGIONAL_STATIONS.nyc;
   try {
-    const [s1Res, s2Res] = await Promise.allSettled([
-      fetchNwsCurrentTemp(cfg.s1),
-      fetchNwsCurrentTemp(cfg.s2),
-    ]);
+    // For LAX, also fetch KCQT (USC Downtown) — the NWS/Kalshi reference point
+    const stations = [fetchNwsCurrentTemp(cfg.s1), fetchNwsCurrentTemp(cfg.s2)];
+    const isLax = currentCity === 'lax';
+    if (isLax) stations.push(fetchNwsCurrentTemp('KCQT'));
+
+    const [s1Res, s2Res, s3Res] = await Promise.allSettled(stations);
     const _fmtObsTime = iso => {
       if (!iso) return null;
       try {
@@ -3714,6 +3716,9 @@ async function fetchLiveRegionalObs() {
       lga:      s2Res.status === 'fulfilled' && s2Res.value?.currentF != null ? Number(s2Res.value.currentF) : null,
       jfkObsAt: s1Res.status === 'fulfilled' ? _fmtObsTime(s1Res.value?.atISO) : null,
       lgaObsAt: s2Res.status === 'fulfilled' ? _fmtObsTime(s2Res.value?.atISO) : null,
+      // LAX-only: KCQT (USC Downtown) — the Kalshi/NWS official measurement reference
+      kcqt:      isLax && s3Res?.status === 'fulfilled' && s3Res.value?.currentF != null ? Number(s3Res.value.currentF) : null,
+      kcqtObsAt: isLax && s3Res?.status === 'fulfilled' ? _fmtObsTime(s3Res.value?.atISO) : null,
       city:     currentCity,
       fetchedAt: new Date(),
     };
@@ -3989,6 +3994,26 @@ function renderLiveSourcesPanel() {
     wu_count != null ? `${wu_count} stations` : "",
   ].filter(Boolean).join(" · ") || "Awaiting next cycle";
 
+  const isLax = currentCity === 'lax';
+
+  // LAX: KCQT (USC Downtown) is the NWS/Kalshi official measurement reference.
+  // Show it as a dedicated card so bettors see the actual measured location, not just KLAX airport.
+  const kcqt_live = isLax && lro.city === 'lax' && lro.kcqt != null ? lro.kcqt : null;
+  const kcqt_obs_label = lro.kcqtObsAt ? `obs ${lro.kcqtObsAt}` : (kcqt_live != null ? "live" : "");
+  const kcqtCard = isLax
+    ? card("USC Downtown (KCQT)",
+           kcqt_live != null
+             ? `${f1(kcqt_live)} <span style="font-size:12px;font-weight:400;color:var(--text-muted);">${kcqt_obs_label}</span>`
+             : "–",
+           kcqt_live != null
+             ? `Kalshi reference station`
+             : "Fetching…",
+           kcqt_live != null ? "var(--accent-green)" : "var(--border-default)")
+    : "";
+
+  // Synoptic card label: for LAX use "USC Area (8mi)" since we now query near KCQT
+  const synLabel = isLax ? "USC Area (8mi)" : "Synoptic (5mi)";
+
   grid.innerHTML = [
     card(_primaryLabel,
          knyc_display != null
@@ -3999,7 +4024,8 @@ function renderLiveSourcesPanel() {
          reg_main,
          reg_sub + (marineActive ? `<br>${rcfg.marineLabel}` : ""),
          marineActive ? "#d97706" : "var(--accent-blue)"),
-    card("Synoptic (5mi)",
+    kcqtCard,
+    card(synLabel,
          f1(syn_mean), syn_sub,
          syn_mean != null ? "var(--accent-green)" : "var(--border-default)"),
     card("NWS Overnight Jump",

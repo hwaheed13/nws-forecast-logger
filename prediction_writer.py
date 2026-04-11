@@ -1486,10 +1486,10 @@ def _compute_ml_prediction(
                 import nws_auto_logger as _nal_syn
                 _syn_cfg = _nal_syn._CITY_CFG
                 syn_feats = get_synoptic_obs_features(
-                    lat=_syn_cfg.get("open_meteo_lat", 40.7834),
-                    lon=_syn_cfg.get("open_meteo_lon", -73.965),
+                    lat=_syn_cfg.get("synoptic_lat", _syn_cfg.get("open_meteo_lat", 40.7834)),
+                    lon=_syn_cfg.get("synoptic_lon", _syn_cfg.get("open_meteo_lon", -73.965)),
                     nws_last=features.get("nws_last"),
-                    radius_miles=5.0,
+                    radius_miles=_syn_cfg.get("synoptic_radius_miles", 5.0),
                 )
                 v2_features.update(syn_feats)
                 syn_pop = sum(1 for v in syn_feats.values()
@@ -4196,14 +4196,17 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                     from synoptic_client import get_synoptic_obs_features
                     import nws_auto_logger as _nal_snap
                     _snap_cfg = _nal_snap._CITY_CFG
+                    # Use city-specific synoptic coords if provided (LAX uses KCQT downtown
+                    # rather than KLAX airport — KCQT is the Kalshi reference point and
+                    # has far better station density). Falls back to open_meteo coords.
+                    _syn_lat = _snap_cfg.get("synoptic_lat", _snap_cfg.get("open_meteo_lat", 40.7834))
+                    _syn_lon = _snap_cfg.get("synoptic_lon", _snap_cfg.get("open_meteo_lon", -73.965))
+                    _syn_radius = _snap_cfg.get("synoptic_radius_miles", 10.0)
                     _syn_fresh = get_synoptic_obs_features(
-                        lat=_snap_cfg.get("open_meteo_lat", 40.7834),
-                        lon=_snap_cfg.get("open_meteo_lon", -73.965),
+                        lat=_syn_lat,
+                        lon=_syn_lon,
                         nws_last=_nws_for_obs,
-                        # Use 10mi radius (matches ML feature computation default).
-                        # 5mi worked for NYC but returned 0 stations for LAX where
-                        # the nearest ASOS/NWS stations are 6-9mi from the config coords.
-                        radius_miles=10.0,
+                        radius_miles=_syn_radius,
                     )
                     _ex_snap["obs_snap_syn_mean"]   = _safe_snap(_syn_fresh.get("obs_synoptic_mean"))
                     _ex_snap["obs_snap_syn_min"]    = _safe_snap(_syn_fresh.get("obs_synoptic_min"))

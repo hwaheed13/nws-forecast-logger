@@ -39,9 +39,16 @@ CITIES = {
         "accu_csv": "lax_accuweather_log.csv",
         "model_prefix": "lax_",    # lax_temp_model.pkl
         "has_dsm": False,
-        # Open-Meteo coordinates (same as NWS API endpoint)
+        # Open-Meteo coordinates (same as NWS API endpoint — KLAX airport)
         "open_meteo_lat": 33.94,
         "open_meteo_lon": -118.39,
+        # Synoptic query coordinates — use KCQT (USC Downtown, 34.02°N 118.29°W) rather
+        # than KLAX airport. KCQT is the NWS/Kalshi reference point for the official LA
+        # high, and the urban core around USC has far better Synoptic station density
+        # than the airport perimeter. Radius expanded to 8mi for urban LA spread.
+        "synoptic_lat": 34.022,
+        "synoptic_lon": -118.291,
+        "synoptic_radius_miles": 8.0,
         # Regional supplemental NWS stations — fetched alongside primary KLAX
         # KBUR (Burbank) is in the San Fernando Valley and runs 8-15°F hotter on sunny days.
         # A large KBUR-KLAX gap means marine layer is pinned to the coast (inland heating uncapped).
