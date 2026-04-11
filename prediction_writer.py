@@ -4055,6 +4055,18 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             v is not None and not (isinstance(v, float) and math.isnan(v))
             for v in live_atm.values()
         ):
+            # Read the existing snapshot so we can preserve obs_snap_* display keys
+            # that were written by the stable-cycle refresh.  On AccuWeather-only
+            # baseline advances (accu_revised), _compute_ml_prediction is never
+            # called, so live_atm has no Synoptic data — _add_obs_to_snap would
+            # write obs_snap_syn_mean=None and wipe the good value.  We restore
+            # any obs_snap_* key that became None after _add_obs_to_snap if the
+            # existing snapshot had a valid value for it.
+            _prev_snap_raw = existing.get("atm_snapshot") if isinstance(existing, dict) else None
+            _prev_snap = (
+                json.loads(_prev_snap_raw) if isinstance(_prev_snap_raw, str)
+                else (_prev_snap_raw if isinstance(_prev_snap_raw, dict) else {})
+            )
             snap = {k: live_atm[k] for k in _ATM_SNAPSHOT_KEYS if k in live_atm}
             if snap:
                 # Inject NWS sequence features — computed inside _compute_ml_prediction()
@@ -4065,6 +4077,11 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 # Pass live_atm so Synoptic/NYSM keys written back by _compute_ml_prediction
                 # via prefetched_atm are also included (they're not in live_obs).
                 _add_obs_to_snap(snap, live_obs, live_atm)
+                # Restore obs_snap_* display keys that _add_obs_to_snap wrote as None
+                # because live_atm lacked Synoptic data (AccuWeather-only advance path).
+                for _pk, _pv in _prev_snap.items():
+                    if _pk.startswith("obs_snap_") and _pv is not None and snap.get(_pk) is None:
+                        snap[_pk] = _pv
                 payload["atm_snapshot"] = json.dumps(snap)
                 print(f"📸 Atmospheric baseline advanced after recompute ({len(snap)} keys)")
 
