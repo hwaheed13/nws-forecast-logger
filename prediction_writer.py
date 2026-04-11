@@ -2531,6 +2531,295 @@ def backfill_observation_features(city_key: str = None) -> str:
     return csv_path
 
 
+def backfill_obs_historical(city_key: str = None) -> str:
+    """
+    Pull 4+ years of KJFK, KLGA, and KNYC hourly observations from the
+    Iowa State Mesonet (IEM) ASOS archive — no API key required.
+
+    Computes the same observation features as backfill_observation_features()
+    but for every date from 2022-01-01 through today, giving the model
+    ~1500 training rows of real obs features instead of ~14.
+
+    Features produced match OBSERVATION_COLS + REGIONAL_OBS_COLS:
+        obs_latest_temp, obs_latest_hour, obs_max_so_far, obs_6hr_max,
+        obs_vs_intra_forecast, obs_wind_speed, obs_wind_gust,
+        obs_wind_dir_sin, obs_wind_dir_cos, obs_cloud_cover,
+        obs_heating_rate, obs_temp_vs_forecast_max,
+        obs_jfk_temp, obs_lga_temp, obs_regional_spread,
+        obs_regional_mean, obs_regional_vs_nws
+
+    Saves (or merges with) {prefix}observation_data.csv.
+    Returns path to saved CSV.
+    """
+    import io, csv as _csv
+    import nws_auto_logger as _nal
+    cfg     = _nal._CITY_CFG
+    prefix  = cfg.get("model_prefix", "")
+    city    = city_key or _CITY_KEY
+    tz_name = cfg.get("timezone", "America/New_York")
+
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo(tz_name)
+
+    # ── IEM station mapping ────────────────────────────────────────────────
+    IEM_STATIONS = {
+        "KNYC": "nyc_cp",   # Central Park NYC (primary KNYC station)
+        "KJFK": "jfk",
+        "KLGA": "lga",
+    }
+    # NYC city configs only — extend here for LAX etc.
+    if city != "nyc":
+        print(f"⚠️  backfill_obs_historical only configured for nyc (got {city})")
+        return ""
+
+    # ── Date range ─────────────────────────────────────────────────────────
+    from datetime import date as _date
+    start_date = _date(2022, 1, 1)
+    end_date   = _date.today()
+
+    def _fetch_iem(station: str) -> list[dict]:
+        """Fetch all hourly obs for one ASOS station from IEM."""
+        url = (
+            "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py"
+            f"?station={station}"
+            "&data=tmpf&data=sknt&data=gust&data=drct&data=skyc1"
+            f"&year1={start_date.year}&month1={start_date.month}&day1={start_date.day}"
+            f"&year2={end_date.year}&month2={end_date.month}&day2={end_date.day}"
+            "&tz=America%2FNew_York"
+            "&format=comma&latlon=no&direct=no&report_type=1"
+        )
+        print(f"  Fetching {station} from IEM ({start_date} → {end_date})…")
+        req = urllib.request.Request(url, headers={"User-Agent": "nws-forecast-logger/1.0"})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+        except Exception as exc:
+            print(f"  ⚠️  Failed to fetch {station}: {exc}")
+            return []
+
+        rows = []
+        reader = _csv.DictReader(io.StringIO(raw))
+        for row in reader:
+            try:
+                tmpf = row.get("tmpf", "").strip()
+                if not tmpf or tmpf in ("M", ""):
+                    continue
+                t_f = float(tmpf)
+                valid_str = row.get("valid", "").strip()   # "2022-01-01 01:00"
+                if not valid_str:
+                    continue
+                # Parse as local time (IEM already converted for us with tz=…)
+                obs_local = datetime.strptime(valid_str, "%Y-%m-%d %H:%M")
+                obs_local = obs_local.replace(tzinfo=tz)
+
+                # Wind (knots → mph)
+                sknt = row.get("sknt", "").strip()
+                gust = row.get("gust", "").strip()
+                drct = row.get("drct", "").strip()
+                skyc = row.get("skyc1", "").strip()
+
+                rows.append({
+                    "station":    station,
+                    "obs_local":  obs_local,
+                    "date_str":   obs_local.strftime("%Y-%m-%d"),
+                    "hour":       obs_local.hour,
+                    "temp_f":     t_f,
+                    "wind_kts":   float(sknt) if sknt and sknt != "M" else None,
+                    "gust_kts":   float(gust) if gust and gust != "M" else None,
+                    "wind_dir":   float(drct) if drct and drct != "M" else None,
+                    "sky":        skyc,
+                })
+            except Exception:
+                continue
+        print(f"    → {len(rows)} valid hourly rows for {station}")
+        return rows
+
+    # ── Fetch all three stations ───────────────────────────────────────────
+    all_station_data: dict[str, list[dict]] = {}
+    for station in IEM_STATIONS:
+        all_station_data[station] = _fetch_iem(station)
+
+    if not any(all_station_data.values()):
+        print("⚠️  No IEM data fetched — check internet connection")
+        return ""
+
+    # Group each station's rows by date
+    def _by_date(rows: list[dict]) -> dict[str, list[dict]]:
+        d: dict[str, list[dict]] = {}
+        for r in rows:
+            d.setdefault(r["date_str"], []).append(r)
+        return d
+
+    by_date: dict[str, dict[str, list[dict]]] = {
+        st: _by_date(rows) for st, rows in all_station_data.items()
+    }
+
+    # ── Sky condition → cloud cover ────────────────────────────────────────
+    _SKY_MAP = {"CLR": 0.0, "SKC": 0.0, "FEW": 0.2, "SCT": 0.5, "BKN": 0.75, "OVC": 1.0}
+    def _sky2cov(sky: str) -> float:
+        return _SKY_MAP.get(sky[:3].upper(), float("nan")) if sky else float("nan")
+
+    # ── Load NWS CSV for obs_temp_vs_forecast_max / obs_regional_vs_nws ───
+    nws_csv  = f"{prefix}nws_forecast_log.csv"
+    atm_csv  = f"{prefix}atmospheric_data.csv"
+    nws_last_by_date: dict[str, float] = {}
+    if os.path.exists(nws_csv):
+        _ndf = pd.read_csv(nws_csv)
+        for _, row in _ndf.iterrows():
+            if row.get("forecast_or_actual") == "forecast" and row.get("target_date"):
+                try:
+                    nws_last_by_date[str(row["target_date"])] = float(row["predicted_high"])
+                except (ValueError, TypeError):
+                    pass
+
+    atm_df = pd.read_csv(atm_csv) if os.path.exists(atm_csv) else None
+    if atm_df is not None:
+        atm_df["target_date"] = atm_df["target_date"].astype(str)
+
+    # ── Compute features for every date that has KJFK or KLGA data ────────
+    all_dates = sorted(
+        set(by_date["KJFK"]) | set(by_date["KLGA"]) | set(by_date.get("KNYC", {}))
+    )
+    print(f"📅 Computing obs features for {len(all_dates)} dates…")
+
+    NOON_CUTOFF = 13   # use obs up to and including 1pm local
+    INTRA_MAP   = {9: "intra_temp_9am", 10: "intra_temp_9am",
+                   11: "intra_temp_noon", 12: "intra_temp_noon",
+                   13: "intra_temp_3pm",  14: "intra_temp_3pm", 15: "intra_temp_3pm",
+                   16: "intra_temp_5pm",  17: "intra_temp_5pm"}
+
+    feature_rows = []
+    for date_str in all_dates:
+        def _snap(station: str) -> list[dict]:
+            """Rows for this station up to NOON_CUTOFF."""
+            return sorted(
+                [r for r in by_date.get(station, {}).get(date_str, [])
+                 if r["hour"] <= NOON_CUTOFF],
+                key=lambda r: r["obs_local"],
+            )
+
+        nyc_rows = _snap("KNYC")
+        jfk_rows = _snap("KJFK")
+        lga_rows = _snap("KLGA")
+
+        # Need at least one of JFK or LGA
+        if not jfk_rows and not lga_rows:
+            continue
+
+        # Use KNYC as primary; fall back to mean(JFK, LGA)
+        primary_rows = nyc_rows if nyc_rows else (jfk_rows or lga_rows)
+        latest       = primary_rows[-1]
+
+        row: dict = {"target_date": date_str, "city": city}
+
+        # ── Basic KNYC-equivalent obs ──────────────────────────────────
+        row["obs_latest_temp"] = latest["temp_f"]
+        row["obs_latest_hour"] = float(latest["hour"])
+        row["obs_max_so_far"]  = max(r["temp_f"] for r in primary_rows)
+
+        # 6hr max: last 6 hourly readings
+        last6 = primary_rows[-6:] if len(primary_rows) >= 6 else primary_rows
+        row["obs_6hr_max"] = max(r["temp_f"] for r in last6)
+
+        # Wind from latest primary
+        kts = latest["wind_kts"]
+        gst = latest["gust_kts"]
+        wdr = latest["wind_dir"]
+        row["obs_wind_speed"] = round(kts * 1.15078, 1) if kts is not None else float("nan")
+        row["obs_wind_gust"]  = round(gst * 1.15078, 1) if gst is not None else float("nan")
+        if wdr is not None:
+            row["obs_wind_dir_sin"] = round(math.sin(math.radians(wdr)), 4)
+            row["obs_wind_dir_cos"] = round(math.cos(math.radians(wdr)), 4)
+        else:
+            row["obs_wind_dir_sin"] = float("nan")
+            row["obs_wind_dir_cos"] = float("nan")
+        row["obs_cloud_cover"] = _sky2cov(latest["sky"])
+
+        # Heating rate (°F/hr from first to last reading)
+        if len(primary_rows) >= 2:
+            hrs = (primary_rows[-1]["obs_local"] - primary_rows[0]["obs_local"]).total_seconds() / 3600.0
+            row["obs_heating_rate"] = round(
+                (primary_rows[-1]["temp_f"] - primary_rows[0]["temp_f"]) / hrs, 2
+            ) if hrs > 0 else float("nan")
+        else:
+            row["obs_heating_rate"] = float("nan")
+
+        # obs_vs_intra_forecast
+        row["obs_vs_intra_forecast"] = float("nan")
+        if atm_df is not None:
+            atm_row = atm_df[atm_df["target_date"] == date_str]
+            if not atm_row.empty:
+                ikey = INTRA_MAP.get(int(row["obs_latest_hour"]))
+                if ikey and ikey in atm_row.columns:
+                    ival = atm_row.iloc[0][ikey]
+                    if pd.notna(ival):
+                        row["obs_vs_intra_forecast"] = round(row["obs_latest_temp"] - float(ival), 1)
+
+        # obs_temp_vs_forecast_max
+        nws_last = nws_last_by_date.get(date_str)
+        row["obs_temp_vs_forecast_max"] = (
+            round(row["obs_max_so_far"] - nws_last, 1) if nws_last is not None else float("nan")
+        )
+
+        # ── Regional JFK / LGA features ───────────────────────────────
+        jfk_t = jfk_rows[-1]["temp_f"] if jfk_rows else None
+        lga_t = lga_rows[-1]["temp_f"] if lga_rows else None
+        row["obs_jfk_temp"] = jfk_t if jfk_t is not None else float("nan")
+        row["obs_lga_temp"] = lga_t if lga_t is not None else float("nan")
+
+        avail = [v for v in [row["obs_latest_temp"], jfk_t, lga_t] if v is not None]
+        if len(avail) >= 2:
+            row["obs_regional_spread"] = round(max(avail) - min(avail), 1)
+            row["obs_regional_mean"]   = round(sum(avail) / len(avail), 1)
+        else:
+            row["obs_regional_spread"] = float("nan")
+            row["obs_regional_mean"]   = avail[0] if avail else float("nan")
+
+        row["obs_regional_vs_nws"] = (
+            round(row["obs_regional_mean"] - nws_last, 1)
+            if nws_last is not None and pd.notna(row["obs_regional_mean"])
+            else float("nan")
+        )
+
+        feature_rows.append(row)
+
+    if not feature_rows:
+        print("⚠️  No feature rows computed — check IEM data")
+        return ""
+
+    new_df = pd.DataFrame(feature_rows)
+
+    # ── Merge with existing observation_data.csv ───────────────────────────
+    csv_path = f"{prefix}observation_data.csv"
+    if os.path.exists(csv_path):
+        existing = pd.read_csv(csv_path)
+        existing["target_date"] = existing["target_date"].astype(str)
+        new_df["target_date"]   = new_df["target_date"].astype(str)
+        # IEM historical rows take precedence for any date both cover
+        combined = pd.concat([existing, new_df], ignore_index=True)
+        combined = combined.drop_duplicates(subset="target_date", keep="last")
+        combined = combined.sort_values("target_date")
+        print(f"  Merged {len(existing)} existing rows + {len(new_df)} IEM rows "
+              f"→ {len(combined)} total")
+        combined.to_csv(csv_path, index=False)
+    else:
+        new_df = new_df.sort_values("target_date")
+        new_df.to_csv(csv_path, index=False)
+        print(f"✅ Saved {len(new_df)} IEM observation rows to {csv_path}")
+
+    # Summary
+    valid_jfk = new_df["obs_jfk_temp"].notna().sum()
+    valid_lga = new_df["obs_lga_temp"].notna().sum()
+    print(f"   JFK data: {valid_jfk}/{len(new_df)} dates  |  LGA: {valid_lga}/{len(new_df)} dates")
+    non_zero_vs = new_df["obs_vs_intra_forecast"].dropna()
+    non_zero_vs = non_zero_vs[non_zero_vs != 0]
+    if len(non_zero_vs):
+        print(f"   obs_vs_intra_forecast: {len(non_zero_vs)} non-zero "
+              f"(mean={non_zero_vs.mean():.1f}°F, std={non_zero_vs.std():.1f}°F)")
+
+    return csv_path
+
+
 def backfill_high_timing_features(city_key: str = None) -> str:
     """
     Compute high-timing features for all historical dates using the
@@ -4034,6 +4323,7 @@ def _cli():
     s.add_parser("both")
     s.add_parser("collect_obs")
     s.add_parser("backfill_obs")
+    s.add_parser("backfill_obs_historical")
     s.add_parser("backfill_high_timing")
     args = p.parse_args()
 
@@ -4043,8 +4333,9 @@ def _cli():
     print(f"[prediction_writer] city={args.city}")
 
     if args.cmd == "collect_obs":              collect_nws_observations(args.city)
-    elif args.cmd == "backfill_obs":           backfill_observation_features(args.city)
-    elif args.cmd == "backfill_high_timing":   backfill_high_timing_features(args.city)
+    elif args.cmd == "backfill_obs":             backfill_observation_features(args.city)
+    elif args.cmd == "backfill_obs_historical": backfill_obs_historical(args.city)
+    elif args.cmd == "backfill_high_timing":    backfill_high_timing_features(args.city)
     elif args.cmd == "today_for_today":    write_today_for_today(args.date)
     elif args.cmd == "today_for_tomorrow": write_today_for_tomorrow(args.date)
     else: write_both_snapshots()
