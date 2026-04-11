@@ -3282,6 +3282,8 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
           el.textContent = "–";
           note.textContent = "";
         }
+        // Re-render Live Sources panel with the fresh live temp
+        try { if (typeof renderLiveSourcesPanel === 'function') renderLiveSourcesPanel(); } catch {}
       });
     }
 
@@ -3703,11 +3705,15 @@ function renderLiveSourcesPanel() {
   // Show live temp if available, fall back to snapshot
   const knyc_display = knyc_live ?? knyc_snap_temp;
   const knyc_label = knyc_live != null ? "live" : (s.obs_snap_hour != null ? `@${Math.round(s.obs_snap_hour)}:00` : "");
+  // Only show snapshot sub-stats (vs forecast, heating rate) if snapshot is recent (<2hrs)
+  const _snapHour = s.obs_snap_hour;
+  const _nowHour  = new Date().toLocaleString("en-US", { timeZone: CC()?.timezone || "America/New_York", hour: "numeric", hour12: false }) | 0;
+  const _snapRecent = (_snapHour != null) && (Math.abs(_nowHour - Number(_snapHour)) <= 2);
   const knyc_sub = [
-    knyc_max  != null ? `Max so far: ${f0(knyc_max)}` : "",
-    knyc_vs   != null ? `vs fcst: ${fSign(knyc_vs)}` : "",
-    knyc_rate != null ? `${Number(knyc_rate) >= 0 ? "+" : ""}${Number(knyc_rate).toFixed(1)}°/hr` : "",
-  ].filter(Boolean).join(" · ") || "Fetching…";
+    knyc_max  != null ? `Max: ${f0(knyc_max)}` : "",
+    (_snapRecent && knyc_vs   != null) ? `vs fcst: ${fSign(knyc_vs)}` : "",
+    (_snapRecent && knyc_rate != null) ? `${Number(knyc_rate) >= 0 ? "+" : ""}${Number(knyc_rate).toFixed(1)}°/hr` : "",
+  ].filter(Boolean).join(" · ") || "–";
 
   // ── JFK / LGA: live NWS fetch (same API as KNYC, no key needed)
   const lro = window._liveRegionalObs || {};
