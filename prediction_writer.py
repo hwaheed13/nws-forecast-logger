@@ -3318,7 +3318,8 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
         idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{yesterday_iso}"
         url = (f"{endpoint}?idempotency_key=eq.{idem_key}"
                f"&select=ml_bucket,ml_f,ml_result,ml_actual_high,kalshi_market_snapshot,"
-               f"ml_bucket_canonical,ml_f_canonical,ml_result_canonical")
+               f"ml_bucket_canonical,ml_f_canonical,ml_result_canonical,"
+               f"ml_bucket_2,ml_bucket_2_prob,bucket_rank_hit")
         req = urllib.request.Request(url, headers={
             "apikey": key, "Authorization": f"Bearer {key}",
             "Accept": "application/json",
@@ -3329,6 +3330,7 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
         if not pred_rows or not pred_rows[0].get("ml_bucket"):
             return
         pred = pred_rows[0]
+        bucket_2 = pred.get("ml_bucket_2")  # second-best Kalshi bucket (may be None for old rows)
 
         # Already fully scored with same actual? Skip.
         # Re-score if actual changed (e.g., CLI updated overnight), OR if
@@ -3403,8 +3405,24 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
 
         result = "WIN" if is_win else "MISS"
 
+        # Score bucket rank: 1=bucket1 hit, 2=bucket2 hit (bucket1 missed), 0=both missed
+        bucket_rank_hit: Optional[int] = None
+        if is_win:
+            bucket_rank_hit = 1
+        elif bucket_2:
+            # Check if bucket 2 was correct
+            b2_win = _score_bucket(bucket_2, actual_int, pred.get("kalshi_market_snapshot"))
+            bucket_rank_hit = 2 if b2_win else 0
+            if b2_win:
+                print(f"🥈 Bucket 2 was right: '{bucket_2}' matched actual {actual_high}°F")
+            else:
+                print(f"❌ Both buckets missed: '{ml_bucket}' and '{bucket_2}' vs actual {actual_high}°F")
+        else:
+            bucket_rank_hit = 0  # no bucket 2 stored (old row) — mark as miss
+
         # Score canonical (first-of-day) prediction separately for comparison research.
-        patch_data: dict = {"ml_result": result, "ml_actual_high": actual_high}
+        patch_data: dict = {"ml_result": result, "ml_actual_high": actual_high,
+                            "bucket_rank_hit": bucket_rank_hit}
         canonical_bucket = pred.get("ml_bucket_canonical")
         ks_raw = pred.get("kalshi_market_snapshot")
         if canonical_bucket and canonical_bucket != ml_bucket:
@@ -3895,12 +3913,18 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
 
         if ml.get("ml_bucket_probs"):
             raw_probs = json.loads(ml["ml_bucket_probs"]) if isinstance(ml["ml_bucket_probs"], str) else ml["ml_bucket_probs"]
-
             kalshi_bucket, kalshi_conf, kalshi_aligned = _map_ml_to_kalshi_buckets(raw_probs, market_probs)
             if kalshi_bucket:
                 payload["ml_bucket"] = kalshi_bucket
                 payload["ml_confidence"] = kalshi_conf
                 print(f"🎯 Kalshi prob-aligned bucket: {kalshi_bucket} ({kalshi_conf:.0%})")
+
+                # Store second-best Kalshi bucket for later outcome tracking
+                sorted_aligned = sorted(kalshi_aligned.items(), key=lambda x: x[1], reverse=True)
+                if len(sorted_aligned) > 1 and sorted_aligned[1][1] >= 0.02:
+                    payload["ml_bucket_2"] = sorted_aligned[1][0]
+                    payload["ml_bucket_2_prob"] = round(sorted_aligned[1][1], 4)
+                    print(f"🥈 Bucket 2: {sorted_aligned[1][0]} ({sorted_aligned[1][1]:.0%})")
 
                 if direct_bucket and kalshi_bucket != direct_bucket:
                     print(f"ℹ️ Direct map ({direct_bucket}) differs from prob-aligned ({kalshi_bucket}) "
@@ -4029,6 +4053,13 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
                 payload["ml_bucket"] = kalshi_bucket
                 payload["ml_confidence"] = kalshi_conf
                 print(f"🎯 Kalshi prob-aligned bucket: {kalshi_bucket} ({kalshi_conf:.0%})")
+
+                # Store second-best Kalshi bucket for later outcome tracking
+                sorted_aligned = sorted(kalshi_aligned.items(), key=lambda x: x[1], reverse=True)
+                if len(sorted_aligned) > 1 and sorted_aligned[1][1] >= 0.02:
+                    payload["ml_bucket_2"] = sorted_aligned[1][0]
+                    payload["ml_bucket_2_prob"] = round(sorted_aligned[1][1], 4)
+                    print(f"🥈 Bucket 2: {sorted_aligned[1][0]} ({sorted_aligned[1][1]:.0%})")
 
                 if direct_bucket and kalshi_bucket != direct_bucket:
                     print(f"ℹ️ Direct map ({direct_bucket}) differs from prob-aligned ({kalshi_bucket}) "

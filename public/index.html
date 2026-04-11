@@ -4406,10 +4406,15 @@ window._predTomorrow = predTomorrow;
           const p2 = Math.round(top2.second.prob * 100);
           const combinedPct = Math.round(top2.combined * 100);
           const combColor = combinedPct >= 75 ? "#059669" : combinedPct >= 60 ? "#16a34a" : "#d97706";
+          // Bucket-2 hit rate: how often does #2 land when #1 misses?
+          const b2s = window.mlBucket2Stats;
+          const b2RateStr = (b2s && b2s.rate != null && b2s.b1Misses >= 3)
+            ? ` <span style="color:#9ca3af;font-size:10px;">(hits ${b2s.rate}% of misses)</span>`
+            : '';
           statsLine = `<span style="color:#6b7280;">${p1}%</span>
             <span style="color:#9ca3af;margin:0 5px;">or</span>
             <span style="font-weight:700;color:#2563eb;">${cleanKalshiLabel(top2.second.bucket)}</span>
-            <span style="color:#6b7280;margin-left:3px;">${p2}%</span>
+            <span style="color:#6b7280;margin-left:3px;">${p2}%${b2RateStr}</span>
             <span style="color:#9ca3af;margin:0 5px;">·</span>
             <span style="color:${combColor};font-weight:600;">top-2: ${combinedPct}%</span>`;
         } else if (bucket) {
@@ -4426,7 +4431,7 @@ window._predTomorrow = predTomorrow;
           return match?.prob ?? mktProb;
         })();
         const kellyLine = kellyF != null && kellyF > 0
-          ? `<div style="font-size:12px;color:#6b7280;margin-top:3px;">📐 Kelly: <span style="color:#059669;font-weight:700;">${Math.round(kellyF*100)}%</span>${_liveMktProbTd != null ? ` · <span style="color:#16a34a;font-size:10px;">●</span> Market: <span style="font-weight:600;">${Math.round(_liveMktProbTd*100)}%</span>` : ''}</div>`
+          ? `<div style="font-size:12px;color:#6b7280;margin-top:3px;">Suggested bet: <span style="color:#059669;font-weight:700;">${Math.round(kellyF*100)}%</span>${_liveMktProbTd != null ? ` · <span style="color:#16a34a;font-size:10px;">●</span> Market: <span style="font-weight:600;">${Math.round(_liveMktProbTd*100)}%</span>` : ''}</div>`
           : '';
 
         // Supporting context: NWS + AccuWeather
@@ -4595,10 +4600,15 @@ window._predTomorrow = predTomorrow;
           const p2 = Math.round(top2.second.prob * 100);
           const combinedPct = Math.round(top2.combined * 100);
           const combColor = combinedPct >= 75 ? "#059669" : combinedPct >= 60 ? "#16a34a" : "#d97706";
+          // Bucket-2 hit rate: how often does #2 land when #1 misses?
+          const b2s = window.mlBucket2Stats;
+          const b2RateStr = (b2s && b2s.rate != null && b2s.b1Misses >= 3)
+            ? ` <span style="color:#9ca3af;font-size:10px;">(hits ${b2s.rate}% of misses)</span>`
+            : '';
           statsLineTm = `<span style="color:#6b7280;">${p1}%</span>
             <span style="color:#9ca3af;margin:0 5px;">or</span>
             <span style="font-weight:700;color:#2563eb;">${cleanKalshiLabel(top2.second.bucket)}</span>
-            <span style="color:#6b7280;margin-left:3px;">${p2}%</span>
+            <span style="color:#6b7280;margin-left:3px;">${p2}%${b2RateStr}</span>
             <span style="color:#9ca3af;margin:0 5px;">·</span>
             <span style="color:${combColor};font-weight:600;">top-2: ${combinedPct}%</span>`;
         } else if (bucket) {
@@ -4615,7 +4625,7 @@ window._predTomorrow = predTomorrow;
           return match?.prob ?? mktProb;
         })();
         const kellyLineTm = kellyF != null && kellyF > 0
-          ? `<div style="font-size:12px;color:#6b7280;margin-top:3px;">📐 Kelly: <span style="color:#059669;font-weight:700;">${Math.round(kellyF*100)}%</span>${_liveMktProbTm != null ? ` · <span style="color:#16a34a;font-size:10px;">●</span> Market: <span style="font-weight:600;">${Math.round(_liveMktProbTm*100)}%</span>` : ''}</div>`
+          ? `<div style="font-size:12px;color:#6b7280;margin-top:3px;">Suggested bet: <span style="color:#059669;font-weight:700;">${Math.round(kellyF*100)}%</span>${_liveMktProbTm != null ? ` · <span style="color:#16a34a;font-size:10px;">●</span> Market: <span style="font-weight:600;">${Math.round(_liveMktProbTm*100)}%</span>` : ''}</div>`
           : '';
 
         // Supporting context: NWS + AccuWeather
@@ -5658,6 +5668,27 @@ async function loadMLPredictions() {
   if (typeof renderMLBetSignal === "function") renderMLBetSignal();
 }
 
+// Load bucket-rank outcome stats (how often bucket 2 hits when bucket 1 misses)
+// bucket_rank_hit: 1=top hit, 2=second hit, 0=both missed
+window.mlBucket2Stats = { b2Hits: 0, b1Misses: 0, rate: null };
+async function loadMLBucket2Stats() {
+  try {
+    const { data, error } = await supabase
+      .from('prediction_logs')
+      .select('bucket_rank_hit')
+      .eq('city', currentCity)
+      .not('bucket_rank_hit', 'is', null);
+    if (error || !data || data.length === 0) return;
+    const b1Misses = data.filter(r => r.bucket_rank_hit === 2 || r.bucket_rank_hit === 0).length;
+    const b2Hits   = data.filter(r => r.bucket_rank_hit === 2).length;
+    const rate = b1Misses >= 3 ? Math.round(b2Hits / b1Misses * 100) : null;
+    window.mlBucket2Stats = { b2Hits, b1Misses, rate, total: data.length };
+    console.log(`ML bucket-2 stats (${currentCity}): ${b2Hits}/${b1Misses} b1-misses = ${rate}% b2 hit`);
+  } catch (e) {
+    console.debug("loadMLBucket2Stats error:", e?.message);
+  }
+}
+
 // Load ML bucket hit rate from Supabase (WIN/MISS scoring)
 window.mlBucketStats = { wins: 0, total: 0, rate: null };
 async function loadMLBucketStats() {
@@ -5806,6 +5837,7 @@ async function bootApp() {
     try { await loadMLPredictions(); } catch {}
     try { loadMLBucketStats(); } catch {}
     try { loadMLDivergenceStats(); } catch {}
+    try { loadMLBucket2Stats(); } catch {}
 
     // light, defensive calls
     try { window.showTodayDate && window.showTodayDate(); } catch {}
