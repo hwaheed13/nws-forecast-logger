@@ -4538,6 +4538,24 @@ window._predTomorrow = predTomorrow;
         const card     = document.getElementById("ml-signal-today-card");
         if (card) card.style.borderLeftColor = s.border;
 
+        // Track session-level bucket changes so users see when the model just revised.
+        // If the bucket changes during the session we show a "📊 Prediction revised" note
+        // for 60 min — independent of the server-side STRONG BET downgrade.
+        if (!window._mlBucketHistory) window._mlBucketHistory = {};
+        const _bKey = `${currentCity}:${nycISODate(0)}`;
+        const _bPrev = window._mlBucketHistory[_bKey];
+        if (bucket && _bPrev && _bPrev.bucket !== bucket) {
+          window._mlBucketHistory[_bKey] = { bucket, changedAt: Date.now(), from: _bPrev.bucket };
+        } else if (bucket && !_bPrev) {
+          window._mlBucketHistory[_bKey] = { bucket, changedAt: null, from: null };
+        }
+        const _bEntry = window._mlBucketHistory[_bKey] || {};
+        const _bucketRevisedRecently = (
+          _bEntry.changedAt != null &&
+          _bEntry.from != null &&
+          (Date.now() - _bEntry.changedAt) < 60 * 60 * 1000 // within 60 min
+        );
+
         // ── Build card HTML — bucket is the hero ──────────────────────────────
         const top2b1 = top2 ? cleanKalshiLabel(top2.first.bucket) : (bucket ? cleanKalshiLabel(bucket) : null);
         const signalBadge = signal
@@ -4669,6 +4687,14 @@ window._predTomorrow = predTomorrow;
             </div>`
           : '';
 
+        // Show amber "Prediction revised" note when bucket shifted this session
+        const bucketRevisedNote = _bucketRevisedRecently
+          ? `<div style="font-size:12px;background:#fffbeb;border-left:3px solid #d97706;padding:6px 10px;margin-top:6px;border-radius:4px;color:#92400e;">
+              📊 <strong>Prediction revised</strong> — bucket shifted from ${cleanKalshiLabel(_bEntry.from)} → ${cleanKalshiLabel(_bEntry.bucket)} this session.
+              Bet signal downgraded until next stable cycle.
+             </div>`
+          : '';
+
         el0.innerHTML = `
           ${limitedDataHTML}
           ${top2b1 ? `<div style="font-size:32px;font-weight:800;line-height:1.1;color:var(--text-primary);">${top2b1}</div>` : `<div class="prediction-value">${mlVal.toFixed(1)}°F</div>`}
@@ -4679,6 +4705,7 @@ window._predTomorrow = predTomorrow;
           ${kellyLine}
           <div style="font-size:12px;color:var(--text-muted);margin-top:5px;">ML: ${mlVal.toFixed(1)}°F${supportHTML ? ` · ${supportHTML}` : ''}</div>
           ${moatRiskHTMLTd}
+          ${bucketRevisedNote}
           ${overnightHighNote}
           ${exceedanceNote}
           ${warningHTML}

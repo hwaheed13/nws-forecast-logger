@@ -928,6 +928,7 @@ def _compute_bet_signal(
     ml_confidence: float,
     ml_bucket: str,
     market_probs: dict,
+    bucket_just_changed: bool = False,
 ) -> tuple[str, float, float]:
     """
     Compute bet signal using Kelly criterion for principled sizing.
@@ -937,6 +938,10 @@ def _compute_bet_signal(
 
     Half-Kelly fraction:
         kelly_f = 0.5 * (p_model - p_market) / (1 - p_market)
+
+    bucket_just_changed: if True, downgrade signal one tier — a bucket that
+        just shifted hasn't proven stability yet, so we shouldn't call it
+        STRONG BET on the same cycle it changed.
 
     Returns (signal, edge, kelly_fraction) where:
       signal:        "STRONG_BET" / "BET" / "LEAN" / "SKIP"
@@ -963,6 +968,15 @@ def _compute_bet_signal(
         signal = "LEAN"
     else:
         signal = "SKIP"
+
+    # Stability guard: if the bucket just shifted, downgrade one tier.
+    # A fresh revision hasn't proven itself stable — don't show STRONG BET
+    # on the same cycle the model changed its mind.
+    if bucket_just_changed and signal != "SKIP":
+        _downgrade = {"STRONG_BET": "BET", "BET": "LEAN", "LEAN": "SKIP"}
+        _orig = signal
+        signal = _downgrade.get(signal, signal)
+        print(f"  ⬇️  Bet signal downgraded {_orig} → {signal} (bucket just shifted — waiting for next cycle to confirm)")
 
     return signal, edge, kelly_half
 
@@ -1270,13 +1284,29 @@ def _compute_ml_prediction(
             X.loc[0, accu_col] = X.loc[0, nws_col]
 
     # Base forecast: prefer AccuWeather (lower MAE historically) but guard against
-    # stale data.  When NWS and AccuWeather disagree by >8°F, AccuWeather is likely
-    # outdated (e.g., yesterday's warm weather not yet revised).  Fall back to NWS
-    # in that case — a small bias mismatch is far better than a 15°F wrong anchor.
+    # stale data.  AccuWeather lags in two windows:
+    #  • Early morning (< 10am local): mirrors yesterday's airmass before the morning
+    #    briefing publishes — a 3°F NWS gap is enough to flag it as stale.
+    #  • Anytime: >8°F divergence = clearly outdated (yesterday's warm air, etc).
+    # Fall back to NWS in both cases — a small bias mismatch beats a wrong anchor.
     if has_accu:
         spread = abs(features["nws_last"] - features["accu_last"])
-        if spread > 8.0:
-            print(f"⚠️ NWS-AccuWeather spread={spread:.0f}°F > 8°F — "
+        # City-aware local hour for early-morning threshold
+        try:
+            import nws_auto_logger as _nal_am
+            _am_tz = _nal_am._CITY_CFG.get("timezone", "America/New_York")
+            from zoneinfo import ZoneInfo as _ZI
+            _local_hour_now = datetime.now(_ZI(_am_tz)).hour
+        except Exception:
+            _local_hour_now = now_nyc().hour
+        _accu_stale_threshold = 3.0 if _local_hour_now < 10 else 8.0
+        _accu_stale_label = (
+            f"early morning (< 10am, threshold={_accu_stale_threshold:.0f}°F)"
+            if _accu_stale_threshold < 8 else f"threshold={_accu_stale_threshold:.0f}°F"
+        )
+        if spread > _accu_stale_threshold:
+            print(f"⚠️ NWS-AccuWeather spread={spread:.0f}°F > {_accu_stale_threshold:.0f}°F "
+                  f"[{_accu_stale_label}] — "
                   f"AccuWeather likely stale ({features['accu_last']:.0f}°F vs NWS {features['nws_last']:.0f}°F). "
                   f"Using NWS as base.")
             base = features["nws_last"]
@@ -4030,6 +4060,21 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     if market_probs and is_canonical_write:
         payload["kalshi_market_snapshot"] = json.dumps(market_probs)
 
+    # Detect intraday bucket shift for stability downgrade.
+    # If the stored bucket differs from what we're about to write, the model just
+    # changed its mind — don't call it STRONG BET until it holds for another cycle.
+    _prev_bucket = existing.get("ml_bucket") if isinstance(existing, dict) else None
+    _bucket_just_changed = (
+        not is_canonical_write        # canonical = first write, no prior bucket
+        and _prev_bucket is not None
+        and ml is not None
+        and ml.get("ml_bucket") is not None
+        and _prev_bucket != ml["ml_bucket"]
+    )
+    if _bucket_just_changed:
+        print(f"  🔀 Bucket shifted: {_prev_bucket} → {ml['ml_bucket']} "
+              f"(bet signal will be downgraded this cycle for stability)")
+
     # Map ML prediction → Kalshi's actual bucket structure for today
     # Always re-map with fresh prediction (no lock — intraday re-prediction enabled)
     if ml and market_probs:
@@ -4045,6 +4090,13 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 payload["ml_confidence"] = kalshi_conf
                 print(f"🎯 Kalshi prob-aligned bucket: {kalshi_bucket} ({kalshi_conf:.0%})")
 
+                # Also re-check bucket change against the final Kalshi-aligned bucket
+                _bucket_just_changed = _bucket_just_changed or (
+                    not is_canonical_write
+                    and _prev_bucket is not None
+                    and _prev_bucket != kalshi_bucket
+                )
+
                 # Store second-best Kalshi bucket for later outcome tracking
                 sorted_aligned = sorted(kalshi_aligned.items(), key=lambda x: x[1], reverse=True)
                 if len(sorted_aligned) > 1 and sorted_aligned[1][1] >= 0.02:
@@ -4057,7 +4109,8 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                           f"— keeping prob-aligned (higher expected accuracy)")
 
                 signal, edge, kelly_f = _compute_bet_signal(
-                    payload["ml_confidence"], payload["ml_bucket"], market_probs
+                    payload["ml_confidence"], payload["ml_bucket"], market_probs,
+                    bucket_just_changed=_bucket_just_changed,
                 )
                 payload["bet_signal"] = signal
                 payload["ml_edge"] = edge
@@ -4070,8 +4123,14 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                     print(f"📐 kelly_fraction={kelly_f:.1%} (half-Kelly — bet this % of bankroll)")
         elif direct_bucket:
             payload["ml_bucket"] = direct_bucket
+            _bucket_just_changed = _bucket_just_changed or (
+                not is_canonical_write
+                and _prev_bucket is not None
+                and _prev_bucket != direct_bucket
+            )
             signal, edge, kelly_f = _compute_bet_signal(
-                ml["ml_confidence"], direct_bucket, market_probs
+                ml["ml_confidence"], direct_bucket, market_probs,
+                bucket_just_changed=_bucket_just_changed,
             )
             payload["bet_signal"] = signal
             payload["ml_edge"] = edge
