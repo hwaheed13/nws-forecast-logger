@@ -1539,27 +1539,61 @@ def _compute_ml_prediction(
                 if pd.isna(X_v2.loc[0, accu_col]):
                     X_v2.loc[0, accu_col] = X_v2.loc[0, nws_col]
 
-            # v2 center temp: prefer atmospheric predictor (1,278 days, knows
-            # spring) over regression model (239 days, 15 spring days).
-            # Fall back to regression or forecast average when atm unavailable.
+            # ── Center temperature: atm_predicted_high is the north star ──────
+            #
+            # The atmospheric predictor is a 1,278-day physics model trained on
+            # Open-Meteo actuals (BL height, 925mb temp, solar, HRRR ensemble) —
+            # zero contamination from NWS or AccuWeather. It is the best available
+            # intraday-independent temperature estimate.
+            #
+            # Priority (highest to lowest):
+            #   1. atm_predicted_high — physics-based, agency-independent
+            #   2. active_regressor prediction (base + bias) — as a fallback when
+            #      atm predictor hasn't run or is NaN
+            #   3. NWS/AccuWeather average — last resort when both models absent
+            #
+            # By making atm_predicted_high the anchor, a stale AccuWeather at 65°F
+            # vs NWS 62°F no longer shifts the bucket distribution — the BL height,
+            # 925mb temps and solar are the north star, not agency guesses.
             atm_pred_val = v2_features.get("atm_predicted_high")
             has_atm = (atm_pred_val is not None
-                       and not (isinstance(atm_pred_val, float) and math.isnan(atm_pred_val)))
+                       and not (isinstance(atm_pred_val, float) and math.isnan(atm_pred_val))
+                       and 0.0 < float(atm_pred_val) < 130.0)  # sanity guard
 
-            if active_regressor is not None:
+            if has_atm:
+                # PRIMARY: atmospheric predictor — fully independent of agencies
+                v2_temp = float(atm_pred_val)
+                _regression_note = ""
+                if active_regressor is not None:
+                    # Still run regressor so we can log the delta for monitoring,
+                    # but do NOT use it to shift the center.
+                    try:
+                        _v2_bias_ref = float(active_regressor.predict(X_v2)[0])
+                        _v2_temp_ref = base + _v2_bias_ref
+                        _regression_note = (f" | regressor would give {_v2_temp_ref:.1f}°F "
+                                            f"(base={base:.0f} + bias={_v2_bias_ref:+.1f}) — "
+                                            f"delta={v2_temp - _v2_temp_ref:+.1f}°F from atm")
+                    except Exception:
+                        pass
+                print(f"   Center temp: {v2_temp:.1f}°F "
+                      f"(atm_predicted_high — physics north star){_regression_note}")
+            elif active_regressor is not None:
+                # FALLBACK 1: regression on top of NWS/AccuWeather base
                 v2_bias = float(active_regressor.predict(X_v2)[0])
                 v2_temp = base + v2_bias
                 print(f"   Center temp: {v2_temp:.1f}°F "
-                      f"({active_version} regression: base={base:.0f} + bias={v2_bias:+.1f})")
+                      f"({active_version} regression fallback: base={base:.0f} + bias={v2_bias:+.1f}) "
+                      f"[atm predictor unavailable]")
             else:
-                # No atm predictor and no regression — use forecast average
+                # FALLBACK 2: no model at all — use forecast average
                 all_forecasts = [features["nws_last"]]
                 if has_accu and not np.isnan(features["accu_last"]):
                     all_forecasts.append(features["accu_last"])
                 v2_temp = float(np.mean(all_forecasts))
                 accu_note = f", AccuWx={features['accu_last']:.0f}" if has_accu else ""
                 print(f"   Center temp: {v2_temp:.1f}°F "
-                      f"(forecast avg: NWS={features['nws_last']:.0f}{accu_note})")
+                      f"(forecast avg fallback: NWS={features['nws_last']:.0f}{accu_note}) "
+                      f"[no models available]")
 
             # Exceedance adjustment DISABLED — it chases observed temps after
             # the market already sees them, producing fake WINs with no edge.
