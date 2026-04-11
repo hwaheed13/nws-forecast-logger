@@ -2722,6 +2722,11 @@ function actualSignatureFor(rows) {
         window._overnightExceeded  = null;
         try { localStorage.removeItem(`${currentCity}:overnight_${window._lastPolledDate}`); } catch {}
         try { localStorage.removeItem(`${currentCity}:overnightExceeded_${window._lastPolledDate}`); } catch {}
+        // Force AccuWeather refresh on date rollover — cached DailyForecasts[0/1]
+        // are now stale (they referenced yesterday/today, not today/tomorrow)
+        try { window.fetchAccuWeatherForecasts && window.fetchAccuWeatherForecasts(); } catch {}
+        // Also reload ML predictions — new target dates after midnight
+        try { loadMLPredictions && loadMLPredictions(); } catch {}
       }
       window._lastPolledDate = currentDate;
 
