@@ -69,6 +69,10 @@ def fetch_nearby_obs(
         return []
 
 
+# NY Mesonet borough station IDs as they appear in the Synoptic radius results
+_NYSM_BOROUGH_STIDS = {"BKLN", "QUEE", "STAT", "BRON", "MANH"}
+
+
 def get_synoptic_obs_features(
     lat: float = 40.7834,
     lon: float = -73.965,
@@ -85,6 +89,10 @@ def get_synoptic_obs_features(
         obs_synoptic_spread      — max - min across stations
         obs_synoptic_vs_nws      — obs_synoptic_mean - nws_last
         obs_synoptic_count       — number of valid stations
+        obs_nysm_mean            — mean temp across NYSM borough stations found (°F)
+        obs_nysm_min/max/spread  — borough min/max/spread
+        obs_nysm_vs_nws          — obs_nysm_mean - nws_last
+        obs_nysm_count           — number of borough stations found
 
     All NaN if SYNOPTIC_TOKEN is not set.
     """
@@ -97,6 +105,13 @@ def get_synoptic_obs_features(
         "obs_synoptic_spread": np.nan,
         "obs_synoptic_vs_nws": np.nan,
         "obs_synoptic_count": np.nan,
+        # Borough subset (from NYSM stations found in the radius)
+        "obs_nysm_mean": np.nan,
+        "obs_nysm_min": np.nan,
+        "obs_nysm_max": np.nan,
+        "obs_nysm_spread": np.nan,
+        "obs_nysm_vs_nws": np.nan,
+        "obs_nysm_count": np.nan,
     }
 
     if not _token():
@@ -107,6 +122,7 @@ def get_synoptic_obs_features(
         return nan_result
 
     temps = []
+    borough_temps = []
     for stn in stations:
         stid = stn.get("STID", "?")
         obs = stn.get("OBSERVATIONS", {})
@@ -118,7 +134,11 @@ def get_synoptic_obs_features(
             t = temp_val
         if t is not None:
             try:
-                temps.append(float(t))
+                tf = float(t)
+                temps.append(tf)
+                if stid.upper() in _NYSM_BOROUGH_STIDS:
+                    borough_temps.append(tf)
+                    print(f"  🏙️ NYSM borough via Synoptic — {stid}: {tf:.1f}°F")
             except (ValueError, TypeError):
                 pass
 
@@ -134,13 +154,27 @@ def get_synoptic_obs_features(
     if nws_last is not None:
         nan_result["obs_synoptic_vs_nws"] = round(mean_t - nws_last, 1)
 
+    vs_str = f"  vs NWS={nan_result['obs_synoptic_vs_nws']:+.1f}°F" if nws_last else ""
     print(f"  🗺️ Synoptic: {len(temps)} stations — "
           f"min={nan_result['obs_synoptic_min']:.1f}°F  "
           f"mean={mean_t:.1f}°F  "
-          f"max={nan_result['obs_synoptic_max']:.1f}°F  "
-          f"vs NWS={nan_result['obs_synoptic_vs_nws']:+.1f}°F" if nws_last else
-          f"  🗺️ Synoptic: {len(temps)} stations — min={nan_result['obs_synoptic_min']:.1f}°F "
-          f"mean={mean_t:.1f}°F max={nan_result['obs_synoptic_max']:.1f}°F")
+          f"max={nan_result['obs_synoptic_max']:.1f}°F{vs_str}")
+
+    # Borough subset
+    if borough_temps:
+        b_mean = sum(borough_temps) / len(borough_temps)
+        nan_result["obs_nysm_mean"]   = round(b_mean, 1)
+        nan_result["obs_nysm_min"]    = round(min(borough_temps), 1)
+        nan_result["obs_nysm_max"]    = round(max(borough_temps), 1)
+        nan_result["obs_nysm_spread"] = round(max(borough_temps) - min(borough_temps), 1)
+        nan_result["obs_nysm_count"]  = float(len(borough_temps))
+        if nws_last is not None:
+            nan_result["obs_nysm_vs_nws"] = round(b_mean - nws_last, 1)
+        vs_b = f"  vs NWS={nan_result['obs_nysm_vs_nws']:+.1f}°F" if nws_last else ""
+        print(f"  🏙️ Boroughs (NYSM via Synoptic): {len(borough_temps)} stations — "
+              f"min={nan_result['obs_nysm_min']:.1f}°F  "
+              f"mean={b_mean:.1f}°F  "
+              f"max={nan_result['obs_nysm_max']:.1f}°F{vs_b}")
 
     return nan_result
 

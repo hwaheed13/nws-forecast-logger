@@ -112,13 +112,35 @@ def get_nysm_obs_features(
 
     all_obs = fetch_nysm_latest_csv()
     if not all_obs:
-        # DNS failure on GitHub Actions — fall back to Synoptic API borough query
-        print("  ℹ️  NYSM CSV unavailable — trying Synoptic borough fallback")
+        # DNS failure on GitHub Actions — fall back to borough subset from Synoptic radius fetch
+        print("  ℹ️  NYSM CSV unavailable — extracting borough stations from Synoptic radius fetch")
         try:
-            from synoptic_client import get_nysm_via_synoptic
-            return get_nysm_via_synoptic(nws_last=nws_last)
+            import nws_auto_logger as _nal
+            _cfg = _nal._CITY_CFG
+            from synoptic_client import get_synoptic_obs_features
+            _syn = get_synoptic_obs_features(
+                lat=_cfg.get("open_meteo_lat", 40.7834),
+                lon=_cfg.get("open_meteo_lon", -73.965),
+                nws_last=nws_last,
+                radius_miles=10.0,  # wider radius to capture all boroughs
+            )
+            # Return the obs_nysm_* keys that get_synoptic_obs_features now populates
+            import math
+            has_borough = _syn.get("obs_nysm_count") and not math.isnan(float(_syn["obs_nysm_count"]))
+            if has_borough:
+                return {
+                    "obs_nysm_mean":   _syn["obs_nysm_mean"],
+                    "obs_nysm_min":    _syn["obs_nysm_min"],
+                    "obs_nysm_max":    _syn["obs_nysm_max"],
+                    "obs_nysm_spread": _syn["obs_nysm_spread"],
+                    "obs_nysm_vs_nws": _syn["obs_nysm_vs_nws"],
+                    "obs_nysm_count":  _syn["obs_nysm_count"],
+                }
+            else:
+                print("  ℹ️  No NYSM borough stations found in Synoptic radius — NYSM unavailable")
+                return nan_result
         except Exception as _fb_e:
-            print(f"  ⚠️ Synoptic NYSM fallback failed: {_fb_e}")
+            print(f"  ⚠️ Synoptic borough fallback failed: {_fb_e}")
             return nan_result
 
     temps = []

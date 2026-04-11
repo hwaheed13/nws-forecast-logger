@@ -4097,11 +4097,14 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                     from synoptic_client import get_synoptic_obs_features
                     import nws_auto_logger as _nal_snap
                     _snap_cfg = _nal_snap._CITY_CFG
+                    # Use radius=10 so we capture outer boroughs (BKLN/STAT/QUEE/BRON)
+                    # get_synoptic_obs_features now also extracts obs_nysm_* borough stats
+                    # from the same radius response — one API call, two outputs.
                     _syn_fresh = get_synoptic_obs_features(
                         lat=_snap_cfg.get("open_meteo_lat", 40.7834),
                         lon=_snap_cfg.get("open_meteo_lon", -73.965),
                         nws_last=_nws_for_obs,
-                        radius_miles=5.0,
+                        radius_miles=10.0,
                     )
                     # Write display keys (obs_snap_syn_*) — what the dashboard reads
                     _ex_snap["obs_snap_syn_mean"]   = _safe_snap(_syn_fresh.get("obs_synoptic_mean"))
@@ -4113,24 +4116,22 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                     print(f"  📡 Stable-cycle Synoptic: "
                           f"{_ex_snap['obs_snap_syn_mean']} "
                           f"({_ex_snap['obs_snap_syn_count']} stations)")
+
+                    # Borough (NYSM) stats extracted from the same Synoptic radius response
+                    _ex_snap["obs_snap_nysm_mean"]   = _safe_snap(_syn_fresh.get("obs_nysm_mean"))
+                    _ex_snap["obs_snap_nysm_min"]    = _safe_snap(_syn_fresh.get("obs_nysm_min"))
+                    _ex_snap["obs_snap_nysm_max"]    = _safe_snap(_syn_fresh.get("obs_nysm_max"))
+                    _ex_snap["obs_snap_nysm_spread"] = _safe_snap(_syn_fresh.get("obs_nysm_spread"))
+                    _ex_snap["obs_snap_nysm_vs_nws"] = _safe_snap(_syn_fresh.get("obs_nysm_vs_nws"))
+                    _ex_snap["obs_snap_nysm_count"]  = _syn_fresh.get("obs_nysm_count")
+                    if _ex_snap["obs_snap_nysm_mean"] is not None:
+                        print(f"  🏙️ Stable-cycle NYSM boroughs (via Synoptic): "
+                              f"{_ex_snap['obs_snap_nysm_mean']} "
+                              f"({_ex_snap['obs_snap_nysm_count']} boroughs)")
+                    else:
+                        print("  ℹ️  No NYSM borough stations in Synoptic radius (BKLN/QUEE/STAT/BRON/MANH not found)")
                 except Exception as _syn_e:
                     print(f"  ⚠️  Stable-cycle Synoptic skipped: {_syn_e}")
-
-                try:
-                    from nysmesonet_client import get_nysm_obs_features
-                    _nysm_fresh = get_nysm_obs_features(nws_last=_nws_for_obs)
-                    # Write display keys (obs_snap_nysm_*) directly
-                    _ex_snap["obs_snap_nysm_mean"]   = _safe_snap(_nysm_fresh.get("obs_nysm_mean"))
-                    _ex_snap["obs_snap_nysm_min"]    = _safe_snap(_nysm_fresh.get("obs_nysm_min"))
-                    _ex_snap["obs_snap_nysm_max"]    = _safe_snap(_nysm_fresh.get("obs_nysm_max"))
-                    _ex_snap["obs_snap_nysm_spread"] = _safe_snap(_nysm_fresh.get("obs_nysm_spread"))
-                    _ex_snap["obs_snap_nysm_vs_nws"] = _safe_snap(_nysm_fresh.get("obs_nysm_vs_nws"))
-                    _ex_snap["obs_snap_nysm_count"]  = _nysm_fresh.get("obs_nysm_count")
-                    print(f"  🏙️ Stable-cycle NYSM: "
-                          f"{_ex_snap['obs_snap_nysm_mean']} "
-                          f"({_ex_snap['obs_snap_nysm_count']} boroughs)")
-                except Exception as _nysm_e:
-                    print(f"  ⚠️  Stable-cycle NYSM skipped: {_nysm_e}")
 
                 payload["atm_snapshot"] = json.dumps(_ex_snap)
                 print(f"📸 Obs panel refreshed in stable snapshot "
