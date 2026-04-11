@@ -1765,7 +1765,7 @@ class NYCTemperatureModelTrainer:
             pass
 
         # Bucket classifier
-        classifier = BucketClassifier(city_key=self.city_key)
+        classifier = BucketClassifier()
         classifier.train(forecast_df, feature_cols=FEATURE_COLS_V5, residual_std=residual_std)
 
         # Save models
