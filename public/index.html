@@ -341,31 +341,17 @@
 
     .brand-right .pill-sep { flex: 0 0 12px; }
 
-    /* Desktop gutter push + styling for billing/logout */
-    @media (min-width: 960px) {
-      #btn-billing, #btn-logout {
-        position: relative;
-        left: calc(max(0px, (100vw - 1400px) / 2 - 12px));
-        margin-top: -6px;
-      }
-      .pill.logout-btn { margin-top: -6px; }
-      #btn-billing {
-        margin-top: -4px; background: #dbeafe; color: #2563eb; border: 1px solid #93c5fd;
-      }
-      #btn-billing:hover { background: #bfdbfe; }
-    }
     #btn-billing, #btn-logout { cursor: pointer; transition: transform .02s ease, box-shadow .15s ease, opacity .15s ease; }
     #btn-billing:hover, #btn-logout:hover { box-shadow: 0 2px 8px rgba(0,0,0,.08); }
     #btn-billing:active, #btn-logout:active { transform: translateY(1px); opacity: .9; }
 
-    /* 2-col grid on desktop for pills/billing/logout */
+    /* 2-col grid on desktop for pills/toggle/billing/logout */
     @media (min-width: 960px) {
-      .brand-right { display: grid; grid-template-columns: auto auto; column-gap: 12px; row-gap: 10px; align-items: center; justify-items: end; }
+      .brand-right { display: grid; grid-template-columns: auto auto; column-gap: 12px; row-gap: 8px; align-items: center; justify-items: end; }
       .brand-right .pill-group { grid-column: 1; grid-row: 1; }
-      #btn-billing { grid-column: 2; grid-row: 1; }
-      #btn-logout { grid-column: 2; grid-row: 2; }
-      #btn-billing, #btn-logout { left: calc(max(0px, (100vw - 1400px) / 2 - 6px)); }
-      #btn-billing { margin-top: -2px; background: #dbeafe; color: #2563eb; border: 1px solid #93c5fd; }
+      .brand-right .theme-switch { grid-column: 1; grid-row: 2; justify-self: end; }
+      #btn-billing { grid-column: 2; grid-row: 1; background: #dbeafe; color: #2563eb; border: 1px solid #93c5fd; }
+      #btn-logout  { grid-column: 2; grid-row: 2; }
       #btn-billing:hover { background: #bfdbfe; }
     }
 
