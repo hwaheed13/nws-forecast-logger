@@ -3898,7 +3898,15 @@ function renderLiveSourcesPanel() {
   const knyc_snap_temp = s.obs_snap_temp;
   const knyc_vs   = s.obs_snap_vs_forecast;
   const knyc_rate = s.obs_snap_heating_rate;
-  const knyc_max  = s.obs_snap_max_so_far;
+  // Use the best available max: snapshot max OR 6-hour NWS max, whichever is higher.
+  // obs_snap_max_so_far comes from _fetch_observation_features() which uses a live
+  // API that can lag behind the hourly NWS CSV. _sixHourMaxF is the authoritative
+  // 6-hour max from NWS and is always current.
+  const _snapMaxRaw = s.obs_snap_max_so_far;
+  const _sixHrMax   = Number.isFinite(window._sixHourMaxF) ? window._sixHourMaxF : null;
+  const knyc_max    = (_snapMaxRaw != null && _sixHrMax != null)
+    ? Math.max(Number(_snapMaxRaw), _sixHrMax)
+    : (_sixHrMax ?? (_snapMaxRaw != null ? Number(_snapMaxRaw) : null));
   const knyc_display = knyc_live ?? knyc_snap_temp;
   const knyc_label = knyc_live != null ? "live" : (s.obs_snap_hour != null ? `@${Math.round(s.obs_snap_hour)}:00` : "");
   const _nowHour  = parseInt(new Date().toLocaleString("en-US", { timeZone: _cityTZ, hour: "numeric", hour12: false }), 10);
@@ -4661,10 +4669,18 @@ window._predTomorrow = predTomorrow;
           return (fromML != null && Number.isFinite(fromML)) ? fromML : null;
         })();
         const _overnightSuppressed = (
-          _overnightObsMax != null &&
-          _nwsForTodayGuard != null &&
-          _nwsForTodayGuard >= _overnightObsMax + 2 &&
-          _nowHourLocal < 14
+          // Original: NWS forecasts ≥2°F above overnight peak before 2pm
+          (_overnightObsMax != null &&
+           _nwsForTodayGuard != null &&
+           _nwsForTodayGuard >= _overnightObsMax + 2 &&
+           _nowHourLocal < 14)
+          ||
+          // New: 6-hour NWS max already exceeds the overnight peak by >1.5°F —
+          // means a new daytime high has been set regardless of what the live
+          // API returned to obs_snap_max_so_far (two different data sources).
+          (_overnightObsMax != null &&
+           Number.isFinite(window._sixHourMaxF) &&
+           window._sixHourMaxF > _overnightObsMax + 1.5)
         );
 
         const overnightHighNote = (_overnightFlag == 1 && _peakHour != null && !_overnightSuppressed)
