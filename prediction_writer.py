@@ -4080,8 +4080,19 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                     pass
                 # Fetch fresh Synoptic / NYSM data directly — on stable days
                 # _compute_ml_prediction() never runs so live_atm has no obs keys.
-                # We must call the clients here to get current readings.
+                # IMPORTANT: write obs_snap_* display keys directly (NOT obs_synoptic_*
+                # ML feature keys) — the dashboard reads obs_snap_syn_mean etc., not
+                # obs_synoptic_mean. _add_obs_to_snap is NOT called here because
+                # live_obs is empty on frozen paths and would clobber KNYC obs keys.
                 _nws_for_obs = float(nws_latest) if nws_latest is not None else None
+
+                def _safe_snap(v):
+                    if v is None: return None
+                    try:
+                        f = float(v)
+                        return None if math.isnan(f) else round(f, 3)
+                    except (TypeError, ValueError): return None
+
                 try:
                     from synoptic_client import get_synoptic_obs_features
                     import nws_auto_logger as _nal_snap
@@ -4092,29 +4103,35 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                         nws_last=_nws_for_obs,
                         radius_miles=5.0,
                     )
-                    for _sk, _sv in _syn_fresh.items():
-                        if _sk.startswith("obs_synoptic_"):
-                            _ex_snap[_sk] = _sv
+                    # Write display keys (obs_snap_syn_*) — what the dashboard reads
+                    _ex_snap["obs_snap_syn_mean"]   = _safe_snap(_syn_fresh.get("obs_synoptic_mean"))
+                    _ex_snap["obs_snap_syn_min"]    = _safe_snap(_syn_fresh.get("obs_synoptic_min"))
+                    _ex_snap["obs_snap_syn_max"]    = _safe_snap(_syn_fresh.get("obs_synoptic_max"))
+                    _ex_snap["obs_snap_syn_spread"] = _safe_snap(_syn_fresh.get("obs_synoptic_spread"))
+                    _ex_snap["obs_snap_syn_vs_nws"] = _safe_snap(_syn_fresh.get("obs_synoptic_vs_nws"))
+                    _ex_snap["obs_snap_syn_count"]  = _syn_fresh.get("obs_synoptic_count")
                     print(f"  📡 Stable-cycle Synoptic: "
-                          f"{_syn_fresh.get('obs_synoptic_mean')} "
-                          f"({_syn_fresh.get('obs_synoptic_count')} stations)")
+                          f"{_ex_snap['obs_snap_syn_mean']} "
+                          f"({_ex_snap['obs_snap_syn_count']} stations)")
                 except Exception as _syn_e:
                     print(f"  ⚠️  Stable-cycle Synoptic skipped: {_syn_e}")
 
                 try:
                     from nysmesonet_client import get_nysm_obs_features
                     _nysm_fresh = get_nysm_obs_features(nws_last=_nws_for_obs)
-                    for _nk, _nv in _nysm_fresh.items():
-                        if _nk.startswith("obs_nysm_"):
-                            _ex_snap[_nk] = _nv
+                    # Write display keys (obs_snap_nysm_*) directly
+                    _ex_snap["obs_snap_nysm_mean"]   = _safe_snap(_nysm_fresh.get("obs_nysm_mean"))
+                    _ex_snap["obs_snap_nysm_min"]    = _safe_snap(_nysm_fresh.get("obs_nysm_min"))
+                    _ex_snap["obs_snap_nysm_max"]    = _safe_snap(_nysm_fresh.get("obs_nysm_max"))
+                    _ex_snap["obs_snap_nysm_spread"] = _safe_snap(_nysm_fresh.get("obs_nysm_spread"))
+                    _ex_snap["obs_snap_nysm_vs_nws"] = _safe_snap(_nysm_fresh.get("obs_nysm_vs_nws"))
+                    _ex_snap["obs_snap_nysm_count"]  = _nysm_fresh.get("obs_nysm_count")
                     print(f"  🏙️ Stable-cycle NYSM: "
-                          f"{_nysm_fresh.get('obs_nysm_mean')} "
-                          f"({_nysm_fresh.get('obs_nysm_count')} boroughs)")
+                          f"{_ex_snap['obs_snap_nysm_mean']} "
+                          f"({_ex_snap['obs_snap_nysm_count']} boroughs)")
                 except Exception as _nysm_e:
                     print(f"  ⚠️  Stable-cycle NYSM skipped: {_nysm_e}")
 
-                # Refresh live-obs keys (station temp, max-so-far, overnight flag…)
-                _add_obs_to_snap(_ex_snap, live_obs, live_atm)
                 payload["atm_snapshot"] = json.dumps(_ex_snap)
                 print(f"📸 Obs panel refreshed in stable snapshot "
                       f"({len(_ex_snap)} keys, ml_recomputed=False)")
