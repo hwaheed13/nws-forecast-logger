@@ -4082,8 +4082,18 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     # guard was the bug: a null snapshot can never recover if we skip the block.
     if not is_canonical_write and not ml_recomputed and isinstance(existing, dict):
         try:
-            _ex_snap_str = existing.get("atm_snapshot")
-            _ex_snap = json.loads(_ex_snap_str) if _ex_snap_str else {}
+            # Supabase returns JSONB columns as already-parsed Python dicts,
+            # not as strings.  json.loads(dict) raises TypeError, which the
+            # outer except block silently catches — causing the entire refresh
+            # to be skipped every cycle after the first.  Handle both cases:
+            _ex_snap_raw = existing.get("atm_snapshot")
+            try:
+                _ex_snap = (
+                    json.loads(_ex_snap_raw) if isinstance(_ex_snap_raw, str)
+                    else (_ex_snap_raw if isinstance(_ex_snap_raw, dict) else {})
+                )
+            except Exception:
+                _ex_snap = {}
             if True:  # always run — see comment above re: self-healing null snapshots
                 # ── Sanitize NaN → None across entire snapshot before any writes ──
                 # Python json.dumps serializes float('nan') as the non-standard token
