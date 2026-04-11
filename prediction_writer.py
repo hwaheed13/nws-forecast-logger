@@ -4162,7 +4162,10 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                         lat=_snap_cfg.get("open_meteo_lat", 40.7834),
                         lon=_snap_cfg.get("open_meteo_lon", -73.965),
                         nws_last=_nws_for_obs,
-                        radius_miles=5.0,
+                        # Use 10mi radius (matches ML feature computation default).
+                        # 5mi worked for NYC but returned 0 stations for LAX where
+                        # the nearest ASOS/NWS stations are 6-9mi from the config coords.
+                        radius_miles=10.0,
                     )
                     _ex_snap["obs_snap_syn_mean"]   = _safe_snap(_syn_fresh.get("obs_synoptic_mean"))
                     _ex_snap["obs_snap_syn_min"]    = _safe_snap(_syn_fresh.get("obs_synoptic_min"))
@@ -4176,20 +4179,9 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 except Exception as _syn_e:
                     print(f"  ⚠️  Stable-cycle Synoptic skipped: {_syn_e}")
 
-                try:
-                    from nysmesonet_client import get_nysm_obs_features
-                    _nysm_fresh = get_nysm_obs_features(nws_last=_nws_for_obs)
-                    _ex_snap["obs_snap_nysm_mean"]   = _safe_snap(_nysm_fresh.get("obs_nysm_mean"))
-                    _ex_snap["obs_snap_nysm_min"]    = _safe_snap(_nysm_fresh.get("obs_nysm_min"))
-                    _ex_snap["obs_snap_nysm_max"]    = _safe_snap(_nysm_fresh.get("obs_nysm_max"))
-                    _ex_snap["obs_snap_nysm_spread"] = _safe_snap(_nysm_fresh.get("obs_nysm_spread"))
-                    _ex_snap["obs_snap_nysm_vs_nws"] = _safe_snap(_nysm_fresh.get("obs_nysm_vs_nws"))
-                    _ex_snap["obs_snap_nysm_count"]  = _nysm_fresh.get("obs_nysm_count")
-                    print(f"  🏙️ Stable-cycle NYSM: "
-                          f"{_ex_snap['obs_snap_nysm_mean']} "
-                          f"({_ex_snap['obs_snap_nysm_count']} boroughs)")
-                except Exception as _nysm_e:
-                    print(f"  ⚠️  Stable-cycle NYSM skipped: {_nysm_e}")
+                # NYSM (NY Mesonet) removed — DNS unreachable from GitHub Actions,
+                # IEM fallback returns empty data, Synoptic free tier doesn't expose
+                # NYSM STIDs. Dashboard card also removed. No-op here.
 
                 payload["atm_snapshot"] = json.dumps(_ex_snap)
                 print(f"📸 Obs panel refreshed in stable snapshot "
