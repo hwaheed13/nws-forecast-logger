@@ -3888,11 +3888,14 @@ function renderAtmSignals() {
     }
   }
 
-  // Cloud cover label: use live reading if available, else forecasted
-  const cloudDisplay    = cloudNow != null ? cloudNow : cloud;
-  const cloudDispLabel  = cloudDisplay != null
+  // Cloud cover: keep forecasted peak-window avg as the primary number (that's what
+  // matters for the full day's heating potential), append live current as a suffix.
+  // Switching the main number to live was confusing (0% at 8am vs 37% forecast peak).
+  const cloudDisplay   = cloud;  // forecasted peak window avg — stable anchor
+  const cloudNowStr    = cloudNow != null ? ` · now ${cloudNow}%` : '';
+  const cloudDispLabel = cloudDisplay != null
     ? (cloudDisplay < 20 ? 'Mostly clear' : cloudDisplay < 50 ? 'Partly cloudy' : 'Mostly cloudy')
-      + (cloudNow != null ? ' (live)' : ' (fcst)')
+      + ' (fcst peak)' + cloudNowStr
     : '';
 
   grid.innerHTML = [
