@@ -4199,6 +4199,17 @@ function renderLiveSourcesPanel() {
   const knyc_label = knyc_live != null ? "live"
     : _knycObsAge ? _knycObsAge
     : (s.obs_snap_hour != null ? `@${Math.round(s.obs_snap_hour)}:00` : "");
+
+  // MANH (Manhattan Mesonet, ~Columbia/125th St) — updates every 5 min.
+  // This is the high-frequency near-Central Park fill-in when KNYC is mid-cycle stale.
+  const _manhTemp   = s.obs_snap_manh_temp   ?? null;
+  const _manhVsKnyc = s.obs_snap_manh_vs_knyc ?? null;
+  const _manhAge    = minsAgo(s.obs_snap_manh_obs_at);
+  // Show MANH on card only when KNYC is stale (>20 min) or whenever we have it — it's always useful
+  const _manhStr = _manhTemp != null
+    ? `MANH: ${f1(_manhTemp)}` + (_manhAge ? ` <span style="font-size:10px;color:var(--text-muted)">(${_manhAge})</span>` : "")
+    : null;
+
   const _nowHour  = parseInt(new Date().toLocaleString("en-US", { timeZone: _cityTZ, hour: "numeric", hour12: false }), 10);
   const _snapRecent = _nowHour < 15;
   // Stall signal: obs_heating_rate_delta < -0.8 = deceleration = cap holding fingerprint
@@ -4206,6 +4217,7 @@ function renderLiveSourcesPanel() {
   const _stallStrong  = knyc_rate_delta != null && Number(knyc_rate_delta) < -1.5;
   const knyc_sub = [
     knyc_max  != null ? `Max: ${f0(knyc_max)}` : "",
+    _manhStr  != null ? _manhStr : "",          // 5-min Mesonet fill-in
     (_snapRecent && knyc_vs   != null) ? `vs fcst: ${fSign(knyc_vs)}` : "",
     (_snapRecent && knyc_rate != null && Math.abs(Number(knyc_rate)) >= 0.2)
       ? `${Number(knyc_rate) >= 0 ? "+" : ""}${Number(knyc_rate).toFixed(1)}°/hr` : "",

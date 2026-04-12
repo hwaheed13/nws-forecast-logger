@@ -75,17 +75,21 @@ def fetch_nearby_obs(
 # NY Mesonet borough station IDs as they appear in the Synoptic radius results
 _NYSM_BOROUGH_STIDS = {"BKLN", "QUEE", "STAT", "BRON", "MANH"}
 
-# Named ASOS stations we track individually as ML features.
-# These give far more signal than the aggregate alone:
+# Named stations we track individually as ML features.
+# Includes ASOS airports AND the NYSM Manhattan Mesonet (MANH) — the only
+# sub-hourly station near Central Park (updates every 5 min vs KNYC's hourly).
+#
 #   KJFK: coastal Queens/Jamaica Bay — first to feel sea breeze, coldest on cap days
 #   KLGA: north Queens/East River — intermediate marine exposure
 #   KEWR: Newark, NJ — slightly inland and west, warmer on marine cap days
 #   KTEB: Teterboro, NJ — most inland, warmest on marine cap days
-#   KNYC: Central Park — our target; stored to anchor all the cross-station diffs
+#   KNYC: Central Park ASOS — our target; anchors all cross-station diffs (hourly)
+#   MANH: NY Mesonet Manhattan (~Columbia/125th St) — 5-min updates, fills KNYC gap
 #
-# On a marine cap day: KJFK < KLGA < KNYC < KEWR < KTEB
+# On a marine cap day: KJFK < KLGA < KNYC ≈ MANH < KEWR < KTEB
 # On a normal warm day: spread is small, all tracking similarly
-_NAMED_ASOS_STIDS = {"KNYC", "KJFK", "KLGA", "KEWR", "KTEB"}
+# MANH is also in _NYSM_BOROUGH_STIDS — the loop handles both independently.
+_NAMED_ASOS_STIDS = {"KNYC", "KJFK", "KLGA", "KEWR", "KTEB", "MANH"}
 
 # COOPNYC is the cooperative observer at Central Park (human-read max/min thermometer).
 # At ~8 AM each day it reports air_temp_high_24_hour = yesterday's official high.
@@ -151,6 +155,9 @@ def get_synoptic_obs_features(
         "obs_kewr_temp": np.nan,
         "obs_kteb_temp": np.nan,
         "obs_knyc_temp": np.nan,
+        # Manhattan Mesonet — 5-min updates, near-Central Park fill-in
+        "obs_manh_temp": np.nan,
+        "obs_manh_vs_knyc": np.nan,   # MANH - KNYC: shows intraday cap signal at 5-min res
         # Cross-station diffs (marine cap signals)
         "obs_kjfk_vs_knyc": np.nan,
         "obs_klga_vs_knyc": np.nan,
@@ -255,27 +262,32 @@ def get_synoptic_obs_features(
               f"mean={b_mean:.1f}°F  "
               f"max={nan_result['obs_nysm_max']:.1f}°F{vs_b}")
 
-    # ── Named ASOS station features ───────────────────────────────────
+    # ── Named station features (airports + MANH Mesonet) ─────────────
     knyc = named_temps.get("KNYC")
     kjfk = named_temps.get("KJFK")
     klga = named_temps.get("KLGA")
     kewr = named_temps.get("KEWR")
     kteb = named_temps.get("KTEB")
+    manh = named_temps.get("MANH")   # NY Mesonet Manhattan — 5-min, near Central Park
 
     if knyc is not None: nan_result["obs_knyc_temp"] = round(knyc, 1)
     if kjfk is not None: nan_result["obs_kjfk_temp"] = round(kjfk, 1)
     if klga is not None: nan_result["obs_klga_temp"] = round(klga, 1)
     if kewr is not None: nan_result["obs_kewr_temp"] = round(kewr, 1)
     if kteb is not None: nan_result["obs_kteb_temp"] = round(kteb, 1)
+    if manh is not None:
+        nan_result["obs_manh_temp"] = round(manh, 1)
+        print(f"  🏙️ MANH (Manhattan Mesonet, 5-min): {manh:.1f}°F")
 
     # Observation timestamps — lets dashboard show "KNYC: 52°F (47 min ago)"
-    # KNYC is hourly ASOS; NYSM updates every 5 min; these tell you which you can trust
+    # MANH updates every 5 min; KNYC/airports are hourly at :51
     for stid_key, feat_key in [
         ("KNYC", "obs_knyc_obs_at"),
         ("KJFK", "obs_kjfk_obs_at"),
         ("KLGA", "obs_klga_obs_at"),
         ("KEWR", "obs_kewr_obs_at"),
         ("KTEB", "obs_kteb_obs_at"),
+        ("MANH", "obs_manh_obs_at"),
     ]:
         if stid_key in named_obs_at:
             nan_result[feat_key] = named_obs_at[stid_key]  # ISO string, not float
@@ -285,6 +297,7 @@ def get_synoptic_obs_features(
         if kjfk is not None: nan_result["obs_kjfk_vs_knyc"] = round(kjfk - knyc, 1)
         if klga is not None: nan_result["obs_klga_vs_knyc"] = round(klga - knyc, 1)
         if kewr is not None: nan_result["obs_kewr_vs_knyc"] = round(kewr - knyc, 1)
+        if manh is not None: nan_result["obs_manh_vs_knyc"] = round(manh - knyc, 1)
 
     # Airport spread: how uniform is the cap across all airports?
     airport_readings = [t for t in [kjfk, klga, kewr, kteb] if t is not None]

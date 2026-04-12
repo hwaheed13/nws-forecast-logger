@@ -325,6 +325,52 @@ def _load_v8_models():
     )
 
 
+def _load_v10_models():
+    """Load v10 models: bcp_v10 regressor + classifier + feature cols (cached).
+    v10 = v9 (149 features) + MANH Manhattan Mesonet 5-min fill-in (2 features = 151 total).
+    obs_manh_temp / obs_manh_vs_knyc — only available after MANH goes live in Synoptic pull.
+    """
+    import nws_auto_logger as _nal
+    prefix = _nal._CITY_CFG.get("model_prefix", "")
+    cache_key = f"{prefix}v10_regressor"
+    if cache_key not in _ML_MODEL_CACHE:
+        _ML_MODEL_CACHE[cache_key] = None
+        _ML_MODEL_CACHE[f"{prefix}v10_classifier"] = None
+        _ML_MODEL_CACHE[f"{prefix}v10_feature_cols"] = None
+
+        try:
+            with open(f"{prefix}bcp_v10_regressor.pkl", "rb") as f:
+                _ML_MODEL_CACHE[cache_key] = pickle.load(f)
+            print(f"✅ Loaded v10 regression model [MANH 5-min Mesonet] (prefix='{prefix}')")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            print(f"⚠️ v10 regression load error: {e}")
+
+        try:
+            from train_classifier import BucketClassifier
+            if os.path.exists(f"{prefix}bcp_v10_classifier.pkl"):
+                _ML_MODEL_CACHE[f"{prefix}v10_classifier"] = BucketClassifier.load(
+                    f"{prefix}bcp_v10_classifier.pkl"
+                )
+                print(f"✅ Loaded v10 bucket classifier (prefix='{prefix}')")
+        except Exception as e:
+            print(f"⚠️ v10 classifier load error: {e}")
+
+        try:
+            if os.path.exists(f"{prefix}bcp_v10_feature_cols.pkl"):
+                with open(f"{prefix}bcp_v10_feature_cols.pkl", "rb") as f:
+                    _ML_MODEL_CACHE[f"{prefix}v10_feature_cols"] = pickle.load(f)
+        except Exception as e:
+            print(f"⚠️ v10 feature cols load error: {e}")
+
+    return (
+        _ML_MODEL_CACHE.get(cache_key),
+        _ML_MODEL_CACHE.get(f"{prefix}v10_classifier"),
+        _ML_MODEL_CACHE.get(f"{prefix}v10_feature_cols"),
+    )
+
+
 def _load_v9_models():
     """Load v9 models: bcp_v9 regressor + classifier + feature cols (cached).
     v9 = v8 (HRRR-anchored + stall signal, 139 features) + 10 named Synoptic station
@@ -1622,12 +1668,14 @@ def _compute_ml_prediction(
             print(f"⚠️ v1 regression predict failed (skipping to v4/v2): {_v1_e}")
 
     # --- 11. Try v8 > v7 > v6 > v5 > v4 > v2 ---
+    # v10: v9 + MANH Manhattan Mesonet 5-min (151 features, needs ≥30 MANH rows)
     # v9: v8 + 10 Synoptic named-station features (149 features, needs ≥30 Synoptic rows)
     # v8: v7 + obs_heating_rate_delta stall signal (139 features)
     # v7: HRRR-anchored base (HRRR > NBM > AccuWeather > NWS), 138 features
     # v6: AccuWeather/NWS base + NBM, GEM HRDPS, HRRR 925mb, OKX radiosonde (138 features)
     # v5: AccuWeather/NWS base + high-timing features (122 features)
     # v4+: older architectures (backward compat)
+    v10_regressor, v10_classifier, v10_feature_cols = _load_v10_models()
     v9_regressor, v9_classifier, v9_feature_cols = _load_v9_models()
     v8_regressor, v8_classifier, v8_feature_cols = _load_v8_models()
     v7_regressor, v7_classifier, v7_feature_cols = _load_v7_models()
@@ -1637,14 +1685,20 @@ def _compute_ml_prediction(
     v2_temp_model, v2_bucket_info, v2_classifier, v2_atm_predictor = _load_v2_models()
 
     # Select best available model (prefer newest)
-    use_v9 = v9_classifier is not None and v9_feature_cols is not None
-    use_v8 = not use_v9 and v8_classifier is not None and v8_feature_cols is not None
-    use_v7 = not use_v9 and not use_v8 and v7_classifier is not None and v7_feature_cols is not None
-    use_v6 = not use_v9 and not use_v8 and not use_v7 and v6_classifier is not None and v6_feature_cols is not None
-    use_v5 = not use_v9 and not use_v8 and not use_v7 and not use_v6 and v5_classifier is not None and v5_feature_cols is not None
-    use_v4 = not use_v9 and not use_v8 and not use_v7 and not use_v6 and not use_v5 and v4_classifier is not None
+    use_v10 = v10_classifier is not None and v10_feature_cols is not None
+    use_v9 = not use_v10 and v9_classifier is not None and v9_feature_cols is not None
+    use_v8 = not use_v10 and not use_v9 and v8_classifier is not None and v8_feature_cols is not None
+    use_v7 = not use_v10 and not use_v9 and not use_v8 and v7_classifier is not None and v7_feature_cols is not None
+    use_v6 = not use_v10 and not use_v9 and not use_v8 and not use_v7 and v6_classifier is not None and v6_feature_cols is not None
+    use_v5 = not use_v10 and not use_v9 and not use_v8 and not use_v7 and not use_v6 and v5_classifier is not None and v5_feature_cols is not None
+    use_v4 = not use_v10 and not use_v9 and not use_v8 and not use_v7 and not use_v6 and not use_v5 and v4_classifier is not None
 
-    if use_v9:
+    if use_v10:
+        active_classifier = v10_classifier
+        active_regressor  = v10_regressor
+        active_feature_cols = v10_feature_cols
+        active_version = "v10_manh_mesonet"
+    elif use_v9:
         active_classifier = v9_classifier
         active_regressor  = v9_regressor
         active_feature_cols = v9_feature_cols
@@ -1684,7 +1738,7 @@ def _compute_ml_prediction(
         active_feature_cols = FEATURE_COLS_V2
         active_version = "v2_atm_classifier"
 
-    active_bucket_info = v4_bucket_info if (use_v9 or use_v8 or use_v7 or use_v6 or use_v5 or use_v4) else v2_bucket_info
+    active_bucket_info = v4_bucket_info if (use_v10 or use_v9 or use_v8 or use_v7 or use_v6 or use_v5 or use_v4) else v2_bucket_info
 
     if active_classifier is not None:
         try:
@@ -3704,14 +3758,18 @@ def _add_obs_to_snap(snap: dict, live_obs: dict, live_atm: dict = None) -> None:
     snap["obs_snap_kewr_vs_knyc"]        = _safe(_atm_fallback("obs_kewr_vs_knyc", "obs_kewr_vs_knyc"))
     snap["obs_snap_airport_spread"]      = _safe(_atm_fallback("obs_airport_spread", "obs_airport_spread"))
     snap["obs_snap_coastal_vs_inland"]   = _safe(_atm_fallback("obs_coastal_vs_inland", "obs_coastal_vs_inland"))
+    # Manhattan Mesonet — 5-min updates, near-Central Park fill-in between KNYC hourly drops
+    snap["obs_snap_manh_temp"]     = _safe(_atm_fallback("obs_manh_temp",     "obs_manh_temp"))
+    snap["obs_snap_manh_vs_knyc"]  = _safe(_atm_fallback("obs_manh_vs_knyc",  "obs_manh_vs_knyc"))
     # Observation timestamps — ISO strings, not floats (skip _safe())
-    # Lets dashboard show staleness: "KNYC: 52°F (47 min ago)" vs "NYSM: 54°F (2 min ago)"
+    # Lets dashboard show staleness: "KNYC: 52°F (47 min ago)" · "MANH: 53°F (3 min ago)"
     for _stid, _snap_key, _atm_key in [
         ("KNYC", "obs_snap_knyc_obs_at", "obs_knyc_obs_at"),
         ("KJFK", "obs_snap_kjfk_obs_at", "obs_kjfk_obs_at"),
         ("KLGA", "obs_snap_klga_obs_at", "obs_klga_obs_at"),
         ("KEWR", "obs_snap_kewr_obs_at", "obs_kewr_obs_at"),
         ("KTEB", "obs_snap_kteb_obs_at", "obs_kteb_obs_at"),
+        ("MANH", "obs_snap_manh_obs_at", "obs_manh_obs_at"),
     ]:
         _ts = _atm_fallback(_atm_key, _atm_key)
         snap[_snap_key] = _ts if isinstance(_ts, str) else None
@@ -4750,6 +4808,9 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                     _ex_snap["obs_snap_kewr_vs_knyc"]       = _safe_snap(_syn_fresh.get("obs_kewr_vs_knyc"))
                     _ex_snap["obs_snap_airport_spread"]     = _safe_snap(_syn_fresh.get("obs_airport_spread"))
                     _ex_snap["obs_snap_coastal_vs_inland"]  = _safe_snap(_syn_fresh.get("obs_coastal_vs_inland"))
+                    # Manhattan Mesonet — 5-min fill-in between KNYC's hourly drops
+                    _ex_snap["obs_snap_manh_temp"]          = _safe_snap(_syn_fresh.get("obs_manh_temp"))
+                    _ex_snap["obs_snap_manh_vs_knyc"]       = _safe_snap(_syn_fresh.get("obs_manh_vs_knyc"))
                     # Observation timestamps (ISO strings)
                     for _sk, _fk in [
                         ("obs_snap_knyc_obs_at", "obs_knyc_obs_at"),
@@ -4757,6 +4818,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                         ("obs_snap_klga_obs_at", "obs_klga_obs_at"),
                         ("obs_snap_kewr_obs_at", "obs_kewr_obs_at"),
                         ("obs_snap_kteb_obs_at", "obs_kteb_obs_at"),
+                        ("obs_snap_manh_obs_at", "obs_manh_obs_at"),
                     ]:
                         _ts = _syn_fresh.get(_fk)
                         _ex_snap[_sk] = _ts if isinstance(_ts, str) else None
@@ -4764,7 +4826,8 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                           f"{_ex_snap['obs_snap_syn_mean']} "
                           f"({_ex_snap['obs_snap_syn_count']} stations)  "
                           f"KJFK={_ex_snap.get('obs_snap_kjfk')}  "
-                          f"KJFK-KNYC={_ex_snap.get('obs_snap_kjfk_vs_knyc')}")
+                          f"KJFK-KNYC={_ex_snap.get('obs_snap_kjfk_vs_knyc')}  "
+                          f"MANH={_ex_snap.get('obs_snap_manh_temp')}")
                 except Exception as _syn_e:
                     print(f"  ⚠️  Stable-cycle Synoptic skipped: {_syn_e}")
 

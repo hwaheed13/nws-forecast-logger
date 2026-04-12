@@ -2646,7 +2646,144 @@ class NYCTemperatureModelTrainer:
         except Exception:
             pass
 
-    def run(self, v2: bool = False, v4: bool = False, v5: bool = False, v6: bool = False, v7: bool = False, v8: bool = False, v9: bool = False):
+    def train_v10(self) -> None:
+        """
+        Train v10 model: v9 (149 features) + Manhattan Mesonet MANH (2 features = 151 total).
+
+        MANH (NY Mesonet station near Columbia, ~125th St) updates every 5 minutes —
+        the only sub-hourly near-Central Park station in our Synoptic pull.
+        It fills the gap between KNYC's hourly :51 reports.
+
+        obs_manh_temp:    raw temperature (°F) at 5-min resolution
+        obs_manh_vs_knyc: MANH - KNYC: negative = sea breeze at 125th St before KNYC catches up
+
+        Skips if fewer than 30 rows have obs_manh_temp (needs Synoptic backfill first).
+        """
+        from model_config import FEATURE_COLS_V10
+        from train_classifier import BucketClassifier
+
+        print(f"\n{'═'*60}")
+        print(f"v10 Training: v9 + Manhattan Mesonet 5-min fill-in ({len(FEATURE_COLS_V10)} total features)")
+        print(f"{'═'*60}")
+        print(f"  New: obs_manh_temp, obs_manh_vs_knyc (MANH 5-min vs KNYC hourly)")
+
+        if self.features_df is None or len(self.features_df) == 0:
+            print("  ⚠️ No feature data — skipping v10.")
+            return
+
+        # Guard: skip if MANH data isn't backfilled yet
+        n_manh = self.features_df["obs_manh_temp"].notna().sum() \
+                 if "obs_manh_temp" in self.features_df.columns else 0
+        print(f"  obs_manh_temp: {n_manh} non-null rows")
+        if n_manh < 30:
+            print(f"  ⚠️ Only {n_manh} rows with MANH data (need 30+). Run backfill after MANH goes live.")
+            print(f"     Skipping v10 training — will retry tomorrow after nightly backfill.")
+            return
+
+        missing_v10 = [c for c in FEATURE_COLS_V10 if c not in self.features_df.columns]
+        if missing_v10:
+            print(f"  Missing v10 cols (NaN for historical rows): {missing_v10}")
+            for col in missing_v10:
+                self.features_df[col] = float("nan")
+
+        has_forecast_mask = self.features_df["nws_last"].notna()
+        forecast_df = self.features_df[has_forecast_mask].copy()
+        n_forecast = len(forecast_df)
+        print(f"\n  Regression: {n_forecast} rows with forecasts ({n_manh} have MANH station data)")
+
+        if n_forecast < MIN_DAYS_FOR_TRAINING:
+            print(f"  ⚠️ Need {MIN_DAYS_FOR_TRAINING} rows, have {n_forecast}. Skipping.")
+            return
+
+        X_v10 = forecast_df[FEATURE_COLS_V10]
+        y_actual = forecast_df["actual_high"]
+        nws_last  = forecast_df["nws_last"]
+        accu_last = forecast_df["accu_last"]
+
+        y_bias = y_actual - nws_last
+
+        from sklearn.ensemble import HistGradientBoostingRegressor
+        from sklearn.model_selection import cross_val_score
+        import numpy as np
+
+        v10_regressor = HistGradientBoostingRegressor(
+            max_iter=400, learning_rate=0.04, max_depth=4,
+            min_samples_leaf=6, l2_regularization=0.3,
+            random_state=42,
+        )
+
+        mae_scores   = -cross_val_score(v10_regressor, X_v10, y_bias, cv=5, scoring="neg_mean_absolute_error")
+        bucket_acc   = cross_val_score(
+            v10_regressor, X_v10, y_bias, cv=5,
+            scoring=lambda est, X, y: float(np.mean(np.abs((est.predict(X) + nws_last.iloc[:len(X)]) - y_actual.iloc[:len(X)]) <= 1)),
+        )
+        residual_std = float(np.std(y_bias))
+
+        print(f"  CV MAE: {np.mean(mae_scores):.2f}°F  |  CV Bucket Acc: {np.mean(bucket_acc):.1%}")
+        v10_regressor.fit(X_v10, y_bias)
+
+        try:
+            fi = dict(zip(FEATURE_COLS_V10, v10_regressor.feature_importances_))
+            print(f"  obs_manh_temp importance:      {fi.get('obs_manh_temp', 0):.4f}")
+            print(f"  obs_manh_vs_knyc importance:   {fi.get('obs_manh_vs_knyc', 0):.4f}")
+            print(f"  obs_coastal_vs_inland:         {fi.get('obs_coastal_vs_inland', 0):.4f}")
+        except Exception:
+            pass
+
+        classifier = BucketClassifier()
+        classifier.train(
+            self.features_df.copy().reset_index(drop=True),
+            feature_cols=FEATURE_COLS_V10,
+            residual_std=residual_std,
+            forecast_weight=5.0,
+        )
+
+        prefix = self.model_prefix
+        with open(f"{prefix}bcp_v10_regressor.pkl", "wb") as f:
+            pickle.dump(v10_regressor, f)
+        with open(f"{prefix}bcp_v10_classifier.pkl", "wb") as f:
+            pickle.dump(classifier, f)
+        with open(f"{prefix}bcp_v10_feature_cols.pkl", "wb") as f:
+            pickle.dump(list(FEATURE_COLS_V10), f)
+
+        v10_meta = {
+            "trained_on": datetime.now().isoformat(),
+            "version": "v10_manh_mesonet",
+            "base_cascade": "HRRR > NBM > AccuWeather > NWS",
+            "new_features": "MANH (Manhattan Mesonet 5-min) temp + MANH-KNYC diff",
+            "motivation": "KNYC reports hourly; MANH fills the 59-min blind spot at 5-min resolution",
+            "n_manh_rows": int(n_manh),
+            "v10_regression": {
+                "cv_mae": float(np.mean(mae_scores)),
+                "cv_bucket_accuracy": float(np.mean(bucket_acc)),
+                "residual_std": residual_std,
+                "n_features": len(FEATURE_COLS_V10),
+                "n_training_rows": n_forecast,
+            },
+            "feature_columns_v10": list(FEATURE_COLS_V10),
+        }
+        import json as _json
+        with open(f"{prefix}model_metadata_v10.json", "w") as f:
+            _json.dump(v10_meta, f, indent=2)
+
+        print(f"\n  ✅ Saved v10 models: bcp_v10_regressor.pkl, bcp_v10_classifier.pkl")
+        print(f"  v10 Classifier Bucket Acc: {classifier.cv_bucket_accuracy:.1%}")
+
+        try:
+            import json as _j
+            with open(f"{prefix}model_metadata_v9.json") as f:
+                v9_meta = _j.load(f)
+            v9_mae = v9_meta.get("v9_regression", {}).get("cv_mae")
+            v9_bkt = v9_meta.get("v9_regression", {}).get("cv_bucket_accuracy")
+            print(f"\n{'─'*50}")
+            print(f"COMPARISON: v9 vs v10 (added: MANH Manhattan Mesonet 5-min)")
+            if v9_mae: print(f"  MAE:        v9={v9_mae:.2f}°F → v10={np.mean(mae_scores):.2f}°F")
+            if v9_bkt: print(f"  Bucket Acc: v9={v9_bkt:.1%} → v10={np.mean(bucket_acc):.1%}")
+            print(f"{'─'*50}")
+        except Exception:
+            pass
+
+    def run(self, v2: bool = False, v4: bool = False, v5: bool = False, v6: bool = False, v7: bool = False, v8: bool = False, v9: bool = False, v10: bool = False):
         label = self.city_cfg["label"]
         print("=" * 60)
         print(f"{label} Temperature Model Training")
@@ -2750,6 +2887,24 @@ class NYCTemperatureModelTrainer:
                 self.train_v8()
             self.train_v9()
 
+        if v10:
+            if not v2:
+                self.train_v2()
+                self.train_v3()
+            if not v4:
+                self.train_v4()
+            if not v5:
+                self.train_v5()
+            if not v6:
+                self.train_v6()
+            if not v7:
+                self.train_v7()
+            if not v8:
+                self.train_v8()
+            if not v9:
+                self.train_v9()
+            self.train_v10()
+
         print("\nTraining complete.")
 
 
@@ -2773,6 +2928,8 @@ if __name__ == "__main__":
     parser.add_argument("--v9", action="store_true",
                         help="Train v9 (v8 + named ASOS station features: KJFK/KLGA/KEWR/KTEB temps, "
                              "coastal-vs-inland gradient, JFK-KNYC diff — the April 12 marine cap fix)")
+    parser.add_argument("--v10", action="store_true",
+                        help="Train v10 (v9 + Manhattan Mesonet MANH: 5-min fill-in between KNYC hourly reports)")
     args = parser.parse_args()
 
     if args.all:
@@ -2788,6 +2945,7 @@ if __name__ == "__main__":
                 v7=getattr(args, "v7", False),
                 v8=getattr(args, "v8", False),
                 v9=getattr(args, "v9", False),
+                v10=getattr(args, "v10", False),
             )
     else:
         trainer = NYCTemperatureModelTrainer(city_key=args.city)

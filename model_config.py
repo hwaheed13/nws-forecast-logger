@@ -391,6 +391,30 @@ SYNOPTIC_NAMED_STATION_COLS = [
 
 FEATURE_COLS_V9 = list(FEATURE_COLS_V8) + SYNOPTIC_NAMED_STATION_COLS
 
+# ═══════════════════════════════════════════════════════════════════════
+# v10 feature columns — v9 + Manhattan Mesonet (MANH) 5-min fill-in
+# ═══════════════════════════════════════════════════════════════════════
+#
+# MANH is the NY State Mesonet station near Columbia University (~125th St),
+# ~1.5 miles north of Central Park. Updates every 5 minutes — the only
+# sub-hourly station in the Synoptic radius pull near KNYC.
+#
+# Why it matters: KNYC (ASOS) reports once per hour at :51. Between :51 and
+# the next report, a sea breeze intrusion or temperature inversion could
+# already be underway with no KNYC signal. MANH closes that 59-min blind
+# spot. When MANH is colder than the last KNYC reading, the cap is active
+# and tightening — even if KNYC hasn't caught up yet.
+#
+# obs_manh_vs_knyc: negative = MANH colder than last KNYC = cap deepening
+#
+# Total: v9(149) + manh(2) = 151 features
+MANHATTAN_MESONET_COLS = [
+    "obs_manh_temp",        # MANH (Columbia/125th St) — 5-min updates
+    "obs_manh_vs_knyc",     # MANH - KNYC: negative = sea breeze reaching park early
+]
+
+FEATURE_COLS_V10 = list(FEATURE_COLS_V9) + MANHATTAN_MESONET_COLS
+
 # Additional features added per-candidate-bucket during classification (4)
 BUCKET_POSITION_COLS = [
     "bucket_center",
