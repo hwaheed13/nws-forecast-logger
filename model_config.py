@@ -349,6 +349,48 @@ FEATURE_COLS_V7 = FEATURE_COLS_V6  # identical feature set; base changes at trai
 # Total: v7(138) + 1 = 139 features
 FEATURE_COLS_V8 = list(FEATURE_COLS_V7) + ["obs_heating_rate_delta"]
 
+# ═══════════════════════════════════════════════════════════════════════
+# v9 feature columns — v8 + named ASOS station features (marine cap signal)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Individual station readings via Synoptic timeseries API.
+# The insight: aggregates (obs_synoptic_mean) lose the directional signal
+# that matters most for marine cap detection.
+#
+# KJFK (coastal Queens/Jamaica Bay) is the first station to feel the sea
+# breeze. When KJFK is colder than KNYC (Central Park, inland), the cap
+# is coming from the ocean. The stronger the KJFK-KNYC gap, the stronger
+# the marine influence and the lower the actual high.
+#
+# Historical access: Synoptic enterprise tier gives 1-year history via the
+# timeseries API. This means we can BACKFILL these features for all
+# historical training rows — the model learns from actual cap-day
+# fingerprints immediately, not just from future live cycles.
+#
+# On April 12, 2026 (cap day):
+#   KJFK ≈ 50°F, KNYC ≈ 52°F → obs_kjfk_vs_knyc = -2°F
+#   KEWR ≈ 54°F → obs_kewr_vs_knyc = +2°F (NJ warmer, not capped)
+#   obs_coastal_vs_inland ≈ -4°F (strong marine signal)
+#
+# Total: v8(139) + named_stations(10) = 149 features
+SYNOPTIC_NAMED_STATION_COLS = [
+    # Individual ASOS station temperatures (°F)
+    "obs_kjfk_temp",         # JFK Airport — coastal Queens/Jamaica Bay
+    "obs_klga_temp",         # LaGuardia — north Queens/East River
+    "obs_kewr_temp",         # Newark — inland NJ, warmer on marine cap days
+    "obs_kteb_temp",         # Teterboro — most inland, warmest on cap days
+    "obs_knyc_temp",         # Central Park via Synoptic (cross-check vs NWS KNYC)
+    # Cross-station diffs anchored at KNYC — the marine cap signal
+    "obs_kjfk_vs_knyc",      # KJFK - KNYC: negative = sea breeze penetrating inland
+    "obs_klga_vs_knyc",      # KLGA - KNYC: intermediate signal
+    "obs_kewr_vs_knyc",      # KEWR - KNYC: positive = NJ warmer = no marine cap
+    # Network-wide marine signal
+    "obs_airport_spread",    # max(airports) - min(airports): near-zero = uniform cap
+    "obs_coastal_vs_inland", # mean(KJFK,KLGA) - mean(KEWR,KTEB): negative = marine
+]
+
+FEATURE_COLS_V9 = list(FEATURE_COLS_V8) + SYNOPTIC_NAMED_STATION_COLS
+
 # Additional features added per-candidate-bucket during classification (4)
 BUCKET_POSITION_COLS = [
     "bucket_center",

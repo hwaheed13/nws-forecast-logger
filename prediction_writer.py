@@ -1740,11 +1740,11 @@ def _compute_ml_prediction(
                               if v is not None and not (isinstance(v, float) and np.isnan(v)))
                 if syn_pop > 0:
                     print(f"📡 Synoptic features: {syn_pop}/{len(syn_feats)} populated")
-                # Write-back to prefetched_atm so the caller can store them in atm_snapshot
-                # (live_atm only contains Open-Meteo data; Synoptic comes from a separate API)
+                # Write-back to prefetched_atm so the caller can store them in atm_snapshot.
+                # Include ALL obs_* keys from syn_feats — aggregate AND named station features.
                 if prefetched_atm is not None and syn_pop > 0:
                     for _sk, _sv in syn_feats.items():
-                        if _sk.startswith("obs_synoptic_"):
+                        if _sk.startswith("obs_"):
                             prefetched_atm[_sk] = _sv
             except Exception as _syn_e:
                 print(f"  ⚠️ Synoptic features skipped: {_syn_e}")
@@ -3636,6 +3636,17 @@ def _add_obs_to_snap(snap: dict, live_obs: dict, live_atm: dict = None) -> None:
     snap["obs_snap_syn_vs_nws"]  = _safe(_atm_fallback("obs_synoptic_vs_nws", "obs_synoptic_vs_nws"))
     _syn_count = _atm_fallback("obs_synoptic_count", "obs_synoptic_count")
     snap["obs_snap_syn_count"]   = _syn_count  # int OK
+    # v9: named ASOS stations individually
+    snap["obs_snap_kjfk"]        = _safe(_atm_fallback("obs_kjfk_temp", "obs_kjfk_temp"))
+    snap["obs_snap_klga"]        = _safe(_atm_fallback("obs_klga_temp", "obs_klga_temp"))
+    snap["obs_snap_kewr"]        = _safe(_atm_fallback("obs_kewr_temp", "obs_kewr_temp"))
+    snap["obs_snap_kteb"]        = _safe(_atm_fallback("obs_kteb_temp", "obs_kteb_temp"))
+    snap["obs_snap_knyc_syn"]    = _safe(_atm_fallback("obs_knyc_temp", "obs_knyc_temp"))
+    snap["obs_snap_kjfk_vs_knyc"]        = _safe(_atm_fallback("obs_kjfk_vs_knyc", "obs_kjfk_vs_knyc"))
+    snap["obs_snap_klga_vs_knyc"]        = _safe(_atm_fallback("obs_klga_vs_knyc", "obs_klga_vs_knyc"))
+    snap["obs_snap_kewr_vs_knyc"]        = _safe(_atm_fallback("obs_kewr_vs_knyc", "obs_kewr_vs_knyc"))
+    snap["obs_snap_airport_spread"]      = _safe(_atm_fallback("obs_airport_spread", "obs_airport_spread"))
+    snap["obs_snap_coastal_vs_inland"]   = _safe(_atm_fallback("obs_coastal_vs_inland", "obs_coastal_vs_inland"))
     # NY State Mesonet (borough stations) — same pattern as Synoptic
     snap["obs_snap_nysm_mean"]   = _safe(_atm_fallback("obs_nysm_mean",   "obs_nysm_mean"))
     snap["obs_snap_nysm_min"]    = _safe(_atm_fallback("obs_nysm_min",    "obs_nysm_min"))
@@ -3881,6 +3892,15 @@ _ATM_SNAPSHOT_KEYS = (
     "obs_nysm_spread", "obs_nysm_vs_nws", "obs_nysm_count",
     # WU PWS citizen stations near Central Park
     "obs_ambient_temp", "obs_ambient_vs_nws", "obs_ambient_spread", "obs_ambient_count",
+    # v9: named ASOS stations individually (marine cap signal)
+    # KJFK (coastal) < KLGA < KNYC < KEWR < KTEB (inland) on cap days
+    "obs_kjfk_temp", "obs_klga_temp", "obs_kewr_temp", "obs_kteb_temp", "obs_knyc_temp",
+    "obs_kjfk_vs_knyc",      # negative = sea breeze reaching Central Park
+    "obs_klga_vs_knyc",
+    "obs_kewr_vs_knyc",      # positive = NJ warmer = no marine cap
+    "obs_airport_spread",    # near-zero = all airports uniformly capped
+    "obs_coastal_vs_inland", # mean(KJFK,KLGA) - mean(KEWR,KTEB): negative = marine
+    # obs_heating_rate_delta already listed above under v8
 )
 
 
@@ -4651,9 +4671,22 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                     _ex_snap["obs_snap_syn_spread"] = _safe_snap(_syn_fresh.get("obs_synoptic_spread"))
                     _ex_snap["obs_snap_syn_vs_nws"] = _safe_snap(_syn_fresh.get("obs_synoptic_vs_nws"))
                     _ex_snap["obs_snap_syn_count"]  = _syn_fresh.get("obs_synoptic_count")
+                    # v9: named station readings
+                    _ex_snap["obs_snap_kjfk"]               = _safe_snap(_syn_fresh.get("obs_kjfk_temp"))
+                    _ex_snap["obs_snap_klga"]               = _safe_snap(_syn_fresh.get("obs_klga_temp"))
+                    _ex_snap["obs_snap_kewr"]               = _safe_snap(_syn_fresh.get("obs_kewr_temp"))
+                    _ex_snap["obs_snap_kteb"]               = _safe_snap(_syn_fresh.get("obs_kteb_temp"))
+                    _ex_snap["obs_snap_knyc_syn"]           = _safe_snap(_syn_fresh.get("obs_knyc_temp"))
+                    _ex_snap["obs_snap_kjfk_vs_knyc"]       = _safe_snap(_syn_fresh.get("obs_kjfk_vs_knyc"))
+                    _ex_snap["obs_snap_klga_vs_knyc"]       = _safe_snap(_syn_fresh.get("obs_klga_vs_knyc"))
+                    _ex_snap["obs_snap_kewr_vs_knyc"]       = _safe_snap(_syn_fresh.get("obs_kewr_vs_knyc"))
+                    _ex_snap["obs_snap_airport_spread"]     = _safe_snap(_syn_fresh.get("obs_airport_spread"))
+                    _ex_snap["obs_snap_coastal_vs_inland"]  = _safe_snap(_syn_fresh.get("obs_coastal_vs_inland"))
                     print(f"  📡 Stable-cycle Synoptic: "
                           f"{_ex_snap['obs_snap_syn_mean']} "
-                          f"({_ex_snap['obs_snap_syn_count']} stations)")
+                          f"({_ex_snap['obs_snap_syn_count']} stations)  "
+                          f"KJFK={_ex_snap.get('obs_snap_kjfk')}  "
+                          f"KJFK-KNYC={_ex_snap.get('obs_snap_kjfk_vs_knyc')}")
                 except Exception as _syn_e:
                     print(f"  ⚠️  Stable-cycle Synoptic skipped: {_syn_e}")
 

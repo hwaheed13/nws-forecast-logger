@@ -46,7 +46,10 @@ def fetch_nearby_obs(
     params = {
         "token": token,
         "radius": f"{lat},{lon},{radius_miles}",
-        "vars": "air_temp,wind_speed,wind_gust,wind_direction,relative_humidity,dew_point_temperature",
+        # Include air_temp_high_24_hour so COOPNYC's 8am observer-verified daily
+        # high/low is returned — useful for cross-checking training labels.
+        "vars": "air_temp,wind_speed,wind_gust,wind_direction,relative_humidity,"
+                "dew_point_temperature,air_temp_high_24_hour,air_temp_low_24_hour",
         "units": "english",
         "within": str(within_minutes),
         "limit": str(limit),
@@ -72,6 +75,23 @@ def fetch_nearby_obs(
 # NY Mesonet borough station IDs as they appear in the Synoptic radius results
 _NYSM_BOROUGH_STIDS = {"BKLN", "QUEE", "STAT", "BRON", "MANH"}
 
+# Named ASOS stations we track individually as ML features.
+# These give far more signal than the aggregate alone:
+#   KJFK: coastal Queens/Jamaica Bay — first to feel sea breeze, coldest on cap days
+#   KLGA: north Queens/East River — intermediate marine exposure
+#   KEWR: Newark, NJ — slightly inland and west, warmer on marine cap days
+#   KTEB: Teterboro, NJ — most inland, warmest on marine cap days
+#   KNYC: Central Park — our target; stored to anchor all the cross-station diffs
+#
+# On a marine cap day: KJFK < KLGA < KNYC < KEWR < KTEB
+# On a normal warm day: spread is small, all tracking similarly
+_NAMED_ASOS_STIDS = {"KNYC", "KJFK", "KLGA", "KEWR", "KTEB"}
+
+# COOPNYC is the cooperative observer at Central Park (human-read max/min thermometer).
+# At ~8 AM each day it reports air_temp_high_24_hour = yesterday's official high.
+# This is what NWS uses for official records and is independent of the ASOS automation.
+_COOPNYC_STID = "COOPNYC"
+
 
 def get_synoptic_obs_features(
     lat: float = 40.7834,
@@ -80,38 +100,66 @@ def get_synoptic_obs_features(
     radius_miles: float = 10.0,
 ) -> dict:
     """
-    Fetch nearby station obs via Synoptic and return aggregated features.
+    Fetch nearby station obs via Synoptic and return aggregated + per-station features.
 
-    Returns dict with:
-        obs_synoptic_mean        — mean temp across nearby stations (°F)
-        obs_synoptic_min         — coldest station reading (°F) — best cold-bias signal
+    Aggregate features:
+        obs_synoptic_mean        — mean temp across all nearby stations (°F)
+        obs_synoptic_min         — coldest station reading (°F)
         obs_synoptic_max         — warmest station reading (°F)
-        obs_synoptic_spread      — max - min across stations
+        obs_synoptic_spread      — max - min across all stations
         obs_synoptic_vs_nws      — obs_synoptic_mean - nws_last
         obs_synoptic_count       — number of valid stations
-        obs_nysm_mean            — mean temp across NYSM borough stations found (°F)
-        obs_nysm_min/max/spread  — borough min/max/spread
-        obs_nysm_vs_nws          — obs_nysm_mean - nws_last
-        obs_nysm_count           — number of borough stations found
 
+    Borough subset (NYSM stations):
+        obs_nysm_mean/min/max/spread/vs_nws/count
+
+    Named ASOS stations (individually — key for marine cap detection):
+        obs_kjfk_temp            — JFK Airport temp (°F); coastal, coldest on cap days
+        obs_klga_temp            — LaGuardia temp (°F)
+        obs_kewr_temp            — Newark temp (°F); inland NJ, warmer on cap days
+        obs_kteb_temp            — Teterboro temp (°F); most inland
+        obs_knyc_temp            — Central Park via Synoptic (°F); cross-check
+        obs_kjfk_vs_knyc         — KJFK - KNYC: negative = sea breeze/marine cap signal
+        obs_klga_vs_knyc         — KLGA - KNYC
+        obs_kewr_vs_knyc         — KEWR - KNYC: positive = NJ warmer = no marine cap
+        obs_airport_spread       — max(airports) - min(airports): high = localized cap
+        obs_coastal_vs_inland    — mean(KJFK,KLGA) - mean(KEWR,KTEB): strong marine signal
+
+    April 12 example: KJFK=50°F, KNYC=52°F → obs_kjfk_vs_knyc=-2°F (cap confirmed)
     All NaN if SYNOPTIC_TOKEN is not set.
     """
     import numpy as np
 
     nan_result = {
+        # Network aggregate
         "obs_synoptic_mean": np.nan,
         "obs_synoptic_min": np.nan,
         "obs_synoptic_max": np.nan,
         "obs_synoptic_spread": np.nan,
         "obs_synoptic_vs_nws": np.nan,
         "obs_synoptic_count": np.nan,
-        # Borough subset (from NYSM stations found in the radius)
+        # Borough subset (NYSM)
         "obs_nysm_mean": np.nan,
         "obs_nysm_min": np.nan,
         "obs_nysm_max": np.nan,
         "obs_nysm_spread": np.nan,
         "obs_nysm_vs_nws": np.nan,
         "obs_nysm_count": np.nan,
+        # Named ASOS stations (individual readings)
+        "obs_kjfk_temp": np.nan,
+        "obs_klga_temp": np.nan,
+        "obs_kewr_temp": np.nan,
+        "obs_kteb_temp": np.nan,
+        "obs_knyc_temp": np.nan,
+        # Cross-station diffs (marine cap signals)
+        "obs_kjfk_vs_knyc": np.nan,
+        "obs_klga_vs_knyc": np.nan,
+        "obs_kewr_vs_knyc": np.nan,
+        "obs_airport_spread": np.nan,
+        "obs_coastal_vs_inland": np.nan,
+        # COOPNYC cooperative observer: official prior-day high/low (at ~8am each day)
+        "obs_coopnyc_24h_high": np.nan,
+        "obs_coopnyc_24h_low":  np.nan,
     }
 
     if not _token():
@@ -123,8 +171,10 @@ def get_synoptic_obs_features(
 
     temps = []
     borough_temps = []
+    named_temps: dict = {}  # stid.upper() → temp_f
+
     for stn in stations:
-        stid = stn.get("STID", "?")
+        stid = stn.get("STID", "?").upper()
         obs = stn.get("OBSERVATIONS", {})
         temp_val = obs.get("air_temp_value_1", {})
         # Synoptic returns {"value": 62.1, "date_time": "..."} per variable
@@ -136,15 +186,38 @@ def get_synoptic_obs_features(
             try:
                 tf = float(t)
                 temps.append(tf)
-                if stid.upper() in _NYSM_BOROUGH_STIDS:
+                if stid in _NYSM_BOROUGH_STIDS:
                     borough_temps.append(tf)
                     print(f"  🏙️ NYSM borough via Synoptic — {stid}: {tf:.1f}°F")
+                if stid in _NAMED_ASOS_STIDS:
+                    named_temps[stid] = tf
+                    print(f"  ✈️  {stid}: {tf:.1f}°F")
+                # COOPNYC: extract the 24h high/low (observer-verified, reported at 8am)
+                if stid == _COOPNYC_STID:
+                    hi_val = obs.get("air_temp_high_24_hour_value_1", {})
+                    lo_val = obs.get("air_temp_low_24_hour_value_1", {})
+                    hi = hi_val.get("value") if isinstance(hi_val, dict) else hi_val
+                    lo = lo_val.get("value") if isinstance(lo_val, dict) else lo_val
+                    if hi is not None:
+                        try:
+                            nan_result["obs_coopnyc_24h_high"] = round(float(hi), 1)
+                            print(f"  📋 COOPNYC observer: 24h_high={float(hi):.1f}°F  "
+                                  f"24h_low={float(lo):.1f}°F" if lo else
+                                  f"  📋 COOPNYC observer: 24h_high={float(hi):.1f}°F")
+                        except (ValueError, TypeError):
+                            pass
+                    if lo is not None:
+                        try:
+                            nan_result["obs_coopnyc_24h_low"] = round(float(lo), 1)
+                        except (ValueError, TypeError):
+                            pass
             except (ValueError, TypeError):
                 pass
 
     if not temps:
         return nan_result
 
+    # ── Network aggregate ─────────────────────────────────────────────
     mean_t = sum(temps) / len(temps)
     nan_result["obs_synoptic_mean"] = round(mean_t, 1)
     nan_result["obs_synoptic_min"] = round(min(temps), 1)
@@ -160,7 +233,7 @@ def get_synoptic_obs_features(
           f"mean={mean_t:.1f}°F  "
           f"max={nan_result['obs_synoptic_max']:.1f}°F{vs_str}")
 
-    # Borough subset
+    # ── Borough subset (NYSM) ─────────────────────────────────────────
     if borough_temps:
         b_mean = sum(borough_temps) / len(borough_temps)
         nan_result["obs_nysm_mean"]   = round(b_mean, 1)
@@ -175,6 +248,45 @@ def get_synoptic_obs_features(
               f"min={nan_result['obs_nysm_min']:.1f}°F  "
               f"mean={b_mean:.1f}°F  "
               f"max={nan_result['obs_nysm_max']:.1f}°F{vs_b}")
+
+    # ── Named ASOS station features ───────────────────────────────────
+    knyc = named_temps.get("KNYC")
+    kjfk = named_temps.get("KJFK")
+    klga = named_temps.get("KLGA")
+    kewr = named_temps.get("KEWR")
+    kteb = named_temps.get("KTEB")
+
+    if knyc is not None: nan_result["obs_knyc_temp"] = round(knyc, 1)
+    if kjfk is not None: nan_result["obs_kjfk_temp"] = round(kjfk, 1)
+    if klga is not None: nan_result["obs_klga_temp"] = round(klga, 1)
+    if kewr is not None: nan_result["obs_kewr_temp"] = round(kewr, 1)
+    if kteb is not None: nan_result["obs_kteb_temp"] = round(kteb, 1)
+
+    # Cross-station diffs anchored at KNYC (our prediction target)
+    if knyc is not None:
+        if kjfk is not None: nan_result["obs_kjfk_vs_knyc"] = round(kjfk - knyc, 1)
+        if klga is not None: nan_result["obs_klga_vs_knyc"] = round(klga - knyc, 1)
+        if kewr is not None: nan_result["obs_kewr_vs_knyc"] = round(kewr - knyc, 1)
+
+    # Airport spread: how uniform is the cap across all airports?
+    airport_readings = [t for t in [kjfk, klga, kewr, kteb] if t is not None]
+    if len(airport_readings) >= 2:
+        nan_result["obs_airport_spread"] = round(max(airport_readings) - min(airport_readings), 1)
+
+    # Coastal (KJFK, KLGA) vs inland (KEWR, KTEB) mean diff
+    coastal = [t for t in [kjfk, klga] if t is not None]
+    inland  = [t for t in [kewr, kteb] if t is not None]
+    if coastal and inland:
+        coastal_mean = sum(coastal) / len(coastal)
+        inland_mean  = sum(inland)  / len(inland)
+        nan_result["obs_coastal_vs_inland"] = round(coastal_mean - inland_mean, 1)
+        # Negative = coastal colder = marine influence present
+        sign = "🌊 coastal colder" if coastal_mean < inland_mean else "inland colder"
+        print(f"  🌡️  Coastal({','.join(k for k,v in named_temps.items() if k in ('KJFK','KLGA'))})="
+              f"{coastal_mean:.1f}°F  "
+              f"Inland({','.join(k for k,v in named_temps.items() if k in ('KEWR','KTEB'))})="
+              f"{inland_mean:.1f}°F  "
+              f"diff={nan_result['obs_coastal_vs_inland']:+.1f}°F  {sign}")
 
     return nan_result
 
