@@ -325,6 +325,55 @@ def _load_v8_models():
     )
 
 
+def _load_v9_models():
+    """Load v9 models: bcp_v9 regressor + classifier + feature cols (cached).
+    v9 = v8 (HRRR-anchored + stall signal, 139 features) + 10 named Synoptic station
+    features (obs_kjfk_temp, obs_klga_temp, obs_kewr_temp, obs_kteb_temp, obs_knyc_temp,
+    obs_kjfk_vs_knyc, obs_klga_vs_knyc, obs_kewr_vs_knyc, obs_coastal_vs_inland,
+    obs_airport_spread) = 149 total features.
+    Only available after enough Synoptic backfill rows exist (≥30 with obs_kjfk_temp).
+    """
+    import nws_auto_logger as _nal
+    prefix = _nal._CITY_CFG.get("model_prefix", "")
+    cache_key = f"{prefix}v9_regressor"
+    if cache_key not in _ML_MODEL_CACHE:
+        _ML_MODEL_CACHE[cache_key] = None
+        _ML_MODEL_CACHE[f"{prefix}v9_classifier"] = None
+        _ML_MODEL_CACHE[f"{prefix}v9_feature_cols"] = None
+
+        try:
+            with open(f"{prefix}bcp_v9_regressor.pkl", "rb") as f:
+                _ML_MODEL_CACHE[cache_key] = pickle.load(f)
+            print(f"✅ Loaded v9 regression model [HRRR+stall+Synoptic stations] (prefix='{prefix}')")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            print(f"⚠️ v9 regression load error: {e}")
+
+        try:
+            from train_classifier import BucketClassifier
+            if os.path.exists(f"{prefix}bcp_v9_classifier.pkl"):
+                _ML_MODEL_CACHE[f"{prefix}v9_classifier"] = BucketClassifier.load(
+                    f"{prefix}bcp_v9_classifier.pkl"
+                )
+                print(f"✅ Loaded v9 bucket classifier (prefix='{prefix}')")
+        except Exception as e:
+            print(f"⚠️ v9 classifier load error: {e}")
+
+        try:
+            if os.path.exists(f"{prefix}bcp_v9_feature_cols.pkl"):
+                with open(f"{prefix}bcp_v9_feature_cols.pkl", "rb") as f:
+                    _ML_MODEL_CACHE[f"{prefix}v9_feature_cols"] = pickle.load(f)
+        except Exception as e:
+            print(f"⚠️ v9 feature cols load error: {e}")
+
+    return (
+        _ML_MODEL_CACHE.get(cache_key),
+        _ML_MODEL_CACHE.get(f"{prefix}v9_classifier"),
+        _ML_MODEL_CACHE.get(f"{prefix}v9_feature_cols"),
+    )
+
+
 def _load_v6_models():
     """Load v6 models: bcp_v6 regressor + classifier + feature cols (cached).
     v6 = v5 + NBM, GEM HRDPS, HRRR-specific 925mb, OKX radiosonde (138 features).
@@ -1573,11 +1622,13 @@ def _compute_ml_prediction(
             print(f"⚠️ v1 regression predict failed (skipping to v4/v2): {_v1_e}")
 
     # --- 11. Try v8 > v7 > v6 > v5 > v4 > v2 ---
+    # v9: v8 + 10 Synoptic named-station features (149 features, needs ≥30 Synoptic rows)
     # v8: v7 + obs_heating_rate_delta stall signal (139 features)
     # v7: HRRR-anchored base (HRRR > NBM > AccuWeather > NWS), 138 features
     # v6: AccuWeather/NWS base + NBM, GEM HRDPS, HRRR 925mb, OKX radiosonde (138 features)
     # v5: AccuWeather/NWS base + high-timing features (122 features)
     # v4+: older architectures (backward compat)
+    v9_regressor, v9_classifier, v9_feature_cols = _load_v9_models()
     v8_regressor, v8_classifier, v8_feature_cols = _load_v8_models()
     v7_regressor, v7_classifier, v7_feature_cols = _load_v7_models()
     v6_regressor, v6_classifier, v6_feature_cols = _load_v6_models()
@@ -1586,13 +1637,19 @@ def _compute_ml_prediction(
     v2_temp_model, v2_bucket_info, v2_classifier, v2_atm_predictor = _load_v2_models()
 
     # Select best available model (prefer newest)
-    use_v8 = v8_classifier is not None and v8_feature_cols is not None
-    use_v7 = not use_v8 and v7_classifier is not None and v7_feature_cols is not None
-    use_v6 = not use_v8 and not use_v7 and v6_classifier is not None and v6_feature_cols is not None
-    use_v5 = not use_v8 and not use_v7 and not use_v6 and v5_classifier is not None and v5_feature_cols is not None
-    use_v4 = not use_v8 and not use_v7 and not use_v6 and not use_v5 and v4_classifier is not None
+    use_v9 = v9_classifier is not None and v9_feature_cols is not None
+    use_v8 = not use_v9 and v8_classifier is not None and v8_feature_cols is not None
+    use_v7 = not use_v9 and not use_v8 and v7_classifier is not None and v7_feature_cols is not None
+    use_v6 = not use_v9 and not use_v8 and not use_v7 and v6_classifier is not None and v6_feature_cols is not None
+    use_v5 = not use_v9 and not use_v8 and not use_v7 and not use_v6 and v5_classifier is not None and v5_feature_cols is not None
+    use_v4 = not use_v9 and not use_v8 and not use_v7 and not use_v6 and not use_v5 and v4_classifier is not None
 
-    if use_v8:
+    if use_v9:
+        active_classifier = v9_classifier
+        active_regressor  = v9_regressor
+        active_feature_cols = v9_feature_cols
+        active_version = "v9_synoptic_stations"
+    elif use_v8:
         active_classifier = v8_classifier
         active_regressor  = v8_regressor
         active_feature_cols = v8_feature_cols
@@ -1627,7 +1684,7 @@ def _compute_ml_prediction(
         active_feature_cols = FEATURE_COLS_V2
         active_version = "v2_atm_classifier"
 
-    active_bucket_info = v4_bucket_info if (use_v8 or use_v7 or use_v6 or use_v5 or use_v4) else v2_bucket_info
+    active_bucket_info = v4_bucket_info if (use_v9 or use_v8 or use_v7 or use_v6 or use_v5 or use_v4) else v2_bucket_info
 
     if active_classifier is not None:
         try:
