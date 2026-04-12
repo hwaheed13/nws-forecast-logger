@@ -231,6 +231,54 @@ def _load_v4_models():
     )
 
 
+def _load_v5_models():
+    """Load v5 models: bcp_v5 regressor + classifier + feature cols (cached).
+    v5 = v4 architecture + 3 HIGH_TIMING_COLS (126 total features).
+    HIGH_TIMING_COLS (obs_high_peak_hour, obs_is_overnight_high, obs_temp_falling_hrs)
+    are NaN for D+1 / overnight predictions — HistGBT handles NaN natively, so we
+    never fall through to v4 just because they're missing.
+    """
+    import nws_auto_logger as _nal
+    prefix = _nal._CITY_CFG.get("model_prefix", "")
+    cache_key = f"{prefix}v5_regressor"
+    if cache_key not in _ML_MODEL_CACHE:
+        _ML_MODEL_CACHE[cache_key] = None
+        _ML_MODEL_CACHE[f"{prefix}v5_classifier"] = None
+        _ML_MODEL_CACHE[f"{prefix}v5_feature_cols"] = None
+
+        try:
+            with open(f"{prefix}bcp_v5_regressor.pkl", "rb") as f:
+                _ML_MODEL_CACHE[cache_key] = pickle.load(f)
+            print(f"✅ Loaded v5 regression model (prefix='{prefix}')")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            print(f"⚠️ v5 regression load error: {e}")
+
+        try:
+            from train_classifier import BucketClassifier
+            if os.path.exists(f"{prefix}bcp_v5_classifier.pkl"):
+                _ML_MODEL_CACHE[f"{prefix}v5_classifier"] = BucketClassifier.load(
+                    f"{prefix}bcp_v5_classifier.pkl"
+                )
+                print(f"✅ Loaded v5 bucket classifier (prefix='{prefix}')")
+        except Exception as e:
+            print(f"⚠️ v5 classifier load error: {e}")
+
+        try:
+            if os.path.exists(f"{prefix}bcp_v5_feature_cols.pkl"):
+                with open(f"{prefix}bcp_v5_feature_cols.pkl", "rb") as f:
+                    _ML_MODEL_CACHE[f"{prefix}v5_feature_cols"] = pickle.load(f)
+        except Exception as e:
+            print(f"⚠️ v5 feature cols load error: {e}")
+
+    return (
+        _ML_MODEL_CACHE.get(cache_key),
+        _ML_MODEL_CACHE.get(f"{prefix}v5_classifier"),
+        _ML_MODEL_CACHE.get(f"{prefix}v5_feature_cols"),
+    )
+
+
 def _detect_high_locked(target_date_iso: str,
                         nws_forecast: float | None = None) -> dict:
     """
@@ -1366,24 +1414,30 @@ def _compute_ml_prediction(
         except Exception as _v1_e:
             print(f"⚠️ v1 regression predict failed (skipping to v4/v2): {_v1_e}")
 
-    # --- 11. Try v4 models first (v2 + observation features), fall back to v2 ---
+    # --- 11. Try v5 > v4 > v2 (each adds more features; v5 is production champion) ---
+    v5_regressor, v5_classifier, v5_feature_cols = _load_v5_models()
     v4_regressor, v4_bucket_info, v4_classifier = _load_v4_models()
     v2_temp_model, v2_bucket_info, v2_classifier, v2_atm_predictor = _load_v2_models()
 
-    # Select best available model
-    use_v4 = v4_classifier is not None
-    active_classifier = v4_classifier if use_v4 else v2_classifier
-    active_regressor = v4_regressor if use_v4 else v2_temp_model
-    active_bucket_info = v4_bucket_info if use_v4 else v2_bucket_info
-    # Use the regressor's own feature list when available (self-consistent with training),
-    # falling back to FEATURE_COLS_V4/V2 from model_config for new models without saved names.
-    if active_regressor is not None and hasattr(active_regressor, "feature_names_in_"):
+    # Select best available model: v5 (126 features, 50.5% CV) > v4 > v2
+    # HIGH_TIMING_COLS are NaN for D+1/overnight — HistGBT handles NaN natively, no fallback needed.
+    use_v5 = v5_classifier is not None and v5_feature_cols is not None
+    use_v4 = not use_v5 and v4_classifier is not None
+    active_classifier = v5_classifier if use_v5 else (v4_classifier if use_v4 else v2_classifier)
+    active_regressor = v5_regressor if use_v5 else (v4_regressor if use_v4 else v2_temp_model)
+    active_bucket_info = v4_bucket_info if (use_v5 or use_v4) else v2_bucket_info
+    # v5: use feature cols from pkl (authoritative, diffed against model_config at train time)
+    # v4: prefer regressor's saved names for self-consistency; fall back to model_config
+    # v2: model_config FEATURE_COLS_V2
+    if use_v5:
+        active_feature_cols = v5_feature_cols
+    elif active_regressor is not None and hasattr(active_regressor, "feature_names_in_"):
         active_feature_cols = list(active_regressor.feature_names_in_)
     elif use_v4:
         active_feature_cols = FEATURE_COLS_V4
     else:
         active_feature_cols = FEATURE_COLS_V2
-    active_version = "v4_observation_features" if use_v4 else "v2_atm_classifier"
+    active_version = "v5_high_timing" if use_v5 else ("v4_observation_features" if use_v4 else "v2_atm_classifier")
 
     if active_classifier is not None:
         try:
@@ -3508,7 +3562,9 @@ def _score_bucket(ml_bucket: str, actual_int: int, kalshi_snapshot_raw) -> bool:
             return False
         except Exception:
             pass
-    # Fallback: direct bucket check
+    # Fallback: direct bucket check (no Kalshi snapshot).
+    # Our ML buckets are 1°F wide: "68-69" means high=68°F (floor-based, [68, 69) exclusive upper).
+    # NWS actuals are always whole-number integers, so actual_int == lo is the correct WIN condition.
     if ml_bucket.startswith("<="):
         try: return actual_int <= int(ml_bucket[2:])
         except ValueError: return False
@@ -3520,7 +3576,8 @@ def _score_bucket(ml_bucket: str, actual_int: int, kalshi_snapshot_raw) -> bool:
         if len(parts) == 2:
             try:
                 lo, hi = int(parts[0]), int(parts[1])
-                return lo <= actual_int <= hi
+                # Half-open [lo, hi): actual must equal lo (1°F-wide bucket, exclusive upper bound)
+                return lo <= actual_int < hi
             except ValueError: pass
     return False
 
@@ -3613,7 +3670,9 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
                 print(f"⚠️ Kalshi-aware scoring failed, using fallback: {e}")
                 kalshi_snapshot = None  # triggers fallback below
 
-        # Fallback: direct bucket check (when no Kalshi snapshot available)
+        # Fallback: direct bucket check (when no Kalshi snapshot available).
+        # Our ML buckets are 1°F wide: "68-69" = [68, 69) exclusive upper.
+        # NWS actuals are whole numbers, so lo <= actual < hi is the correct test.
         if not kalshi_snapshot:
             if ml_bucket.startswith("<="):
                 try:
@@ -3632,7 +3691,7 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
                 if len(parts) == 2:
                     try:
                         lo, hi = int(parts[0]), int(parts[1])
-                        is_win = lo <= actual_int <= hi
+                        is_win = lo <= actual_int < hi  # exclusive upper bound
                     except ValueError:
                         pass
 
