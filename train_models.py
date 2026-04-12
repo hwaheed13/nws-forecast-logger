@@ -1917,9 +1917,16 @@ class NYCTemperatureModelTrainer:
         except Exception:
             pass
 
-        # Bucket classifier
+        # Bucket classifier — train on ALL rows (forecast + persistence) with
+        # forecast_weight=5.0, matching the v4 approach that unlocked 1,295 extra rows.
+        # HIGH_TIMING_COLS will be NaN for persistence rows (no obs data) — HistGBT handles natively.
         classifier = BucketClassifier()
-        classifier.train(forecast_df, feature_cols=FEATURE_COLS_V5, residual_std=residual_std)
+        classifier.train(
+            self.features_df.copy().reset_index(drop=True),
+            feature_cols=FEATURE_COLS_V5,
+            residual_std=residual_std,
+            forecast_weight=5.0,
+        )
 
         # Save models
         prefix = self.model_prefix
