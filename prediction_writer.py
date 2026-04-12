@@ -2480,30 +2480,45 @@ def _fetch_observation_features(
 
     # Heating rate DELTA (stall signal) — was warming, now plateaued?
     #
-    # Split available obs into early half and recent half and compare slopes.
-    # Negative delta = deceleration = cap is holding = strong downward signal.
+    # Compares the heating rate over the last 3 hours vs the preceding 3 hours.
+    # This is exactly what a human does: look at the last 3 hours of the chart
+    # and compare to the 3 hours before that. If recent rate << earlier rate,
+    # the temperature has stalled — a cap is holding.
     #
-    # Example (April 12 cap day):
-    #   Early (7-9am): +1.8°F/hr (normal morning warm-up)
-    #   Recent (10am-noon): +0.2°F/hr (stalled — cap is holding)
-    #   delta = 0.2 - 1.8 = -1.6°F/hr  ← strong cap-hold fingerprint
+    # Why not split all obs in half? Because the "early half" includes overnight
+    # cooling, making the split contaminated. Fixed 3-hour windows isolate the
+    # comparison to the afternoon prediction window.
     #
-    # A random human with a browser tab spots this instantly. This feature
-    # gives the model the same signal without needing Synoptic data.
+    # Example (April 12 cap day, model runs at 1 PM):
+    #   Early window  (7 AM–10 AM): +1.7°F/hr  (normal morning ramp)
+    #   Recent window (10 AM–1 PM): ≈ 0°F/hr   (cap holding at 52°F)
+    #   delta = 0.0 – 1.7 = –1.7°F/hr  ← strong cap-hold fingerprint
+    #
+    # A random human with a browser tab spotted this on April 12 at 11 AM–1 PM.
+    # This feature gives the model the same early-cycle signal.
+    _RECENT_WINDOW_HRS = 3.0  # compare this many trailing hours
+    _EARLY_WINDOW_HRS  = 3.0  # against the preceding window of same length
     features["obs_heating_rate_delta"] = np.nan  # default
     if len(valid_obs) >= 4:
         try:
-            mid = len(valid_obs) // 2
-            early_obs  = valid_obs[:mid]
-            recent_obs = valid_obs[mid:]
+            now_obs_dt = datetime.fromisoformat(
+                valid_obs[-1]["observed_at"].replace("Z", "+00:00"))
+
+            def _obs_dt(o):
+                return datetime.fromisoformat(o["observed_at"].replace("Z", "+00:00"))
+
+            recent_cutoff = now_obs_dt - timedelta(hours=_RECENT_WINDOW_HRS)
+            early_cutoff  = now_obs_dt - timedelta(hours=_RECENT_WINDOW_HRS + _EARLY_WINDOW_HRS)
+
+            recent_obs = [o for o in valid_obs if _obs_dt(o) >= recent_cutoff]
+            early_obs  = [o for o in valid_obs
+                          if early_cutoff <= _obs_dt(o) < recent_cutoff]
 
             def _slope(obs_slice):
                 if len(obs_slice) < 2:
                     return None
-                t0 = datetime.fromisoformat(
-                    obs_slice[0]["observed_at"].replace("Z", "+00:00"))
-                t1 = datetime.fromisoformat(
-                    obs_slice[-1]["observed_at"].replace("Z", "+00:00"))
+                t0 = _obs_dt(obs_slice[0])
+                t1 = _obs_dt(obs_slice[-1])
                 hours_span = (t1 - t0).total_seconds() / 3600.0
                 if hours_span < 0.25:  # need at least 15 minutes of span
                     return None
@@ -2515,8 +2530,11 @@ def _fetch_observation_features(
             if early_slope is not None and recent_slope is not None:
                 delta = recent_slope - early_slope
                 features["obs_heating_rate_delta"] = round(delta, 2)
-                if delta < -0.8:
-                    print(f"  🧊 Cap stall signal: early={early_slope:+.1f}°F/hr → "
+                if delta < -1.5:
+                    print(f"  🧊🧊 STRONG stall: early={early_slope:+.1f}°F/hr → "
+                          f"recent={recent_slope:+.1f}°F/hr (Δ={delta:+.1f}) — cap confirmed")
+                elif delta < -0.8:
+                    print(f"  🧊 Cap stall: early={early_slope:+.1f}°F/hr → "
                           f"recent={recent_slope:+.1f}°F/hr (Δ={delta:+.1f}) — cap likely holding")
         except Exception:
             pass
