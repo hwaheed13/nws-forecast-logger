@@ -1655,6 +1655,28 @@ def _compute_ml_prediction(
                 if len(bucket_probs) > 1:
                     runner = bucket_probs[1]
                     print(f"   Runner-up: {runner['bucket']} ({runner['probability']:.0%})")
+
+                # ── v3 shadow: log v3's bucket pick alongside v4/v2 for backtesting ──
+                # v3 is a unified regression on all multi-year days — never used at
+                # inference, but we want to compare its bucket to v4's on live Kalshi
+                # days before deciding whether to promote it.
+                try:
+                    v3_model, v3_atm = _load_v3_model()
+                    if v3_model is not None:
+                        from model_config import FEATURE_COLS_V3, temp_to_bucket_label as _t2b
+                        v3_feat_vec = [features.get(c, np.nan) for c in FEATURE_COLS_V3]
+                        v3_pred = float(v3_model.predict([v3_feat_vec])[0])
+                        v3_bucket = _t2b(v3_pred)
+                        # Store in result for callers that want it; NOT written to Supabase
+                        # payload (no schema column yet). Shows in GH Actions logs only.
+                        result["v3_shadow_f"] = round(v3_pred, 1)
+                        result["v3_shadow_bucket"] = v3_bucket
+                        agreement = "✅" if v3_bucket == v2_best["bucket"] else "⚡"
+                        print(f"   {agreement} v3 shadow: {v3_pred:.1f}°F → {v3_bucket} "
+                              f"(v4/v2: {v2_best['bucket']})")
+                except Exception as _v3e:
+                    pass  # shadow — never block production path
+
         except Exception as e:
             print(f"⚠️ v2 prediction failed, using v1: {e}")
 

@@ -166,6 +166,7 @@ class BucketClassifier:
         features_df: pd.DataFrame,
         feature_cols: list[str] | None = None,
         residual_std: float = 2.0,
+        forecast_weight: float = 1.0,
     ) -> None:
         """
         Train the bucket classifier.
@@ -174,6 +175,10 @@ class BucketClassifier:
             features_df: DataFrame from train_models.py with all features + actual_high
             feature_cols: list of feature columns (default: FEATURE_COLS_V2)
             residual_std: regression residual std (°F), stored for Gaussian dampening at inference
+            forecast_weight: multiplier applied to real-forecast rows (nws_last or accu_last
+                not null) relative to persistence rows. E.g. 5.0 means real-forecast days
+                count 5× more than persistence days during training. This keeps the model
+                shaped toward the production distribution even when persistence rows dominate.
         """
         self._residual_std = residual_std
         if feature_cols is None:
@@ -191,8 +196,28 @@ class BucketClassifier:
 
         # Build classification dataset
         X, y, day_ids = build_classification_dataset(features_df, feature_cols)
-        print(f"  Classification rows: {len(X)} ({len(X) // len(features_df)} per day)")
+        print(f"  Classification rows: {len(X)} ({len(X) // max(len(features_df),1)} per day)")
         print(f"  Positive labels: {y.sum()} ({y.mean():.1%})")
+
+        # Build sample weights: upweight real-forecast rows over persistence rows.
+        # day_ids maps each classification row back to its source day index.
+        # A "real forecast" day has nws_last or accu_last not null in features_df.
+        if forecast_weight != 1.0:
+            has_fc = (
+                features_df["nws_last"].notna() | features_df["accu_last"].notna()
+            ).values  # boolean array indexed by features_df row position
+            # day_ids contains features_df index values (not positional)
+            idx_to_pos = {idx: pos for pos, idx in enumerate(features_df.index)}
+            sample_weights = np.array([
+                forecast_weight if has_fc[idx_to_pos[d]] else 1.0
+                for d in day_ids
+            ])
+            n_fc_rows = (sample_weights > 1.0).sum()
+            n_ps_rows = (sample_weights == 1.0).sum()
+            print(f"  Sample weights: {n_fc_rows} forecast rows (w={forecast_weight:.0f}x) "
+                  f"+ {n_ps_rows} persistence rows (w=1x)")
+        else:
+            sample_weights = None
 
         # Cross-validation with TimeSeriesSplit on DAYS (not rows)
         unique_days = sorted(day_ids.unique())
@@ -224,7 +249,8 @@ class BucketClassifier:
                 class_weight={0: 1.0, 1: float(N_CANDIDATE_BUCKETS - 1)},
                 random_state=42,
             )
-            model.fit(X_train, y_train)
+            sw_train = sample_weights[train_mask.values] if sample_weights is not None else None
+            model.fit(X_train, y_train, sample_weight=sw_train)
 
             # Evaluate: for each test day, pick the bucket with highest predicted P
             test_day_list = sorted(test_days)
@@ -277,7 +303,7 @@ class BucketClassifier:
             class_weight={0: 1.0, 1: float(N_CANDIDATE_BUCKETS - 1)},
             random_state=42,
         )
-        self.model.fit(X[all_cols], y)
+        self.model.fit(X[all_cols], y, sample_weight=sample_weights)
 
         # In-sample accuracy
         correct_insample = 0
@@ -298,11 +324,15 @@ class BucketClassifier:
         insample_acc = correct_insample / total_insample if total_insample > 0 else 0.0
         print(f"  In-sample Bucket Accuracy: {insample_acc:.1%}")
 
+        n_fc_days = int((features_df["nws_last"].notna() | features_df["accu_last"].notna()).sum())
         self.training_stats = {
             "cv_bucket_accuracy": round(self.cv_bucket_accuracy, 4),
             "cv_log_loss": round(self.cv_log_loss, 4),
             "insample_bucket_accuracy": round(insample_acc, 4),
             "num_training_days": len(features_df),
+            "num_forecast_days": n_fc_days,
+            "num_persistence_days": len(features_df) - n_fc_days,
+            "forecast_weight": forecast_weight,
             "num_classification_rows": len(X),
             "n_candidate_buckets": N_CANDIDATE_BUCKETS,
             "feature_cols_used": len(all_cols),

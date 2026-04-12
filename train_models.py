@@ -1389,16 +1389,24 @@ class NYCTemperatureModelTrainer:
         self._train_atm_predictor()
 
         # --- Train bucket classifier ---
-        # Train on days with real forecasts (NWS or AccuWeather).
-        # Now includes atm_predicted_high and atm_vs_forecast_diff features
-        # from the atmospheric predictor trained on 1,278 historical days.
-        forecast_df = self.features_df[
-            self.features_df["nws_last"].notna() | self.features_df["accu_last"].notna()
-        ].copy().reset_index(drop=True)
-        print(f"\n  Classifier training on {len(forecast_df)} forecast days "
-              f"(excluding {len(self.features_df) - len(forecast_df)} no-forecast rows)")
+        # Pass the FULL features_df — including multi-year rows with no NWS/AccuWeather.
+        # build_classification_dataset() already handles the priority chain:
+        #   AccuWeather > NWS > _persistence_forecast (yesterday's actual high).
+        # Multi-year rows use persistence as center and a wider 13-candidate window.
+        # Real-forecast rows are upweighted 5:1 so the model stays shaped toward the
+        # production path (real forecasts always available at inference).
+        # Previously this was filtered to forecast-only days (~265 rows), which starved
+        # the classifier — especially for LAX (only 39 forecast days).
+        has_forecast = self.features_df["nws_last"].notna() | self.features_df["accu_last"].notna()
+        n_forecast_rows = has_forecast.sum()
+        n_persistence_rows = (~has_forecast & self.features_df["_persistence_forecast"].notna()).sum()
+        print(f"\n  Classifier training on ALL {len(self.features_df)} days "
+              f"({n_forecast_rows} real-forecast + {n_persistence_rows} persistence rows)")
         classifier = BucketClassifier()
-        classifier.train(forecast_df, feature_cols=FEATURE_COLS_V2, residual_std=residual_std_v2)
+        classifier.train(self.features_df.copy().reset_index(drop=True),
+                         feature_cols=FEATURE_COLS_V2,
+                         residual_std=residual_std_v2,
+                         forecast_weight=5.0)
         classifier.save(f"{self.model_prefix}bucket_classifier.pkl")
 
         # --- Save v2 metadata ---
@@ -1738,13 +1746,18 @@ class NYCTemperatureModelTrainer:
             print(f"  ⚠️  Only {n_forecast} forecast rows — skipping v4 regression.")
 
         # --- Train v4 bucket classifier ---
-        forecast_df = self.features_df[
-            self.features_df["nws_last"].notna() | self.features_df["accu_last"].notna()
-        ].copy().reset_index(drop=True)
-        print(f"\n  Classifier training on {len(forecast_df)} forecast days "
-              f"(excluding {len(self.features_df) - len(forecast_df)} no-forecast rows)")
+        # Same expansion as v2: pass full features_df so persistence rows contribute.
+        # Real-forecast rows upweighted 5:1 over persistence rows.
+        has_forecast_v4 = self.features_df["nws_last"].notna() | self.features_df["accu_last"].notna()
+        n_fc_v4 = has_forecast_v4.sum()
+        n_ps_v4 = (~has_forecast_v4 & self.features_df["_persistence_forecast"].notna()).sum()
+        print(f"\n  v4 Classifier training on ALL {len(self.features_df)} days "
+              f"({n_fc_v4} real-forecast + {n_ps_v4} persistence rows)")
         classifier = BucketClassifier()
-        classifier.train(forecast_df, feature_cols=FEATURE_COLS_V4, residual_std=residual_std_v4)
+        classifier.train(self.features_df.copy().reset_index(drop=True),
+                         feature_cols=FEATURE_COLS_V4,
+                         residual_std=residual_std_v4,
+                         forecast_weight=5.0)
         classifier.save(f"{self.model_prefix}bucket_classifier_v4.pkl")
 
         # --- Save v4 metadata ---

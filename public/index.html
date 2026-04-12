@@ -619,6 +619,12 @@ input[type="date"] {
         <div class="prediction-disclaimer" style="grid-column:1 / span 2; font-size:12px; color:var(--text-light); margin-top:-6px;">
           Atmospheric ML model — updates when agencies revise, freezes on actual. Not financial advice; do your own research before placing bets.
         </div>
+        <div id="lax-model-warning" style="display:none; grid-column:1 / span 2; margin-top:4px;
+             background:#fef3c7; border:1px solid #f59e0b; border-radius:8px; padding:8px 12px;
+             font-size:12px; color:#92400e;">
+          ⚠️ <strong>LAX model is experimental.</strong> Only 39 real forecast training days — CV accuracy is below baseline.
+          Predictions will improve after model retrain with expanded dataset. Use with extra caution.
+        </div>
       </div>
 
       <!-- Live Data Sources Panel -->
@@ -3658,6 +3664,14 @@ function renderMLBetSignal() {
     renderCard("today", ml.todayMLBucket, ml.todayBetSignal, ml.todayMLConfidence, ml.todayEdge, ml.todayMarketSnapshot);
   }
   renderCard("tomorrow", ml.tomorrowMLBucket, ml.tomorrowBetSignal, ml.tomorrowMLConfidence, ml.tomorrowEdge, ml.tomorrowMarketSnapshot);
+
+  // LAX model data warning — only 39 real forecast training days (vs 265 for NYC).
+  // CV bucket accuracy is ~20% (below random baseline). Flag until retrain with
+  // expanded dataset (nws_last|accu_last filter removal) produces a better model.
+  const _laxWarn = document.getElementById("lax-model-warning");
+  if (_laxWarn) {
+    _laxWarn.style.display = currentCity === 'lax' ? "" : "none";
+  }
 
   // Check overnight high warnings after rendering ML cards
   checkOvernightHighWarning();
