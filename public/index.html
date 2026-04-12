@@ -6244,6 +6244,20 @@ async function loadMLPredictions() {
       }
       if (gotToday && gotTomorrow) break;
     }
+    // If canonical bucket wasn't on the most recent row (stable-cycle upserts may not
+    // carry ml_bucket_canonical forward), scan all today rows to find it.
+    if (gotToday && !window.mlPredictions.todayMLBucketCanonical) {
+      for (const row of data) {
+        if (row.target_date === today && row.ml_bucket_canonical) {
+          window.mlPredictions.todayMLBucketCanonical = row.ml_bucket_canonical;
+          if (row.ml_f_canonical != null) {
+            window.mlPredictions.todayMLFCanonical = Number(row.ml_f_canonical);
+          }
+          break;
+        }
+      }
+    }
+
     if (gotToday || gotTomorrow) {
       console.log("ML predictions loaded:", window.mlPredictions);
     } else {
