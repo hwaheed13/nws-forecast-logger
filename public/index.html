@@ -4152,6 +4152,20 @@ function renderLiveSourcesPanel() {
   const f0 = v => (v != null && !isNaN(Number(v))) ? `${Math.round(Number(v))}°F` : "–";
   const fSign = v => (v != null && !isNaN(Number(v))) ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(1)}°F` : "–";
 
+  // Helper: compute "X min ago" / "~X h ago" from an ISO observation timestamp.
+  // Returns null if isoStr is missing or unparseable.
+  const minsAgo = (isoStr) => {
+    if (!isoStr) return null;
+    try {
+      const obsMs = new Date(isoStr).getTime();
+      if (isNaN(obsMs)) return null;
+      const diffMin = Math.round((Date.now() - obsMs) / 60000);
+      if (diffMin < 0) return null;                        // clock skew — ignore
+      if (diffMin < 90) return `${diffMin} min ago`;
+      return `~${Math.round(diffMin / 60)} h ago`;
+    } catch { return null; }
+  };
+
   const card = (title, main, sub, accent) => `
     <div style="background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:10px;
                 padding:10px 12px;border-left:3px solid ${accent || 'var(--accent-blue)'};">
@@ -4179,7 +4193,12 @@ function renderLiveSourcesPanel() {
     ? Math.max(Number(_snapMaxRaw), _sixHrMax)
     : (_sixHrMax ?? (_snapMaxRaw != null ? Number(_snapMaxRaw) : null));
   const knyc_display = knyc_live ?? knyc_snap_temp;
-  const knyc_label = knyc_live != null ? "live" : (s.obs_snap_hour != null ? `@${Math.round(s.obs_snap_hour)}:00` : "");
+  // KNYC staleness: reports on the hour (ASOS), so could be up to ~59 min stale.
+  // Show "X min ago" so the user knows if it's a fresh read or a stale hour-old obs.
+  const _knycObsAge = minsAgo(s.obs_snap_knyc_obs_at);
+  const knyc_label = knyc_live != null ? "live"
+    : _knycObsAge ? _knycObsAge
+    : (s.obs_snap_hour != null ? `@${Math.round(s.obs_snap_hour)}:00` : "");
   const _nowHour  = parseInt(new Date().toLocaleString("en-US", { timeZone: _cityTZ, hour: "numeric", hour12: false }), 10);
   const _snapRecent = _nowHour < 15;
   // Stall signal: obs_heating_rate_delta < -0.8 = deceleration = cap holding fingerprint
@@ -4365,10 +4384,21 @@ function renderLiveSourcesPanel() {
                           : snap_kjfk != null ? "var(--accent-blue)"
                           : "var(--border-default)";
 
-  const _airportMain = snap_kjfk != null && snap_kewr != null
-    ? `${f1(snap_kjfk)} / ${f1(snap_kewr)}`  // JFK / EWR
-    : snap_kjfk != null ? f1(snap_kjfk)
-    : "–";
+  // Per-station observation staleness from Synoptic API timestamps
+  // KNYC/KJFK/KLGA/KEWR/KTEB each carry their own obs_at ISO string
+  const _kjfkAge = minsAgo(s.obs_snap_kjfk_obs_at);
+  const _kewrAge = minsAgo(s.obs_snap_kewr_obs_at);
+  const _knyc_obs_age = minsAgo(s.obs_snap_knyc_obs_at);
+  // Build "JFK: 52°F (8 min ago) / EWR: 58°F (6 min ago)" style main value
+  const _jfkStr = snap_kjfk != null
+    ? f1(snap_kjfk) + (_kjfkAge ? ` <span style="font-size:10px;color:var(--text-muted)">(${_kjfkAge})</span>` : "")
+    : null;
+  const _kewrStr = snap_kewr != null
+    ? f1(snap_kewr) + (_kewrAge ? ` <span style="font-size:10px;color:var(--text-muted)">(${_kewrAge})</span>` : "")
+    : null;
+  const _airportMain = _jfkStr && _kewrStr
+    ? `${_jfkStr} / ${_kewrStr}`
+    : _jfkStr ?? "–";
 
   const _jfkKnycStr = snap_kjfk_vs_knyc != null
     ? `JFK-KNYC: ${fSign(snap_kjfk_vs_knyc)}`

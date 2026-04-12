@@ -3647,6 +3647,17 @@ def _add_obs_to_snap(snap: dict, live_obs: dict, live_atm: dict = None) -> None:
     snap["obs_snap_kewr_vs_knyc"]        = _safe(_atm_fallback("obs_kewr_vs_knyc", "obs_kewr_vs_knyc"))
     snap["obs_snap_airport_spread"]      = _safe(_atm_fallback("obs_airport_spread", "obs_airport_spread"))
     snap["obs_snap_coastal_vs_inland"]   = _safe(_atm_fallback("obs_coastal_vs_inland", "obs_coastal_vs_inland"))
+    # Observation timestamps — ISO strings, not floats (skip _safe())
+    # Lets dashboard show staleness: "KNYC: 52°F (47 min ago)" vs "NYSM: 54°F (2 min ago)"
+    for _stid, _snap_key, _atm_key in [
+        ("KNYC", "obs_snap_knyc_obs_at", "obs_knyc_obs_at"),
+        ("KJFK", "obs_snap_kjfk_obs_at", "obs_kjfk_obs_at"),
+        ("KLGA", "obs_snap_klga_obs_at", "obs_klga_obs_at"),
+        ("KEWR", "obs_snap_kewr_obs_at", "obs_kewr_obs_at"),
+        ("KTEB", "obs_snap_kteb_obs_at", "obs_kteb_obs_at"),
+    ]:
+        _ts = _atm_fallback(_atm_key, _atm_key)
+        snap[_snap_key] = _ts if isinstance(_ts, str) else None
     # NY State Mesonet (borough stations) — same pattern as Synoptic
     snap["obs_snap_nysm_mean"]   = _safe(_atm_fallback("obs_nysm_mean",   "obs_nysm_mean"))
     snap["obs_snap_nysm_min"]    = _safe(_atm_fallback("obs_nysm_min",    "obs_nysm_min"))
@@ -4682,6 +4693,16 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                     _ex_snap["obs_snap_kewr_vs_knyc"]       = _safe_snap(_syn_fresh.get("obs_kewr_vs_knyc"))
                     _ex_snap["obs_snap_airport_spread"]     = _safe_snap(_syn_fresh.get("obs_airport_spread"))
                     _ex_snap["obs_snap_coastal_vs_inland"]  = _safe_snap(_syn_fresh.get("obs_coastal_vs_inland"))
+                    # Observation timestamps (ISO strings)
+                    for _sk, _fk in [
+                        ("obs_snap_knyc_obs_at", "obs_knyc_obs_at"),
+                        ("obs_snap_kjfk_obs_at", "obs_kjfk_obs_at"),
+                        ("obs_snap_klga_obs_at", "obs_klga_obs_at"),
+                        ("obs_snap_kewr_obs_at", "obs_kewr_obs_at"),
+                        ("obs_snap_kteb_obs_at", "obs_kteb_obs_at"),
+                    ]:
+                        _ts = _syn_fresh.get(_fk)
+                        _ex_snap[_sk] = _ts if isinstance(_ts, str) else None
                     print(f"  📡 Stable-cycle Synoptic: "
                           f"{_ex_snap['obs_snap_syn_mean']} "
                           f"({_ex_snap['obs_snap_syn_count']} stations)  "

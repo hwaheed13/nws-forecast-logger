@@ -171,17 +171,20 @@ def get_synoptic_obs_features(
 
     temps = []
     borough_temps = []
-    named_temps: dict = {}  # stid.upper() → temp_f
+    named_temps: dict = {}      # stid.upper() → temp_f
+    named_obs_at: dict = {}     # stid.upper() → ISO datetime string of observation
 
     for stn in stations:
         stid = stn.get("STID", "?").upper()
         obs = stn.get("OBSERVATIONS", {})
         temp_val = obs.get("air_temp_value_1", {})
-        # Synoptic returns {"value": 62.1, "date_time": "..."} per variable
+        # Synoptic returns {"value": 62.1, "date_time": "2026-04-12T14:54:00-0400"} per variable
         if isinstance(temp_val, dict):
             t = temp_val.get("value")
+            obs_dt = temp_val.get("date_time")  # ISO timestamp of this reading
         else:
             t = temp_val
+            obs_dt = None
         if t is not None:
             try:
                 tf = float(t)
@@ -191,7 +194,10 @@ def get_synoptic_obs_features(
                     print(f"  🏙️ NYSM borough via Synoptic — {stid}: {tf:.1f}°F")
                 if stid in _NAMED_ASOS_STIDS:
                     named_temps[stid] = tf
-                    print(f"  ✈️  {stid}: {tf:.1f}°F")
+                    if obs_dt:
+                        named_obs_at[stid] = obs_dt
+                    print(f"  ✈️  {stid}: {tf:.1f}°F"
+                          + (f"  (obs {obs_dt})" if obs_dt else ""))
                 # COOPNYC: extract the 24h high/low (observer-verified, reported at 8am)
                 if stid == _COOPNYC_STID:
                     hi_val = obs.get("air_temp_high_24_hour_value_1", {})
@@ -261,6 +267,18 @@ def get_synoptic_obs_features(
     if klga is not None: nan_result["obs_klga_temp"] = round(klga, 1)
     if kewr is not None: nan_result["obs_kewr_temp"] = round(kewr, 1)
     if kteb is not None: nan_result["obs_kteb_temp"] = round(kteb, 1)
+
+    # Observation timestamps — lets dashboard show "KNYC: 52°F (47 min ago)"
+    # KNYC is hourly ASOS; NYSM updates every 5 min; these tell you which you can trust
+    for stid_key, feat_key in [
+        ("KNYC", "obs_knyc_obs_at"),
+        ("KJFK", "obs_kjfk_obs_at"),
+        ("KLGA", "obs_klga_obs_at"),
+        ("KEWR", "obs_kewr_obs_at"),
+        ("KTEB", "obs_kteb_obs_at"),
+    ]:
+        if stid_key in named_obs_at:
+            nan_result[feat_key] = named_obs_at[stid_key]  # ISO string, not float
 
     # Cross-station diffs anchored at KNYC (our prediction target)
     if knyc is not None:
