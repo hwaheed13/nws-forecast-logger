@@ -16,8 +16,19 @@ ul{padding-left:20px}li{margin-bottom:6px}
 <p>What's new and improved on Daily Dew Point.</p>
 
 <div class="version">
-<h2>April 5, 2026</h2>
+<h2>April 12, 2026</h2>
 <div class="date">Latest</div>
+<ul>
+  <li><strong>Reversal Risk panel</strong> — A new section below today's prediction shows how likely the current pick is to shift before settlement, and whether conditions support an actual high that blows past all forecasts. Backed by historical data from similar setups and updated throughout the day.</li>
+  <li><strong>Heating window mode</strong> — Between 10 AM and 3 PM local time, when temperature peaks typically occur, the dashboard automatically increases its refresh rate and signals that it's watching closely. Observations update every 2 minutes during this window instead of every 5.</li>
+  <li><strong>Live atmospheric readings</strong> — The atmospheric signals panel (solar irradiance, cloud cover, pressure-level temperatures, wind) now shows real-time readings updated every 15 minutes alongside the daily forecast, so you can see what's actually happening rather than just what was predicted overnight.</li>
+  <li><strong>Faster model response to warming conditions</strong> — The model previously only recomputed mid-day when observed temperatures ran cold or slow. It now also triggers a fresh prediction when conditions run warmer than expected — catching potential upside flips before they show up in market prices.</li>
+</ul>
+</div>
+
+<div class="version">
+<h2>April 5, 2026</h2>
+<div class="date"></div>
 <ul>
   <li><strong>Corrupted observation guard</strong> — The NWS weather station API occasionally returns stale warm-afternoon readings mixed in with overnight data, which could cause the model to predict unrealistically high temperatures in the middle of the night. A time-aware filter now detects and discards these physically impossible swings before they affect predictions.</li>
   <li><strong>Improved model self-correction</strong> — The ML model tracks its own recent prediction errors to detect and correct systematic bias (e.g., consistently running warm in spring). A missing dependency had silently disabled this since launch. Now restored — the model will begin adapting to its own error patterns starting with today's retrain.</li>
@@ -72,6 +83,14 @@ ul{padding-left:20px}li{margin-bottom:6px}
 <hr class="divider">
 
 <h2>Bug Fixes</h2>
+
+<div class="bugfix-version">
+<h3>April 12, 2026</h3>
+<div class="date"></div>
+<ul>
+  <li>Fixed false "Live data exceeds prediction" alerts appearing in the early morning hours (1–3 AM). A weather station field that spans midnight was pulling in the previous evening's warm readings and incorrectly flagging them as today's observed high.</li>
+</ul>
+</div>
 
 <div class="bugfix-version">
 <h3>April 5, 2026</h3>
