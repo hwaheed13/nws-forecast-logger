@@ -106,6 +106,46 @@ _NAMED_ASOS_STIDS = _NAMED_ASOS_STIDS_NYC
 _COOPNYC_STID = "COOPNYC"
 
 
+def _fetch_stids_direct(stids: list[str]) -> list[dict]:
+    """
+    Fetch current observations for specific station IDs via Synoptic nearesttime API.
+    Used as a supplement to radius-based fetch to capture named stations (KJFK, KEWR)
+    that fall just outside the default 10-mile radius but are critical ML features.
+
+    KJFK is 13.9 miles from Central Park; KEWR is 12.7 miles — both outside radius=10
+    but fetched by the historical backfill via STID. This direct fetch closes that
+    training-inference mismatch so the live system always sees the same features as training.
+    """
+    token = _token()
+    if not token or not stids:
+        return []
+
+    params = {
+        "token": token,
+        "stid": ",".join(stids),
+        "vars": "air_temp,wind_speed,wind_gust,wind_direction,relative_humidity,"
+                "dew_point_temperature",
+        "units": "english",
+        "within": "90",
+        "obtimezone": "local",
+        "output": "json",
+    }
+    qs = "&".join(f"{k}={urllib.parse.quote(str(v))}" for k, v in params.items())
+    url = f"{SYNOPTIC_BASE}/stations/nearesttime?{qs}"
+    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        summary = data.get("SUMMARY", {})
+        if summary.get("RESPONSE_CODE") != 1:
+            print(f"  ⚠️ Synoptic STID fetch: {summary.get('RESPONSE_MESSAGE', 'unknown error')}")
+            return []
+        return data.get("STATION", [])
+    except Exception as e:
+        print(f"  ⚠️ Synoptic STID fetch failed: {e}")
+        return []
+
+
 def get_synoptic_obs_features(
     lat: float = 40.7834,
     lon: float = -73.965,
@@ -266,6 +306,37 @@ def get_synoptic_obs_features(
 
     if not temps:
         return nan_result
+
+    # ── Supplement: direct STID fetch for named stations outside the radius ────
+    # KJFK (13.9mi) and KEWR (12.7mi) are beyond the default 10-mile radius so they
+    # never appear in the radius results. The nightly backfill fetches them by STID
+    # directly, so historical training rows have their values — but without this
+    # secondary fetch, the live inference would always see KJFK=NaN (training-inference
+    # mismatch). We fix it by fetching any missing named stations by STID explicitly.
+    missing_named = [s for s in named_stids if s not in named_temps]
+    if missing_named:
+        print(f"  🔍 Fetching {len(missing_named)} named station(s) by STID "
+              f"(outside radius): {', '.join(sorted(missing_named))}")
+        direct_stns = _fetch_stids_direct(list(missing_named))
+        for stn in direct_stns:
+            stid = stn.get("STID", "?").upper()
+            obs = stn.get("OBSERVATIONS", {})
+            temp_val = obs.get("air_temp_value_1", {})
+            if isinstance(temp_val, dict):
+                t = temp_val.get("value")
+                obs_dt = temp_val.get("date_time")
+            else:
+                t = temp_val
+                obs_dt = None
+            if t is not None and stid in named_stids and stid not in named_temps:
+                try:
+                    tf = float(t)
+                    named_temps[stid] = tf
+                    if obs_dt:
+                        named_obs_at[stid] = obs_dt
+                    print(f"  ✈️  {stid}: {tf:.1f}°F  (obs {obs_dt})  [direct STID fetch]")
+                except (ValueError, TypeError):
+                    pass
 
     # ── Network aggregate ─────────────────────────────────────────────
     mean_t = sum(temps) / len(temps)
