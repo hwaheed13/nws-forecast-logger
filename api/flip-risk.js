@@ -258,18 +258,20 @@ export default async function handler(req, res) {
   const canonAccuracy = history.total > 0 ? history.canonWins   / history.total  : null;
   const flipGoodRate  = history.flipped > 0 ? history.flipGood  / history.flipped : null;
 
-  // Human-readable summary
+  // Human-readable summary — specific, actionable, not vague
   let summary = "";
   if (flipRisk === "LOW" && blowRisk === "NONE") {
-    summary = "Canonical holding — no structural reason to flip";
+    summary = "Canonical holding — suppressor signals intact";
   } else if (flipRisk === "HIGH") {
-    summary = "Multiple signals point toward a potential bucket shift";
+    summary = "Structural flip risk — bucket may shift before settlement";
   } else if (blowRisk === "HIGH") {
-    summary = "Conditions support blow-past — actual may exceed all model forecasts";
+    summary = "Blow-past risk — actual may exceed all model forecasts";
+  } else if (flipRisk === "MEDIUM" && blowRisk === "NONE") {
+    summary = "Watch for wind shift or obs surge after 10 AM";
   } else if (flipRisk === "MEDIUM") {
-    summary = "Some flip risk — monitor closely as heating window approaches";
+    summary = "Mixed — flip and blow-past both possible, watch 10 AM obs";
   } else {
-    summary = "Moderate blow-past potential — watch mid-morning obs";
+    summary = "Obs running warm — watch mid-morning heating rate";
   }
 
   res.status(200).json({
