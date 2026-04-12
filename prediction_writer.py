@@ -3569,11 +3569,23 @@ _ATM_SNAPSHOT_KEYS = (
     "atm_precip_total",
     # Ensemble uncertainty
     "ens_spread", "ens_std", "ens_mean", "ens_skew", "ens_iqr",
-    # Multi-model spread
+    # Multi-model spread (original 5 models)
     "mm_spread", "mm_std", "mm_mean",
     "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff", "mm_ecmwf_gfs_diff",
     "mm_hrrr_max", "mm_icon_max", "mm_gem_max",
     "mm_icon_gfs_diff", "mm_gem_ecmwf_diff",
+    # v6: high-accuracy models (NBM #3 accuracy, GEM HRDPS #5 accuracy per wethr.net)
+    "mm_nbm_max", "mm_nbm_hrrr_diff", "mm_nbm_gfs_diff", "mm_nbm_ecmwf_diff",
+    "mm_gem_hrdps_max", "mm_gem_hrdps_hrrr_diff",
+    # v6: HRRR-specific 925mb (3km BL resolution vs GFS 13km) + GFS-HRRR cap diff
+    "atm_925mb_hrrr_max", "atm_925mb_hrrr_mean",
+    "atm_850mb_hrrr_max", "atm_850mb_hrrr_mean",
+    "atm_925mb_gfs_hrrr_diff",   # GFS - HRRR: positive = GFS too warm, missing cap
+    # v6: OKX radiosonde observed upper-air soundings (actual 925mb/850mb, not model)
+    "raob_925mb_temp", "raob_850mb_temp", "raob_700mb_temp",
+    "raob_sounding_hour", "raob_valid",
+    "raob_925mb_gfs_diff",   # GFS forecast - observed: positive = GFS missed the cap
+    "raob_925mb_hrrr_diff",  # HRRR forecast - observed: positive = HRRR missed the cap
     # NWS sequence
     "nws_d1_final", "nws_overnight_jump",
     "nws_last", "nws_first", "nws_mean", "nws_spread",
