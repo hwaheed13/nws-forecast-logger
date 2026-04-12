@@ -6472,6 +6472,106 @@ async function bootApp() {
     setInterval(() => { try { fetchAtmFeatures && fetchAtmFeatures(); } catch {} }, 30 * 60 * 1000);
     // Flip risk — also refresh every 30 min, and after each live obs update
     setInterval(() => { try { fetchFlipRisk && fetchFlipRisk(); } catch {} }, 30 * 60 * 1000);
+
+    // ── Heating Window Mode ───────────────────────────────────────────────
+    // Between 9:30 AM and 3:30 PM local time, the heating window is active.
+    // During this period we increase polling frequency across all live signals
+    // (obs every 2 min, flip risk every 10 min, atm every 10 min) and show
+    // a visual indicator so the user knows the tool is watching closely.
+    let _heatingIntervals = [];
+    let _heatingActive = false;
+
+    function _localHour() {
+      const tz = currentCity === 'lax' ? 'America/Los_Angeles' : 'America/New_York';
+      return parseInt(new Date().toLocaleString('en-US', { timeZone: tz, hour: 'numeric', hour12: false }), 10);
+    }
+    function _localMinute() {
+      const tz = currentCity === 'lax' ? 'America/Los_Angeles' : 'America/New_York';
+      return parseInt(new Date().toLocaleString('en-US', { timeZone: tz, minute: 'numeric' }), 10);
+    }
+
+    function _inHeatingWindow() {
+      const h = _localHour(), m = _localMinute();
+      const mins = h * 60 + m;
+      return mins >= 9 * 60 + 30 && mins <= 15 * 60 + 30; // 9:30 AM – 3:30 PM
+    }
+
+    function _setHeatingWindowMode(active) {
+      if (active === _heatingActive) return; // no change
+      _heatingActive = active;
+
+      // Update visual indicator in flip-risk panel header
+      const tsEl = document.getElementById('flip-risk-ts');
+
+      if (active) {
+        // Clear any existing heating intervals
+        _heatingIntervals.forEach(id => clearInterval(id));
+        _heatingIntervals = [];
+
+        // Faster obs polling: every 2 min
+        _heatingIntervals.push(setInterval(() => {
+          try { window.updateObservations && window.updateObservations(); } catch {}
+          try { fetchLiveRegionalObs && fetchLiveRegionalObs(); } catch {}
+        }, 2 * 60 * 1000));
+
+        // Faster flip risk: every 10 min
+        _heatingIntervals.push(setInterval(() => {
+          try { fetchFlipRisk && fetchFlipRisk(); } catch {}
+        }, 10 * 60 * 1000));
+
+        // Faster atm features: every 10 min
+        _heatingIntervals.push(setInterval(() => {
+          try { fetchAtmFeatures && fetchAtmFeatures(); } catch {}
+        }, 10 * 60 * 1000));
+
+        // Show indicator in flip-risk panel
+        const panel = document.getElementById('flip-risk-panel');
+        if (panel) panel.style.borderColor = '#d97706';
+        const title = panel && panel.querySelector('[style*="text-transform: uppercase"]');
+
+        // Add banner inside flip-risk-content if not already there
+        const existing = document.getElementById('heating-window-banner');
+        if (!existing) {
+          const banner = document.createElement('div');
+          banner.id = 'heating-window-banner';
+          banner.style.cssText = 'background:#fffbeb;border:1px solid #f59e0b;border-radius:8px;' +
+            'padding:6px 12px;margin-bottom:10px;font-size:12px;font-weight:600;color:#92400e;' +
+            'display:flex;align-items:center;gap:6px;';
+          banner.innerHTML = '🌡️ <span>Heating window active (10 AM – 3 PM) — polling every 2 min · flip risk every 10 min</span>';
+          const content = document.getElementById('flip-risk-content');
+          if (content && content.parentNode) {
+            content.parentNode.insertBefore(banner, content);
+          }
+        }
+
+        console.log('🌡️ Heating window mode ON — increased polling');
+      } else {
+        // Deactivate — clear fast intervals
+        _heatingIntervals.forEach(id => clearInterval(id));
+        _heatingIntervals = [];
+
+        // Remove banner
+        const banner = document.getElementById('heating-window-banner');
+        if (banner) banner.remove();
+
+        // Restore panel border
+        const panel = document.getElementById('flip-risk-panel');
+        if (panel) panel.style.borderColor = 'var(--border-subtle)';
+
+        console.log('🌡️ Heating window mode OFF — normal polling restored');
+      }
+    }
+
+    // Check heating window state every minute and toggle mode as needed
+    function _checkHeatingWindow() {
+      const todayISO = nycISODate(0);
+      const hasActual = hasActualFor(todayISO);
+      // Only activate if no actual posted yet (day still live)
+      _setHeatingWindowMode(!hasActual && _inHeatingWindow());
+    }
+
+    _checkHeatingWindow(); // run immediately on load
+    setInterval(_checkHeatingWindow, 60 * 1000); // check every minute
     setInterval(() => { try { window.updateDSM && window.updateDSM(); } catch {} }, 10 * 60 * 1000);
     setInterval(() => { try { window.updateSixHourMax && window.updateSixHourMax(); } catch {} }, 10 * 60 * 1000);
     setInterval(() => { try { window.updateSummaryBoxes && window.updateSummaryBoxes(); } catch {} }, 60 * 1000);

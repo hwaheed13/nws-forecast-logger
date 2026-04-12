@@ -3371,7 +3371,7 @@ def _check_obs_trigger(
     Check if ground-truth NWS station observations warrant an ML recompute.
     Returns (triggered: bool, reasons: list[str]).
 
-    Three triggers — all require being in the morning heating window (before 2pm):
+    Four triggers — all require being in the morning heating window (before 2pm):
 
     1. obs_daytime_first: canonical was set before 9am (pre-sunrise obs only,
        no meaningful intraday signal). Now daytime obs are available for the
@@ -3386,6 +3386,15 @@ def _check_obs_trigger(
     3. obs_slow_heating: observed heating rate < 0.5°F/hr after 9am. With a
        freeze-warning start and barely-rising temps, the model needs to know
        the actual trajectory, not just the forecasted curve.
+
+    4. obs_warm_vs_forecast: observed temp is 2°F+ WARMER than intraday
+       forecast at the same hour (9am-2pm window). Mirror of trigger 2 —
+       reality is running hot, signalling a potential flip to a higher Kalshi
+       bucket or a blow-past scenario. Threshold is 2°F (tighter than cold
+       trigger) because upside surprises tend to move fast and have larger
+       Kalshi implications. Only fires when this is a new warm reading vs
+       what was stored at canonical time, to avoid re-triggering on the same
+       hot observation every 30-minute cycle.
     """
     if not live_obs:
         return False, []
@@ -3451,6 +3460,23 @@ def _check_obs_trigger(
             reasons.append(
                 f"obs_slow_heating: {live_rate:+.2f}°F/hr at {int(live_hour)}:00 "
                 f"(below 0.5°F/hr threshold — cold start confirmed)"
+            )
+
+    # Trigger 4: Observed temp running 2°F+ WARMER than intraday forecast.
+    # This is the mirror of trigger 2 — reality is ahead of the model's heating
+    # curve. Signals a potential flip to a higher bucket or blow-past scenario.
+    # Only valid in the 9am-2pm window (intra_map coverage), and only fires if
+    # this is a NEW warm signal vs what was stored at canonical write time.
+    # Threshold is 2°F (vs 3°F for cold) because upside surprises tend to be
+    # faster and have bigger Kalshi implications when they occur.
+    if (
+        live_vs_fc is not None and live_vs_fc > 2.0
+        and live_hour is not None and 9 <= live_hour <= 14
+    ):
+        if stored_vs_fc is None or live_vs_fc > stored_vs_fc + 1.0:
+            reasons.append(
+                f"obs_warm_vs_forecast: {live_vs_fc:+.1f}°F vs intraday forecast "
+                f"at {int(live_hour)}:00 — reality running HOT, flip to higher bucket possible"
             )
 
     triggered = len(reasons) > 0
