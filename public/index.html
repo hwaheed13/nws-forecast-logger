@@ -4296,13 +4296,25 @@ function renderLiveSourcesPanel() {
   // KJFK - KNYC is the clearest marine cap signal: when JFK (coastal Queens/Jamaica Bay)
   // is colder than Central Park, the sea breeze is penetrating inland.
   // Gradient: KJFK (coldest, coastal) → KLGA → KNYC → KEWR → KTEB (warmest, inland)
-  const snap_kjfk = s.obs_snap_kjfk;
-  const snap_klga = s.obs_snap_klga;
-  const snap_kewr = s.obs_snap_kewr;
-  const snap_kteb = s.obs_snap_kteb;
-  const snap_kjfk_vs_knyc       = s.obs_snap_kjfk_vs_knyc;
-  const snap_coastal_vs_inland   = s.obs_snap_coastal_vs_inland;
-  const snap_airport_spread      = s.obs_snap_airport_spread;
+  // Prefer Synoptic-sourced named station keys (v9); fall back to existing regional obs
+  const snap_kjfk = s.obs_snap_kjfk ?? s.obs_snap_jfk ?? (lroValid ? lro.jfk : null);
+  const snap_klga = s.obs_snap_klga ?? s.obs_snap_lga ?? (lroValid ? lro.lga : null);
+  const snap_kewr = s.obs_snap_kewr ?? null;
+  const snap_kteb = s.obs_snap_kteb ?? null;
+  // Compute JFK-KNYC diff live if we have both values but the snapshot diff isn't written yet
+  const _knycForDiff = knyc_display ?? s.obs_snap_knyc_syn ?? null;
+  const snap_kjfk_vs_knyc = s.obs_snap_kjfk_vs_knyc
+    ?? (snap_kjfk != null && _knycForDiff != null
+        ? Math.round((Number(snap_kjfk) - Number(_knycForDiff)) * 10) / 10
+        : null);
+  const snap_coastal_vs_inland = s.obs_snap_coastal_vs_inland
+    ?? (snap_kjfk != null && snap_klga != null && snap_kewr != null
+        ? Math.round(((Number(snap_kjfk) + Number(snap_klga)) / 2 - Number(snap_kewr)) * 10) / 10
+        : null);
+  const snap_airport_spread = s.obs_snap_airport_spread
+    ?? (snap_kjfk != null && snap_kewr != null
+        ? Math.round(Math.abs(Number(snap_kewr) - Number(snap_kjfk)) * 10) / 10
+        : null);
 
   // Marine signal: coastal (JFK, LGA) colder than inland (EWR, TEB)
   const _marineStrong = snap_coastal_vs_inland != null && Number(snap_coastal_vs_inland) <= -3;
