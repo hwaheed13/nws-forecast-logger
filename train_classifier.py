@@ -433,10 +433,19 @@ class BucketClassifier:
 
     @classmethod
     def load(cls, path: str) -> "BucketClassifier":
-        """Load a trained classifier from disk."""
+        """Load a trained classifier from disk.
+        Handles two on-disk formats:
+          - dict  (new): saved via save() with keys 'model', 'feature_cols', etc.
+          - object (old): the whole BucketClassifier was pickled directly.
+        """
         with open(path, "rb") as f:
             data = pickle.load(f)
 
+        # Old format: entire object was pickled — just return it
+        if isinstance(data, cls):
+            return data
+
+        # New format: dict with explicit keys
         obj = cls()
         obj.model = data["model"]
         obj.feature_cols = data["feature_cols"]
