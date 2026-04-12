@@ -627,6 +627,20 @@ input[type="date"] {
         </div>
       </div>
 
+      <!-- Flip Risk / Reversal Signal Panel (today only, hides after actual posted) -->
+      <div id="flip-risk-panel" style="display:none; margin-bottom:18px;
+           background:var(--bg-secondary); border:1px solid var(--border-subtle);
+           border-radius:12px; padding:14px 16px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+          <div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted);">
+            Reversal Risk
+            <span class="tip" tabindex="0" data-tip="Forward-looking signal: how likely is today's canonical (first-of-day) prediction to flip to a different bucket, or for the actual high to blow past all model forecasts? Combines historical analog rates with live atmospheric signals.">i</span>
+          </div>
+          <div id="flip-risk-ts" style="font-size:11px; color:var(--text-light);"></div>
+        </div>
+        <div id="flip-risk-content" style="font-size:13px; color:var(--text-secondary);">Loading…</div>
+      </div>
+
       <!-- Live Data Sources Panel -->
       <div id="live-sources-panel" style="margin-bottom:18px; display:none;">
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
@@ -3740,6 +3754,132 @@ async function fetchLiveRegionalObs() {
   } catch {}
 }
 
+// ── Flip / Reversal Risk Panel ───────────────────────────────────────────
+window._flipRisk = null;
+
+async function fetchFlipRisk() {
+  const panel = document.getElementById('flip-risk-panel');
+  if (!panel) return;
+
+  const ml  = window.mlPredictions || {};
+  const atm = window._atmFeatures  || {};
+  const todayISO = nycISODate(0);
+
+  // Only show before actual high is posted and only if we have a prediction
+  const hasActual = hasActualFor(todayISO);
+  const canonical = ml.todayMLBucketCanonical || ml.todayMLBucket;
+  if (hasActual || !canonical) { panel.style.display = 'none'; return; }
+
+  // Gather current signals to pass to the endpoint
+  const cur = (atm.current || {});
+  const pk  = (atm.peak_heating || {});
+  const top2 = _mlGetTop2(ml.todayBucketProbs, ml.todayMarketSnapshot);
+
+  // Current hour local (for canonical_hour approximation)
+  const dispTZ = currentCity === 'lax' ? 'America/Los_Angeles' : 'America/New_York';
+  const localHour = parseInt(new Date().toLocaleString('en-US', { timeZone: dispTZ, hour: 'numeric', hour12: false }), 10);
+
+  // Build query params
+  const params = new URLSearchParams({
+    city:             currentCity,
+    canonical_bucket: canonical,
+    ml_f:             ml.today           != null ? ml.today           : '',
+    ml_confidence:    ml.todayMLConfidence!= null ? ml.todayMLConfidence : '',
+    ensemble_range:   (window._ensembleRange != null) ? window._ensembleRange : (pk.hrrr_ecmwf_diff != null ? Math.abs(pk.hrrr_ecmwf_diff) : ''),
+    current_obs_temp: (window._recentObservedF != null) ? window._recentObservedF : '',
+    canonical_hour:   localHour,
+    t925_live:        cur.temp_925hPa_now != null ? cur.temp_925hPa_now : (pk.temp_925hPa != null ? pk.temp_925hPa : ''),
+    wind_dir_card:    cur.wind_dir_card_now || cur.wind_dir_card || '',
+    top2_confidence:  top2 && top2.second  ? top2.second.prob : '',
+  });
+
+  // NWS and AccuWeather — use Supabase-backed values stored in mlPredictions
+  const nwsVal  = ml.todayNwsD0      != null ? ml.todayNwsD0      : null;
+  const accuVal = ml.todayAccuWeather != null ? ml.todayAccuWeather : null;
+  if (nwsVal  != null) params.set('nws_f',  nwsVal);
+  if (accuVal != null) params.set('accu_f', accuVal);
+
+  try {
+    const r = await fetch(`/api/flip-risk?${params}&cb=${Date.now()}`, { signal: AbortSignal.timeout(10000) });
+    if (!r.ok) return;
+    const d = await r.json();
+    window._flipRisk = d;
+    renderFlipRisk();
+  } catch {}
+}
+
+function renderFlipRisk() {
+  const panel   = document.getElementById('flip-risk-panel');
+  const content = document.getElementById('flip-risk-content');
+  const ts      = document.getElementById('flip-risk-ts');
+  if (!panel || !content) return;
+
+  const d = window._flipRisk;
+  if (!d) { panel.style.display = 'none'; return; }
+
+  panel.style.display = '';
+
+  // Timestamp
+  if (ts) {
+    try {
+      const dispTZ = currentCity === 'lax' ? 'America/Los_Angeles' : 'America/New_York';
+      ts.textContent = 'as of ' + new Date(d.fetchedAt).toLocaleTimeString('en-US', { timeZone: dispTZ, hour: 'numeric', minute: '2-digit', hour12: true }) + ' ET';
+    } catch {}
+  }
+
+  const flip = d.flip_risk || {};
+  const blow = d.blow_past_risk || {};
+  const hist = d.history || {};
+  const sigs = d.signals || [];
+
+  // Color helpers
+  const flipColor = flip.level === 'HIGH' ? '#dc2626' : flip.level === 'MEDIUM' ? '#d97706' : '#16a34a';
+  const blowColor = blow.level === 'HIGH' ? '#dc2626' : blow.level === 'MEDIUM' ? '#d97706' : '#9ca3af';
+  const flipBg    = flip.level === 'HIGH' ? '#fef2f2' : flip.level === 'MEDIUM' ? '#fffbeb' : '#f0fdf4';
+  const blowBg    = blow.level === 'HIGH' ? '#fef2f2' : blow.level === 'MEDIUM' ? '#fffbeb' : '#f9fafb';
+
+  // Historical context line
+  let histLine = '';
+  if (hist.days_sampled > 0) {
+    const coldNote = hist.n_cold_similar > 0
+      ? ` · cold-airmass analog: <strong>${hist.cold_analog_rate}%</strong> flip rate (${hist.n_cold_similar} days)`
+      : '';
+    histLine = `<div style="font-size:11px; color:var(--text-muted); margin-top:6px;">
+      ${hist.days_sampled} historical days with same canonical bucket —
+      flipped <strong>${hist.flip_rate}%</strong> of the time${coldNote}
+      ${hist.canonical_win_pct != null ? ` · canonical accuracy: <strong>${hist.canonical_win_pct}%</strong>` : ''}
+    </div>`;
+  }
+
+  // Key signals (top 3, no-weight ones filtered to those with actual content)
+  const sigLines = sigs
+    .filter(s => s.label)
+    .slice(0, 4)
+    .map(s => {
+      const icon = s.dir === 'hold' ? '🟢' : s.dir === 'blow' ? '🔴' : s.dir === 'flip' ? '🟡' : '⚪';
+      return `<div style="font-size:11px; color:var(--text-secondary); margin-top:3px;">${icon} ${s.label}</div>`;
+    }).join('');
+
+  content.innerHTML = `
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-start; margin-bottom:8px;">
+      <div style="background:${flipBg}; border:1px solid ${flipColor}; border-radius:8px; padding:6px 12px; display:inline-flex; flex-direction:column; min-width:110px;">
+        <span style="font-size:10px; font-weight:700; text-transform:uppercase; color:${flipColor}; letter-spacing:.05em;">Bucket Flip</span>
+        <span style="font-size:18px; font-weight:800; color:${flipColor};">${flip.level || '—'}</span>
+        <span style="font-size:10px; color:var(--text-muted);">${flip.summary || ''}</span>
+      </div>
+      <div style="background:${blowBg}; border:1px solid ${blowColor}; border-radius:8px; padding:6px 12px; display:inline-flex; flex-direction:column; min-width:110px;">
+        <span style="font-size:10px; font-weight:700; text-transform:uppercase; color:${blowColor}; letter-spacing:.05em;">Blow Past</span>
+        <span style="font-size:18px; font-weight:800; color:${blowColor};">${blow.level || '—'}</span>
+        <span style="font-size:10px; color:var(--text-muted);">actual exceeds all models</span>
+      </div>
+      <div style="flex:1; min-width:180px;">
+        ${sigLines}
+      </div>
+    </div>
+    ${histLine}
+  `;
+}
+
 // ── Atmospheric Signals ──────────────────────────────────────────────────
 window._atmFeatures = null;
 
@@ -3750,6 +3890,8 @@ async function fetchAtmFeatures() {
     const d = await r.json();
     window._atmFeatures = d;
     renderAtmSignals();
+    // Refresh flip risk now that we have fresh atmospheric signals
+    fetchFlipRisk();
   } catch {}
 }
 
@@ -4042,6 +4184,8 @@ function renderLiveSourcesPanel() {
   const mm_mean    = ms.mm_mean;
   const hrrr       = ms.mm_hrrr_max;
   const hrrr_ecmwf = ms.mm_hrrr_ecmwf_diff;
+  // Expose ensemble range globally so flip-risk fetch can use it
+  if (mm_spread != null) window._ensembleRange = mm_spread;
   const mm_sub = [
     mm_mean    != null ? `Consensus: ${f0(mm_mean)}` : "",
     hrrr       != null ? `HRRR: ${f0(hrrr)}` : "",
@@ -6121,6 +6265,8 @@ async function loadMLPredictions() {
   // Previously only rendered inside the if(gotToday||gotTomorrow) block,
   // causing cards to stay "Awaiting" when cache had data but query was empty.
   if (typeof renderMLBetSignal === "function") renderMLBetSignal();
+  // Trigger flip risk fetch after ML data loaded (atm features may already be cached)
+  if (typeof fetchFlipRisk === "function") fetchFlipRisk();
 }
 
 // Load bucket-rank outcome stats (how often bucket 2 hits when bucket 1 misses)
@@ -6324,6 +6470,8 @@ async function bootApp() {
     // Atmospheric signals from Open-Meteo — refresh every 30 min (matches prediction writer cadence)
     try { fetchAtmFeatures && fetchAtmFeatures(); } catch {}
     setInterval(() => { try { fetchAtmFeatures && fetchAtmFeatures(); } catch {} }, 30 * 60 * 1000);
+    // Flip risk — also refresh every 30 min, and after each live obs update
+    setInterval(() => { try { fetchFlipRisk && fetchFlipRisk(); } catch {} }, 30 * 60 * 1000);
     setInterval(() => { try { window.updateDSM && window.updateDSM(); } catch {} }, 10 * 60 * 1000);
     setInterval(() => { try { window.updateSixHourMax && window.updateSixHourMax(); } catch {} }, 10 * 60 * 1000);
     setInterval(() => { try { window.updateSummaryBoxes && window.updateSummaryBoxes(); } catch {} }, 60 * 1000);
