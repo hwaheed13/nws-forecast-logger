@@ -4292,6 +4292,54 @@ function renderLiveSourcesPanel() {
   // Synoptic card label: for LAX use "USC Area (8mi)" since we now query near KCQT
   const synLabel = isLax ? "USC Area (8mi)" : "Synoptic (5mi)";
 
+  // ── Airport marine-cap card (v9: named ASOS station diffs) ──────────────────
+  // KJFK - KNYC is the clearest marine cap signal: when JFK (coastal Queens/Jamaica Bay)
+  // is colder than Central Park, the sea breeze is penetrating inland.
+  // Gradient: KJFK (coldest, coastal) → KLGA → KNYC → KEWR → KTEB (warmest, inland)
+  const snap_kjfk = s.obs_snap_kjfk;
+  const snap_klga = s.obs_snap_klga;
+  const snap_kewr = s.obs_snap_kewr;
+  const snap_kteb = s.obs_snap_kteb;
+  const snap_kjfk_vs_knyc       = s.obs_snap_kjfk_vs_knyc;
+  const snap_coastal_vs_inland   = s.obs_snap_coastal_vs_inland;
+  const snap_airport_spread      = s.obs_snap_airport_spread;
+
+  // Marine signal: coastal (JFK, LGA) colder than inland (EWR, TEB)
+  const _marineStrong = snap_coastal_vs_inland != null && Number(snap_coastal_vs_inland) <= -3;
+  const _marineMild   = snap_coastal_vs_inland != null && Number(snap_coastal_vs_inland) <= -1.5 && !_marineStrong;
+  const _airportCardColor = _marineStrong ? "#dc2626"    // red: strong marine cap
+                          : _marineMild   ? "#d97706"    // orange: mild marine
+                          : snap_kjfk != null ? "var(--accent-blue)"
+                          : "var(--border-default)";
+
+  const _airportMain = snap_kjfk != null && snap_kewr != null
+    ? `${f1(snap_kjfk)} / ${f1(snap_kewr)}`  // JFK / EWR
+    : snap_kjfk != null ? f1(snap_kjfk)
+    : "–";
+
+  const _jfkKnycStr = snap_kjfk_vs_knyc != null
+    ? `JFK-KNYC: ${fSign(snap_kjfk_vs_knyc)}`
+    : "";
+  const _coastalInlandStr = snap_coastal_vs_inland != null
+    ? `Coastal-Inland: ${fSign(snap_coastal_vs_inland)}`
+    : "";
+  const _airportSpreadStr = snap_airport_spread != null
+    ? `Spread: ${Number(snap_airport_spread).toFixed(1)}°F`
+    : "";
+  const _marineLabel = _marineStrong ? " 🌊 Strong marine cap" : _marineMild ? " 🌊 Marine influence" : "";
+
+  const _airportSub = [_jfkKnycStr, _coastalInlandStr, _airportSpreadStr]
+    .filter(Boolean).join(" · ")
+    + (_marineLabel || "")
+    || "Awaiting next cycle";
+
+  const airportCard = !isLax ? card(
+    "JFK / EWR (Marine Signal)",
+    _airportMain,
+    _airportSub,
+    _airportCardColor
+  ) : "";
+
   grid.innerHTML = [
     card(_primaryLabel,
          knyc_display != null
@@ -4317,6 +4365,7 @@ function renderLiveSourcesPanel() {
          hrrrNwsLabel,
          hrrrNwsSub + hrrrNwsTip,
          hrrrNwsColor),
+    airportCard,
     wu_mean != null ? card("WU PWS (Citizen Wx)", f1(wu_mean), wu_sub, "var(--accent-blue)") : "",
   ].join("");
 
