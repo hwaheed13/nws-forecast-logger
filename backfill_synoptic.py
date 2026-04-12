@@ -357,6 +357,10 @@ def backfill(
 
     # ── Fetch rows to backfill ────────────────────────────────────────
     # Table: prediction_logs  |  date col: target_date  |  nws col: nws_d0
+    # Supabase has a hard 1000-row default limit per request, so paginate.
+    PAGE = 1000
+    all_rows: list[dict] = []
+
     if target_date:
         rows_resp = (
             client.table("prediction_logs")
@@ -364,16 +368,23 @@ def backfill(
             .eq("target_date", target_date)
             .execute()
         )
+        all_rows = rows_resp.data or []
     else:
-        rows_resp = (
-            client.table("prediction_logs")
-            .select("id, target_date, atm_snapshot, nws_d0")
-            .order("target_date", desc=True)
-            .limit(days * 10 if days else 2000)   # some days have multiple rows
-            .execute()
-        )
+        offset = 0
+        while True:
+            page_resp = (
+                client.table("prediction_logs")
+                .select("id, target_date, atm_snapshot, nws_d0")
+                .order("target_date", desc=True)
+                .range(offset, offset + PAGE - 1)
+                .execute()
+            )
+            page = page_resp.data or []
+            all_rows.extend(page)
+            if len(page) < PAGE:
+                break  # last page
+            offset += PAGE
 
-    all_rows = rows_resp.data or []
     print(f"Fetched {len(all_rows)} rows from prediction_logs\n")
 
     # Group by date, pick the row with most atm_snapshot data (canonical row)
@@ -437,11 +448,16 @@ def backfill(
 
         feats = compute_features_for_day(d, nws_high=nws_high)
 
-        # Only write keys that are actually populated (not NaN)
-        feats_to_write = {
-            k: v for k, v in feats.items()
-            if not (isinstance(v, float) and np.isnan(v))
-        }
+        # Filter out NaN/inf — catches both Python float and np.float64
+        import math
+        feats_to_write = {}
+        for k, v in feats.items():
+            try:
+                fv = float(v)
+                if math.isfinite(fv):
+                    feats_to_write[k] = round(fv, 4)
+            except (TypeError, ValueError):
+                feats_to_write[k] = v  # keep non-numeric values (strings, ints)
 
         if not feats_to_write:
             print(f"    ⚠️  No valid features for {d}, skipping\n")
@@ -451,12 +467,26 @@ def backfill(
                   f"{list(feats_to_write.keys())[:5]}...\n")
             ok_count += 1
         else:
-            # Merge into existing atm_snapshot (don't overwrite other keys)
+            # Merge into existing atm_snapshot — scrub the entire dict for
+            # NaN/inf before writing (existing snap may also contain bad values)
             snap = row.get("atm_snapshot") or {}
             if isinstance(snap, str):
                 try: snap = json.loads(snap)
                 except: snap = {}
             snap.update(feats_to_write)
+
+            # Deep-scrub: replace any remaining non-finite floats with None
+            def _scrub(obj):
+                if isinstance(obj, dict):
+                    return {k: _scrub(v) for k, v in obj.items()}
+                if isinstance(obj, list):
+                    return [_scrub(v) for v in obj]
+                try:
+                    fv = float(obj)
+                    return None if not math.isfinite(fv) else obj
+                except (TypeError, ValueError):
+                    return obj
+            snap = _scrub(snap)
 
             try:
                 client.table("prediction_logs").update(
