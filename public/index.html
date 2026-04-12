@@ -377,50 +377,21 @@
     .tip:hover { box-shadow: 0 1px 6px rgba(0,0,0,.08); }
     .tip:focus-visible { box-shadow: 0 0 0 3px var(--accent-blue-light); }
     .tip[data-tip]::after{
-      content:attr(data-tip); position:absolute; inset:auto auto calc(100% + 8px) 50%; transform:translateX(-50%);
-      white-space:nowrap; background:#111827; color:#fff; font-size:12px; font-weight:600; padding:6px 8px; border-radius:8px;
-      box-shadow:0 4px 12px rgba(0,0,0,.15); opacity:0; pointer-events:none; transition:opacity .12s ease, transform .12s ease;
+      content:attr(data-tip); position:fixed; z-index:9999;
+      white-space:normal; max-width:260px; width:max-content;
+      background:#111827; color:#fff; font-size:12px; font-weight:600; padding:7px 10px; border-radius:8px; line-height:1.5;
+      box-shadow:0 4px 16px rgba(0,0,0,.25); opacity:0; pointer-events:none; transition:opacity .12s ease;
+      /* JS will set --tip-x / --tip-y via inline style on each .tip */
+      left: var(--tip-x, 50%); top: var(--tip-y, auto);
+      transform: translateX(-50%);
     }
     .tip[data-tip]::before{
-      content:""; position:absolute; inset:auto auto calc(100% + 3px) 50%; transform:translateX(-50%);
+      content:""; position:fixed; z-index:9998;
+      left: var(--tip-ax, 50%); top: var(--tip-ay, auto);
+      transform: translateX(-50%);
       border:6px solid transparent; border-top-color:#111827; opacity:0; transition:opacity .12s ease;
     }
     .tip:hover[data-tip]::after,.tip:focus[data-tip]::after,.tip:hover[data-tip]::before,.tip:focus[data-tip]::before{opacity:1;}
-        /* Mobile tooltip fixes */
-    @media (max-width: 600px) {
-      .tip[data-tip]::after {
-        white-space: normal;  /* Allow text to wrap */
-        width: 200px;         /* Fixed width for consistency */
-        left: 50%;
-        transform: translateX(-50%);
-        text-align: center;
-      }
-      
-      /* If tooltip would go off left edge, shift it right */
-      .stat-card:nth-child(odd) .tip[data-tip]::after {
-        left: 0;
-        transform: translateX(0);
-      }
-      
-      /* If tooltip would go off right edge, shift it left */
-      .stat-card:nth-child(even) .tip[data-tip]::after {
-        left: auto;
-        right: 0;
-        transform: translateX(0);
-      }
-      
-      /* Adjust arrow position for shifted tooltips */
-      .stat-card:nth-child(odd) .tip[data-tip]::before {
-        left: 16px;
-        transform: translateX(0);
-      }
-      
-      .stat-card:nth-child(even) .tip[data-tip]::before {
-        left: auto;
-        right: 16px;
-        transform: translateX(0);
-      }
-    }
   /* Mobile-only adjustments for prediction formula subtitle */
     @media (max-width: 600px) {
       .prediction-subtitle small {
@@ -6402,6 +6373,36 @@ window._buildMoatRiskHTML = function _buildMoatRiskHTML(mlTempF, nwsVal, mmSprea
   }
 
   // Buttons
+  // ── Tooltip positioning — keeps tooltips inside the viewport ──────────────
+  // Uses position:fixed on ::after so overflow:hidden parents can't clip them.
+  // On mouseenter we compute the ideal center-above position, then clamp to
+  // viewport edges so the bubble never runs off screen.
+  (function () {
+    const PAD = 8; // min px from viewport edge
+    document.addEventListener("mouseenter", function (e) {
+      const el = e.target.closest(".tip[data-tip]");
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      // Target: horizontally centered above the icon
+      let cx = r.left + r.width / 2;
+      const tipY = r.top - 8; // arrow tip Y (bottom of tooltip bubble)
+
+      // Estimate tooltip width (CSS max-width 260px; use 260 as worst case)
+      const estW = Math.min(260, window.innerWidth - PAD * 2);
+      // Clamp so bubble doesn't go off left or right
+      const minCx = PAD + estW / 2;
+      const maxCx = window.innerWidth - PAD - estW / 2;
+      cx = Math.max(minCx, Math.min(maxCx, cx));
+
+      el.style.setProperty("--tip-x",  cx + "px");
+      el.style.setProperty("--tip-y",  (tipY) + "px");
+      // Arrow: always stays at original icon center, not clamped
+      const origCx = r.left + r.width / 2;
+      el.style.setProperty("--tip-ax", origCx + "px");
+      el.style.setProperty("--tip-ay", (r.top - 3) + "px");
+    }, true);
+  })();
+
   document.getElementById("btn-logout")?.addEventListener("click", async () => {
     try { await supabase.auth.signOut(); } catch(e) {}
     try { localStorage.removeItem("dashboard_heartbeat"); } catch(e) {}
