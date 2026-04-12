@@ -343,7 +343,7 @@ def backfill(
     target_date: Optional[str] = None,
 ):
     """
-    Main backfill loop.  Fetches all rows from daily_forecasts where
+    Main backfill loop.  Fetches all rows from prediction_logs where
     atm_snapshot is missing obs_kjfk_temp, then backfills from Synoptic.
     """
     token = _token()
@@ -356,29 +356,30 @@ def backfill(
     print(f"   dry_run={dry_run}  days={days}  target_date={target_date}\n")
 
     # ── Fetch rows to backfill ────────────────────────────────────────
+    # Table: prediction_logs  |  date col: target_date  |  nws col: nws_d0
     if target_date:
         rows_resp = (
-            client.table("daily_forecasts")
-            .select("id, forecast_date, atm_snapshot, nws_last")
-            .eq("forecast_date", target_date)
+            client.table("prediction_logs")
+            .select("id, target_date, atm_snapshot, nws_d0")
+            .eq("target_date", target_date)
             .execute()
         )
     else:
         rows_resp = (
-            client.table("daily_forecasts")
-            .select("id, forecast_date, atm_snapshot, nws_last")
-            .order("forecast_date", desc=True)
+            client.table("prediction_logs")
+            .select("id, target_date, atm_snapshot, nws_d0")
+            .order("target_date", desc=True)
             .limit(days * 10 if days else 2000)   # some days have multiple rows
             .execute()
         )
 
     all_rows = rows_resp.data or []
-    print(f"Fetched {len(all_rows)} rows from daily_forecasts\n")
+    print(f"Fetched {len(all_rows)} rows from prediction_logs\n")
 
     # Group by date, pick the row with most atm_snapshot data (canonical row)
     by_date: dict[str, dict] = {}
     for row in all_rows:
-        d = row.get("forecast_date", "")
+        d = row.get("target_date", "")
         if not d:
             continue
         existing = by_date.get(d)
@@ -388,8 +389,12 @@ def backfill(
             # prefer row with larger atm_snapshot
             new_snap = row.get("atm_snapshot") or {}
             ex_snap  = existing.get("atm_snapshot") or {}
-            if isinstance(new_snap, str): new_snap = json.loads(new_snap)
-            if isinstance(ex_snap,  str): ex_snap  = json.loads(ex_snap)
+            if isinstance(new_snap, str):
+                try: new_snap = json.loads(new_snap)
+                except: new_snap = {}
+            if isinstance(ex_snap, str):
+                try: ex_snap = json.loads(ex_snap)
+                except: ex_snap = {}
             if len(new_snap) > len(ex_snap):
                 by_date[d] = row
 
@@ -426,7 +431,7 @@ def backfill(
         print(f"{'[DRY RUN] ' if dry_run else ''}Processing {d}...")
         nws_high = None
         try:
-            nws_high = float(row.get("nws_last") or 0) or None
+            nws_high = float(row.get("nws_d0") or 0) or None
         except Exception:
             pass
 
@@ -454,7 +459,7 @@ def backfill(
             snap.update(feats_to_write)
 
             try:
-                client.table("daily_forecasts").update(
+                client.table("prediction_logs").update(
                     {"atm_snapshot": snap}
                 ).eq("id", row["id"]).execute()
                 print(f"    ✓ Written to row id={row['id']}\n")
