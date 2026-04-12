@@ -3894,6 +3894,17 @@ function renderLiveSourcesPanel() {
   const snap = ml.todayAtmSnapshot;
   const s = snap || {};
 
+  // After today's high is confirmed, model-driven cards (Multi-Model Spread,
+  // NWS Overnight Jump) should show tomorrow's snapshot — today's data is stale.
+  // Live station cards (KNYC, JFK/LGA, Synoptic) always show current conditions.
+  const _todayISO = nycISODate(0);
+  const _todayActualRow = allRows.find(r => r.forecast_or_actual === "actual" && r.cli_date === _todayISO && r.actual_high);
+  const _todayActualHigh = _todayActualRow ? Number(_todayActualRow.actual_high) : null;
+  const _todayDone = _todayActualHigh != null;
+  // ms = "model snapshot": switches to tomorrow's atm_snapshot once today is confirmed
+  const tmSnap = ml.tomorrowAtmSnapshot || {};
+  const ms = _todayDone ? tmSnap : s;
+
   const f1 = v => (v != null && !isNaN(Number(v))) ? `${Number(v).toFixed(1)}°F` : "–";
   const f0 = v => (v != null && !isNaN(Number(v))) ? `${Math.round(Number(v))}°F` : "–";
   const fSign = v => (v != null && !isNaN(Number(v))) ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(1)}°F` : "–";
@@ -3964,21 +3975,32 @@ function renderLiveSourcesPanel() {
     syn_count  != null ? `${syn_count} stations` : "",
   ].filter(Boolean).join(" · ") || "Awaiting next cycle";
 
-  // ── NWS overnight jump — from model snapshot
-  const d1_final = s.nws_d1_final;
-  const o_jump   = s.nws_overnight_jump;
-  const nws_last = s.nws_last ?? (ml.todayNwsD0 != null ? Number(ml.todayNwsD0) : null);
+  // ── NWS overnight jump — from model snapshot (ms = tomorrow's when day is done)
+  const d1_final = ms.nws_d1_final;
+  const o_jump   = ms.nws_overnight_jump;
+  const nws_last = ms.nws_last ?? (
+    _todayDone
+      ? (ml.tomorrowNwsD0 != null ? Number(ml.tomorrowNwsD0) : null)
+      : (ml.todayNwsD0    != null ? Number(ml.todayNwsD0)    : null)
+  );
   const jump_color = o_jump != null && Math.abs(Number(o_jump)) >= 2 ? "#d97706" : "var(--accent-blue)";
-  const jump_sub = [
-    d1_final != null ? `D-1 final: ${f0(d1_final)}` : "",
-    nws_last  != null ? `D0 at model run: ${f0(nws_last)}` : "",
-  ].filter(Boolean).join(" · ") || "Awaiting next cycle";
+  // When today is confirmed: show "D0 confirmed vs D+1 NWS forecast"
+  const jump_sub = _todayDone
+    ? [
+        _todayActualHigh != null     ? `D0 confirmed: ${f0(_todayActualHigh)}` : "",
+        ml.tomorrowNwsD0 != null     ? `D+1 NWS: ${f0(ml.tomorrowNwsD0)}` : (nws_last != null ? `D+1 NWS: ${f0(nws_last)}` : ""),
+      ].filter(Boolean).join(" · ") || "Awaiting next cycle"
+    : [
+        d1_final != null ? `D-1 final: ${f0(d1_final)}` : "",
+        nws_last  != null ? `D0 at model run: ${f0(nws_last)}` : "",
+      ].filter(Boolean).join(" · ") || "Awaiting next cycle";
+  const jump_title = _todayDone ? "D0 Confirmed vs D+1 NWS" : "NWS Overnight Jump";
 
-  // ── Multi-model spread — from model snapshot
-  const mm_spread  = s.mm_spread;
-  const mm_mean    = s.mm_mean;
-  const hrrr       = s.mm_hrrr_max;
-  const hrrr_ecmwf = s.mm_hrrr_ecmwf_diff;
+  // ── Multi-model spread — from model snapshot (ms = tomorrow's when day is done)
+  const mm_spread  = ms.mm_spread;
+  const mm_mean    = ms.mm_mean;
+  const hrrr       = ms.mm_hrrr_max;
+  const hrrr_ecmwf = ms.mm_hrrr_ecmwf_diff;
   const mm_sub = [
     mm_mean    != null ? `Consensus: ${f0(mm_mean)}` : "",
     hrrr       != null ? `HRRR: ${f0(hrrr)}` : "",
@@ -4031,10 +4053,10 @@ function renderLiveSourcesPanel() {
     card(synLabel,
          f1(syn_mean), syn_sub,
          syn_mean != null ? "var(--accent-green)" : "var(--border-default)"),
-    card("NWS Overnight Jump",
-         o_jump != null ? fSign(o_jump) : "–",
+    card(jump_title,
+         o_jump != null ? fSign(o_jump) : (_todayDone && ml.tomorrowNwsD0 != null && _todayActualHigh != null ? fSign(Number(ml.tomorrowNwsD0) - _todayActualHigh) : "–"),
          jump_sub, jump_color),
-    card("Multi-Model Spread",
+    card(_todayDone ? "Multi-Model Spread (D+1)" : "Multi-Model Spread",
          mm_spread != null ? `${Number(mm_spread).toFixed(1)}°F` : "–",
          mm_sub,
          mm_spread != null && Number(mm_spread) >= 3 ? "#d97706" : "var(--accent-blue)"),
@@ -4055,9 +4077,13 @@ function renderLiveSourcesPanel() {
   // Tooltip — city-specific description
   const tip = document.getElementById("live-sources-tip");
   if (tip) {
-    tip.dataset.tip = isLax
-      ? "Real-time data feeding today's ML prediction. KLAX is the airport station. KCQT (USC Downtown) is the NWS/Kalshi official measurement reference. LAX/BUR spread signals marine layer depth. USC Area aggregates 100+ stations within 8mi of downtown."
-      : "Real-time data feeding today's ML prediction. KNYC is the official Central Park station. JFK/LGA capture sea-breeze gradients. Synoptic aggregates 100+ stations within 5mi. NYSM shows NYC borough temps.";
+    tip.dataset.tip = _todayDone
+      ? (isLax
+          ? "Today's high is confirmed. Live station temps show current conditions as tomorrow's baseline. Model cards (Spread, NWS Jump) now reflect tomorrow's D+1 snapshot inputs."
+          : "Today's high is confirmed. Live station temps show current conditions as tomorrow's baseline. Model cards (Spread, NWS Jump) now reflect tomorrow's D+1 snapshot inputs.")
+      : (isLax
+          ? "Real-time data feeding today's ML prediction. KLAX is the airport station. KCQT (USC Downtown) is the NWS/Kalshi official measurement reference. LAX/BUR spread signals marine layer depth. USC Area aggregates 100+ stations within 8mi of downtown."
+          : "Real-time data feeding today's ML prediction. KNYC is the official Central Park station. JFK/LGA capture sea-breeze gradients. Synoptic aggregates 100+ stations within 5mi. NYSM shows NYC borough temps.");
   }
 
   // Timestamp
@@ -4065,7 +4091,9 @@ function renderLiveSourcesPanel() {
   if (ts) {
     const tzAbbr = currentCity === 'lax' ? 'PT' : 'ET';
     const nowLocal = new Date().toLocaleString("en-US", { timeZone: _cityTZ, hour: "numeric", minute: "2-digit", hour12: true });
-    ts.textContent = `Updated ${nowLocal} ${tzAbbr}`;
+    ts.textContent = _todayDone
+      ? `D+1 setup · Updated ${nowLocal} ${tzAbbr}`
+      : `Updated ${nowLocal} ${tzAbbr}`;
   }
 }
 
