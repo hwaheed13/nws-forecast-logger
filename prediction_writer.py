@@ -2169,14 +2169,14 @@ def _fetch_observation_features(
     # Running daily max
     features["obs_max_so_far"] = max(r["temp_f"] for r in valid_obs)
 
-    # 6-hour max: max of last 6 hours of observations, or from six_hr_max_f column
-    six_hr_vals = [r["six_hr_max_f"] for r in valid_obs if r.get("six_hr_max_f") is not None]
-    if six_hr_vals:
-        features["obs_6hr_max"] = max(six_hr_vals)
-    else:
-        # Compute from hourly obs: max of last 6 observations
-        recent_6 = valid_obs[-6:] if len(valid_obs) >= 6 else valid_obs
-        features["obs_6hr_max"] = max(r["temp_f"] for r in recent_6)
+    # 6-hour max: max of last 6 calendar-day observations (temp_f only).
+    # We intentionally ignore the METAR six_hr_max_f column here because it is a
+    # rolling 6-hour window recorded by the weather station and can cross midnight,
+    # pulling yesterday's warm readings into today's feature at 1–3 AM and causing
+    # false "LIVE DATA EXCEEDS PREDICTION" alerts.  valid_obs is already filtered to
+    # the current calendar day by _query_supabase_observations, so using temp_f is safe.
+    recent_6 = valid_obs[-6:] if len(valid_obs) >= 6 else valid_obs
+    features["obs_6hr_max"] = max(r["temp_f"] for r in recent_6)
 
     # Delta vs Open-Meteo forecast at same hour
     obs_hour = features.get("obs_latest_hour")
