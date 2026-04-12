@@ -3563,8 +3563,7 @@ def _score_bucket(ml_bucket: str, actual_int: int, kalshi_snapshot_raw) -> bool:
         except Exception:
             pass
     # Fallback: direct bucket check (no Kalshi snapshot).
-    # Our ML buckets are 1°F wide: "68-69" means high=68°F (floor-based, [68, 69) exclusive upper).
-    # NWS actuals are always whole-number integers, so actual_int == lo is the correct WIN condition.
+    # Kalshi "68-69" covers both 68°F and 69°F — inclusive on both ends.
     if ml_bucket.startswith("<="):
         try: return actual_int <= int(ml_bucket[2:])
         except ValueError: return False
@@ -3576,8 +3575,7 @@ def _score_bucket(ml_bucket: str, actual_int: int, kalshi_snapshot_raw) -> bool:
         if len(parts) == 2:
             try:
                 lo, hi = int(parts[0]), int(parts[1])
-                # Half-open [lo, hi): actual must equal lo (1°F-wide bucket, exclusive upper bound)
-                return lo <= actual_int < hi
+                return lo <= actual_int <= hi
             except ValueError: pass
     return False
 
@@ -3671,8 +3669,7 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
                 kalshi_snapshot = None  # triggers fallback below
 
         # Fallback: direct bucket check (when no Kalshi snapshot available).
-        # Our ML buckets are 1°F wide: "68-69" = [68, 69) exclusive upper.
-        # NWS actuals are whole numbers, so lo <= actual < hi is the correct test.
+        # Kalshi "68-69" covers both 68°F and 69°F — inclusive on both ends.
         if not kalshi_snapshot:
             if ml_bucket.startswith("<="):
                 try:
@@ -3691,7 +3688,7 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
                 if len(parts) == 2:
                     try:
                         lo, hi = int(parts[0]), int(parts[1])
-                        is_win = lo <= actual_int < hi  # exclusive upper bound
+                        is_win = lo <= actual_int <= hi
                     except ValueError:
                         pass
 
