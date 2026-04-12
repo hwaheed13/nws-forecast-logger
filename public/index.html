@@ -576,6 +576,7 @@ input[type="date"] {
             <span class="tip" tabindex="0" data-tip="ML model prediction — recomputes when NWS or AccuWeather revises their forecast. Freezes once the official daily high is recorded.">i</span>
           </div>
           <div id="correctionBoxToday" class="prediction-content">Loading...</div>
+          <div id="prediction-flip-today"></div>
           <div id="overnight-warn-today"></div>
         </div>
         <div class="prediction-card" id="ml-signal-tomorrow-card">
@@ -3647,6 +3648,27 @@ function renderMLBetSignal() {
   } else {
     renderCard("today", ml.todayMLBucket, ml.todayBetSignal, ml.todayMLConfidence, ml.todayEdge, ml.todayMarketSnapshot);
   }
+
+  // ── Intraday flip indicator ───────────────────────────────────────────────
+  // Shows when the canonical (first-of-day) bucket differs from the current bucket,
+  // signalling the model changed its mind since market open.
+  const _flipNote = document.getElementById("prediction-flip-today");
+  if (_flipNote) {
+    const _canonBucket = ml.todayMLBucketCanonical;
+    const _currBucket  = ml.todayMLBucket;
+    if (_canonBucket && _currBucket && _canonBucket !== _currBucket) {
+      _flipNote.innerHTML = `
+        <div style="margin-top:8px;padding:6px 10px;background:#fffbeb;border-left:3px solid #f59e0b;
+                    border-radius:4px;font-size:12px;color:#92400e;line-height:1.4;">
+          🔄 <strong>Prediction shifted today</strong> —
+          opened <span style="font-weight:700;">${cleanKalshiLabel(_canonBucket)}</span>,
+          now <span style="font-weight:700;">${cleanKalshiLabel(_currBucket)}</span>
+        </div>`;
+    } else {
+      _flipNote.innerHTML = '';
+    }
+  }
+
   renderCard("tomorrow", ml.tomorrowMLBucket, ml.tomorrowBetSignal, ml.tomorrowMLConfidence, ml.tomorrowEdge, ml.tomorrowMarketSnapshot);
 
   // LAX informational note — model now trains on all available days (persistence
