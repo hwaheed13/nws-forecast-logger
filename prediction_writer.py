@@ -279,6 +279,99 @@ def _load_v5_models():
     )
 
 
+def _load_v6_models():
+    """Load v6 models: bcp_v6 regressor + classifier + feature cols (cached).
+    v6 = v5 + NBM, GEM HRDPS, HRRR-specific 925mb, OKX radiosonde (138 features).
+    Same AccuWeather/NWS base as v5 — v7 is the HRRR-anchored upgrade.
+    """
+    import nws_auto_logger as _nal
+    prefix = _nal._CITY_CFG.get("model_prefix", "")
+    cache_key = f"{prefix}v6_regressor"
+    if cache_key not in _ML_MODEL_CACHE:
+        _ML_MODEL_CACHE[cache_key] = None
+        _ML_MODEL_CACHE[f"{prefix}v6_classifier"] = None
+        _ML_MODEL_CACHE[f"{prefix}v6_feature_cols"] = None
+
+        try:
+            with open(f"{prefix}bcp_v6_regressor.pkl", "rb") as f:
+                _ML_MODEL_CACHE[cache_key] = pickle.load(f)
+            print(f"✅ Loaded v6 regression model (prefix='{prefix}')")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            print(f"⚠️ v6 regression load error: {e}")
+
+        try:
+            from train_classifier import BucketClassifier
+            if os.path.exists(f"{prefix}bcp_v6_classifier.pkl"):
+                _ML_MODEL_CACHE[f"{prefix}v6_classifier"] = BucketClassifier.load(
+                    f"{prefix}bcp_v6_classifier.pkl"
+                )
+                print(f"✅ Loaded v6 bucket classifier (prefix='{prefix}')")
+        except Exception as e:
+            print(f"⚠️ v6 classifier load error: {e}")
+
+        try:
+            if os.path.exists(f"{prefix}bcp_v6_feature_cols.pkl"):
+                with open(f"{prefix}bcp_v6_feature_cols.pkl", "rb") as f:
+                    _ML_MODEL_CACHE[f"{prefix}v6_feature_cols"] = pickle.load(f)
+        except Exception as e:
+            print(f"⚠️ v6 feature cols load error: {e}")
+
+    return (
+        _ML_MODEL_CACHE.get(cache_key),
+        _ML_MODEL_CACHE.get(f"{prefix}v6_classifier"),
+        _ML_MODEL_CACHE.get(f"{prefix}v6_feature_cols"),
+    )
+
+
+def _load_v7_models():
+    """Load v7 models: bcp_v7 regressor + classifier + feature cols (cached).
+    v7 = v6 features (138) + HRRR-anchored training base.
+    Key: regressor predicts (actual - HRRR_max) bias, not (actual - AccuWeather) bias.
+    At inference: center = HRRR_max + bias when HRRR available, NBM_max + bias second.
+    """
+    import nws_auto_logger as _nal
+    prefix = _nal._CITY_CFG.get("model_prefix", "")
+    cache_key = f"{prefix}v7_regressor"
+    if cache_key not in _ML_MODEL_CACHE:
+        _ML_MODEL_CACHE[cache_key] = None
+        _ML_MODEL_CACHE[f"{prefix}v7_classifier"] = None
+        _ML_MODEL_CACHE[f"{prefix}v7_feature_cols"] = None
+
+        try:
+            with open(f"{prefix}bcp_v7_regressor.pkl", "rb") as f:
+                _ML_MODEL_CACHE[cache_key] = pickle.load(f)
+            print(f"✅ Loaded v7 regression model [HRRR-anchored] (prefix='{prefix}')")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            print(f"⚠️ v7 regression load error: {e}")
+
+        try:
+            from train_classifier import BucketClassifier
+            if os.path.exists(f"{prefix}bcp_v7_classifier.pkl"):
+                _ML_MODEL_CACHE[f"{prefix}v7_classifier"] = BucketClassifier.load(
+                    f"{prefix}bcp_v7_classifier.pkl"
+                )
+                print(f"✅ Loaded v7 bucket classifier (prefix='{prefix}')")
+        except Exception as e:
+            print(f"⚠️ v7 classifier load error: {e}")
+
+        try:
+            if os.path.exists(f"{prefix}bcp_v7_feature_cols.pkl"):
+                with open(f"{prefix}bcp_v7_feature_cols.pkl", "rb") as f:
+                    _ML_MODEL_CACHE[f"{prefix}v7_feature_cols"] = pickle.load(f)
+        except Exception as e:
+            print(f"⚠️ v7 feature cols load error: {e}")
+
+    return (
+        _ML_MODEL_CACHE.get(cache_key),
+        _ML_MODEL_CACHE.get(f"{prefix}v7_classifier"),
+        _ML_MODEL_CACHE.get(f"{prefix}v7_feature_cols"),
+    )
+
+
 def _detect_high_locked(target_date_iso: str,
                         nws_forecast: float | None = None) -> dict:
     """
@@ -1433,30 +1526,54 @@ def _compute_ml_prediction(
         except Exception as _v1_e:
             print(f"⚠️ v1 regression predict failed (skipping to v4/v2): {_v1_e}")
 
-    # --- 11. Try v5 > v4 > v2 (each adds more features; v5 is production champion) ---
+    # --- 11. Try v7 > v6 > v5 > v4 > v2 (each adds more features or better base) ---
+    # v7: HRRR-anchored base (HRRR > NBM > AccuWeather > NWS), same 138 features as v6
+    # v6: AccuWeather/NWS base + NBM, GEM HRDPS, HRRR 925mb, OKX radiosonde (138 features)
+    # v5: AccuWeather/NWS base + high-timing features (122 features)
+    # v4+: older architectures (backward compat)
+    v7_regressor, v7_classifier, v7_feature_cols = _load_v7_models()
+    v6_regressor, v6_classifier, v6_feature_cols = _load_v6_models()
     v5_regressor, v5_classifier, v5_feature_cols = _load_v5_models()
     v4_regressor, v4_bucket_info, v4_classifier = _load_v4_models()
     v2_temp_model, v2_bucket_info, v2_classifier, v2_atm_predictor = _load_v2_models()
 
-    # Select best available model: v5 (126 features, 50.5% CV) > v4 > v2
-    # HIGH_TIMING_COLS are NaN for D+1/overnight — HistGBT handles NaN natively, no fallback needed.
-    use_v5 = v5_classifier is not None and v5_feature_cols is not None
-    use_v4 = not use_v5 and v4_classifier is not None
-    active_classifier = v5_classifier if use_v5 else (v4_classifier if use_v4 else v2_classifier)
-    active_regressor = v5_regressor if use_v5 else (v4_regressor if use_v4 else v2_temp_model)
-    active_bucket_info = v4_bucket_info if (use_v5 or use_v4) else v2_bucket_info
-    # v5: use feature cols from pkl (authoritative, diffed against model_config at train time)
-    # v4: prefer regressor's saved names for self-consistency; fall back to model_config
-    # v2: model_config FEATURE_COLS_V2
-    if use_v5:
+    # Select best available model (prefer newest HRRR-anchored v7)
+    use_v7 = v7_classifier is not None and v7_feature_cols is not None
+    use_v6 = not use_v7 and v6_classifier is not None and v6_feature_cols is not None
+    use_v5 = not use_v7 and not use_v6 and v5_classifier is not None and v5_feature_cols is not None
+    use_v4 = not use_v7 and not use_v6 and not use_v5 and v4_classifier is not None
+
+    if use_v7:
+        active_classifier = v7_classifier
+        active_regressor  = v7_regressor
+        active_feature_cols = v7_feature_cols
+        active_version = "v7_hrrr_anchored"
+    elif use_v6:
+        active_classifier = v6_classifier
+        active_regressor  = v6_regressor
+        active_feature_cols = v6_feature_cols
+        active_version = "v6_nbm_hrdps_hrrr925_radiosonde"
+    elif use_v5:
+        active_classifier = v5_classifier
+        active_regressor  = v5_regressor
         active_feature_cols = v5_feature_cols
-    elif active_regressor is not None and hasattr(active_regressor, "feature_names_in_"):
-        active_feature_cols = list(active_regressor.feature_names_in_)
+        active_version = "v5_high_timing"
     elif use_v4:
-        active_feature_cols = FEATURE_COLS_V4
+        active_classifier = v4_classifier
+        active_regressor  = v4_regressor
+        active_feature_cols = (
+            list(v4_regressor.feature_names_in_)
+            if (v4_regressor is not None and hasattr(v4_regressor, "feature_names_in_"))
+            else FEATURE_COLS_V4
+        )
+        active_version = "v4_observation_features"
     else:
+        active_classifier = v2_classifier
+        active_regressor  = v2_temp_model
         active_feature_cols = FEATURE_COLS_V2
-    active_version = "v5_high_timing" if use_v5 else ("v4_observation_features" if use_v4 else "v2_atm_classifier")
+        active_version = "v2_atm_classifier"
+
+    active_bucket_info = v4_bucket_info if (use_v7 or use_v6 or use_v5 or use_v4) else v2_bucket_info
 
     if active_classifier is not None:
         try:
@@ -1633,34 +1750,69 @@ def _compute_ml_prediction(
                 if pd.isna(X_v2.loc[0, accu_col]):
                     X_v2.loc[0, accu_col] = X_v2.loc[0, nws_col]
 
-            # ── Center temperature: atm_predicted_high is the north star ──────
+            # ── Center temperature: v7 priority cascade ───────────────────────
             #
-            # The atmospheric predictor is a 1,278-day physics model trained on
-            # Open-Meteo actuals (BL height, 925mb temp, solar, HRRR ensemble) —
-            # zero contamination from NWS or AccuWeather. It is the best available
-            # intraday-independent temperature estimate.
+            # v7 architecture (HRRR-anchored):
+            #   1. HRRR_max + v7_bias   HRRR is #1 accuracy model (wethr.net).
+            #                           v7 regressor trained on (actual - HRRR), so
+            #                           bias is the systematic HRRR correction.
+            #   2. NBM_max + v7_bias    #2-3 accuracy, blends 50+ models.
+            #   3. atm_predicted_high   Physics model — BL height, solar, 925mb.
+            #                           Fallback when HRRR/NBM unavailable.
+            #   4. accu/nws + v7_bias   Historical compatibility base.
+            #   5. Forecast average     No models at all.
             #
-            # Priority (highest to lowest):
-            #   1. atm_predicted_high — physics-based, agency-independent
-            #   2. active_regressor prediction (base + bias) — as a fallback when
-            #      atm predictor hasn't run or is NaN
-            #   3. NWS/AccuWeather average — last resort when both models absent
-            #
-            # By making atm_predicted_high the anchor, a stale AccuWeather at 65°F
-            # vs NWS 62°F no longer shifts the bucket distribution — the BL height,
-            # 925mb temps and solar are the north star, not agency guesses.
+            # Pre-v7 (v6 and below): atm_predicted_high was the primary anchor.
+            # v7 promotes HRRR/NBM to tier-1 because they are highest-accuracy
+            # SHORT-RANGE models and explicitly correct for GFS cap errors.
+            # On a cap day: HRRR shows 54°F, atm_predicted_high (using GFS 925mb)
+            # shows 58°F — v7 anchors at 54, avoids the NWS/AccuWeather cap miss.
+
             atm_pred_val = v2_features.get("atm_predicted_high")
             has_atm = (atm_pred_val is not None
                        and not (isinstance(atm_pred_val, float) and math.isnan(atm_pred_val))
-                       and 0.0 < float(atm_pred_val) < 130.0)  # sanity guard
+                       and 0.0 < float(atm_pred_val) < 130.0)
 
-            if has_atm:
-                # PRIMARY: atmospheric predictor — fully independent of agencies
+            def _valid_temp(v):
+                """Return float if v is a finite temperature in [0, 130], else None."""
+                if v is None:
+                    return None
+                try:
+                    fv = float(v)
+                except (TypeError, ValueError):
+                    return None
+                return fv if (math.isfinite(fv) and 0.0 < fv < 130.0) else None
+
+            _hrrr_base = _valid_temp(v2_features.get("mm_hrrr_max"))
+            _nbm_base  = _valid_temp(v2_features.get("mm_nbm_max"))
+
+            if use_v7 and active_regressor is not None and _hrrr_base is not None:
+                # TIER 1 (v7): HRRR anchor + v7 bias correction
+                # v7 regressor was trained on y_bias = actual - HRRR_max,
+                # so predicted bias = expected (actual - HRRR) for these conditions.
+                v7_bias = float(active_regressor.predict(X_v2)[0])
+                v2_temp = _hrrr_base + v7_bias
+                _atm_note = (f" | atm={float(atm_pred_val):.1f}°F (delta={v2_temp - float(atm_pred_val):+.1f}°F)"
+                             if has_atm else "")
+                print(f"   Center temp: {v2_temp:.1f}°F "
+                      f"(v7: HRRR={_hrrr_base:.0f} + bias={v7_bias:+.1f}){_atm_note}")
+
+            elif use_v7 and active_regressor is not None and _nbm_base is not None:
+                # TIER 2 (v7): NBM anchor + v7 bias correction
+                v7_bias = float(active_regressor.predict(X_v2)[0])
+                v2_temp = _nbm_base + v7_bias
+                _atm_note = (f" | atm={float(atm_pred_val):.1f}°F (delta={v2_temp - float(atm_pred_val):+.1f}°F)"
+                             if has_atm else "")
+                print(f"   Center temp: {v2_temp:.1f}°F "
+                      f"(v7: NBM={_nbm_base:.0f} + bias={v7_bias:+.1f}){_atm_note}")
+
+            elif has_atm:
+                # TIER 3: atmospheric predictor (physics model, agency-independent)
+                # Used for v6/v5/v4 when v7 is not active, or v7 when HRRR/NBM unavailable.
                 v2_temp = float(atm_pred_val)
                 _regression_note = ""
                 if active_regressor is not None:
-                    # Still run regressor so we can log the delta for monitoring,
-                    # but do NOT use it to shift the center.
+                    # Run regressor for monitoring/logging only — do NOT shift center.
                     try:
                         _v2_bias_ref = float(active_regressor.predict(X_v2)[0])
                         _v2_temp_ref = base + _v2_bias_ref
@@ -1670,16 +1822,18 @@ def _compute_ml_prediction(
                     except Exception:
                         pass
                 print(f"   Center temp: {v2_temp:.1f}°F "
-                      f"(atm_predicted_high — physics north star){_regression_note}")
+                      f"(atm_predicted_high — physics fallback [{active_version}]){_regression_note}")
+
             elif active_regressor is not None:
-                # FALLBACK 1: regression on top of NWS/AccuWeather base
+                # TIER 4: AccuWeather/NWS base + regressor bias (historical compat)
                 v2_bias = float(active_regressor.predict(X_v2)[0])
                 v2_temp = base + v2_bias
                 print(f"   Center temp: {v2_temp:.1f}°F "
-                      f"({active_version} regression fallback: base={base:.0f} + bias={v2_bias:+.1f}) "
-                      f"[atm predictor unavailable]")
+                      f"({active_version}: base={base:.0f} + bias={v2_bias:+.1f}) "
+                      f"[HRRR/NBM/atm unavailable]")
+
             else:
-                # FALLBACK 2: no model at all — use forecast average
+                # TIER 5: no models — use forecast average
                 all_forecasts = [features["nws_last"]]
                 if has_accu and not np.isnan(features["accu_last"]):
                     all_forecasts.append(features["accu_last"])

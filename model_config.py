@@ -296,6 +296,34 @@ FEATURE_COLS_V6 = (
     + RADIOSONDE_COLS
 )
 
+# ═══════════════════════════════════════════════════════════════════════
+# v7 feature columns — same as v6 but DIFFERENT training base
+# ═══════════════════════════════════════════════════════════════════════
+#
+# ARCHITECTURAL CHANGE (v7):
+#   v1-v6: y_bias = actual - AccuWeather (or NWS fallback)
+#   v7:    y_bias = actual - HRRR_max (or NBM > AccuWeather > NWS cascade)
+#
+#   Why this matters:
+#     HRRR is ranked #1 accuracy model (wethr.net). AccuWeather/NWS rank #11-16.
+#     When y_bias is computed relative to HRRR, the regressor learns:
+#       "HRRR is typically X°F off in these conditions" rather than
+#       "AccuWeather is typically Y°F off in these conditions."
+#     On cap days: HRRR shows 54°F, AccuWeather shows 58°F. v6 anchors at 58
+#     and tries to apply a -3 correction. v7 anchors at 54 from the start.
+#
+#   Inference priority (v7 active):
+#     1. HRRR_max + v7_regressor_bias  (when HRRR available — best model)
+#     2. NBM_max + v7_regressor_bias   (when HRRR unavailable, NBM available)
+#     3. atm_predicted_high            (physics model fallback)
+#     4. AccuWeather/NWS + v7_bias     (last resort for historical compatibility)
+#
+#   Historical rows (no HRRR/NBM): base falls through to AccuWeather/NWS.
+#   HistGradientBoostingRegressor handles mixed-base NaN training natively.
+#
+# Total: same 138 features as v6 — architectural change is in the base only.
+FEATURE_COLS_V7 = FEATURE_COLS_V6  # identical feature set; base changes at train/inference
+
 # Additional features added per-candidate-bucket during classification (4)
 BUCKET_POSITION_COLS = [
     "bucket_center",

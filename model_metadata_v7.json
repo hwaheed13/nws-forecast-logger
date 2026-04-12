@@ -1,29 +1,21 @@
 {
-  "trained_on": "2026-04-12T17:26:56.823945",
-  "version": "v6_nbm_hrdps_hrrr925_radiosonde",
-  "v6_regression": {
+  "trained_on": "2026-04-12T17:27:06.613895",
+  "version": "v7_hrrr_anchored_base",
+  "base_cascade": "HRRR > NBM > AccuWeather > NWS",
+  "v7_regression": {
     "cv_mae": 1.200751368270886,
     "cv_bucket_accuracy": 0.3136363636363636,
     "residual_std": 1.6429489452765562,
     "n_features": 148,
-    "n_training_rows": 266
+    "n_training_rows": 266,
+    "base_sources": {
+      "hrrr": 0,
+      "nbm": 0,
+      "accuweather": 266,
+      "nws": 0
+    }
   },
-  "new_features_v6": [
-    "mm_nbm_max",
-    "mm_gem_hrdps_max",
-    "mm_nbm_hrrr_diff",
-    "atm_925mb_hrrr_max",
-    "atm_925mb_hrrr_mean",
-    "atm_850mb_hrrr_max",
-    "atm_850mb_hrrr_mean",
-    "atm_925mb_gfs_hrrr_diff",
-    "raob_925mb_temp",
-    "raob_850mb_temp",
-    "raob_700mb_temp",
-    "raob_925mb_gfs_diff",
-    "raob_925mb_hrrr_diff"
-  ],
-  "feature_columns_v6": [
+  "feature_columns_v7": [
     "nws_first",
     "nws_last",
     "nws_max",

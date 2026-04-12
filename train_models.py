@@ -2128,7 +2128,204 @@ class NYCTemperatureModelTrainer:
         except Exception:
             pass
 
-    def run(self, v2: bool = False, v4: bool = False, v5: bool = False, v6: bool = False):
+    def train_v7(self) -> None:
+        """
+        Train v7 model: same 138 features as v6 but with HRRR > NBM > AccuWeather > NWS base.
+
+        ARCHITECTURAL CHANGE — v7 trains y_bias = actual - HRRR_max (when HRRR is available),
+        falling back to NBM, then AccuWeather, then NWS for historical rows where HRRR/NBM
+        are NaN.  This makes the regressor learn "how far off is HRRR?" rather than
+        "how far off is AccuWeather?" — a fundamental improvement since HRRR is the
+        highest-accuracy short-range model (#1 on wethr.net vs AccuWeather #11-16).
+
+        Cap-day example (April 12, 2026):
+          v6:  base = AccuWeather 58°F, bias ≈ -1 → predicted 57°F (WRONG)
+          v7:  base = HRRR 54°F, bias ≈ -1 → predicted 53°F (correct ≤55 bucket)
+
+        At inference time (prediction_writer.py), the priority also flips:
+          v7 active + HRRR available → center = HRRR_max + v7_regressor_bias
+          v7 active + NBM available  → center = NBM_max + v7_regressor_bias
+          fallback                   → atm_predicted_high or AccuWeather/NWS + bias
+
+        Requires v6 training data to be loaded first.
+        """
+        from model_config import FEATURE_COLS_V7, HRRR_PRESSURE_COLS, RADIOSONDE_COLS
+        from train_classifier import BucketClassifier
+
+        print(f"\n{'═'*60}")
+        print(f"v7 Training: HRRR-anchored base + {len(FEATURE_COLS_V7)} features")
+        print(f"{'═'*60}")
+        print(f"  Key change: y_bias = actual - HRRR_max (not AccuWeather)")
+        print(f"  Fallback cascade: HRRR > NBM > AccuWeather > NWS")
+
+        if self.features_df is None or self.features_df.empty:
+            print("  ⚠️ No feature data. Run train_v6() first.")
+            return
+
+        # Ensure all v7 columns exist (NaN for historical rows)
+        missing_v7 = [c for c in FEATURE_COLS_V7 if c not in self.features_df.columns]
+        if missing_v7:
+            print(f"  Missing v7 cols (NaN for historical rows): {len(missing_v7)} columns")
+            for col in missing_v7:
+                self.features_df[col] = np.nan
+
+        # Coverage report — how many rows have the HRRR/NBM base available?
+        new_cols = (
+            ["mm_hrrr_max", "mm_nbm_max", "mm_gem_hrdps_max"]
+            + HRRR_PRESSURE_COLS
+            + RADIOSONDE_COLS
+        )
+        print("  Base cascade coverage (live rows only):")
+        for col in new_cols:
+            n = self.features_df[col].notna().sum() if col in self.features_df.columns else 0
+            print(f"    {col}: {n} non-null rows")
+
+        has_forecast_mask = self.features_df["nws_last"].notna()
+        forecast_df = self.features_df[has_forecast_mask].copy()
+        n_forecast = len(forecast_df)
+        print(f"\n  Regression: {n_forecast} rows with forecasts")
+
+        if n_forecast < MIN_DAYS_FOR_TRAINING:
+            print(f"  ⚠️ Need {MIN_DAYS_FOR_TRAINING} rows, have {n_forecast}. Skipping.")
+            return
+
+        X_v7 = forecast_df[FEATURE_COLS_V7]
+        y_actual = forecast_df["actual_high"]
+        nws_last = forecast_df["nws_last"]
+        accu_last = forecast_df["accu_last"]
+
+        # ── v7 HRRR > NBM > AccuWeather > NWS base cascade ───────────────
+        # For rows where HRRR is available (recent live rows): use HRRR as base.
+        # For older historical rows (HRRR NaN): fall through to NBM → AccuWeather → NWS.
+        # HistGradientBoostingRegressor handles mixed-base training natively via NaN.
+        hrrr_max = forecast_df.get("mm_hrrr_max", pd.Series(np.nan, index=forecast_df.index))
+        nbm_max  = forecast_df.get("mm_nbm_max",  pd.Series(np.nan, index=forecast_df.index))
+
+        base = hrrr_max.copy()                                 # prefer HRRR
+        base[base.isna()] = nbm_max[base.isna()].values       # fallback to NBM
+        base[base.isna()] = accu_last[base.isna()].values     # fallback to AccuWeather
+        base[base.isna()] = nws_last[base.isna()].values      # last resort: NWS
+
+        # Log base source breakdown
+        n_hrrr  = hrrr_max.notna().sum()
+        n_nbm   = (hrrr_max.isna() & nbm_max.notna()).sum()
+        n_accu  = (hrrr_max.isna() & nbm_max.isna() & accu_last.notna()).sum()
+        n_nws   = (hrrr_max.isna() & nbm_max.isna() & accu_last.isna() & nws_last.notna()).sum()
+        print(f"\n  Base source breakdown: HRRR={n_hrrr}, NBM={n_nbm}, "
+              f"AccuWeather={n_accu}, NWS={n_nws}")
+
+        y_bias = y_actual - base
+
+        tscv = TimeSeriesSplit(n_splits=5)
+        mae_scores, bucket_acc, all_residuals = [], [], []
+
+        for tr, te in tscv.split(X_v7):
+            model = HistGradientBoostingRegressor(
+                max_iter=300, max_depth=3, learning_rate=0.03,
+                min_samples_leaf=20, l2_regularization=1.0,
+                max_leaf_nodes=15, random_state=42,
+            )
+            model.fit(X_v7.iloc[tr], y_bias.iloc[tr])
+            pred_bias = model.predict(X_v7.iloc[te])
+            pred_temp = base.iloc[te].values + pred_bias
+            mae_scores.append(mean_absolute_error(y_actual.iloc[te], pred_temp))
+            all_residuals.extend((y_actual.iloc[te].values - pred_temp).tolist())
+            pred_buckets   = [f"{int(p)}-{int(p)+1}" for p in pred_temp]
+            actual_buckets = [f"{int(a)}-{int(a)+1}" for a in y_actual.iloc[te]]
+            correct = sum(1 for pb, ab in zip(pred_buckets, actual_buckets) if pb == ab)
+            bucket_acc.append(correct / len(actual_buckets))
+
+        residual_std = float(np.std(all_residuals))
+        print(f"  v7 CV MAE:        {np.mean(mae_scores):.2f}°F")
+        print(f"  v7 CV Bucket Acc: {np.mean(bucket_acc):.1%}")
+        print(f"  v7 Residual Std:  {residual_std:.2f}°F")
+
+        # Train final model on all data
+        v7_regressor = HistGradientBoostingRegressor(
+            max_iter=300, max_depth=3, learning_rate=0.03,
+            min_samples_leaf=20, l2_regularization=1.0,
+            max_leaf_nodes=15, random_state=42,
+        )
+        v7_regressor.fit(X_v7, y_bias)
+
+        # Feature importance for key v7 features
+        try:
+            fi = dict(zip(FEATURE_COLS_V7, v7_regressor.feature_importances_))
+            top_cols = (
+                ["mm_hrrr_max", "mm_nbm_max", "mm_gem_hrdps_max",
+                 "mm_hrrr_gfs_diff", "mm_nbm_hrrr_diff", "atm_925mb_gfs_hrrr_diff"]
+                + HRRR_PRESSURE_COLS
+                + RADIOSONDE_COLS
+            )
+            print("  Key v7 feature importances (HRRR/cap-related):")
+            for col in top_cols:
+                if col in fi:
+                    print(f"    {col}: {fi[col]:.4f}")
+        except Exception:
+            pass
+
+        # Bucket classifier
+        classifier = BucketClassifier()
+        classifier.train(
+            self.features_df.copy().reset_index(drop=True),
+            feature_cols=FEATURE_COLS_V7,
+            residual_std=residual_std,
+            forecast_weight=5.0,
+        )
+
+        # Save models
+        prefix = self.model_prefix
+        with open(f"{prefix}bcp_v7_regressor.pkl", "wb") as f:
+            pickle.dump(v7_regressor, f)
+        with open(f"{prefix}bcp_v7_classifier.pkl", "wb") as f:
+            pickle.dump(classifier, f)
+        with open(f"{prefix}bcp_v7_feature_cols.pkl", "wb") as f:
+            pickle.dump(list(FEATURE_COLS_V7), f)
+
+        v7_meta = {
+            "trained_on": datetime.now().isoformat(),
+            "version": "v7_hrrr_anchored_base",
+            "base_cascade": "HRRR > NBM > AccuWeather > NWS",
+            "v7_regression": {
+                "cv_mae": float(np.mean(mae_scores)),
+                "cv_bucket_accuracy": float(np.mean(bucket_acc)),
+                "residual_std": residual_std,
+                "n_features": len(FEATURE_COLS_V7),
+                "n_training_rows": n_forecast,
+                "base_sources": {
+                    "hrrr": int(n_hrrr),
+                    "nbm": int(n_nbm),
+                    "accuweather": int(n_accu),
+                    "nws": int(n_nws),
+                },
+            },
+            "feature_columns_v7": list(FEATURE_COLS_V7),
+        }
+        import json as _json
+        with open(f"{prefix}model_metadata_v7.json", "w") as f:
+            _json.dump(v7_meta, f, indent=2)
+
+        print(f"\n  ✅ Saved v7 models: bcp_v7_regressor.pkl, bcp_v7_classifier.pkl")
+        print(f"  v7 Classifier Bucket Acc: {classifier.cv_bucket_accuracy:.1%}")
+
+        # Compare v6 vs v7
+        try:
+            import json as _j
+            with open(f"{prefix}model_metadata_v6.json") as f:
+                v6_meta = _j.load(f)
+            v6_mae = v6_meta.get("v6_regression", {}).get("cv_mae")
+            v6_bkt = v6_meta.get("v6_regression", {}).get("cv_bucket_accuracy")
+            print(f"\n{'─'*50}")
+            print(f"COMPARISON: v6 vs v7 (key change: HRRR-anchored base)")
+            if v6_mae: print(f"  MAE:        v6={v6_mae:.2f}°F → v7={np.mean(mae_scores):.2f}°F")
+            if v6_bkt: print(f"  Bucket Acc: v6={v6_bkt:.1%} → v7={np.mean(bucket_acc):.1%}")
+            print(f"  Note: CV uses mixed base (mostly historical AccuWeather rows).")
+            print(f"  v7 advantage grows as HRRR/NBM live rows accumulate over time.")
+            print(f"{'─'*50}")
+        except Exception:
+            pass
+
+    def run(self, v2: bool = False, v4: bool = False, v5: bool = False, v6: bool = False, v7: bool = False):
         label = self.city_cfg["label"]
         print("=" * 60)
         print(f"{label} Temperature Model Training")
@@ -2190,6 +2387,18 @@ class NYCTemperatureModelTrainer:
                 self.train_v5()
             self.train_v6()
 
+        if v7:
+            if not v2:
+                self.train_v2()
+                self.train_v3()
+            if not v4:
+                self.train_v4()
+            if not v5:
+                self.train_v5()
+            if not v6:
+                self.train_v6()
+            self.train_v7()
+
         print("\nTraining complete.")
 
 
@@ -2206,6 +2415,8 @@ if __name__ == "__main__":
                         help="Train v5 (v4 + high-timing features: overnight/late-day high detection)")
     parser.add_argument("--v6", action="store_true",
                         help="Train v6 (v5 + NBM, GEM HRDPS, HRRR 925mb, OKX radiosonde soundings)")
+    parser.add_argument("--v7", action="store_true",
+                        help="Train v7 (v6 features + HRRR-anchored base: HRRR > NBM > AccuWeather > NWS)")
     args = parser.parse_args()
 
     if args.all:
@@ -2215,7 +2426,15 @@ if __name__ == "__main__":
             print(f"# Training: {city_key}")
             print(f"{'#' * 60}\n")
             trainer = NYCTemperatureModelTrainer(city_key=city_key)
-            trainer.run(v2=args.v2, v4=args.v4, v5=args.v5, v6=getattr(args, "v6", False))
+            trainer.run(
+                v2=args.v2, v4=args.v4, v5=args.v5,
+                v6=getattr(args, "v6", False),
+                v7=getattr(args, "v7", False),
+            )
     else:
         trainer = NYCTemperatureModelTrainer(city_key=args.city)
-        trainer.run(v2=args.v2, v4=args.v4, v5=args.v5, v6=getattr(args, "v6", False))
+        trainer.run(
+            v2=args.v2, v4=args.v4, v5=args.v5,
+            v6=getattr(args, "v6", False),
+            v7=getattr(args, "v7", False),
+        )

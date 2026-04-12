@@ -605,7 +605,7 @@ input[type="date"] {
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
           <div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted);">
             Reversal Risk
-            <span class="tip" tabindex="0" data-tip="Forward-looking signal: how likely is today's canonical (first-of-day) prediction to flip to a different bucket, or for the actual high to blow past all model forecasts? Combines historical analog rates with live atmospheric signals.">i</span>
+            <span class="tip" tabindex="0" data-tip="Forward-looking signal: how likely is today's canonical (first-of-day) prediction to flip to a different bucket? Combines historical analog rates with live atmospheric signals. The HRRR vs NWS Gap card below is a key cap-miss signal — when HRRR runs 3+°F colder than NWS, a downward flip is more likely.">i</span>
           </div>
           <div id="flip-risk-ts" style="font-size:11px; color:var(--text-light);"></div>
         </div>
@@ -4207,15 +4207,49 @@ function renderLiveSourcesPanel() {
   const jump_title = _todayDone ? "D0 Confirmed vs D+1 NWS" : "NWS Overnight Jump";
 
   // ── Multi-model spread — from model snapshot (ms = tomorrow's when day is done)
-  const mm_spread  = ms.mm_spread;
-  const mm_mean    = ms.mm_mean;
-  const hrrr       = ms.mm_hrrr_max;
-  const hrrr_ecmwf = ms.mm_hrrr_ecmwf_diff;
+  const mm_spread    = ms.mm_spread;
+  const mm_mean      = ms.mm_mean;
+  const hrrr         = ms.mm_hrrr_max;
+  const hrrr_ecmwf   = ms.mm_hrrr_ecmwf_diff;
+  const nbm          = ms.mm_nbm_max;
+  const gem_hrdps    = ms.mm_gem_hrdps_max;
   // Expose ensemble range globally so flip-risk fetch can use it
   if (mm_spread != null) window._ensembleRange = mm_spread;
+
+  // ── HRRR vs NWS divergence (v7 key signal) ──────────────────────────────
+  // When HRRR < NWS by ≥2°F, HRRR is sensing a cap or cold pool that NWS is missing.
+  // This is the April 12, 2026 signal: HRRR showed 54°F, NWS showed 58°F.
+  const hrrr_nws_diff = (hrrr != null && nws_last != null)
+    ? Number(hrrr) - Number(nws_last)
+    : null;
+  // Negative diff = HRRR colder than NWS = cap or cold pool signal
+  // Positive diff = HRRR warmer than NWS = NWS too conservative
+  const hrrrNwsAbs = hrrr_nws_diff != null ? Math.abs(hrrr_nws_diff) : 0;
+  const hrrrNwsColor = hrrr_nws_diff == null    ? "var(--border-default)"
+                     : hrrr_nws_diff <= -3       ? "#dc2626"   // red: strong cap signal (HRRR much colder)
+                     : hrrr_nws_diff <= -1.5     ? "#d97706"   // orange: mild cap signal
+                     : hrrr_nws_diff >= 3        ? "#7c3aed"   // purple: HRRR much warmer than NWS
+                     : "var(--accent-green)";                  // green: models agree
+  const hrrrNwsLabel = hrrr_nws_diff == null     ? "–"
+                     : hrrr_nws_diff <= -3        ? `${fSign(hrrr_nws_diff)} ⚠️`
+                     : fSign(hrrr_nws_diff);
+  const hrrrNwsSub = [
+    hrrr     != null ? `HRRR: ${f0(hrrr)}` : "",
+    nws_last != null ? `NWS: ${f0(nws_last)}` : "",
+    nbm      != null ? `NBM: ${f0(nbm)}` : "",
+  ].filter(Boolean).join(" · ") || "Awaiting next cycle";
+  // Tooltip hint for cap-signal interpretation
+  const hrrrNwsTip = hrrr_nws_diff != null && hrrr_nws_diff <= -2
+    ? " — HRRR sensing cap/cold pool NWS is missing"
+    : hrrr_nws_diff != null && hrrr_nws_diff >= 2
+    ? " — HRRR warmer: NWS may be under-forecasting"
+    : "";
+
   const mm_sub = [
     mm_mean    != null ? `Consensus: ${f0(mm_mean)}` : "",
     hrrr       != null ? `HRRR: ${f0(hrrr)}` : "",
+    nbm        != null ? `NBM: ${f0(nbm)}` : "",
+    gem_hrdps  != null ? `GEM: ${f0(gem_hrdps)}` : "",
     hrrr_ecmwf != null ? `HRRR-ECMWF: ${fSign(hrrr_ecmwf)}` : "",
   ].filter(Boolean).join(" · ") || "Awaiting next cycle";
 
@@ -4272,6 +4306,10 @@ function renderLiveSourcesPanel() {
          mm_spread != null ? `${Number(mm_spread).toFixed(1)}°F` : "–",
          mm_sub,
          mm_spread != null && Number(mm_spread) >= 3 ? "#d97706" : "var(--accent-blue)"),
+    card("HRRR vs NWS Gap",
+         hrrrNwsLabel,
+         hrrrNwsSub + hrrrNwsTip,
+         hrrrNwsColor),
     wu_mean != null ? card("WU PWS (Citizen Wx)", f1(wu_mean), wu_sub, "var(--accent-blue)") : "",
   ].join("");
 
