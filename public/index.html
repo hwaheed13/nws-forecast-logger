@@ -6380,6 +6380,7 @@ window._buildMoatRiskHTML = function _buildMoatRiskHTML(mlTempF, nwsVal, mmSprea
   (function () {
     const PAD = 8; // min px from viewport edge
     document.addEventListener("mouseenter", function (e) {
+      if (!(e.target instanceof Element)) return;
       const el = e.target.closest(".tip[data-tip]");
       if (!el) return;
       const r = el.getBoundingClientRect();
