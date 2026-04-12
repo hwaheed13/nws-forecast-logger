@@ -3978,17 +3978,25 @@ function renderLiveSourcesPanel() {
   // ── NWS overnight jump — from model snapshot (ms = tomorrow's when day is done)
   const d1_final = ms.nws_d1_final;
   const o_jump   = ms.nws_overnight_jump;
-  const nws_last = ms.nws_last ?? (
-    _todayDone
-      ? (ml.tomorrowNwsD0 != null ? Number(ml.tomorrowNwsD0) : null)
-      : (ml.todayNwsD0    != null ? Number(ml.todayNwsD0)    : null)
-  );
-  const jump_color = o_jump != null && Math.abs(Number(o_jump)) >= 2 ? "#d97706" : "var(--accent-blue)";
+  // D+1 NWS: prefer nws_d0 from tomorrow's row (written by backend after today's fix),
+  // fall back to nws_d1 (always written by write_today_for_tomorrow), then ms.nws_last.
+  const _d1Nws = _todayDone
+    ? (ml.tomorrowNwsD0 ?? ml.tomorrowNwsD1 ?? ms.nws_last ?? null)
+    : null;
+  const nws_last = _todayDone
+    ? _d1Nws
+    : (ms.nws_last ?? (ml.todayNwsD0 != null ? Number(ml.todayNwsD0) : null));
+  // Jump = D+1 NWS minus today's confirmed actual (e.g. 55 - 63 = -8°F = big cool-down)
+  const _computedJump = (_todayDone && _todayActualHigh != null && _d1Nws != null)
+    ? Number(_d1Nws) - _todayActualHigh
+    : null;
+  const _jumpVal = o_jump ?? _computedJump;
+  const jump_color = _jumpVal != null && Math.abs(Number(_jumpVal)) >= 2 ? "#d97706" : "var(--accent-blue)";
   // When today is confirmed: show "D0 confirmed vs D+1 NWS forecast"
   const jump_sub = _todayDone
     ? [
-        _todayActualHigh != null     ? `D0 confirmed: ${f0(_todayActualHigh)}` : "",
-        ml.tomorrowNwsD0 != null     ? `D+1 NWS: ${f0(ml.tomorrowNwsD0)}` : (nws_last != null ? `D+1 NWS: ${f0(nws_last)}` : ""),
+        _todayActualHigh != null ? `D0 confirmed: ${f0(_todayActualHigh)}` : "",
+        _d1Nws           != null ? `D+1 NWS: ${f0(_d1Nws)}` : "",
       ].filter(Boolean).join(" · ") || "Awaiting next cycle"
     : [
         d1_final != null ? `D-1 final: ${f0(d1_final)}` : "",
@@ -4054,7 +4062,7 @@ function renderLiveSourcesPanel() {
          f1(syn_mean), syn_sub,
          syn_mean != null ? "var(--accent-green)" : "var(--border-default)"),
     card(jump_title,
-         o_jump != null ? fSign(o_jump) : (_todayDone && ml.tomorrowNwsD0 != null && _todayActualHigh != null ? fSign(Number(ml.tomorrowNwsD0) - _todayActualHigh) : "–"),
+         _jumpVal != null ? fSign(_jumpVal) : "–",
          jump_sub, jump_color),
     card(_todayDone ? "Multi-Model Spread (D+1)" : "Multi-Model Spread",
          mm_spread != null ? `${Number(mm_spread).toFixed(1)}°F` : "–",
@@ -6059,6 +6067,9 @@ async function loadMLPredictions() {
         window.mlPredictions.tomorrowMarketProbAtPrediction = row.market_prob_at_prediction != null ? Number(row.market_prob_at_prediction) : null;
         window.mlPredictions.tomorrowAtmSnapshot = _parseAtmSnapshot(row.atm_snapshot);
         window.mlPredictions.tomorrowNwsD0 = row.nws_d0 != null ? Number(row.nws_d0) : null;
+        // nws_d1 = tomorrow's NWS forecast as written by write_today_for_tomorrow — use
+        // as D+1 NWS display value when nws_d0 hasn't been written yet for tomorrow's row.
+        window.mlPredictions.tomorrowNwsD1 = row.nws_d1 != null ? Number(row.nws_d1) : null;
         window.mlPredictions.tomorrowAccuWeather = row.accuweather != null ? Number(row.accuweather) : null;
         gotTomorrow = true;
       }

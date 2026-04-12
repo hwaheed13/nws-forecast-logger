@@ -4438,7 +4438,15 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     tomorrow_market_probs = _fetch_kalshi_market_probs(tomorrow_iso)
     if isinstance(existing, dict):
         print(f"🔄 Recomputing tomorrow's prediction (previous: {existing['ml_f']}°F → {existing.get('ml_bucket')})")
-    ml = _compute_ml_prediction(rows, tomorrow_iso)
+    # Pre-fetch atmospheric features so we can (a) pass to ML to avoid a second API
+    # call and (b) dump a meaningful atm_snapshot to tomorrow's Supabase row — this
+    # powers the Multi-Model Spread and NWS Jump cards in D+1 mode on the dashboard.
+    live_atm_tm: dict = {}
+    try:
+        live_atm_tm = _fetch_atmospheric_features(tomorrow_iso)
+    except Exception as _atm_e:
+        print(f"⚠️ write_today_for_tomorrow: _fetch_atmospheric_features failed: {_atm_e}")
+    ml = _compute_ml_prediction(rows, tomorrow_iso, prefetched_atm=live_atm_tm if live_atm_tm else None)
     if ml:
         trigger = "first_write" if existing is _LOCK_NOT_FOUND else "intraday_refresh"
         _log_ml_revision(tomorrow_iso, "today_for_tomorrow", ml, trigger)
@@ -4548,6 +4556,30 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
                 payload["kelly_fraction"] = kelly_f
                 print(f"📌 market_prob_at_prediction={payload['market_prob_at_prediction']:.4f} for bucket '{direct_bucket}'")
                 print(f"📐 kelly_fraction={kelly_f:.1%} (half-Kelly — bet this % of bankroll)")
+
+    # Write nws_d0 (= tomorrow's current NWS forecast) so the dashboard can show
+    # "D+1 NWS: 55°F" immediately from ml.tomorrowNwsD0 without waiting for a
+    # full write_today_for_today cycle.
+    payload["nws_d0"] = nws_latest_tm
+
+    # Build and write atm_snapshot for tomorrow's row so the Live Sources panel
+    # can show Multi-Model Spread, NWS Jump, and atmospheric cards in D+1 mode.
+    _ATM_SNAP_KEYS = (
+        "mm_spread", "mm_std", "mm_mean",
+        "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff", "mm_ecmwf_gfs_diff",
+        "mm_hrrr_max", "mm_icon_max", "mm_gem_max",
+        "nws_overnight_jump", "nws_d1_final", "nws_last",
+        "atm_bl_height_max", "atm_cape", "atm_precip_prob",
+        "atm_rh_850", "atm_temp_850", "atm_temp_925",
+        "atm_wind_speed", "atm_wind_dir",
+        "ens_spread", "ens_mean",
+    )
+    if live_atm_tm:
+        snap_tm = {k: live_atm_tm[k] for k in _ATM_SNAP_KEYS if live_atm_tm.get(k) is not None}
+        if snap_tm:
+            payload["atm_snapshot"] = json.dumps(snap_tm)
+            print(f"  📊 D+1 atm_snapshot: mm_spread={snap_tm.get('mm_spread')}, "
+                  f"mm_mean={snap_tm.get('mm_mean')}, hrrr={snap_tm.get('mm_hrrr_max')}")
 
     supabase_upsert(payload)
 
