@@ -3853,6 +3853,16 @@ _ATM_SNAPSHOT_KEYS = (
     "atm_predicted_high", "atm_vs_forecast_diff",
     # v8: stall signal — was warming, now plateau? Negative = cap holding.
     "obs_heating_rate_delta",
+    # Synoptic multi-station network (15-25 stations within 10mi: KNYC+airports+Mesonet)
+    # IMPORTANT: these were fetched at inference but not persisted — fixed here.
+    # On a cap day, obs_synoptic_spread ≈ 0 (all stations capped), obs_synoptic_vs_nws ≈ -5.
+    "obs_synoptic_mean", "obs_synoptic_min", "obs_synoptic_max",
+    "obs_synoptic_spread", "obs_synoptic_vs_nws", "obs_synoptic_count",
+    # NY State Mesonet borough stations (Brooklyn, Queens, Bronx, Manhattan, Staten Island)
+    "obs_nysm_mean", "obs_nysm_min", "obs_nysm_max",
+    "obs_nysm_spread", "obs_nysm_vs_nws", "obs_nysm_count",
+    # WU PWS citizen stations near Central Park
+    "obs_ambient_temp", "obs_ambient_vs_nws", "obs_ambient_spread", "obs_ambient_count",
 )
 
 
