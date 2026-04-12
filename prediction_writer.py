@@ -612,123 +612,121 @@ def _get_nws_d1_final(target_date_iso: str) -> Optional[float]:
 
 def _fetch_mos_forecast(target_date_iso: str) -> Optional[float]:
     """
-    Fetch MOS (Model Output Statistics) max temperature forecast from NWS MEX product.
+    Fetch GFS-MOS max temperature forecast via Iowa State University Mesonet API.
 
-    The MEX product contains GFS MOS guidance with X/N (max/min) temperature rows.
-    Parses the text product to extract the max temperature for the target date.
+    Iowa State provides parsed MOS guidance as a CSV, which is far more reliable
+    than scraping the NWS MEX HTML text product. GFS-MOS runs at 00Z and 12Z UTC.
 
-    Returns the MOS max temp as a float, or None on failure.
+    For NYC, uses KJFK (closest NWS upper-air/MOS station to KNYC).
+
+    Returns the MOS max temp as a float in °F, or None on failure.
     """
-    import re
+    import csv
+    import io
+    import nws_auto_logger as _nal
+
+    cfg = _nal._CITY_CFG
+    # MOS station: use city-specific config or fall back to KJFK for NYC
+    mos_station = cfg.get("mos_station", "KJFK")
 
     try:
-        import nws_auto_logger as _nal
-        cfg = _nal._CITY_CFG
-        issuedby = cfg.get("cli_issuedby", "NYC")
-
-        url = f"https://forecast.weather.gov/product.php?site=NWS&issuedby={issuedby}&product=MEX"
-        req = urllib.request.Request(url, headers={
-            "User-Agent": "nws-forecast-logger/1.0",
-            "Accept": "text/html",
-        })
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            html = resp.read().decode("utf-8", errors="ignore")
-
-        # Extract the pre-formatted text content from the HTML
-        pre_match = re.search(r"<pre[^>]*>(.*?)</pre>", html, re.DOTALL | re.IGNORECASE)
-        if not pre_match:
-            print(f"  MOS: no <pre> block found in MEX product")
-            return None
-        text = pre_match.group(1)
-
-        # Parse target date components
         target_dt = datetime.strptime(target_date_iso, "%Y-%m-%d")
-        target_month_abbr = target_dt.strftime("%b").upper()  # e.g., "MAR"
-        target_day = target_dt.day
-
-        # Find the DT line that contains our target date
-        # Format: "DT /MAR  26            /MAR  27            /"
-        # or similar with the month abbreviation and day number
-        lines = text.split("\n")
-
-        # Strategy: find the DT header row with our date, then find X/N row
-        mos_max = None
-        for i, line in enumerate(lines):
-            line_upper = line.upper().strip()
-
-            # Look for DT row containing our target date
-            if not line_upper.startswith("DT"):
-                continue
-
-            # Check if our target date's month+day appears in this DT line
-            # Pattern: /MON  DD where MON is 3-letter month abbreviation
-            dt_pattern = rf"/{target_month_abbr}\s+{target_day}\b"
-            dt_matches = list(re.finditer(dt_pattern, line_upper))
-            if not dt_matches:
-                continue
-
-            # Found our date in the DT line. Now find the X/N row below it.
-            # The X/N row has the max (X) and min (N) temperatures.
-            for j in range(i + 1, min(i + 10, len(lines))):
-                xn_line = lines[j].strip()
-                if xn_line.startswith("X/N"):
-                    # Extract numbers from the X/N line
-                    # The values are space-separated after "X/N"
-                    xn_values = re.findall(r'-?\d+', xn_line[3:])
-                    if xn_values:
-                        # Determine which column corresponds to our date.
-                        # The DT line has date blocks separated by "/".
-                        # Count which date block our match is in.
-                        dt_content = line_upper
-                        # Split by "/" to get date groups
-                        date_groups = [g.strip() for g in dt_content.split("/") if g.strip()]
-
-                        # Find which group index contains our target date
-                        target_group_idx = None
-                        for gi, group in enumerate(date_groups):
-                            if re.search(rf"{target_month_abbr}\s+{target_day}\b", group):
-                                target_group_idx = gi
-                                break
-
-                        if target_group_idx is not None and target_group_idx < len(date_groups):
-                            # In X/N row, values alternate: max for day1, min for day1, max for day2, min for day2...
-                            # But the DT header starts with "DT" then date groups.
-                            # The first date group (index 0 after removing "DT") corresponds to X/N values.
-                            # First number is max for first date, second is min for between dates, etc.
-                            # Adjust: DT line has "DT" prefix in group 0
-                            adj_idx = target_group_idx
-                            if date_groups[0].startswith("DT"):
-                                adj_idx = target_group_idx  # DT is part of group 0
-
-                            # The X/N values: first value = max of first date period,
-                            # second value = min of overnight, etc.
-                            # For the Nth date group (0-indexed), max is at index N*2
-                            # and min is at index N*2+1
-                            val_idx = adj_idx  # max temp index
-                            if val_idx < len(xn_values):
-                                mos_max = float(xn_values[val_idx])
-                                print(f"🌡️ MOS forecast: {mos_max:.0f}°F max for {target_date_iso}")
-                                return mos_max
-
-                    # If we couldn't parse columns, try simpler: first number is the max
-                    if xn_values:
-                        mos_max = float(xn_values[0])
-                        print(f"🌡️ MOS forecast: {mos_max:.0f}°F max for {target_date_iso} (first value)")
-                        return mos_max
-                    break
-            break
-
-        if mos_max is None:
-            print(f"  MOS: could not find max temp for {target_date_iso} in MEX product")
-        return mos_max
-
-    except Exception as e:
-        print(f"⚠️ MOS forecast fetch failed: {e}")
+    except ValueError:
         return None
+
+    # Try today's 12Z run first (8 AM EDT), then 00Z (midnight), then prior day 12Z
+    candidate_runtimes = [
+        target_dt.strftime("%Y%m%d") + "12",     # 12Z = 8 AM EDT same day
+        target_dt.strftime("%Y%m%d") + "00",     # 00Z = midnight EDT same day
+        (target_dt - timedelta(days=1)).strftime("%Y%m%d") + "12",  # prior day 12Z
+    ]
+
+    for runtime_str in candidate_runtimes:
+        url = (
+            f"https://mesonet.agron.iastate.edu/mos/csv.php"
+            f"?station={mos_station}&runtime={runtime_str}&model=GFS"
+        )
+        try:
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "nws-forecast-logger/1.0",
+                "Accept": "text/csv,text/plain",
+            })
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                raw = resp.read().decode("utf-8", errors="ignore")
+
+            if not raw.strip() or "error" in raw.lower()[:200]:
+                continue
+
+            reader = csv.DictReader(io.StringIO(raw))
+            rows = list(reader)
+            if not rows:
+                continue
+
+            # Iowa State MOS CSV has columns including 'ftime' (forecast valid time)
+            # and 'tmp' (temperature) and derived 'xmx' or 'maxt' for daily max.
+            # The max temp for a forecast day is in the row where ftime matches
+            # the afternoon of the target date.
+
+            # Strategy 1: look for a 'maxt' or 'xmx' column (daily max directly)
+            max_col = next((c for c in (rows[0].keys() if rows else [])
+                           if c.strip().lower() in ("maxt", "xmx", "x", "max_t", "tmax")), None)
+
+            # Strategy 2: look for forecast valid times near 2 PM on the target date
+            target_afternoon = target_dt.replace(hour=18)  # 18Z = 2 PM EDT
+
+            best_max = None
+            for row in rows:
+                ftime_raw = (row.get("ftime") or row.get("valid") or "").strip()
+                if not ftime_raw:
+                    continue
+                try:
+                    ftime = datetime.strptime(ftime_raw[:16], "%Y-%m-%d %H:%M")
+                except ValueError:
+                    try:
+                        ftime = datetime.strptime(ftime_raw[:13], "%Y%m%d%H%M"[:len(ftime_raw)])
+                    except ValueError:
+                        continue
+
+                # Only look at forecast times on the target date
+                if ftime.date() != target_dt.date():
+                    continue
+
+                # Try direct max-temp column
+                if max_col:
+                    v = (row.get(max_col) or "").strip()
+                    if v and v not in ("", "None", "N/A", "M"):
+                        try:
+                            best_max = float(v)
+                            break
+                        except ValueError:
+                            pass
+
+                # Fallback: temperature at 18Z (closest to max temp hour)
+                if abs((ftime - target_afternoon).total_seconds()) <= 3 * 3600:
+                    tmp_col = next((c for c in row.keys()
+                                   if c.strip().lower() in ("tmp", "temp", "t")), None)
+                    if tmp_col:
+                        v = (row.get(tmp_col) or "").strip()
+                        if v and v not in ("", "None", "N/A", "M"):
+                            try:
+                                best_max = float(v)
+                            except ValueError:
+                                pass
+
+            if best_max is not None:
+                print(f"🌡️ GFS-MOS ({mos_station}) {runtime_str}Z: {best_max:.0f}°F max for {target_date_iso}")
+                return best_max
+
+        except Exception as e:
+            print(f"  MOS {runtime_str}: {e}")
+            continue
+
+    print(f"  MOS: no GFS-MOS data found for {target_date_iso} at {mos_station}")
+    return None
 
 
 def _fetch_atmospheric_features(target_date_iso: str) -> dict:
-    """Fetch atmospheric features from Open-Meteo for today/tomorrow."""
+    """Fetch atmospheric features from Open-Meteo + radiosonde for today/tomorrow."""
     try:
         import nws_auto_logger as _nal
         cfg = _nal._CITY_CFG
@@ -737,6 +735,27 @@ def _fetch_atmospheric_features(target_date_iso: str) -> dict:
         lon = cfg.get("open_meteo_lon", -73.965)
         tz = cfg.get("timezone", "America/New_York")
         features = get_atmospheric_features_live(lat, lon, target_date_iso, tz)
+
+        # v6: fetch OKX radiosonde upper-air sounding (observed 925mb/850mb temps)
+        # OKX station for NYC; other cities use their nearest upper-air station
+        raob_station = cfg.get("raob_station", "OKX")
+        try:
+            from raob_client import get_raob_features
+            gfs_925 = features.get("atm_925mb_temp_mean")
+            hrrr_925 = features.get("atm_925mb_hrrr_mean")
+            raob_features = get_raob_features(
+                target_date_iso,
+                station=raob_station,
+                gfs_925mb_mean=gfs_925 if (gfs_925 and not math.isnan(gfs_925)) else None,
+                hrrr_925mb_mean=hrrr_925 if (hrrr_925 and not math.isnan(hrrr_925)) else None,
+            )
+            features.update(raob_features)
+        except Exception as raob_e:
+            print(f"  ⚠️ Radiosonde fetch skipped: {raob_e}")
+            for col in ["raob_925mb_temp", "raob_850mb_temp", "raob_700mb_temp",
+                        "raob_925mb_gfs_diff", "raob_925mb_hrrr_diff", "raob_sounding_hour", "raob_valid"]:
+                features.setdefault(col, float("nan"))
+
         n_valid = sum(1 for v in features.values()
                       if v is not None and not (isinstance(v, float) and math.isnan(v)))
         print(f"🌤️ Atmospheric features: {n_valid} valid values for {target_date_iso}")
@@ -4248,10 +4267,22 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 # On Full Freeze days ML never reruns, so if the canonical write had
                 # live_atm={} (lock fired before first run), mm_spread stays null.
                 # Fetch fresh ATM features here so the panel has data.
-                _MM_KEYS = ("mm_spread", "mm_std", "mm_mean",
-                            "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff", "mm_ecmwf_gfs_diff",
-                            "mm_hrrr_max", "mm_icon_max", "mm_gem_max",
-                            "mm_icon_gfs_diff", "mm_gem_ecmwf_diff")
+                _MM_KEYS = (
+                    "mm_spread", "mm_std", "mm_mean",
+                    "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff", "mm_ecmwf_gfs_diff",
+                    "mm_hrrr_max", "mm_icon_max", "mm_gem_max",
+                    "mm_icon_gfs_diff", "mm_gem_ecmwf_diff",
+                    # v6 additions — high-accuracy models (NBM, GEM HRDPS)
+                    "mm_nbm_max", "mm_nbm_hrrr_diff", "mm_nbm_gfs_diff", "mm_nbm_ecmwf_diff",
+                    "mm_gem_hrdps_max", "mm_gem_hrdps_hrrr_diff",
+                    # v6 HRRR-specific 925mb and GFS-HRRR diff
+                    "atm_925mb_hrrr_max", "atm_925mb_hrrr_mean",
+                    "atm_850mb_hrrr_max", "atm_850mb_hrrr_mean",
+                    "atm_925mb_gfs_hrrr_diff",
+                    # v6 radiosonde
+                    "raob_925mb_temp", "raob_850mb_temp", "raob_700mb_temp",
+                    "raob_925mb_gfs_diff", "raob_925mb_hrrr_diff",
+                )
                 if _ex_snap.get("mm_spread") is None:
                     try:
                         _fresh_atm = _fetch_atmospheric_features(target_date_iso)
@@ -4672,6 +4703,15 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
         "mm_spread", "mm_std", "mm_mean",
         "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff", "mm_ecmwf_gfs_diff",
         "mm_hrrr_max", "mm_icon_max", "mm_gem_max",
+        # v6 high-accuracy models
+        "mm_nbm_max", "mm_nbm_hrrr_diff", "mm_nbm_gfs_diff",
+        "mm_gem_hrdps_max", "mm_gem_hrdps_hrrr_diff",
+        # v6 HRRR-specific pressure levels
+        "atm_925mb_hrrr_max", "atm_925mb_hrrr_mean", "atm_925mb_gfs_hrrr_diff",
+        "atm_850mb_hrrr_max", "atm_850mb_hrrr_mean",
+        # v6 radiosonde
+        "raob_925mb_temp", "raob_850mb_temp", "raob_700mb_temp",
+        "raob_925mb_gfs_diff", "raob_925mb_hrrr_diff",
         "nws_overnight_jump", "nws_d1_final", "nws_last",
         "atm_bl_height_max", "atm_cape", "atm_precip_prob",
         "atm_rh_850", "atm_temp_850", "atm_temp_925",

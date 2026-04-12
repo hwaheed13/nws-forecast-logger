@@ -1970,7 +1970,165 @@ class NYCTemperatureModelTrainer:
         except Exception:
             pass
 
-    def run(self, v2: bool = False, v4: bool = False, v5: bool = False):
+    def train_v6(self) -> None:
+        """
+        Train v6 model: v5 + NBM, GEM HRDPS, HRRR-specific 925mb, OKX radiosonde (138 features).
+
+        New features address the April 12, 2026 cap-miss case:
+          - mm_nbm_max / mm_gem_hrdps_max: top-accuracy models per wethr.net rankings
+          - mm_nbm_hrrr_diff: disagreement between #1 and #3 accuracy models
+          - atm_925mb_hrrr_*: HRRR 3km boundary layer vs GFS 13km
+          - atm_925mb_gfs_hrrr_diff: when large, GFS is missing the cap
+          - raob_*: OKX upper-air balloon soundings (actual observed 925mb/850mb)
+          - raob_925mb_gfs_diff / raob_925mb_hrrr_diff: forecast vs observed cap signal
+
+        These features are NaN for historical rows (archive has no HRRR-specific 925mb,
+        no NBM, no radiosonde backfill yet). HistGradientBoosting handles NaN natively;
+        as live rows accumulate, the model will learn to weight them appropriately.
+
+        Requires the v5 training data to be loaded first.
+        """
+        from model_config import FEATURE_COLS_V6, HRRR_PRESSURE_COLS, RADIOSONDE_COLS
+        from train_classifier import BucketClassifier
+
+        print(f"\n{'═'*60}")
+        print(f"v6 Training: v5 + NBM/GEM-HRDPS/HRRR-925mb/Radiosonde ({len(FEATURE_COLS_V6)} features)")
+        print(f"{'═'*60}")
+
+        if self.features_df is None or self.features_df.empty:
+            print("  ⚠️ No feature data. Run train_v5() first.")
+            return
+
+        # Ensure all v6 columns exist (NaN for historical rows without these features)
+        missing_v6 = [c for c in FEATURE_COLS_V6 if c not in self.features_df.columns]
+        if missing_v6:
+            print(f"  Missing v6 cols (NaN for historical rows): {len(missing_v6)} columns")
+            for col in missing_v6:
+                self.features_df[col] = np.nan
+
+        # Coverage report for new v6 features
+        new_v6_cols = (
+            ["mm_nbm_max", "mm_gem_hrdps_max", "mm_nbm_hrrr_diff"]
+            + HRRR_PRESSURE_COLS
+            + RADIOSONDE_COLS
+        )
+        print("  New v6 feature coverage (live rows only):")
+        for col in new_v6_cols:
+            n = self.features_df[col].notna().sum() if col in self.features_df.columns else 0
+            print(f"    {col}: {n} non-null rows")
+
+        has_forecast_mask = self.features_df["nws_last"].notna()
+        forecast_df = self.features_df[has_forecast_mask].copy()
+        n_forecast = len(forecast_df)
+        print(f"\n  Regression: {n_forecast} rows with forecasts")
+
+        if n_forecast < MIN_DAYS_FOR_TRAINING:
+            print(f"  ⚠️ Need {MIN_DAYS_FOR_TRAINING} rows, have {n_forecast}. Skipping.")
+            return
+
+        X_v6 = forecast_df[FEATURE_COLS_V6]
+        y_actual = forecast_df["actual_high"]
+        nws_last = forecast_df["nws_last"]
+        accu_last = forecast_df["accu_last"]
+        base = accu_last.copy()
+        base[base.isna()] = nws_last[base.isna()]
+        y_bias = y_actual - base
+
+        tscv = TimeSeriesSplit(n_splits=5)
+        mae_scores, bucket_acc, all_residuals = [], [], []
+
+        for tr, te in tscv.split(X_v6):
+            model = HistGradientBoostingRegressor(
+                max_iter=300, max_depth=3, learning_rate=0.03,
+                min_samples_leaf=20, l2_regularization=1.0,
+                max_leaf_nodes=15, random_state=42,
+            )
+            model.fit(X_v6.iloc[tr], y_bias.iloc[tr])
+            pred_bias = model.predict(X_v6.iloc[te])
+            pred_temp = base.iloc[te].values + pred_bias
+            mae_scores.append(mean_absolute_error(y_actual.iloc[te], pred_temp))
+            all_residuals.extend((y_actual.iloc[te].values - pred_temp).tolist())
+            pred_buckets   = [f"{int(p)}-{int(p)+1}" for p in pred_temp]
+            actual_buckets = [f"{int(a)}-{int(a)+1}" for a in y_actual.iloc[te]]
+            correct = sum(1 for pb, ab in zip(pred_buckets, actual_buckets) if pb == ab)
+            bucket_acc.append(correct / len(actual_buckets))
+
+        residual_std = float(np.std(all_residuals))
+        print(f"  v6 CV MAE:        {np.mean(mae_scores):.2f}°F")
+        print(f"  v6 CV Bucket Acc: {np.mean(bucket_acc):.1%}")
+        print(f"  v6 Residual Std:  {residual_std:.2f}°F")
+
+        # Train final model on all data
+        v6_regressor = HistGradientBoostingRegressor(
+            max_iter=300, max_depth=3, learning_rate=0.03,
+            min_samples_leaf=20, l2_regularization=1.0,
+            max_leaf_nodes=15, random_state=42,
+        )
+        v6_regressor.fit(X_v6, y_bias)
+
+        # Feature importance for new v6 cols
+        try:
+            fi = dict(zip(FEATURE_COLS_V6, v6_regressor.feature_importances_))
+            print("  New v6 feature importances:")
+            for col in new_v6_cols:
+                print(f"    {col}: {fi.get(col, 0):.4f}")
+        except Exception:
+            pass
+
+        # Bucket classifier
+        classifier = BucketClassifier()
+        classifier.train(
+            self.features_df.copy().reset_index(drop=True),
+            feature_cols=FEATURE_COLS_V6,
+            residual_std=residual_std,
+            forecast_weight=5.0,
+        )
+
+        # Save models
+        prefix = self.model_prefix
+        with open(f"{prefix}bcp_v6_regressor.pkl", "wb") as f:
+            pickle.dump(v6_regressor, f)
+        with open(f"{prefix}bcp_v6_classifier.pkl", "wb") as f:
+            pickle.dump(classifier, f)
+        with open(f"{prefix}bcp_v6_feature_cols.pkl", "wb") as f:
+            pickle.dump(list(FEATURE_COLS_V6), f)
+
+        v6_meta = {
+            "trained_on": datetime.now().isoformat(),
+            "version": "v6_nbm_hrdps_hrrr925_radiosonde",
+            "v6_regression": {
+                "cv_mae": float(np.mean(mae_scores)),
+                "cv_bucket_accuracy": float(np.mean(bucket_acc)),
+                "residual_std": residual_std,
+                "n_features": len(FEATURE_COLS_V6),
+                "n_training_rows": n_forecast,
+            },
+            "new_features_v6": new_v6_cols,
+            "feature_columns_v6": list(FEATURE_COLS_V6),
+        }
+        import json as _json
+        with open(f"{prefix}model_metadata_v6.json", "w") as f:
+            _json.dump(v6_meta, f, indent=2)
+
+        print(f"\n  ✅ Saved v6 models: bcp_v6_regressor.pkl, bcp_v6_classifier.pkl")
+        print(f"  v6 Classifier Bucket Acc: {classifier.cv_bucket_accuracy:.1%}")
+
+        # Compare v5 vs v6
+        try:
+            import json as _j
+            with open(f"{prefix}model_metadata_v5.json") as f:
+                v5_meta = _j.load(f)
+            v5_mae = v5_meta.get("v5_regression", {}).get("cv_mae")
+            v5_bkt = v5_meta.get("v5_regression", {}).get("cv_bucket_accuracy")
+            print(f"\n{'─'*50}")
+            print(f"COMPARISON: v5 vs v6")
+            if v5_mae: print(f"  MAE:        v5={v5_mae:.2f}°F → v6={np.mean(mae_scores):.2f}°F")
+            if v5_bkt: print(f"  Bucket Acc: v5={v5_bkt:.1%} → v6={np.mean(bucket_acc):.1%}")
+            print(f"{'─'*50}")
+        except Exception:
+            pass
+
+    def run(self, v2: bool = False, v4: bool = False, v5: bool = False, v6: bool = False):
         label = self.city_cfg["label"]
         print("=" * 60)
         print(f"{label} Temperature Model Training")
@@ -2022,6 +2180,16 @@ class NYCTemperatureModelTrainer:
                 self.train_v4()
             self.train_v5()
 
+        if v6:
+            if not v2:
+                self.train_v2()
+                self.train_v3()
+            if not v4:
+                self.train_v4()
+            if not v5:
+                self.train_v5()
+            self.train_v6()
+
         print("\nTraining complete.")
 
 
@@ -2036,6 +2204,8 @@ if __name__ == "__main__":
                         help="Also train v4 (v2 + real-time observation features)")
     parser.add_argument("--v5", action="store_true",
                         help="Train v5 (v4 + high-timing features: overnight/late-day high detection)")
+    parser.add_argument("--v6", action="store_true",
+                        help="Train v6 (v5 + NBM, GEM HRDPS, HRRR 925mb, OKX radiosonde soundings)")
     args = parser.parse_args()
 
     if args.all:
@@ -2045,7 +2215,7 @@ if __name__ == "__main__":
             print(f"# Training: {city_key}")
             print(f"{'#' * 60}\n")
             trainer = NYCTemperatureModelTrainer(city_key=city_key)
-            trainer.run(v2=args.v2, v4=args.v4, v5=args.v5)
+            trainer.run(v2=args.v2, v4=args.v4, v5=args.v5, v6=getattr(args, "v6", False))
     else:
         trainer = NYCTemperatureModelTrainer(city_key=args.city)
-        trainer.run(v2=args.v2, v4=args.v4, v5=args.v5)
+        trainer.run(v2=args.v2, v4=args.v4, v5=args.v5, v6=getattr(args, "v6", False))

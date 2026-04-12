@@ -3824,10 +3824,45 @@ function renderFlipRisk() {
   const hist = d.history || {};
   const sigs = d.signals || [];
 
-  // Color helpers
-  const flipColor = flip.level === 'HIGH' ? '#dc2626' : flip.level === 'MEDIUM' ? '#d97706' : '#16a34a';
+  // ── Post-flip and late-day state detection ────────────────────────────────
+  const ml2 = window.mlPredictions || {};
+  const canonBucket  = ml2.todayMLBucketCanonical;
+  const currentBucket = ml2.todayMLBucket;
+  const flipAlreadyOccurred = canonBucket && currentBucket && canonBucket !== currentBucket;
+
+  const dispTZ2 = currentCity === 'lax' ? 'America/Los_Angeles' : 'America/New_York';
+  const localHour2 = parseInt(new Date().toLocaleString('en-US', { timeZone: dispTZ2, hour: 'numeric', hour12: false }), 10);
+  // "Window closed" = past 2pm local and current obs clearly below ML center
+  const mlCenter = ml2.today != null ? parseFloat(ml2.today) : null;
+  const curObs = window._recentObservedF != null ? parseFloat(window._recentObservedF) : null;
+  const windowClosed = localHour2 >= 14 && mlCenter != null && curObs != null && (mlCenter - curObs) > 2.5;
+
+  // Override "Bucket Flip" badge when flip already happened or window is closed
+  let displayFlipLevel = flip.level;
+  let displayFlipSummary = flip.summary || '';
+  let displayFlipColor = flip.level === 'HIGH' ? '#dc2626' : flip.level === 'MEDIUM' ? '#d97706' : '#16a34a';
+  let displayFlipBg    = flip.level === 'HIGH' ? '#fef2f2' : flip.level === 'MEDIUM' ? '#fffbeb' : '#f0fdf4';
+  let displayFlipLabel = 'Bucket Flip';
+
+  if (flipAlreadyOccurred) {
+    // Flip already occurred — show that, not future risk
+    displayFlipLevel   = 'OCCURRED';
+    displayFlipLabel   = 'Prediction Shift';
+    displayFlipSummary = `Opened ${cleanKalshiLabel ? cleanKalshiLabel(canonBucket) : canonBucket} → now ${cleanKalshiLabel ? cleanKalshiLabel(currentBucket) : currentBucket}`;
+    displayFlipColor   = '#7c3aed';  // purple — informational, not warning
+    displayFlipBg      = '#f5f3ff';
+  } else if (windowClosed) {
+    // Past 2pm and current temp well below ML center — flip window effectively closed
+    displayFlipLevel   = 'UNLIKELY';
+    displayFlipSummary = `${localHour2}:XX, obs ${curObs}°F vs center ${mlCenter}°F`;
+    displayFlipColor   = '#16a34a';  // green — low risk
+    displayFlipBg      = '#f0fdf4';
+  }
+
+  // Color helpers (for blow past, no override needed)
+  const flipColor = displayFlipColor;
   const blowColor = blow.level === 'HIGH' ? '#dc2626' : blow.level === 'MEDIUM' ? '#d97706' : '#9ca3af';
-  const flipBg    = flip.level === 'HIGH' ? '#fef2f2' : flip.level === 'MEDIUM' ? '#fffbeb' : '#f0fdf4';
+  const flipBg    = displayFlipBg;
   const blowBg    = blow.level === 'HIGH' ? '#fef2f2' : blow.level === 'MEDIUM' ? '#fffbeb' : '#f9fafb';
 
   // Historical context line
@@ -3855,9 +3890,9 @@ function renderFlipRisk() {
   content.innerHTML = `
     <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-start; margin-bottom:8px;">
       <div style="background:${flipBg}; border:1px solid ${flipColor}; border-radius:8px; padding:6px 12px; display:inline-flex; flex-direction:column; min-width:110px;">
-        <span style="font-size:10px; font-weight:700; text-transform:uppercase; color:${flipColor}; letter-spacing:.05em;">Bucket Flip</span>
-        <span style="font-size:18px; font-weight:800; color:${flipColor};">${flip.level || '—'}</span>
-        <span style="font-size:10px; color:var(--text-muted);">${flip.summary || ''}</span>
+        <span style="font-size:10px; font-weight:700; text-transform:uppercase; color:${flipColor}; letter-spacing:.05em;">${displayFlipLabel}</span>
+        <span style="font-size:18px; font-weight:800; color:${flipColor};">${displayFlipLevel || '—'}</span>
+        <span style="font-size:10px; color:var(--text-muted);">${displayFlipSummary}</span>
       </div>
       <div style="background:${blowBg}; border:1px solid ${blowColor}; border-radius:8px; padding:6px 12px; display:inline-flex; flex-direction:column; min-width:110px;">
         <span style="font-size:10px; font-weight:700; text-transform:uppercase; color:${blowColor}; letter-spacing:.05em;">Blow Past</span>

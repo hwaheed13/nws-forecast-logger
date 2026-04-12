@@ -76,22 +76,32 @@ ENSEMBLE_COLS = [
     "ens_skew",               # Skewness — asymmetric risk
 ]
 
-# Multi-model cross-comparison features (11 features)
-# ECMWF, GFS, ICON (German DWD), GEM (Canadian CMC), HRRR (NCEP mesoscale)
-# All 5 models fetched via Open-Meteo. Previously ICON and GEM were fetched
-# but dropped — now exposed as individual features.
+# Multi-model cross-comparison features (17 features)
+# Models ranked by 90-day accuracy (wethr.net): HRRR(#1), NBM(#2-3), GEM HRDPS(#4-5),
+# then ECMWF, GFS, ICON, GEM global. NWS point forecast lags GFS by hours.
+# All models fetched via Open-Meteo (free, no API key).
 MULTIMODEL_COLS = [
-    "mm_spread",              # Max model - min model daily high (all 5 models)
+    "mm_spread",              # Max model - min model daily high (all 7 models)
     "mm_std",                 # Std dev across models
     "mm_mean",                # Multi-model consensus mean
     "mm_ecmwf_gfs_diff",      # ECMWF - GFS difference
-    "mm_hrrr_max",            # HRRR predicted daily max (warm-biased mesoscale)
+    "mm_hrrr_max",            # HRRR predicted daily max (#1 accuracy, runs hourly)
     "mm_hrrr_ecmwf_diff",     # HRRR - ECMWF: positive = HRRR overmixing
     "mm_hrrr_gfs_diff",       # HRRR - GFS: mesoscale vs synoptic agreement
     "mm_icon_max",            # ICON (German DWD) predicted daily max
-    "mm_gem_max",             # GEM (Canadian CMC) predicted daily max
+    "mm_gem_max",             # GEM global (Canadian CMC) predicted daily max
     "mm_icon_gfs_diff",       # ICON - GFS: European vs American disagreement
     "mm_gem_ecmwf_diff",      # GEM - ECMWF: Canadian vs European disagreement
+    # ── NEW in v6: top-accuracy models per wethr.net rankings ──────────────
+    "mm_nbm_max",             # NBM (National Blend of Models) — blends 50+ models,
+                              # faster updates than NWS point forecast, top-3 accuracy
+    "mm_nbm_hrrr_diff",       # NBM - HRRR: #3 vs #1 — large disagreement = high uncertainty
+    "mm_nbm_gfs_diff",        # NBM - GFS: blend vs raw synoptic baseline
+    "mm_nbm_ecmwf_diff",      # NBM - ECMWF: USA blend vs European deterministic
+    "mm_gem_hrdps_max",       # GEM HRDPS (Canadian high-res 2.5km) — top-5 accuracy,
+                              # superior boundary layer physics for mesoscale events
+    "mm_gem_hrdps_hrrr_diff", # GEM HRDPS - HRRR: two high-res models disagreeing
+                              # is a strong signal of boundary layer uncertainty
 ]
 
 # Intraday temperature curve features (10 features)
@@ -217,6 +227,32 @@ HIGH_TIMING_COLS = [
                                # 0 = still heating/flat; 3+ = clearly post-peak
 ]
 
+# ── NEW in v6: HRRR-specific pressure level features (4 features) ──────────
+# The standard atm_925mb_temp_* features use GFS-derived 925mb from Open-Meteo.
+# GFS at 13km resolution can miss boundary layer caps that HRRR resolves at 3km.
+# Negative atm_925mb_gfs_hrrr_diff = HRRR sees cooler air aloft than GFS (cap stronger).
+HRRR_PRESSURE_COLS = [
+    "atm_925mb_hrrr_max",       # HRRR 925mb max temp (daytime 10am-6pm) — 3km resolution
+    "atm_925mb_hrrr_mean",      # HRRR 925mb mean temp (daytime 10am-6pm)
+    "atm_850mb_hrrr_max",       # HRRR 850mb max temp — warm advection aloft detection
+    "atm_850mb_hrrr_mean",      # HRRR 850mb mean temp
+    "atm_925mb_gfs_hrrr_diff",  # GFS minus HRRR 925mb — when large & positive, GFS is missing
+                                # the cap. Critical for cases like April 12 2026 where GFS
+                                # showed warm 925mb but cap suppressed actual high below 55°F.
+]
+
+# ── NEW in v6: Radiosonde (upper-air balloon) observed soundings (5 features) ──
+# Source: Iowa State Mesonet → OKX (Upton, NY) 12Z and 00Z launches
+# These are ACTUAL OBSERVED upper-air temperatures, not model output.
+# The difference between forecasted and observed 925mb is the cap miss signal.
+RADIOSONDE_COLS = [
+    "raob_925mb_temp",          # Observed 925mb temperature (°F) from OKX morning sounding
+    "raob_850mb_temp",          # Observed 850mb temperature (°F) — synoptic-scale warm advection
+    "raob_700mb_temp",          # Observed 700mb temperature (°F) — mid-level cap signal
+    "raob_925mb_gfs_diff",      # GFS forecast minus observed 925mb (positive = GFS too warm)
+    "raob_925mb_hrrr_diff",     # HRRR forecast minus observed 925mb (positive = HRRR too warm)
+]
+
 # Features used as INPUT to the atmospheric predictor (first-stage model)
 ATM_PREDICTOR_INPUT_COLS = ATMOSPHERIC_COLS + INTRADAY_CURVE_COLS + [
     "day_of_year_sin", "day_of_year_cos", "month", "is_summer", "is_winter",
@@ -241,6 +277,24 @@ FEATURE_COLS_V4 = (FEATURE_COLS_V3 + OBSERVATION_COLS + REGIONAL_OBS_COLS +
 # v5 — adds high-timing features for overnight/late-day high detection (3 new features)
 # Total: v4(119) + high_timing(3) = 122
 FEATURE_COLS_V5 = FEATURE_COLS_V4 + HIGH_TIMING_COLS
+
+# v6 — adds high-accuracy models (NBM, GEM HRDPS), HRRR-specific 925mb,
+#       GFS-HRRR 925mb diff, and OKX radiosonde upper-air observed soundings.
+#
+# Motivation (April 12, 2026 case):
+#   - Model flipped from <=55 to 56-57 based on stale GFS 925mb (showed warm cap)
+#   - HRRR 925mb and actual OKX radiosonde showed cold cap (~48°F)
+#   - NBM and GEM HRDPS would have provided faster, higher-accuracy model consensus
+#   - These features give the model direct signals to resist NWS/GFS cap misses
+#
+# Total: v5(122) + multimodel_new(6) + hrrr_pressure(5) + radiosonde(5) = 138
+FEATURE_COLS_V6 = (
+    FEATURE_COLS_V5
+    + ["mm_nbm_max", "mm_nbm_hrrr_diff", "mm_nbm_gfs_diff", "mm_nbm_ecmwf_diff",
+       "mm_gem_hrdps_max", "mm_gem_hrdps_hrrr_diff"]
+    + HRRR_PRESSURE_COLS
+    + RADIOSONDE_COLS
+)
 
 # Additional features added per-candidate-bucket during classification (4)
 BUCKET_POSITION_COLS = [

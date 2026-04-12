@@ -190,14 +190,33 @@ def fetch_multimodel_forecast(
     timezone: str = "America/New_York",
 ) -> dict:
     """
-    Fetch daily max temperature from multiple models (ECMWF, GFS, ICON, GEM).
+    Fetch daily max temperature from multiple models.
+    Models ranked by 90-day accuracy (wethr.net):
+      #1 HRRR, #2 NBM, #3 GEM HRDPS, then ECMWF, GFS, ICON, GEM global.
     Returns dict like:
-        {"2026-03-07": {"ecmwf": 52.1, "gfs": 51.3, "icon": 50.8, "gem": 51.0}, ...}
+        {"2026-03-07": {"ecmwf": 52.1, "gfs": 51.3, "hrrr": 54.0, "nbm": 53.1, ...}, ...}
     """
-    models = ["ecmwf_ifs025", "gfs_seamless", "icon_seamless", "gem_seamless", "ncep_hrrr_conus"]
-    model_short = {"ecmwf_ifs025": "ecmwf", "gfs_seamless": "gfs",
-                   "icon_seamless": "icon", "gem_seamless": "gem",
-                   "ncep_hrrr_conus": "hrrr"}
+    # NBM (National Blend of Models) and GEM HRDPS added — top accuracy per wethr.net rankings.
+    # NWS point forecast is a lagged post-processing of GFS; NBM blends 50+ models and updates
+    # more frequently, making it far more useful for nowcasting.
+    models = [
+        "ecmwf_ifs025",         # ECMWF global deterministic
+        "gfs_seamless",          # GFS — the model NWS point forecasts lag behind
+        "icon_seamless",         # ICON (German DWD)
+        "gem_seamless",          # GEM global (Canadian CMC)
+        "ncep_hrrr_conus",       # HRRR — #1 accuracy, runs hourly, best boundary layer
+        "nbm_conus",             # NBM — blends 50+ models, faster than NWS, top-3 accuracy
+        "gem_hrdps_continental", # GEM HRDPS — Canadian high-res, top-5 accuracy
+    ]
+    model_short = {
+        "ecmwf_ifs025": "ecmwf",
+        "gfs_seamless": "gfs",
+        "icon_seamless": "icon",
+        "gem_seamless": "gem",
+        "ncep_hrrr_conus": "hrrr",
+        "nbm_conus": "nbm",
+        "gem_hrdps_continental": "gem_hrdps",
+    }
 
     result: dict[str, dict[str, float]] = {}
 
@@ -550,6 +569,21 @@ def extract_multimodel_features(multimodel_data: dict, target_date: str) -> dict
     features["mm_icon_gfs_diff"] = float(icon - gfs) if (icon is not None and gfs is not None) else np.nan
     features["mm_gem_ecmwf_diff"] = float(gem - ecmwf) if (gem is not None and ecmwf is not None) else np.nan
 
+    # NBM (National Blend of Models) — top-3 accuracy per wethr.net 90-day rankings.
+    # Blends 50+ models and updates more frequently than NWS point forecasts.
+    # When NBM diverges from HRRR, it's a strong signal of forecast instability.
+    nbm = day_data.get("nbm")
+    features["mm_nbm_max"] = float(nbm) if nbm is not None else np.nan
+    features["mm_nbm_hrrr_diff"] = float(nbm - hrrr) if (nbm is not None and hrrr is not None) else np.nan
+    features["mm_nbm_gfs_diff"] = float(nbm - gfs) if (nbm is not None and gfs is not None) else np.nan
+    features["mm_nbm_ecmwf_diff"] = float(nbm - ecmwf) if (nbm is not None and ecmwf is not None) else np.nan
+
+    # GEM HRDPS (Canadian High-Resolution Deterministic Prediction System) — top-5 accuracy.
+    # ~2.5km grid resolution, superior boundary layer physics for mesoscale events.
+    gem_hrdps = day_data.get("gem_hrdps")
+    features["mm_gem_hrdps_max"] = float(gem_hrdps) if gem_hrdps is not None else np.nan
+    features["mm_gem_hrdps_hrrr_diff"] = float(gem_hrdps - hrrr) if (gem_hrdps is not None and hrrr is not None) else np.nan
+
     return features
 
 
@@ -580,7 +614,17 @@ def get_atmospheric_features_historical(
     for col in ["ens_spread", "ens_std", "ens_iqr", "ens_mean", "ens_skew"]:
         features[col] = np.nan
     for col in ["mm_spread", "mm_std", "mm_mean", "mm_ecmwf_gfs_diff",
-                "mm_hrrr_max", "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff"]:
+                "mm_hrrr_max", "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff",
+                "mm_icon_max", "mm_gem_max", "mm_icon_gfs_diff", "mm_gem_ecmwf_diff",
+                "mm_nbm_max", "mm_nbm_hrrr_diff", "mm_nbm_gfs_diff", "mm_nbm_ecmwf_diff",
+                "mm_gem_hrdps_max", "mm_gem_hrdps_hrrr_diff"]:
+        features[col] = np.nan
+    # HRRR-specific 925mb and radiosonde not available in archive
+    for col in ["atm_925mb_hrrr_max", "atm_925mb_hrrr_mean",
+                "atm_850mb_hrrr_max", "atm_850mb_hrrr_mean",
+                "atm_925mb_gfs_hrrr_diff",
+                "raob_925mb_temp", "raob_850mb_temp",
+                "raob_925mb_gfs_diff", "raob_925mb_hrrr_diff"]:
         features[col] = np.nan
 
     features["target_date"] = target_date
@@ -733,6 +777,75 @@ def extract_observation_proxy_features(
     return features
 
 
+def fetch_hrrr_925mb_live(
+    lat: float,
+    lon: float,
+    target_date: str,
+    timezone: str = "America/New_York",
+) -> dict:
+    """
+    Fetch HRRR-specific 925mb and 850mb temperatures for a target date.
+
+    HRRR runs every hour with ~3km grid resolution and superior boundary layer physics
+    vs GFS (13km). The GFS-derived 925mb in the standard forecast API can miss caps
+    that HRRR resolves. On a cap day, GFS may show 925mb at 55°F while HRRR and actual
+    radiosonde show 48°F — that delta is the missed signal.
+
+    Returns features:
+        atm_925mb_hrrr_max, atm_925mb_hrrr_mean  (daytime 10am-6pm)
+        atm_850mb_hrrr_max, atm_850mb_hrrr_mean
+        atm_925mb_gfs_hrrr_diff  (set later when both are available)
+    """
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "hourly": "temperature_925hPa,temperature_850hPa",
+        "models": "ncep_hrrr_conus",
+        "temperature_unit": "fahrenheit",
+        "timezone": timezone,
+    }
+    qs = "&".join(f"{k}={v}" for k, v in params.items())
+    url = f"{FORECAST_URL}?{qs}"
+
+    try:
+        data = _get_json(url)
+        if "error" in data:
+            raise RuntimeError(f"HRRR 925mb error: {data.get('reason', data['error'])}")
+
+        hourly = data.get("hourly", {})
+        times = hourly.get("time", [])
+        if not times:
+            return {"atm_925mb_hrrr_max": np.nan, "atm_925mb_hrrr_mean": np.nan,
+                    "atm_850mb_hrrr_max": np.nan, "atm_850mb_hrrr_mean": np.nan}
+
+        df = pd.DataFrame({"time": pd.to_datetime(times)})
+        df["temperature_925hPa"] = hourly.get("temperature_925hPa", [None] * len(times))
+        df["temperature_850hPa"] = hourly.get("temperature_850hPa", [None] * len(times))
+
+        target = pd.Timestamp(target_date)
+        day_mask = df["time"].dt.date == target.date()
+        day = df[day_mask]
+
+        # Daytime hours (10am-6pm) — peak heating window, same window as standard 925mb
+        daytime = day[(day["time"].dt.hour >= 10) & (day["time"].dt.hour <= 18)]
+
+        features = {}
+        t925 = daytime["temperature_925hPa"].dropna()
+        features["atm_925mb_hrrr_max"] = float(t925.max()) if len(t925) > 0 else np.nan
+        features["atm_925mb_hrrr_mean"] = float(t925.mean()) if len(t925) > 0 else np.nan
+
+        t850 = daytime["temperature_850hPa"].dropna()
+        features["atm_850mb_hrrr_max"] = float(t850.max()) if len(t850) > 0 else np.nan
+        features["atm_850mb_hrrr_mean"] = float(t850.mean()) if len(t850) > 0 else np.nan
+
+        return features
+
+    except Exception as e:
+        print(f"  ⚠️ HRRR 925mb fetch failed: {e}")
+        return {"atm_925mb_hrrr_max": np.nan, "atm_925mb_hrrr_mean": np.nan,
+                "atm_850mb_hrrr_max": np.nan, "atm_850mb_hrrr_mean": np.nan}
+
+
 def get_atmospheric_features_live(
     lat: float,
     lon: float,
@@ -778,7 +891,7 @@ def get_atmospheric_features_live(
         for col in ["ens_spread", "ens_std", "ens_iqr", "ens_mean", "ens_skew"]:
             features[col] = np.nan
 
-    # Multi-model features
+    # Multi-model features (ECMWF, GFS, ICON, GEM, HRRR, NBM, GEM HRDPS)
     try:
         mm_data = fetch_multimodel_forecast(lat, lon, timezone)
         mm_features = extract_multimodel_features(mm_data, target_date)
@@ -786,8 +899,25 @@ def get_atmospheric_features_live(
     except Exception as e:
         print(f"  ⚠️ Multi-model fetch failed: {e}")
         for col in ["mm_spread", "mm_std", "mm_mean", "mm_ecmwf_gfs_diff",
-                    "mm_hrrr_max", "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff"]:
+                    "mm_hrrr_max", "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff",
+                    "mm_nbm_max", "mm_nbm_hrrr_diff", "mm_nbm_gfs_diff", "mm_nbm_ecmwf_diff",
+                    "mm_gem_hrdps_max", "mm_gem_hrdps_hrrr_diff"]:
             features[col] = np.nan
+
+    # HRRR-specific 925mb — better boundary layer resolution than GFS-derived 925mb.
+    # The GFS 925mb can miss caps that HRRR resolves at 3km vs 13km grid spacing.
+    # Adds atm_925mb_hrrr_max, atm_925mb_hrrr_mean, atm_850mb_hrrr_max, atm_850mb_hrrr_mean.
+    hrrr_925mb = fetch_hrrr_925mb_live(lat, lon, target_date, timezone)
+    features.update(hrrr_925mb)
+
+    # GFS vs HRRR 925mb diff — when this is large, GFS is missing the cap signal.
+    # Negative = HRRR sees cooler air aloft than GFS (cap stronger than GFS thinks).
+    gfs_925 = features.get("atm_925mb_temp_mean")
+    hrrr_925 = features.get("atm_925mb_hrrr_mean")
+    if gfs_925 is not None and hrrr_925 is not None and not np.isnan(gfs_925) and not np.isnan(hrrr_925):
+        features["atm_925mb_gfs_hrrr_diff"] = gfs_925 - hrrr_925
+    else:
+        features["atm_925mb_gfs_hrrr_diff"] = np.nan
 
     features["target_date"] = target_date
     return features
