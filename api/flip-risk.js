@@ -28,6 +28,16 @@
 //   t925_live         float      (live 925mb temp, °F)
 //   wind_dir_card     string     (e.g. "NNE")
 //   top2_confidence   float      (confidence of 2nd-best bucket, 0-1)
+//
+//   Station-level marine cap signals (v9 additions — the April 12 fix):
+//   syn_vs_nws        float  Synoptic network mean minus NWS forecast (°F)
+//                            Negative = entire station network below NWS = cap signal
+//   jfk_temp          float  JFK Airport temp (°F)
+//   jfk_vs_nws        float  JFK minus NWS (°F) — most sensitive leading cap indicator
+//   kjfk_vs_knyc      float  JFK minus KNYC (°F) — negative = sea breeze penetrating inland
+//   coastal_vs_inland float  mean(JFK,LGA) minus mean(EWR,TEB) — negative = marine gradient
+//   marine_active     '1'    set if LGA-JFK gradient ≥3°F (sea breeze detected)
+//   hrrr_vs_nws       float  HRRR minus NWS (°F) — negative = HRRR sensing cap NWS misses
 
 const CITIES = {
   nyc: { tz: "America/New_York" },
@@ -57,6 +67,15 @@ export default async function handler(req, res) {
   const t925Live       = parseFloat(q.t925_live)       || null;
   const windDir        = (q.wind_dir_card || "").toUpperCase();
   const top2Conf       = parseFloat(q.top2_confidence) || null;
+
+  // Station-level marine cap signals (v9)
+  const synVsNws       = q.syn_vs_nws        != null && q.syn_vs_nws        !== '' ? parseFloat(q.syn_vs_nws)        : null;
+  const jfkTemp        = q.jfk_temp          != null && q.jfk_temp          !== '' ? parseFloat(q.jfk_temp)          : null;
+  const jfkVsNws       = q.jfk_vs_nws        != null && q.jfk_vs_nws        !== '' ? parseFloat(q.jfk_vs_nws)        : null;
+  const kjfkVsKnyc     = q.kjfk_vs_knyc      != null && q.kjfk_vs_knyc      !== '' ? parseFloat(q.kjfk_vs_knyc)      : null;
+  const coastalVsInland= q.coastal_vs_inland  != null && q.coastal_vs_inland  !== '' ? parseFloat(q.coastal_vs_inland) : null;
+  const marineActive   = q.marine_active === '1';
+  const hrrrVsNws      = q.hrrr_vs_nws       != null && q.hrrr_vs_nws       !== '' ? parseFloat(q.hrrr_vs_nws)       : null;
 
   // ── 1. Historical analog query from Supabase ────────────────────────────
   const supaUrl = process.env.SUPABASE_URL;
@@ -241,6 +260,101 @@ export default async function handler(req, res) {
         label: `ML ${mlVsNws.toFixed(1)}°F above NWS — if ML correct, blow-past possible` });
     }
   }
+
+  // ── G) MARINE CAP SIGNALS — the April 12 signals that were missing ──────
+  // These are the field observations that directly contradict an upward flip.
+  // When these fire, the flip risk score should DROP regardless of model uncertainty.
+  //
+  // The logic: a tight probability gap (signal A) means the model is uncertain.
+  // But if the station network is uniformly 7°F below NWS, that uncertainty resolves
+  // downward — it means the cap is real, not that the warmer bucket is more likely.
+  // We subtract flipPoints to suppress false upward-flip signals.
+
+  let capHoldPoints = 0;  // cap-hold evidence — subtracts from flipPoints
+
+  // G1) Synoptic station network below NWS — the entire 20-station network is capped
+  if (synVsNws != null) {
+    if (synVsNws <= -6) {
+      capHoldPoints += 4;
+      signals.push({ factor: "synoptic_vs_nws", dir: "hold", weight: 4,
+        label: `Station network ${Math.abs(synVsNws).toFixed(1)}°F below NWS (${20}+ stations) — field data strongly contradicts upward move` });
+    } else if (synVsNws <= -4) {
+      capHoldPoints += 3;
+      signals.push({ factor: "synoptic_vs_nws", dir: "hold", weight: 3,
+        label: `Station network ${Math.abs(synVsNws).toFixed(1)}°F below NWS — cap signal across full network` });
+    } else if (synVsNws <= -2) {
+      capHoldPoints += 1;
+      signals.push({ factor: "synoptic_vs_nws", dir: "hold", weight: 1,
+        label: `Station network ${Math.abs(synVsNws).toFixed(1)}°F below NWS forecast` });
+    }
+  }
+
+  // G2) JFK vs NWS — coastal airport is the leading indicator of marine cap strength
+  if (jfkVsNws != null) {
+    if (jfkVsNws <= -10) {
+      capHoldPoints += 4;
+      signals.push({ factor: "jfk_vs_nws", dir: "hold", weight: 4,
+        label: `JFK ${Math.abs(jfkVsNws).toFixed(0)}°F below NWS forecast — marine cap at the coast is decisive` });
+    } else if (jfkVsNws <= -7) {
+      capHoldPoints += 3;
+      signals.push({ factor: "jfk_vs_nws", dir: "hold", weight: 3,
+        label: `JFK ${Math.abs(jfkVsNws).toFixed(0)}°F below NWS — strong marine suppression at coastal station` });
+    } else if (jfkVsNws <= -4) {
+      capHoldPoints += 1;
+      signals.push({ factor: "jfk_vs_nws", dir: "hold", weight: 1,
+        label: `JFK ${Math.abs(jfkVsNws).toFixed(0)}°F below NWS — moderate coastal cooling` });
+    }
+  }
+
+  // G3) Coastal-inland gradient — the physical signature of a marine cap
+  // When coastal (JFK, LGA) is much colder than inland (EWR, TEB), the air mass
+  // boundary is clear. This is not a model artifact — it's measured reality.
+  if (coastalVsInland != null) {
+    if (coastalVsInland <= -4) {
+      capHoldPoints += 3;
+      signals.push({ factor: "coastal_vs_inland", dir: "hold", weight: 3,
+        label: `Coastal ${Math.abs(coastalVsInland).toFixed(1)}°F colder than inland — marine air mass boundary confirmed` });
+    } else if (coastalVsInland <= -2) {
+      capHoldPoints += 1;
+      signals.push({ factor: "coastal_vs_inland", dir: "hold", weight: 1,
+        label: `Coastal ${Math.abs(coastalVsInland).toFixed(1)}°F colder than inland — marine influence present` });
+    }
+  }
+
+  // G4) JFK-KNYC diff — sea breeze penetration indicator
+  if (kjfkVsKnyc != null && kjfkVsKnyc <= -2) {
+    capHoldPoints += 1;
+    signals.push({ factor: "kjfk_vs_knyc", dir: "hold", weight: 1,
+      label: `JFK ${Math.abs(kjfkVsKnyc).toFixed(1)}°F colder than Central Park — sea breeze pushing inland` });
+  }
+
+  // G5) Marine active flag (sea breeze confirmed)
+  if (marineActive && capHoldPoints === 0) {
+    // Only add this if we don't already have stronger station signals
+    capHoldPoints += 1;
+    signals.push({ factor: "marine_active", dir: "hold", weight: 1,
+      label: `Sea breeze active — coastal-to-inland gradient suppresses afternoon heating` });
+  }
+
+  // G6) HRRR vs NWS — when HRRR (most accurate model) is colder than NWS
+  if (hrrrVsNws != null) {
+    if (hrrrVsNws <= -3) {
+      capHoldPoints += 2;
+      signals.push({ factor: "hrrr_vs_nws", dir: "hold", weight: 2,
+        label: `HRRR ${Math.abs(hrrrVsNws).toFixed(0)}°F below NWS — highest-accuracy model sensing cap NWS is missing` });
+    } else if (hrrrVsNws <= -1.5) {
+      capHoldPoints += 1;
+      signals.push({ factor: "hrrr_vs_nws", dir: "hold", weight: 1,
+        label: `HRRR ${Math.abs(hrrrVsNws).toFixed(1)}°F below NWS — HRRR cooler than NWS` });
+    }
+  }
+
+  // Apply cap suppression: strong cap evidence cancels out model-uncertainty flip signals
+  // Cap signals are reality — model spread just means the model is uncertain, not that
+  // the warmer outcome is equally plausible when the whole station network is 7°F below.
+  flipPoints = Math.max(0, flipPoints - capHoldPoints);
+  // Also zero out blow-past if strong marine cap is active
+  if (capHoldPoints >= 4) blowPoints = 0;
 
   // ── 3. Synthesize overall risk level ────────────────────────────────────
   const flipRisk = flipPoints >= 4 ? "HIGH"

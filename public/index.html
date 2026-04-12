@@ -3791,6 +3791,47 @@ async function fetchFlipRisk() {
   if (nwsVal  != null) params.set('nws_f',  nwsVal);
   if (accuVal != null) params.set('accu_f', accuVal);
 
+  // ── Marine cap signals — prevent false upward-flip when field data says cap is holding ──
+  // Pull from today's atm_snapshot (Supabase, updated each prediction cycle)
+  const _snap = (ml.todayAtmSnapshot || {});
+  const _lro  = (window._liveRegionalObs || {});
+  const _lroOk = !_lro.city || _lro.city === currentCity;
+  const nwsF  = nwsVal != null ? Number(nwsVal) : null;
+
+  // Synoptic network vs NWS
+  const _synVsNws = _snap.obs_snap_syn_vs_nws ?? null;
+  if (_synVsNws != null) params.set('syn_vs_nws', Number(_synVsNws).toFixed(1));
+
+  // JFK temp and JFK vs NWS
+  const _snapKjfk = _snap.obs_snap_kjfk ?? _snap.obs_snap_jfk
+    ?? (_lroOk && _lro.jfk != null ? _lro.jfk : null);
+  if (_snapKjfk != null) {
+    params.set('jfk_temp', Number(_snapKjfk).toFixed(1));
+    if (nwsF != null) params.set('jfk_vs_nws', (Number(_snapKjfk) - nwsF).toFixed(1));
+  }
+
+  // JFK-KNYC diff (clearest marine cap signal)
+  const _snapKjfkVsKnyc = _snap.obs_snap_kjfk_vs_knyc ?? null;
+  if (_snapKjfkVsKnyc != null) params.set('kjfk_vs_knyc', Number(_snapKjfkVsKnyc).toFixed(1));
+
+  // Coastal vs inland gradient
+  const _snapCoastalVsInland = _snap.obs_snap_coastal_vs_inland ?? null;
+  if (_snapCoastalVsInland != null) params.set('coastal_vs_inland', Number(_snapCoastalVsInland).toFixed(1));
+
+  // Marine active flag (live regional: JFK colder than LGA and spread ≥2°F, or coastal gradient ≤-3)
+  const _lroJfk = _lroOk && _lro.jfk != null ? Number(_lro.jfk) : null;
+  const _lroLga = _lroOk && _lro.lga != null ? Number(_lro.lga) : null;
+  const _marineFromLro = _lroJfk != null && _lroLga != null && (_lroLga - _lroJfk) >= 2;
+  const _marineFromSnap = _snapCoastalVsInland != null && Number(_snapCoastalVsInland) <= -3;
+  if (_marineFromLro || _marineFromSnap) params.set('marine_active', '1');
+
+  // HRRR vs NWS (cap signal: HRRR sees cold pool NWS is missing)
+  // mm_hrrr_max is written by prediction_writer from Open-Meteo HRRR member
+  const _hrrr = _snap.mm_hrrr_max ?? null;
+  if (_hrrr != null && nwsF != null) {
+    params.set('hrrr_vs_nws', (Number(_hrrr) - nwsF).toFixed(1));
+  }
+
   try {
     const r = await fetch(`/api/flip-risk?${params}&cb=${Date.now()}`, { signal: AbortSignal.timeout(10000) });
     if (!r.ok) return;
