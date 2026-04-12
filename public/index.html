@@ -4070,17 +4070,15 @@ function renderLiveSourcesPanel() {
   const knyc_snap_temp = s.obs_snap_temp;
   const knyc_vs   = s.obs_snap_vs_forecast;
   const knyc_rate = s.obs_snap_heating_rate;
-  // Max so far: use live reading + 6-hr NWS synoptic max (both always current).
-  // obs_snap_max_so_far is intentionally excluded — it comes from a stored prediction
-  // snapshot that can be hours stale and may pull in overnight readings from the
-  // previous calendar day, causing falsely high "Max" values early in the morning.
+  // Use the best available max: snapshot max OR 6-hour NWS max, whichever is higher.
+  // obs_snap_max_so_far comes from _fetch_observation_features() which uses a live
+  // API that can lag behind the hourly NWS CSV. _sixHourMaxF is the authoritative
+  // 6-hour max from NWS and is always current.
+  const _snapMaxRaw = s.obs_snap_max_so_far;
   const _sixHrMax   = Number.isFinite(window._sixHourMaxF) ? window._sixHourMaxF : null;
-  const knyc_max    = (() => {
-    const cands = [knyc_live, _sixHrMax]
-      .filter(v => v != null && Number.isFinite(Number(v)))
-      .map(Number);
-    return cands.length ? Math.max(...cands) : null;
-  })();
+  const knyc_max    = (_snapMaxRaw != null && _sixHrMax != null)
+    ? Math.max(Number(_snapMaxRaw), _sixHrMax)
+    : (_sixHrMax ?? (_snapMaxRaw != null ? Number(_snapMaxRaw) : null));
   const knyc_display = knyc_live ?? knyc_snap_temp;
   const knyc_label = knyc_live != null ? "live" : (s.obs_snap_hour != null ? `@${Math.round(s.obs_snap_hour)}:00` : "");
   const _nowHour  = parseInt(new Date().toLocaleString("en-US", { timeZone: _cityTZ, hour: "numeric", hour12: false }), 10);
