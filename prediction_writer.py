@@ -1835,7 +1835,7 @@ def _compute_ml_prediction(
                 v2_features.setdefault("nws_d1_final", np.nan)
                 v2_features.setdefault("nws_overnight_jump", np.nan)
 
-            # ── Synoptic Data (MesoWest) — 100+ stations within 5mi of Central Park ──
+            # ── Synoptic Data (MesoWest) — 100+ stations within 5mi of Central Park/KCQT ──
             try:
                 from synoptic_client import get_synoptic_obs_features
                 import nws_auto_logger as _nal_syn
@@ -1845,6 +1845,7 @@ def _compute_ml_prediction(
                     lon=_syn_cfg.get("synoptic_lon", _syn_cfg.get("open_meteo_lon", -73.965)),
                     nws_last=features.get("nws_last"),
                     radius_miles=_syn_cfg.get("synoptic_radius_miles", 5.0),
+                    city=_CITY_KEY,
                 )
                 v2_features.update(syn_feats)
                 syn_pop = sum(1 for v in syn_feats.values()
@@ -4790,6 +4791,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                         lon=_syn_lon,
                         nws_last=_nws_for_obs,
                         radius_miles=_syn_radius,
+                        city=_CITY_KEY,
                     )
                     _ex_snap["obs_snap_syn_mean"]   = _safe_snap(_syn_fresh.get("obs_synoptic_mean"))
                     _ex_snap["obs_snap_syn_min"]    = _safe_snap(_syn_fresh.get("obs_synoptic_min"))
@@ -4797,37 +4799,66 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                     _ex_snap["obs_snap_syn_spread"] = _safe_snap(_syn_fresh.get("obs_synoptic_spread"))
                     _ex_snap["obs_snap_syn_vs_nws"] = _safe_snap(_syn_fresh.get("obs_synoptic_vs_nws"))
                     _ex_snap["obs_snap_syn_count"]  = _syn_fresh.get("obs_synoptic_count")
-                    # v9: named station readings
-                    _ex_snap["obs_snap_kjfk"]               = _safe_snap(_syn_fresh.get("obs_kjfk_temp"))
-                    _ex_snap["obs_snap_klga"]               = _safe_snap(_syn_fresh.get("obs_klga_temp"))
-                    _ex_snap["obs_snap_kewr"]               = _safe_snap(_syn_fresh.get("obs_kewr_temp"))
-                    _ex_snap["obs_snap_kteb"]               = _safe_snap(_syn_fresh.get("obs_kteb_temp"))
-                    _ex_snap["obs_snap_knyc_syn"]           = _safe_snap(_syn_fresh.get("obs_knyc_temp"))
-                    _ex_snap["obs_snap_kjfk_vs_knyc"]       = _safe_snap(_syn_fresh.get("obs_kjfk_vs_knyc"))
-                    _ex_snap["obs_snap_klga_vs_knyc"]       = _safe_snap(_syn_fresh.get("obs_klga_vs_knyc"))
-                    _ex_snap["obs_snap_kewr_vs_knyc"]       = _safe_snap(_syn_fresh.get("obs_kewr_vs_knyc"))
-                    _ex_snap["obs_snap_airport_spread"]     = _safe_snap(_syn_fresh.get("obs_airport_spread"))
-                    _ex_snap["obs_snap_coastal_vs_inland"]  = _safe_snap(_syn_fresh.get("obs_coastal_vs_inland"))
-                    # Manhattan Mesonet — 5-min fill-in between KNYC's hourly drops
-                    _ex_snap["obs_snap_manh_temp"]          = _safe_snap(_syn_fresh.get("obs_manh_temp"))
-                    _ex_snap["obs_snap_manh_vs_knyc"]       = _safe_snap(_syn_fresh.get("obs_manh_vs_knyc"))
-                    # Observation timestamps (ISO strings)
-                    for _sk, _fk in [
-                        ("obs_snap_knyc_obs_at", "obs_knyc_obs_at"),
-                        ("obs_snap_kjfk_obs_at", "obs_kjfk_obs_at"),
-                        ("obs_snap_klga_obs_at", "obs_klga_obs_at"),
-                        ("obs_snap_kewr_obs_at", "obs_kewr_obs_at"),
-                        ("obs_snap_kteb_obs_at", "obs_kteb_obs_at"),
-                        ("obs_snap_manh_obs_at", "obs_manh_obs_at"),
-                    ]:
-                        _ts = _syn_fresh.get(_fk)
-                        _ex_snap[_sk] = _ts if isinstance(_ts, str) else None
-                    print(f"  📡 Stable-cycle Synoptic: "
-                          f"{_ex_snap['obs_snap_syn_mean']} "
-                          f"({_ex_snap['obs_snap_syn_count']} stations)  "
-                          f"KJFK={_ex_snap.get('obs_snap_kjfk')}  "
-                          f"KJFK-KNYC={_ex_snap.get('obs_snap_kjfk_vs_knyc')}  "
-                          f"MANH={_ex_snap.get('obs_snap_manh_temp')}")
+
+                    # v9: named station readings — city-specific
+                    if _CITY_KEY == "lax":
+                        # LAX regional stations
+                        _ex_snap["obs_snap_lax"]                = _safe_snap(_syn_fresh.get("obs_lax_temp"))
+                        _ex_snap["obs_snap_smo"]                = _safe_snap(_syn_fresh.get("obs_smo_temp"))
+                        _ex_snap["obs_snap_bur"]                = _safe_snap(_syn_fresh.get("obs_bur_temp"))
+                        _ex_snap["obs_snap_vny"]                = _safe_snap(_syn_fresh.get("obs_vny_temp"))
+                        _ex_snap["obs_snap_cqt"]                = _safe_snap(_syn_fresh.get("obs_cqt_temp"))
+                        _ex_snap["obs_snap_bur_vs_lax"]         = _safe_snap(_syn_fresh.get("obs_bur_vs_lax"))
+                        _ex_snap["obs_snap_coastal_vs_inland_lax"] = _safe_snap(_syn_fresh.get("obs_coastal_vs_inland_lax"))
+                        _ex_snap["obs_snap_airport_spread_lax"]   = _safe_snap(_syn_fresh.get("obs_airport_spread_lax"))
+                        # LAX observation timestamps
+                        for _sk, _fk in [
+                            ("obs_snap_lax_obs_at", "obs_lax_obs_at"),
+                            ("obs_snap_smo_obs_at", "obs_smo_obs_at"),
+                            ("obs_snap_bur_obs_at", "obs_bur_obs_at"),
+                            ("obs_snap_vny_obs_at", "obs_vny_obs_at"),
+                            ("obs_snap_cqt_obs_at", "obs_cqt_obs_at"),
+                        ]:
+                            _ts = _syn_fresh.get(_fk)
+                            _ex_snap[_sk] = _ts if isinstance(_ts, str) else None
+                        print(f"  📡 Stable-cycle Synoptic LAX: "
+                              f"{_ex_snap['obs_snap_syn_mean']} "
+                              f"({_ex_snap['obs_snap_syn_count']} stations)  "
+                              f"KLAX={_ex_snap.get('obs_snap_lax')}  "
+                              f"KBUR-KLAX={_ex_snap.get('obs_snap_bur_vs_lax')}  "
+                              f"KCQT={_ex_snap.get('obs_snap_cqt')}")
+                    else:
+                        # NYC regional airports + Manhattan Mesonet
+                        _ex_snap["obs_snap_kjfk"]               = _safe_snap(_syn_fresh.get("obs_kjfk_temp"))
+                        _ex_snap["obs_snap_klga"]               = _safe_snap(_syn_fresh.get("obs_klga_temp"))
+                        _ex_snap["obs_snap_kewr"]               = _safe_snap(_syn_fresh.get("obs_kewr_temp"))
+                        _ex_snap["obs_snap_kteb"]               = _safe_snap(_syn_fresh.get("obs_kteb_temp"))
+                        _ex_snap["obs_snap_knyc_syn"]           = _safe_snap(_syn_fresh.get("obs_knyc_temp"))
+                        _ex_snap["obs_snap_kjfk_vs_knyc"]       = _safe_snap(_syn_fresh.get("obs_kjfk_vs_knyc"))
+                        _ex_snap["obs_snap_klga_vs_knyc"]       = _safe_snap(_syn_fresh.get("obs_klga_vs_knyc"))
+                        _ex_snap["obs_snap_kewr_vs_knyc"]       = _safe_snap(_syn_fresh.get("obs_kewr_vs_knyc"))
+                        _ex_snap["obs_snap_airport_spread"]     = _safe_snap(_syn_fresh.get("obs_airport_spread"))
+                        _ex_snap["obs_snap_coastal_vs_inland"]  = _safe_snap(_syn_fresh.get("obs_coastal_vs_inland"))
+                        # Manhattan Mesonet — 5-min fill-in between KNYC's hourly drops
+                        _ex_snap["obs_snap_manh_temp"]          = _safe_snap(_syn_fresh.get("obs_manh_temp"))
+                        _ex_snap["obs_snap_manh_vs_knyc"]       = _safe_snap(_syn_fresh.get("obs_manh_vs_knyc"))
+                        # NYC observation timestamps (ISO strings)
+                        for _sk, _fk in [
+                            ("obs_snap_knyc_obs_at", "obs_knyc_obs_at"),
+                            ("obs_snap_kjfk_obs_at", "obs_kjfk_obs_at"),
+                            ("obs_snap_klga_obs_at", "obs_klga_obs_at"),
+                            ("obs_snap_kewr_obs_at", "obs_kewr_obs_at"),
+                            ("obs_snap_kteb_obs_at", "obs_kteb_obs_at"),
+                            ("obs_snap_manh_obs_at", "obs_manh_obs_at"),
+                        ]:
+                            _ts = _syn_fresh.get(_fk)
+                            _ex_snap[_sk] = _ts if isinstance(_ts, str) else None
+                        print(f"  📡 Stable-cycle Synoptic NYC: "
+                              f"{_ex_snap['obs_snap_syn_mean']} "
+                              f"({_ex_snap['obs_snap_syn_count']} stations)  "
+                              f"KJFK={_ex_snap.get('obs_snap_kjfk')}  "
+                              f"KJFK-KNYC={_ex_snap.get('obs_snap_kjfk_vs_knyc')}  "
+                              f"MANH={_ex_snap.get('obs_snap_manh_temp')}")
                 except Exception as _syn_e:
                     print(f"  ⚠️  Stable-cycle Synoptic skipped: {_syn_e}")
 

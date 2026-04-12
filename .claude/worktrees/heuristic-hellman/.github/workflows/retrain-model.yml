@@ -1,0 +1,82 @@
+name: Daily ML Model Retrain
+
+on:
+  schedule:
+    # Every day at 6am ET (10am UTC) — after finalize-yesterday (5am ET)
+    # and before first prediction run (7am ET)
+    - cron: "0 10 * * *"
+  workflow_dispatch:  # manual trigger
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy==1.24.3 pandas==2.2.3 scikit-learn==1.3.0 requests beautifulsoup4 pytz
+
+      - name: Backfill atmospheric data through yesterday
+        run: |
+          # Extend multiyear CSVs to include all days up to yesterday
+          # so the model always trains on the latest atmospheric data
+          YESTERDAY=$(date -u -d "yesterday" +%Y-%m-%d 2>/dev/null || date -u -v-1d +%Y-%m-%d)
+          echo "Backfilling atmospheric data through $YESTERDAY"
+          python backfill_multiyear.py --all --end "$YESTERDAY"
+
+      - name: Backfill real NWS observation features
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+        run: |
+          python prediction_writer.py backfill_obs
+          python prediction_writer.py --city lax backfill_obs
+        continue-on-error: true
+
+      - name: Run model training (v1 + v2 + v4 for all cities)
+        run: |
+          python train_models.py --all
+          python train_models.py --all --v2
+          python train_models.py --all --v4
+
+      - name: Show training results
+        run: |
+          for prefix in "" "lax_"; do
+            for meta in "${prefix}model_metadata.json" "${prefix}model_metadata_v2.json" "${prefix}model_metadata_v4.json"; do
+              if [ -f "$meta" ]; then
+                echo "=== $meta ==="
+                cat "$meta"
+                echo ""
+              fi
+            done
+          done
+          echo "=== Model files ==="
+          ls -lh *.pkl *model_metadata*.json 2>/dev/null || echo "No model files"
+
+      - name: Commit updated models
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add *.pkl *model_metadata*.json *multiyear_atmospheric.csv *observation_data.csv 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "No model changes to commit"
+          else
+            git commit -m "Retrain ML models v1+v2+v4 with latest data ($(date +%Y-%m-%d))
+
+          Automated daily retrain using train_models.py --all (v1 + v2 + v4).
+          v4 includes 12 observation features (84 total) for intraday re-prediction.
+          Cities with <60 days of data are skipped automatically.
+          See model_metadata*.json for updated performance metrics."
+            git push
+          fi

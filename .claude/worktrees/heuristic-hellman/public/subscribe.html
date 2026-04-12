@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Subscribe – Daily Dew Point</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#f8fafc; --fg:#0f172a; --muted:#64748b; --b:#cbd5e1; --b2:#94a3b8; --blue:#2563eb; --blue2:#1e40af; --ok:#16a34a;}
+    html,body{height:100%}
+    body { font-family:'Inter',system-ui,sans-serif; display:flex; align-items:center; justify-content:center;
+           min-height:100%; margin:0; background:var(--bg); color:var(--fg); padding:16px; }
+    .card { background:#fff; padding:28px; border-radius:12px; box-shadow:0 4px 16px rgba(0,0,0,.08);
+            width:100%; max-width:480px; text-align:center; border:1px solid #e2e8f0; }
+    h1 { font-size:22px; margin:0 0 6px; }
+    p.sub { margin:0 0 14px; color:var(--muted); font-size:14px; }
+    .plans { display:flex; gap:12px; justify-content:center; margin:18px 0 10px; flex-wrap:wrap; }
+    .plan { flex:1; min-width:200px; padding:16px; border:2px solid var(--b); border-radius:10px; }
+    .plan.active { border-color:var(--blue); background:#eff6ff; }
+    .plan h3{margin:0 0 6px;font-size:16px}
+    .plan small{ display:block; margin-top:4px; color:var(--muted); }
+    .actions { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-top:12px; }
+    button, .btn {
+      padding:12px 14px; border:none; border-radius:10px; background:var(--blue); color:white;
+      font-weight:700; font-size:14px; cursor:pointer; text-decoration:none; display:inline-block;
+    }
+    button.secondary, .btn.secondary { background:#e2e8f0; color:#0f172a; }
+    button.linky { background:transparent; color:var(--blue); text-decoration:underline; padding:0; border-radius:0; }
+    button[disabled]{ opacity:.6; cursor:default; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
+    .alert{ margin-top:12px; font-size:13px; padding:10px 12px; border-radius:8px; border:1px solid var(--b); color:#334155; background:#f1f5f9; display:none}
+    .alert.ok{ border-color:#a7f3d0; color:#065f46; background:#ecfdf5; display:block}
+    .alert.err{ border-color:#fecaca; color:#7f1d1d; background:#fef2f2; display:block}
+    .muted{color:var(--muted); font-size:12px; margin-top:8px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Choose your plan</h1>
+    <p class="sub">You’ll be redirected to Stripe Checkout.</p>
+
+    <div class="plans" role="radiogroup" aria-label="Plans">
+      <div id="p-monthly" class="plan" tabindex="0" role="radio" aria-checked="false" data-plan="monthly">
+        <h3>$5 / month</h3>
+        <small>Billed monthly. Cancel anytime.</small>
+        <div class="actions">
+          <button class="btn" data-action="subscribe" data-plan="monthly">$5 / month</button>
+          <button class="btn secondary" data-action="trial">Start free trial</button>
+        </div>
+      </div>
+      <div id="p-yearly" class="plan" tabindex="0" role="radio" aria-checked="false" data-plan="yearly">
+        <h3>$50 / year</h3>
+        <small>Best value. Billed annually.</small>
+        <div class="actions">
+          <button class="btn" data-action="subscribe" data-plan="yearly">$50 / year</button>
+          <button class="btn secondary" data-action="trial">Start free trial</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <a class="btn secondary" href="./">Back to dashboard</a>
+      <a class="btn secondary" href="login.html?switch=1">Back to login / sign-up</a>
+    </div>
+
+    <div id="toast" class="alert"></div>
+    <div class="muted">Already subscribed? You’ll be sent back to the dashboard automatically.</div>
+
+    <div class="row" style="margin-top:10px; display:none" id="statusRow">
+      <button id="checkNow" class="btn secondary">Check status again</button>
+      <a id="gotoDashboard" class="btn" href="/" style="display:none">Go to dashboard</a>
+    </div>
+  </div>
+
+<script type="module">
+  import { createClient } from "https://esm.sh/@supabase/supabase-js";
+
+  // ---- Supabase client (anon) ----
+  const supabase = createClient(
+    // use your public URL + anon keys
+    "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw",
+    { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }
+  );
+
+  const PRICE_IDS = {
+    monthly: "price_1T6fWAJZv8wNnhLtBlQ3f0im", // $5/mo
+    yearly:  "price_1T6fYGJZv8wNnhLtr7WnfT8q"  // $50/yr
+  };
+
+  const $ = (s,p=document)=>p.querySelector(s);
+  const $$= (s,p=document)=>Array.from(p.querySelectorAll(s));
+  const toast = $("#toast");
+  const params = new URLSearchParams(location.search);
+  const ALLOW = new Set(["active","trialing"]);
+
+  function showToast(msg, kind="err"){
+    toast.textContent = msg;
+    toast.className = "alert " + kind;
+  }
+
+  async function routeIfActive(userId) {
+    // RLS must allow: SELECT subscription_status FROM profiles WHERE id = auth.uid()
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("subscription_status")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (error) {
+      console.warn("profile query error", error);
+      return { done:false, status:null };
+    }
+    const status = data?.subscription_status || null;
+    if (ALLOW.has(status)) {
+      window.location.replace("/");
+      return { done:true, status };
+    }
+    return { done:false, status };
+  }
+
+  async function pollUntilActive(userId, ms=1000, tries=90) {
+    $("#statusRow").style.display = "flex";
+    for (let i=0; i<tries; i++) {
+      await supabase.auth.refreshSession();
+      const { done, status } = await routeIfActive(userId);
+      if (done) return true;
+      if (i % 5 === 0) showToast(`Almost there — processing (${status ?? "waiting"})…`, "ok");
+      await new Promise(r=>setTimeout(r, ms));
+    }
+    $("#gotoDashboard").style.display = "inline-block";
+    showToast("Almost there — your payment is processing. If this doesn’t update, click ‘Check status again’ or refresh.", "ok");
+    return false;
+  }
+
+  // ----- Require auth; redirect to login if not signed in -----
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user?.id) {
+    window.location.href = "/login.html";
+  }
+
+  // ----- Handle return from Stripe -----
+  if (params.get("success")) {
+    showToast("Payment succeeded. Finalizing…", "ok");
+    // Poll for webhook to land
+    await pollUntilActive(session.user.id);
+  }
+  if (params.get("canceled")) {
+    showToast("Checkout canceled.", "err");
+  }
+
+  // Manual “check again”
+  $("#checkNow").addEventListener("click", async ()=>{
+    showToast("Checking your status…", "ok");
+    await pollUntilActive(session.user.id, 1000, 20);
+  });
+
+  // ----- Start Checkout (subscribe or trial) -----
+  async function startCheckout({ plan, trial=false }) {
+    const btns = $$("button, a.btn");
+    btns.forEach(b=>b.disabled = true);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { window.location.href = "/login.html"; return; }
+
+      const body = {
+        supabaseAccessToken: session.access_token,
+      };
+
+      if (trial) {
+        // Free trial → auto-roll to monthly $5
+        body.trial = true;
+      } else {
+        // Explicit plan
+        body.plan = plan;                     // "monthly" | "yearly"
+        body.priceId = PRICE_IDS[plan] || ""; // pass the server’s price id
+      }
+
+      const r = await fetch("/api/create-checkout-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+
+      const data = await r.json();
+      if (!r.ok || !data?.url) {
+        showToast(data?.error || "Could not start checkout. Check server logs.");
+        btns.forEach(b=>b.disabled = false);
+        return;
+      }
+      window.location.href = data.url; // Stripe Checkout
+    } catch (e) {
+      console.error(e);
+      showToast(e.message || "Network error.");
+      btns.forEach(b=>b.disabled = false);
+    }
+  }
+
+  // Bind buttons
+  $$("[data-action='subscribe']").forEach(btn=>{
+    btn.addEventListener("click", ()=> startCheckout({ plan: btn.dataset.plan, trial:false }));
+  });
+  $$("[data-action='trial']").forEach(btn=>{
+    btn.addEventListener("click", ()=> startCheckout({ plan: null, trial:true }));
+  });
+</script>
+</body>
+</html>

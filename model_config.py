@@ -413,6 +413,49 @@ MANHATTAN_MESONET_COLS = [
     "obs_manh_vs_knyc",     # MANH - KNYC: negative = sea breeze reaching park early
 ]
 
+# ═══════════════════════════════════════════════════════════════════════
+# LAX city variant feature columns
+# ═══════════════════════════════════════════════════════════════════════
+#
+# SYNOPTIC_LAX_STATION_COLS: LAX marine layer detection via 5 regional stations
+# (replaces NYC's SYNOPTIC_NAMED_STATION_COLS for city="lax")
+#
+# Marine layer geometry in LAX is OPPOSITE from NYC sea breeze:
+#   - Coastal (KLAX/KSMO) are COLDEST when marine layer is active
+#   - Inland (KBUR/KVNY) are WARMEST when layer pins coast (heating uncapped)
+#
+# On a marine layer day:
+#   KLAX ≈ 65°F, KSMO ≈ 66°F, KBUR ≈ 78°F, KVNY ≈ 76°F
+#   obs_bur_vs_lax = +13°F (strong inland heating signal = layer active)
+#
+# On a clear day:
+#   KLAX ≈ 78°F, KSMO ≈ 79°F, KBUR ≈ 82°F, KVNY ≈ 80°F
+#   obs_bur_vs_lax = +4°F (small diff = no layer, all heating together)
+#
+# Total: v8(139) + lax_named_stations(10) = 149 features (same count as NYC for compatibility)
+SYNOPTIC_LAX_STATION_COLS = [
+    # Individual LAX regional airport temperatures (°F)
+    "obs_lax_temp",               # KLAX — coastal airport, reference point
+    "obs_smo_temp",               # KSMO — Santa Monica, coastal
+    "obs_bur_temp",               # KBUR — Burbank, inland San Fernando Valley
+    "obs_vny_temp",               # KVNY — Van Nuys, inland
+    "obs_cqt_temp",               # KCQT — USC Campus Downtown LA, official NWS/Kalshi reference
+    # Cross-station diffs — marine layer signal
+    "obs_bur_vs_lax",             # KBUR - KLAX: positive = inland warmer = marine layer active
+    "obs_coastal_vs_inland_lax",  # mean(KLAX,KSMO) - mean(KBUR,KVNY): negative = marine layer
+    # Network-wide marine signal
+    "obs_airport_spread_lax",     # max - min across all 4 LAX regional stations
+]
+
+# LAX v9 equivalent: NYC's v9 features translated for LAX
+# Uses SYNOPTIC_LAX_STATION_COLS instead of SYNOPTIC_NAMED_STATION_COLS
+FEATURE_COLS_V9_LAX = list(FEATURE_COLS_V8) + SYNOPTIC_LAX_STATION_COLS
+
+# LAX v10 equivalent: v9_lax + observation columns (no Manhattan Mesonet equivalent yet)
+# Manhattan Mesonet is NYC-specific — no comparable high-frequency network in LAX yet.
+# Skip MANHATTAN_MESONET_COLS for LAX.
+FEATURE_COLS_V10_LAX = list(FEATURE_COLS_V9_LAX)
+
 FEATURE_COLS_V10 = list(FEATURE_COLS_V9) + MANHATTAN_MESONET_COLS
 
 # Additional features added per-candidate-bucket during classification (4)

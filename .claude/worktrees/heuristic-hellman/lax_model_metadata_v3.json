@@ -1,0 +1,170 @@
+{
+  "trained_on": "2026-03-30T11:10:18.535528",
+  "version": "v3_unified_regression",
+  "num_days": 1548,
+  "num_forecast_days": 28,
+  "num_multiyear_days": 1520,
+  "date_range": {
+    "start": "2022-01-02",
+    "end": "2026-03-29"
+  },
+  "performance": {
+    "cv_mae": 0.71,
+    "cv_bucket_accuracy_1f": 0.0,
+    "residual_std": 7.53,
+    "per_fold_mae": [
+      0.91,
+      0.5,
+      0.4,
+      0.45,
+      1.31
+    ],
+    "per_fold_bucket_acc": [
+      0.0
+    ]
+  },
+  "top_features": [
+    {
+      "name": "atm_predicted_high",
+      "importance": 1.7272
+    },
+    {
+      "name": "atm_morning_temp_6am",
+      "importance": 0.018
+    },
+    {
+      "name": "accu_mean",
+      "importance": 0.0082
+    },
+    {
+      "name": "nws_mean",
+      "importance": 0.0057
+    },
+    {
+      "name": "prev_day_high",
+      "importance": 0.0018
+    },
+    {
+      "name": "atm_temp_range",
+      "importance": 0.0017
+    },
+    {
+      "name": "day_of_year_sin",
+      "importance": 0.0015
+    },
+    {
+      "name": "rolling_bias_21d",
+      "importance": 0.0014
+    },
+    {
+      "name": "atm_overnight_min",
+      "importance": 0.0004
+    },
+    {
+      "name": "accu_trend",
+      "importance": 0.0004
+    },
+    {
+      "name": "accu_count",
+      "importance": 0.0004
+    },
+    {
+      "name": "accu_last",
+      "importance": 0.0003
+    },
+    {
+      "name": "nws_last",
+      "importance": 0.0003
+    },
+    {
+      "name": "day_of_year_cos",
+      "importance": 0.0003
+    },
+    {
+      "name": "atm_dewpoint_mean",
+      "importance": 0.0002
+    }
+  ],
+  "hyperparameters": {
+    "max_iter": 400,
+    "max_depth": 4,
+    "learning_rate": 0.03,
+    "min_samples_leaf": 15,
+    "l2_regularization": 1.0,
+    "max_leaf_nodes": 20
+  },
+  "feature_columns": [
+    "nws_first",
+    "nws_last",
+    "nws_max",
+    "nws_min",
+    "nws_mean",
+    "nws_spread",
+    "nws_std",
+    "nws_trend",
+    "nws_count",
+    "forecast_velocity",
+    "forecast_acceleration",
+    "accu_first",
+    "accu_last",
+    "accu_max",
+    "accu_min",
+    "accu_mean",
+    "accu_spread",
+    "accu_std",
+    "accu_trend",
+    "accu_count",
+    "nws_accu_spread",
+    "nws_accu_mean_diff",
+    "day_of_year_sin",
+    "day_of_year_cos",
+    "month",
+    "is_summer",
+    "is_winter",
+    "rolling_bias_7d",
+    "rolling_bias_21d",
+    "has_accu_data",
+    "atm_wind_max",
+    "atm_wind_mean",
+    "atm_wind_dir_sin",
+    "atm_wind_dir_cos",
+    "atm_humidity_mean",
+    "atm_humidity_min",
+    "atm_dewpoint_mean",
+    "atm_pressure_mean",
+    "atm_pressure_change",
+    "atm_cloud_cover_mean",
+    "atm_cloud_cover_max",
+    "atm_precip_total",
+    "atm_temp_range",
+    "atm_overnight_min",
+    "atm_morning_temp_6am",
+    "atm_850mb_temp_max",
+    "atm_850mb_temp_mean",
+    "ens_spread",
+    "ens_std",
+    "ens_iqr",
+    "ens_mean",
+    "ens_skew",
+    "mm_spread",
+    "mm_std",
+    "mm_mean",
+    "mm_ecmwf_gfs_diff",
+    "intra_temp_9am",
+    "intra_temp_noon",
+    "intra_temp_3pm",
+    "intra_temp_5pm",
+    "intra_heating_rate_am",
+    "intra_heating_rate_pm",
+    "intra_peak_hour",
+    "intra_late_heating",
+    "intra_rise_from_overnight",
+    "intra_high_vs_noon",
+    "prev_day_high",
+    "prev_day_temp_drop",
+    "midnight_temp",
+    "atm_predicted_high",
+    "atm_vs_forecast_diff",
+    "mos_max_temp"
+  ]
+}

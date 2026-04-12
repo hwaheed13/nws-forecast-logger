@@ -4215,9 +4215,10 @@ function renderLiveSourcesPanel() {
   // Stall signal: obs_heating_rate_delta < -0.8 = deceleration = cap holding fingerprint
   const _stallActive  = knyc_rate_delta != null && Number(knyc_rate_delta) < -0.8;
   const _stallStrong  = knyc_rate_delta != null && Number(knyc_rate_delta) < -1.5;
+  const isLaxDisplay = currentCity === 'lax';
   const knyc_sub = [
     knyc_max  != null ? `Max: ${f0(knyc_max)}` : "",
-    _manhStr  != null ? _manhStr : "",          // 5-min Mesonet fill-in
+    (!isLaxDisplay && _manhStr  != null) ? _manhStr : "",          // 5-min Mesonet fill-in (NYC only)
     (_snapRecent && knyc_vs   != null) ? `vs fcst: ${fSign(knyc_vs)}` : "",
     (_snapRecent && knyc_rate != null && Math.abs(Number(knyc_rate)) >= 0.2)
       ? `${Number(knyc_rate) >= 0 ? "+" : ""}${Number(knyc_rate).toFixed(1)}°/hr` : "",
