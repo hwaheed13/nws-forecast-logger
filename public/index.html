@@ -5089,6 +5089,16 @@ window._predTomorrow = predTomorrow;
              </div>`
           : '';
 
+        // Show canonical flip note when today's first prediction differs from current
+        const _mlForFlip = window.mlPredictions || {};
+        const _canonBucket = _mlForFlip.todayMLBucketCanonical;
+        const _currBucket  = _mlForFlip.todayMLBucket;
+        const canonicalFlipNote = (_canonBucket && _currBucket && _canonBucket !== _currBucket)
+          ? `<div style="font-size:12px;background:#fffbeb;border-left:3px solid #f59e0b;padding:6px 10px;margin-top:6px;border-radius:4px;color:#92400e;">
+              🔄 <strong>Prediction shifted today</strong> — opened <strong>${cleanKalshiLabel(_canonBucket)}</strong>, now <strong>${cleanKalshiLabel(_currBucket)}</strong>
+             </div>`
+          : '';
+
         el0.innerHTML = `
           ${liveInvalidationBanner}
           ${limitedDataHTML}
@@ -5100,6 +5110,7 @@ window._predTomorrow = predTomorrow;
           ${kellyLine}
           <div style="font-size:12px;color:var(--text-muted);margin-top:5px;">ML: ${mlVal.toFixed(1)}°F${supportHTML ? ` · ${supportHTML}` : ''}</div>
           ${moatRiskHTMLTd}
+          ${canonicalFlipNote}
           ${bucketRevisedNote}
           ${overnightHighNote}
           ${exceedanceNote}
