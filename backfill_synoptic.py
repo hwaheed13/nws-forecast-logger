@@ -38,6 +38,16 @@ from typing import Optional
 
 import numpy as np
 
+# ── Load .env if present (allows running outside a pre-configured shell) ──────
+try:
+    from dotenv import load_dotenv
+    _env_path = os.path.join(os.path.dirname(__file__), ".env")
+    if os.path.exists(_env_path):
+        load_dotenv(_env_path, override=False)  # don't override real env vars
+        print(f"  📄 Loaded credentials from {_env_path}")
+except ImportError:
+    pass  # python-dotenv not installed; rely on shell env vars
+
 # ── Config ────────────────────────────────────────────────────────────────────
 SYNOPTIC_BASE = "https://api.synopticdata.com/v2"
 # Stations to query: KNYC + the four airport ASOS stations
