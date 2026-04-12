@@ -31,10 +31,23 @@ export default async function handler(req, res) {
     "temperature_2m",          // Surface temp (°F)
   ].join(",");
 
+  // Current conditions — updated every 15 minutes by Open-Meteo.
+  // Gives real-time values rather than the hourly forecast, so the panel
+  // reflects what the atmosphere is actually doing right now.
+  const CURRENT_VARS = [
+    "shortwave_radiation",     // Actual solar irradiance hitting surface now (W/m²)
+    "cloud_cover",             // Actual cloud cover % right now
+    "temperature_850hPa",      // Current 850mb temp (model analysis, updates every 15 min)
+    "temperature_925hPa",      // Current 925mb temp (model analysis, updates every 15 min)
+    "wind_speed_10m",          // Current surface wind speed
+    "wind_direction_10m",      // Current surface wind direction
+  ].join(",");
+
   const url =
     `https://api.open-meteo.com/v1/forecast` +
     `?latitude=${lat}&longitude=${lon}` +
     `&hourly=${HOURLY_VARS}` +
+    `&current=${CURRENT_VARS}` +
     `&temperature_unit=fahrenheit` +
     `&wind_speed_unit=mph` +
     `&timezone=${encodeURIComponent(tz)}` +
@@ -44,6 +57,16 @@ export default async function handler(req, res) {
     const r = await fetch(url, { signal: AbortSignal.timeout(12000) });
     if (!r.ok) throw new Error(`Open-Meteo ${r.status}`);
     const raw = await r.json();
+
+    // Real-time current conditions (15-min updates)
+    const currentConditions = raw.current || {};
+    const solarNow    = currentConditions.shortwave_radiation  ?? null;
+    const cloudNow    = currentConditions.cloud_cover          ?? null;
+    const t850Now     = currentConditions.temperature_850hPa   ?? null;
+    const t925Now     = currentConditions.temperature_925hPa   ?? null;
+    const windNowLive = currentConditions.wind_speed_10m       ?? null;
+    const wdirNowLive = currentConditions.wind_direction_10m   ?? null;
+    const currentTime = currentConditions.time                 ?? null;
 
     const hourly = raw.hourly || {};
     const times  = hourly.time || [];
@@ -126,11 +149,20 @@ export default async function handler(req, res) {
       date:           todayStr,
       city:           cityKey,
       current: {
-        temp:          tempNow  != null ? Math.round(tempNow  * 10) / 10 : null,
-        wind_mph:      windNow  != null ? Math.round(windNow  * 10) / 10 : null,
-        wind_dir_deg:  wdirNow  != null ? Math.round(wdirNow) : null,
-        wind_dir_card: wdirCard,
-        sea_breeze:    wdirCard ? SEA_BREEZE_DIRS.includes(wdirCard) : false,
+        temp:              tempNow  != null ? Math.round(tempNow  * 10) / 10 : null,
+        wind_mph:          windNow  != null ? Math.round(windNow  * 10) / 10 : null,
+        wind_dir_deg:      wdirNow  != null ? Math.round(wdirNow) : null,
+        wind_dir_card:     wdirCard,
+        sea_breeze:        wdirCard ? SEA_BREEZE_DIRS.includes(wdirCard) : false,
+        // Real-time values (15-min Open-Meteo updates) — more dynamic than hourly forecast
+        solar_now_wm2:      solarNow    != null ? Math.round(solarNow)              : null,
+        cloud_cover_now:    cloudNow    != null ? Math.round(cloudNow)              : null,
+        temp_850hPa_now:    t850Now     != null ? Math.round(t850Now   * 10) / 10  : null,
+        temp_925hPa_now:    t925Now     != null ? Math.round(t925Now   * 10) / 10  : null,
+        wind_mph_now:       windNowLive != null ? Math.round(windNowLive * 10) / 10 : null,
+        wind_dir_deg_now:   wdirNowLive != null ? Math.round(wdirNowLive)           : null,
+        wind_dir_card_now:  degToCard(wdirNowLive),
+        current_obs_time:   currentTime,
       },
       peak_heating: {
         bl_height_max_m:  blPeak  != null ? Math.round(blPeak)  : null,

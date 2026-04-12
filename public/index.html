@@ -3799,9 +3799,10 @@ function renderAtmSignals() {
                    : cloud < 50   ? '#d97706'
                    : '#dc2626';
 
-  // Wind direction — sea-breeze flag: union of server-side flag AND live JFK/LGA gradient.
-  // Using both gives earliest-possible warning: gradient fires from obs, flag fires from model.
-  const wdir = cur.wind_dir_card;
+  // Wind direction — prefer live current reading from Open-Meteo (15-min) over hourly forecast.
+  // Also union with live JFK/LGA gradient for earliest-possible sea-breeze warning.
+  const wdir = cur.wind_dir_card_now || cur.wind_dir_card;
+  const windMph = cur.wind_mph_now != null ? cur.wind_mph_now : cur.wind_mph;
   const _lroNow   = window._liveRegionalObs || {};
   const _lroOk    = !_lroNow.city || _lroNow.city === currentCity;
   const _gradJfk  = _lroOk && _lroNow.jfk != null ? Number(_lroNow.jfk) : null;
@@ -3813,34 +3814,42 @@ function renderAtmSignals() {
   const seaLabel  = currentCity === 'lax' ? '🌊 Marine layer — onshore flow' : '🌊 Sea breeze';
   const windTip   = wSea ? seaLabel : (wdir ? wdir + ' flow' : '');
 
-  // 850mb warm advection
-  const t850    = pk.temp_850hPa;
-  const advColor = pk.warm_advection === 'warm' ? '#dc2626'
-                 : pk.warm_advection === 'cold' ? '#2563eb'
-                 : 'var(--text-primary)';
-  const advTip   = pk.warm_advection === 'warm' ? 'Warm advection aloft'
-                 : pk.warm_advection === 'cold' ? 'Cold advection aloft'
-                 : 'Neutral advection';
+  // 850mb warm advection — use live current value if available, else peak-window forecast
+  const t850     = cur.temp_850hPa_now != null ? cur.temp_850hPa_now : pk.temp_850hPa;
+  const t850Src  = cur.temp_850hPa_now != null ? ' (live)' : ' (fcst peak)';
+  const advCat   = t850 == null ? 'neutral' : t850 > 50 ? 'warm' : t850 < 40 ? 'cold' : 'neutral';
+  const advColor = advCat === 'warm' ? '#dc2626' : advCat === 'cold' ? '#2563eb' : 'var(--text-primary)';
+  const advTip   = (advCat === 'warm' ? 'Warm advection aloft' : advCat === 'cold' ? 'Cold advection aloft' : 'Neutral advection') + t850Src;
 
-  // 925mb — independently computed from the actual 925mb temperature value.
+  // 925mb — use live current value if available, else peak-window forecast
   // 925mb ≈ 750m altitude, just above the surface layer. Thresholds are
   // slightly higher than 850mb (which is ~1500m) since near-surface air
   // is warmer. > 55°F = warm airmass, < 45°F = cold airmass.
-  const t925        = pk.temp_925hPa;
+  const t925        = cur.temp_925hPa_now != null ? cur.temp_925hPa_now : pk.temp_925hPa;
+  const t925Src     = cur.temp_925hPa_now != null ? ' (live)' : ' (fcst peak)';
   const adv925Cat   = t925 == null ? 'neutral' : t925 > 55 ? 'warm' : t925 < 45 ? 'cold' : 'neutral';
   const adv925Color = adv925Cat === 'warm' ? '#dc2626'
                     : adv925Cat === 'cold' ? '#2563eb'
                     : 'var(--text-primary)';
-  const adv925Tip   = adv925Cat === 'warm' ? 'Warm near-surface air'
+  const adv925Tip   = (adv925Cat === 'warm' ? 'Warm near-surface air'
                     : adv925Cat === 'cold' ? 'Cold near-surface air'
-                    : 'Neutral near-surface air';
+                    : 'Neutral near-surface air') + t925Src;
 
-  // Solar
-  const solar = pk.solar_peak_wm2;
+  // Solar — forecasted peak (10am–5pm window) + live current reading (15-min updates)
+  const solar    = pk.solar_peak_wm2;
+  const solarNow = cur.solar_now_wm2;   // real-time from Open-Meteo current conditions
+  const cloudNow = cur.cloud_cover_now; // real-time cloud cover
   const solarColor = solar == null ? 'var(--text-primary)'
                    : solar > 700  ? '#16a34a'
                    : solar > 400  ? '#d97706'
                    : '#dc2626';
+  // Live solar label: show current W/m² if meaningfully different from forecast peak (>50 W/m² gap)
+  const solarNowStr = solarNow != null
+    ? ` · now ${solarNow} W/m²`
+    : '';
+  const solarLabel = solar != null
+    ? (solar > 700 ? 'Strong heating' : solar > 400 ? 'Moderate' : 'Weak — suppressed') + solarNowStr
+    : '';
 
   // ── Signal agreement summary ─────────────────────────────────────────────
   // Count warm vs cool signals across the 5 key atmospheric indicators.
@@ -3879,13 +3888,20 @@ function renderAtmSignals() {
     }
   }
 
+  // Cloud cover label: use live reading if available, else forecasted
+  const cloudDisplay    = cloudNow != null ? cloudNow : cloud;
+  const cloudDispLabel  = cloudDisplay != null
+    ? (cloudDisplay < 20 ? 'Mostly clear' : cloudDisplay < 50 ? 'Partly cloudy' : 'Mostly cloudy')
+      + (cloudNow != null ? ' (live)' : ' (fcst)')
+    : '';
+
   grid.innerHTML = [
     sig('Mixing Layer', fmt(blM),   'm peak',  blLabel, blColor),
-    sig('Cloud Cover',  fmt(cloud), '%',        cloud != null ? (cloud < 20 ? 'Mostly clear' : cloud < 50 ? 'Partly cloudy' : 'Mostly cloudy') : '', cloudColor),
-    sig('Solar Peak',   fmt(solar), 'W/m²',    solar != null ? (solar > 700 ? 'Strong heating' : solar > 400 ? 'Moderate' : 'Weak — suppressed') : '', solarColor),
+    sig('Cloud Cover',  fmt(cloudDisplay), '%', cloudDispLabel, cloudColor),
+    sig('Solar Peak',   fmt(solar), 'W/m²',    solarLabel, solarColor),
     sig('850mb Temp',   fmt(t850, 1), '°F',    advTip, advColor),
     sig('925mb Temp',   fmt(t925, 1), '°F',    adv925Tip, adv925Color),
-    sig('Surface Wind', cur.wind_mph != null ? fmt(cur.wind_mph, 0) : '–', 'mph', windTip, windColor),
+    sig('Surface Wind', windMph != null ? fmt(windMph, 0) : '–', 'mph', windTip, windColor),
   ].join('') + _consensusHTML;
 
   if (ts && d.fetchedAt) {
