@@ -4126,7 +4126,8 @@ function renderLiveSourcesPanel() {
   const knyc_live = window._recentObservedF != null ? Number(window._recentObservedF) : null;
   const knyc_snap_temp = s.obs_snap_temp;
   const knyc_vs   = s.obs_snap_vs_forecast;
-  const knyc_rate = s.obs_snap_heating_rate;
+  const knyc_rate       = s.obs_snap_heating_rate;
+  const knyc_rate_delta = s.obs_snap_heating_rate_delta;  // stall signal: negative = cap holding
   // Use the best available max: snapshot max OR 6-hour NWS max, whichever is higher.
   // obs_snap_max_so_far comes from _fetch_observation_features() which uses a live
   // API that can lag behind the hourly NWS CSV. _sixHourMaxF is the authoritative
@@ -4140,10 +4141,16 @@ function renderLiveSourcesPanel() {
   const knyc_label = knyc_live != null ? "live" : (s.obs_snap_hour != null ? `@${Math.round(s.obs_snap_hour)}:00` : "");
   const _nowHour  = parseInt(new Date().toLocaleString("en-US", { timeZone: _cityTZ, hour: "numeric", hour12: false }), 10);
   const _snapRecent = _nowHour < 15;
+  // Stall signal: obs_heating_rate_delta < -0.8 = deceleration = cap holding fingerprint
+  const _stallActive  = knyc_rate_delta != null && Number(knyc_rate_delta) < -0.8;
+  const _stallStrong  = knyc_rate_delta != null && Number(knyc_rate_delta) < -1.5;
   const knyc_sub = [
     knyc_max  != null ? `Max: ${f0(knyc_max)}` : "",
     (_snapRecent && knyc_vs   != null) ? `vs fcst: ${fSign(knyc_vs)}` : "",
-    (_snapRecent && knyc_rate != null && Math.abs(Number(knyc_rate)) >= 0.2) ? `${Number(knyc_rate) >= 0 ? "+" : ""}${Number(knyc_rate).toFixed(1)}°/hr` : "",
+    (_snapRecent && knyc_rate != null && Math.abs(Number(knyc_rate)) >= 0.2)
+      ? `${Number(knyc_rate) >= 0 ? "+" : ""}${Number(knyc_rate).toFixed(1)}°/hr` : "",
+    (_snapRecent && _stallActive)
+      ? `stall ${Number(knyc_rate_delta).toFixed(1)}°/hr${_stallStrong ? " ⚠️" : ""}` : "",
   ].filter(Boolean).join(" · ") || "–";
 
   // ── Regional stations (JFK/LGA for NYC, LAX/BUR for LAX)

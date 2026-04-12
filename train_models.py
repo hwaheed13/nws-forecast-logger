@@ -2325,7 +2325,160 @@ class NYCTemperatureModelTrainer:
         except Exception:
             pass
 
-    def run(self, v2: bool = False, v4: bool = False, v5: bool = False, v6: bool = False, v7: bool = False):
+    def train_v8(self) -> None:
+        """
+        Train v8 model: v7 (HRRR-anchored base, 138 features) + obs_heating_rate_delta.
+
+        THE STALL SIGNAL:
+          obs_heating_rate_delta = recent_slope - early_slope (°F/hr).
+          Negative = warming rate is decelerating = cap is holding.
+          This is the automated version of "watching the stations plateau for 2 hours."
+
+          April 12 example:
+            7-9am: +1.8°F/hr → 10am-noon: +0.2°F/hr → delta = -1.6°F/hr
+
+        Combined with HRRR-anchored base (v7), HRRR vs NWS gap, radiosonde, this
+        is the full signal stack that would have kept the model at ≤55 on April 12.
+
+        Requires v7 training data to be loaded first.
+        """
+        from model_config import FEATURE_COLS_V8
+        from train_classifier import BucketClassifier
+
+        print(f"\n{'═'*60}")
+        print(f"v8 Training: v7 + obs_heating_rate_delta stall signal ({len(FEATURE_COLS_V8)} features)")
+        print(f"{'═'*60}")
+        print(f"  New: obs_heating_rate_delta — deceleration = cap fingerprint")
+
+        if self.features_df is None or self.features_df.empty:
+            print("  ⚠️ No feature data. Run train_v7() first.")
+            return
+
+        missing_v8 = [c for c in FEATURE_COLS_V8 if c not in self.features_df.columns]
+        if missing_v8:
+            print(f"  Missing v8 cols (NaN for historical rows): {missing_v8}")
+            for col in missing_v8:
+                self.features_df[col] = np.nan
+
+        # Coverage report
+        n_stall = self.features_df["obs_heating_rate_delta"].notna().sum() \
+                  if "obs_heating_rate_delta" in self.features_df.columns else 0
+        print(f"  obs_heating_rate_delta: {n_stall} non-null rows (live only)")
+
+        has_forecast_mask = self.features_df["nws_last"].notna()
+        forecast_df = self.features_df[has_forecast_mask].copy()
+        n_forecast = len(forecast_df)
+        print(f"\n  Regression: {n_forecast} rows with forecasts")
+
+        if n_forecast < MIN_DAYS_FOR_TRAINING:
+            print(f"  ⚠️ Need {MIN_DAYS_FOR_TRAINING} rows, have {n_forecast}. Skipping.")
+            return
+
+        X_v8 = forecast_df[FEATURE_COLS_V8]
+        y_actual = forecast_df["actual_high"]
+        nws_last  = forecast_df["nws_last"]
+        accu_last = forecast_df["accu_last"]
+
+        # Same HRRR > NBM > AccuWeather > NWS base cascade as v7
+        hrrr_max = forecast_df.get("mm_hrrr_max", pd.Series(np.nan, index=forecast_df.index))
+        nbm_max  = forecast_df.get("mm_nbm_max",  pd.Series(np.nan, index=forecast_df.index))
+        base = hrrr_max.copy()
+        base[base.isna()] = nbm_max[base.isna()].values
+        base[base.isna()] = accu_last[base.isna()].values
+        base[base.isna()] = nws_last[base.isna()].values
+        y_bias = y_actual - base
+
+        tscv = TimeSeriesSplit(n_splits=5)
+        mae_scores, bucket_acc, all_residuals = [], [], []
+
+        for tr, te in tscv.split(X_v8):
+            model = HistGradientBoostingRegressor(
+                max_iter=300, max_depth=3, learning_rate=0.03,
+                min_samples_leaf=20, l2_regularization=1.0,
+                max_leaf_nodes=15, random_state=42,
+            )
+            model.fit(X_v8.iloc[tr], y_bias.iloc[tr])
+            pred_bias = model.predict(X_v8.iloc[te])
+            pred_temp = base.iloc[te].values + pred_bias
+            mae_scores.append(mean_absolute_error(y_actual.iloc[te], pred_temp))
+            all_residuals.extend((y_actual.iloc[te].values - pred_temp).tolist())
+            pred_buckets   = [f"{int(p)}-{int(p)+1}" for p in pred_temp]
+            actual_buckets = [f"{int(a)}-{int(a)+1}" for a in y_actual.iloc[te]]
+            correct = sum(1 for pb, ab in zip(pred_buckets, actual_buckets) if pb == ab)
+            bucket_acc.append(correct / len(actual_buckets))
+
+        residual_std = float(np.std(all_residuals))
+        print(f"  v8 CV MAE:        {np.mean(mae_scores):.2f}°F")
+        print(f"  v8 CV Bucket Acc: {np.mean(bucket_acc):.1%}")
+        print(f"  v8 Residual Std:  {residual_std:.2f}°F")
+
+        v8_regressor = HistGradientBoostingRegressor(
+            max_iter=300, max_depth=3, learning_rate=0.03,
+            min_samples_leaf=20, l2_regularization=1.0,
+            max_leaf_nodes=15, random_state=42,
+        )
+        v8_regressor.fit(X_v8, y_bias)
+
+        try:
+            fi = dict(zip(FEATURE_COLS_V8, v8_regressor.feature_importances_))
+            print(f"  obs_heating_rate importance:       {fi.get('obs_heating_rate', 0):.4f}")
+            print(f"  obs_heating_rate_delta importance: {fi.get('obs_heating_rate_delta', 0):.4f}")
+        except Exception:
+            pass
+
+        classifier = BucketClassifier()
+        classifier.train(
+            self.features_df.copy().reset_index(drop=True),
+            feature_cols=FEATURE_COLS_V8,
+            residual_std=residual_std,
+            forecast_weight=5.0,
+        )
+
+        prefix = self.model_prefix
+        with open(f"{prefix}bcp_v8_regressor.pkl", "wb") as f:
+            pickle.dump(v8_regressor, f)
+        with open(f"{prefix}bcp_v8_classifier.pkl", "wb") as f:
+            pickle.dump(classifier, f)
+        with open(f"{prefix}bcp_v8_feature_cols.pkl", "wb") as f:
+            pickle.dump(list(FEATURE_COLS_V8), f)
+
+        v8_meta = {
+            "trained_on": datetime.now().isoformat(),
+            "version": "v8_hrrr_anchored_stall_signal",
+            "base_cascade": "HRRR > NBM > AccuWeather > NWS",
+            "new_feature": "obs_heating_rate_delta (stall = cap fingerprint)",
+            "v8_regression": {
+                "cv_mae": float(np.mean(mae_scores)),
+                "cv_bucket_accuracy": float(np.mean(bucket_acc)),
+                "residual_std": residual_std,
+                "n_features": len(FEATURE_COLS_V8),
+                "n_training_rows": n_forecast,
+            },
+            "feature_columns_v8": list(FEATURE_COLS_V8),
+        }
+        import json as _json
+        with open(f"{prefix}model_metadata_v8.json", "w") as f:
+            _json.dump(v8_meta, f, indent=2)
+
+        print(f"\n  ✅ Saved v8 models: bcp_v8_regressor.pkl, bcp_v8_classifier.pkl")
+        print(f"  v8 Classifier Bucket Acc: {classifier.cv_bucket_accuracy:.1%}")
+
+        try:
+            import json as _j
+            with open(f"{prefix}model_metadata_v7.json") as f:
+                v7_meta = _j.load(f)
+            v7_mae = v7_meta.get("v7_regression", {}).get("cv_mae")
+            v7_bkt = v7_meta.get("v7_regression", {}).get("cv_bucket_accuracy")
+            print(f"\n{'─'*50}")
+            print(f"COMPARISON: v7 vs v8 (added: stall signal)")
+            if v7_mae: print(f"  MAE:        v7={v7_mae:.2f}°F → v8={np.mean(mae_scores):.2f}°F")
+            if v7_bkt: print(f"  Bucket Acc: v7={v7_bkt:.1%} → v8={np.mean(bucket_acc):.1%}")
+            print(f"  stall signal is NaN for most historical rows — advantage grows with live data.")
+            print(f"{'─'*50}")
+        except Exception:
+            pass
+
+    def run(self, v2: bool = False, v4: bool = False, v5: bool = False, v6: bool = False, v7: bool = False, v8: bool = False):
         label = self.city_cfg["label"]
         print("=" * 60)
         print(f"{label} Temperature Model Training")
@@ -2399,6 +2552,20 @@ class NYCTemperatureModelTrainer:
                 self.train_v6()
             self.train_v7()
 
+        if v8:
+            if not v2:
+                self.train_v2()
+                self.train_v3()
+            if not v4:
+                self.train_v4()
+            if not v5:
+                self.train_v5()
+            if not v6:
+                self.train_v6()
+            if not v7:
+                self.train_v7()
+            self.train_v8()
+
         print("\nTraining complete.")
 
 
@@ -2417,6 +2584,8 @@ if __name__ == "__main__":
                         help="Train v6 (v5 + NBM, GEM HRDPS, HRRR 925mb, OKX radiosonde soundings)")
     parser.add_argument("--v7", action="store_true",
                         help="Train v7 (v6 features + HRRR-anchored base: HRRR > NBM > AccuWeather > NWS)")
+    parser.add_argument("--v8", action="store_true",
+                        help="Train v8 (v7 + obs_heating_rate_delta stall signal: deceleration = cap fingerprint)")
     args = parser.parse_args()
 
     if args.all:
@@ -2430,6 +2599,7 @@ if __name__ == "__main__":
                 v2=args.v2, v4=args.v4, v5=args.v5,
                 v6=getattr(args, "v6", False),
                 v7=getattr(args, "v7", False),
+                v8=getattr(args, "v8", False),
             )
     else:
         trainer = NYCTemperatureModelTrainer(city_key=args.city)
@@ -2437,4 +2607,5 @@ if __name__ == "__main__":
             v2=args.v2, v4=args.v4, v5=args.v5,
             v6=getattr(args, "v6", False),
             v7=getattr(args, "v7", False),
+            v8=getattr(args, "v8", False),
         )

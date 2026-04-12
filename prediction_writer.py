@@ -279,6 +279,52 @@ def _load_v5_models():
     )
 
 
+def _load_v8_models():
+    """Load v8 models: bcp_v8 regressor + classifier + feature cols (cached).
+    v8 = v7 (HRRR-anchored base, 138 features) + obs_heating_rate_delta (stall signal).
+    obs_heating_rate_delta = recent_slope - early_slope (°F/hr): negative = cap holding.
+    """
+    import nws_auto_logger as _nal
+    prefix = _nal._CITY_CFG.get("model_prefix", "")
+    cache_key = f"{prefix}v8_regressor"
+    if cache_key not in _ML_MODEL_CACHE:
+        _ML_MODEL_CACHE[cache_key] = None
+        _ML_MODEL_CACHE[f"{prefix}v8_classifier"] = None
+        _ML_MODEL_CACHE[f"{prefix}v8_feature_cols"] = None
+
+        try:
+            with open(f"{prefix}bcp_v8_regressor.pkl", "rb") as f:
+                _ML_MODEL_CACHE[cache_key] = pickle.load(f)
+            print(f"✅ Loaded v8 regression model [HRRR-anchored + stall signal] (prefix='{prefix}')")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            print(f"⚠️ v8 regression load error: {e}")
+
+        try:
+            from train_classifier import BucketClassifier
+            if os.path.exists(f"{prefix}bcp_v8_classifier.pkl"):
+                _ML_MODEL_CACHE[f"{prefix}v8_classifier"] = BucketClassifier.load(
+                    f"{prefix}bcp_v8_classifier.pkl"
+                )
+                print(f"✅ Loaded v8 bucket classifier (prefix='{prefix}')")
+        except Exception as e:
+            print(f"⚠️ v8 classifier load error: {e}")
+
+        try:
+            if os.path.exists(f"{prefix}bcp_v8_feature_cols.pkl"):
+                with open(f"{prefix}bcp_v8_feature_cols.pkl", "rb") as f:
+                    _ML_MODEL_CACHE[f"{prefix}v8_feature_cols"] = pickle.load(f)
+        except Exception as e:
+            print(f"⚠️ v8 feature cols load error: {e}")
+
+    return (
+        _ML_MODEL_CACHE.get(cache_key),
+        _ML_MODEL_CACHE.get(f"{prefix}v8_classifier"),
+        _ML_MODEL_CACHE.get(f"{prefix}v8_feature_cols"),
+    )
+
+
 def _load_v6_models():
     """Load v6 models: bcp_v6 regressor + classifier + feature cols (cached).
     v6 = v5 + NBM, GEM HRDPS, HRRR-specific 925mb, OKX radiosonde (138 features).
@@ -1526,24 +1572,32 @@ def _compute_ml_prediction(
         except Exception as _v1_e:
             print(f"⚠️ v1 regression predict failed (skipping to v4/v2): {_v1_e}")
 
-    # --- 11. Try v7 > v6 > v5 > v4 > v2 (each adds more features or better base) ---
-    # v7: HRRR-anchored base (HRRR > NBM > AccuWeather > NWS), same 138 features as v6
+    # --- 11. Try v8 > v7 > v6 > v5 > v4 > v2 ---
+    # v8: v7 + obs_heating_rate_delta stall signal (139 features)
+    # v7: HRRR-anchored base (HRRR > NBM > AccuWeather > NWS), 138 features
     # v6: AccuWeather/NWS base + NBM, GEM HRDPS, HRRR 925mb, OKX radiosonde (138 features)
     # v5: AccuWeather/NWS base + high-timing features (122 features)
     # v4+: older architectures (backward compat)
+    v8_regressor, v8_classifier, v8_feature_cols = _load_v8_models()
     v7_regressor, v7_classifier, v7_feature_cols = _load_v7_models()
     v6_regressor, v6_classifier, v6_feature_cols = _load_v6_models()
     v5_regressor, v5_classifier, v5_feature_cols = _load_v5_models()
     v4_regressor, v4_bucket_info, v4_classifier = _load_v4_models()
     v2_temp_model, v2_bucket_info, v2_classifier, v2_atm_predictor = _load_v2_models()
 
-    # Select best available model (prefer newest HRRR-anchored v7)
-    use_v7 = v7_classifier is not None and v7_feature_cols is not None
-    use_v6 = not use_v7 and v6_classifier is not None and v6_feature_cols is not None
-    use_v5 = not use_v7 and not use_v6 and v5_classifier is not None and v5_feature_cols is not None
-    use_v4 = not use_v7 and not use_v6 and not use_v5 and v4_classifier is not None
+    # Select best available model (prefer newest)
+    use_v8 = v8_classifier is not None and v8_feature_cols is not None
+    use_v7 = not use_v8 and v7_classifier is not None and v7_feature_cols is not None
+    use_v6 = not use_v8 and not use_v7 and v6_classifier is not None and v6_feature_cols is not None
+    use_v5 = not use_v8 and not use_v7 and not use_v6 and v5_classifier is not None and v5_feature_cols is not None
+    use_v4 = not use_v8 and not use_v7 and not use_v6 and not use_v5 and v4_classifier is not None
 
-    if use_v7:
+    if use_v8:
+        active_classifier = v8_classifier
+        active_regressor  = v8_regressor
+        active_feature_cols = v8_feature_cols
+        active_version = "v8_hrrr_stall_signal"
+    elif use_v7:
         active_classifier = v7_classifier
         active_regressor  = v7_regressor
         active_feature_cols = v7_feature_cols
@@ -1573,7 +1627,7 @@ def _compute_ml_prediction(
         active_feature_cols = FEATURE_COLS_V2
         active_version = "v2_atm_classifier"
 
-    active_bucket_info = v4_bucket_info if (use_v7 or use_v6 or use_v5 or use_v4) else v2_bucket_info
+    active_bucket_info = v4_bucket_info if (use_v8 or use_v7 or use_v6 or use_v5 or use_v4) else v2_bucket_info
 
     if active_classifier is not None:
         try:
@@ -1786,25 +1840,29 @@ def _compute_ml_prediction(
             _hrrr_base = _valid_temp(v2_features.get("mm_hrrr_max"))
             _nbm_base  = _valid_temp(v2_features.get("mm_nbm_max"))
 
-            if use_v7 and active_regressor is not None and _hrrr_base is not None:
-                # TIER 1 (v7): HRRR anchor + v7 bias correction
-                # v7 regressor was trained on y_bias = actual - HRRR_max,
-                # so predicted bias = expected (actual - HRRR) for these conditions.
-                v7_bias = float(active_regressor.predict(X_v2)[0])
-                v2_temp = _hrrr_base + v7_bias
+            _use_hrrr_anchor = (use_v8 or use_v7) and active_regressor is not None
+            if _use_hrrr_anchor and _hrrr_base is not None:
+                # TIER 1 (v7/v8): HRRR anchor + regressor bias correction
+                # v7/v8 regressor trained on y_bias = actual - HRRR_max.
+                _bias = float(active_regressor.predict(X_v2)[0])
+                v2_temp = _hrrr_base + _bias
                 _atm_note = (f" | atm={float(atm_pred_val):.1f}°F (delta={v2_temp - float(atm_pred_val):+.1f}°F)"
                              if has_atm else "")
+                _stall = v2_features.get("obs_heating_rate_delta")
+                _stall_note = (f" | stall={_stall:+.1f}°F/hr" if _stall is not None
+                               and not (isinstance(_stall, float) and math.isnan(_stall)) else "")
                 print(f"   Center temp: {v2_temp:.1f}°F "
-                      f"(v7: HRRR={_hrrr_base:.0f} + bias={v7_bias:+.1f}){_atm_note}")
+                      f"({active_version}: HRRR={_hrrr_base:.0f} + bias={_bias:+.1f})"
+                      f"{_stall_note}{_atm_note}")
 
-            elif use_v7 and active_regressor is not None and _nbm_base is not None:
-                # TIER 2 (v7): NBM anchor + v7 bias correction
-                v7_bias = float(active_regressor.predict(X_v2)[0])
-                v2_temp = _nbm_base + v7_bias
+            elif _use_hrrr_anchor and _nbm_base is not None:
+                # TIER 2 (v7/v8): NBM anchor + regressor bias correction
+                _bias = float(active_regressor.predict(X_v2)[0])
+                v2_temp = _nbm_base + _bias
                 _atm_note = (f" | atm={float(atm_pred_val):.1f}°F (delta={v2_temp - float(atm_pred_val):+.1f}°F)"
                              if has_atm else "")
                 print(f"   Center temp: {v2_temp:.1f}°F "
-                      f"(v7: NBM={_nbm_base:.0f} + bias={v7_bias:+.1f}){_atm_note}")
+                      f"({active_version}: NBM={_nbm_base:.0f} + bias={_bias:+.1f}){_atm_note}")
 
             elif has_atm:
                 # TIER 3: atmospheric predictor (physics model, agency-independent)
@@ -2419,6 +2477,49 @@ def _fetch_observation_features(
             features["obs_heating_rate"] = np.nan
     else:
         features["obs_heating_rate"] = np.nan
+
+    # Heating rate DELTA (stall signal) — was warming, now plateaued?
+    #
+    # Split available obs into early half and recent half and compare slopes.
+    # Negative delta = deceleration = cap is holding = strong downward signal.
+    #
+    # Example (April 12 cap day):
+    #   Early (7-9am): +1.8°F/hr (normal morning warm-up)
+    #   Recent (10am-noon): +0.2°F/hr (stalled — cap is holding)
+    #   delta = 0.2 - 1.8 = -1.6°F/hr  ← strong cap-hold fingerprint
+    #
+    # A random human with a browser tab spots this instantly. This feature
+    # gives the model the same signal without needing Synoptic data.
+    features["obs_heating_rate_delta"] = np.nan  # default
+    if len(valid_obs) >= 4:
+        try:
+            mid = len(valid_obs) // 2
+            early_obs  = valid_obs[:mid]
+            recent_obs = valid_obs[mid:]
+
+            def _slope(obs_slice):
+                if len(obs_slice) < 2:
+                    return None
+                t0 = datetime.fromisoformat(
+                    obs_slice[0]["observed_at"].replace("Z", "+00:00"))
+                t1 = datetime.fromisoformat(
+                    obs_slice[-1]["observed_at"].replace("Z", "+00:00"))
+                hours_span = (t1 - t0).total_seconds() / 3600.0
+                if hours_span < 0.25:  # need at least 15 minutes of span
+                    return None
+                return (obs_slice[-1]["temp_f"] - obs_slice[0]["temp_f"]) / hours_span
+
+            early_slope  = _slope(early_obs)
+            recent_slope = _slope(recent_obs)
+
+            if early_slope is not None and recent_slope is not None:
+                delta = recent_slope - early_slope
+                features["obs_heating_rate_delta"] = round(delta, 2)
+                if delta < -0.8:
+                    print(f"  🧊 Cap stall signal: early={early_slope:+.1f}°F/hr → "
+                          f"recent={recent_slope:+.1f}°F/hr (Δ={delta:+.1f}) — cap likely holding")
+        except Exception:
+            pass
 
     # Obs max vs NWS forecast
     if nws_last is not None and features["obs_max_so_far"] is not None:
@@ -3489,9 +3590,10 @@ def _add_obs_to_snap(snap: dict, live_obs: dict, live_atm: dict = None) -> None:
             return live_atm.get(atm_key)
         return None
 
-    snap["obs_snap_temp"]        = _safe(obs.get("obs_latest_temp"))
-    snap["obs_snap_heating_rate"]= _safe(obs.get("obs_heating_rate"))
-    snap["obs_snap_vs_forecast"] = _safe(obs.get("obs_vs_intra_forecast"))
+    snap["obs_snap_temp"]              = _safe(obs.get("obs_latest_temp"))
+    snap["obs_snap_heating_rate"]      = _safe(obs.get("obs_heating_rate"))
+    snap["obs_snap_heating_rate_delta"]= _safe(obs.get("obs_heating_rate_delta"))  # stall signal
+    snap["obs_snap_vs_forecast"]       = _safe(obs.get("obs_vs_intra_forecast"))
     snap["obs_snap_hour"]        = _safe(obs.get("obs_latest_hour"))
     snap["obs_snap_max_so_far"]  = _safe(obs.get("obs_max_so_far"))
     # High-timing signals — for dashboard overnight-high warning + future model training
@@ -3749,6 +3851,8 @@ _ATM_SNAPSHOT_KEYS = (
     # Carryover
     "prev_day_high", "prev_day_temp_drop", "midnight_temp",
     "atm_predicted_high", "atm_vs_forecast_diff",
+    # v8: stall signal — was warming, now plateau? Negative = cap holding.
+    "obs_heating_rate_delta",
 )
 
 

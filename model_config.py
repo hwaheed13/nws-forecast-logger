@@ -154,7 +154,9 @@ OBSERVATION_COLS = [
     "obs_wind_dir_sin",         # Wind direction circular encoding (sin)
     "obs_wind_dir_cos",         # Wind direction circular encoding (cos)
     "obs_cloud_cover",          # Sky condition mapped to 0.0=Clear → 1.0=Overcast
-    "obs_heating_rate",         # °F/hr over last 3 hours
+    "obs_heating_rate",         # °F/hr over last 3 hours (overall slope)
+    "obs_heating_rate_delta",   # Δ°F/hr: recent_half_slope - early_half_slope (stall signal)
+                                # Negative = decelerating = cap holding. April 12: ~-1.6°F/hr.
     "obs_temp_vs_forecast_max", # obs_max_so_far - nws_last
 ]
 
@@ -323,6 +325,29 @@ FEATURE_COLS_V6 = (
 #
 # Total: same 138 features as v6 — architectural change is in the base only.
 FEATURE_COLS_V7 = FEATURE_COLS_V6  # identical feature set; base changes at train/inference
+
+# ═══════════════════════════════════════════════════════════════════════
+# v8 feature columns — v7 + obs_heating_rate_delta (stall signal)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# THE STALL SIGNAL:
+#   obs_heating_rate captures overall slope (°F/hr over last ~3 hrs).
+#   obs_heating_rate_delta = recent_slope - early_slope.
+#
+#   Negative delta = warming rate is DECELERATING = cap is holding.
+#   A human watching the station graph spots this instantly.
+#   This gives the model the same information without needing Synoptic.
+#
+#   April 12 example:
+#     Early (7-9am): +1.8°F/hr → recent (10am-noon): +0.2°F/hr
+#     delta = -1.6°F/hr  ← automated cap fingerprint
+#
+#   Combined with HRRR-anchored base (v7) + HRRR vs NWS gap + radiosonde,
+#   this is the set of features that would have held the ≤55 bucket on Apr 12.
+#
+# Also adds 1 new feature to OBSERVATION_COLS (obs_heating_rate_delta).
+# Total: v7(138) + 1 = 139 features
+FEATURE_COLS_V8 = list(FEATURE_COLS_V7) + ["obs_heating_rate_delta"]
 
 # Additional features added per-candidate-bucket during classification (4)
 BUCKET_POSITION_COLS = [
