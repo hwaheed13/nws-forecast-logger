@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-04-12T02:48:35.228215",
+  "trained_on": "2026-04-12T03:14:03.825976",
   "version": "v3_unified_regression",
   "num_days": 1561,
   "num_forecast_days": 40,
@@ -9,14 +9,14 @@
     "end": "2026-04-11"
   },
   "performance": {
-    "cv_mae": 0.58,
+    "cv_mae": 0.59,
     "cv_bucket_accuracy_1f": 0.125,
-    "residual_std": 2.69,
+    "residual_std": 2.68,
     "per_fold_mae": [
-      0.93,
-      0.48,
-      0.4,
-      0.44,
+      0.94,
+      0.5,
+      0.39,
+      0.45,
       0.66
     ],
     "per_fold_bucket_acc": [
@@ -26,43 +26,43 @@
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 1.7848
+      "importance": 1.809
     },
     {
       "name": "atm_temp_range",
-      "importance": 0.0033
+      "importance": 0.003
     },
     {
       "name": "intra_temp_5pm",
-      "importance": 0.0022
+      "importance": 0.002
     },
     {
       "name": "atm_dewpoint_mean",
-      "importance": 0.0018
-    },
-    {
-      "name": "intra_rise_from_overnight",
-      "importance": 0.0011
+      "importance": 0.0016
     },
     {
       "name": "atm_pressure_mean",
-      "importance": 0.001
+      "importance": 0.0011
+    },
+    {
+      "name": "intra_rise_from_overnight",
+      "importance": 0.0009
+    },
+    {
+      "name": "atm_overnight_min",
+      "importance": 0.0007
     },
     {
       "name": "prev_day_high",
       "importance": 0.0007
     },
     {
-      "name": "atm_humidity_mean",
-      "importance": 0.0006
-    },
-    {
       "name": "day_of_year_cos",
-      "importance": 0.0005
+      "importance": 0.0004
     },
     {
-      "name": "atm_overnight_min",
-      "importance": 0.0005
+      "name": "atm_humidity_mean",
+      "importance": 0.0004
     },
     {
       "name": "atm_humidity_min",
@@ -77,12 +77,12 @@
       "importance": 0.0003
     },
     {
-      "name": "atm_cloud_cover_mean",
-      "importance": 0.0002
+      "name": "month",
+      "importance": 0.0003
     },
     {
       "name": "intra_temp_noon",
-      "importance": 0.0002
+      "importance": 0.0003
     }
   ],
   "hyperparameters": {
