@@ -5289,18 +5289,30 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
 
     # ── Inject flip-history tracking into atm_snapshot (no schema change) ───
     # Persists ml_flip_occurred=True even when the bucket RETURNS to canonical.
-    # Without this the dashboard shows no evidence a flip ever happened, which is
-    # misleading — e.g. a 80→79→80 oscillation looks identical to a stable day.
-    # Stored in atm_snapshot JSONB (no new column needed):
-    #   ml_flip_occurred  bool   — True if bucket ever differed from canonical today
-    #   ml_flip_count     int    — number of times it flipped away from canonical
-    #   ml_flip_bucket    str    — the most recent non-canonical bucket
-    #   ml_flip_history   list   — every non-canonical bucket in order, e.g.
-    #                              ["76-77", "78-79"] for a two-flip day.
-    #                              Returned-to-canonical steps are NOT appended
-    #                              (those are implicit — current bucket == canonical).
-    #                              Enables the dashboard to show the full chain:
-    #                              "80-81 → 76-77 → 78-79 (×2 flips)"
+    # Without this the dashboard shows no evidence a flip ever happened.
+    #
+    # CONFIRMATION GATE: a non-canonical bucket must appear in TWO consecutive
+    # runs before it is recorded as a confirmed flip.  This suppresses single-run
+    # noise flashes (e.g. 76-77 from a 2-min Synoptic outage) without delaying
+    # genuine sustained shifts.  During the 2-min heating-window polling cycle
+    # the gate adds at most a 2-minute lag to real signals.
+    #
+    # State machine — stored in atm_snapshot JSONB:
+    #   ml_flip_pending_bucket  str  — non-canonical bucket seen last run but not
+    #                                  yet confirmed (cleared on canonical return or
+    #                                  when a different bucket appears next run)
+    #   ml_flip_occurred        bool — True only after confirmation (≥2 consecutive
+    #                                  runs showing the same non-canonical bucket)
+    #   ml_flip_count           int  — number of CONFIRMED flips away from canonical
+    #   ml_flip_bucket          str  — most recent CONFIRMED non-canonical bucket
+    #   ml_flip_history         list — every CONFIRMED non-canonical bucket in order
+    #                                  e.g. ["78-79"] after 76-77 pending was discarded
+    #
+    # Transition rules:
+    #   curr ≠ canon + prev_pending == curr  → CONFIRM  (set occurred, append history)
+    #   curr ≠ canon + prev_pending ≠ curr   → PENDING  (store pending, hold occurred)
+    #   curr == canon + had_pending          → DISCARD  (clear pending silently)
+    #   curr == canon + had_confirmed        → PRESERVE (keep history intact)
     if not is_canonical_write and isinstance(existing, dict):
         _canon_bkt = existing.get("ml_bucket_canonical")
         _curr_bkt  = payload.get("ml_bucket")
@@ -5321,8 +5333,10 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                         if _pfs_raw else {}
             except Exception:
                 _pfs = {}
-            _prev_flip_count = int(_pfs.get("ml_flip_count") or 0)
-            # Recover existing history list (may be a JSON string if stored that way)
+            _prev_flip_count  = int(_pfs.get("ml_flip_count") or 0)
+            _prev_pending     = _pfs.get("ml_flip_pending_bucket")   # unconfirmed last run
+            _prev_confirmed   = bool(_pfs.get("ml_flip_occurred"))   # ever confirmed?
+            # Recover existing confirmed history list
             _prev_history = _pfs.get("ml_flip_history") or []
             if isinstance(_prev_history, str):
                 try:    _prev_history = json.loads(_prev_history)
@@ -5331,26 +5345,46 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 _prev_history = []
 
             if _curr_bkt != _canon_bkt:
-                # Bucket is currently away from canonical — record the flip
-                _fs["ml_flip_occurred"] = True
-                _fs["ml_flip_count"]    = _prev_flip_count + 1
-                _fs["ml_flip_bucket"]   = _curr_bkt
-                # Append to history only if this is a new state (avoid duplicates
-                # when the same non-canonical bucket persists across multiple runs).
-                if not _prev_history or _prev_history[-1] != _curr_bkt:
-                    _fs["ml_flip_history"] = _prev_history + [_curr_bkt]
+                if _prev_pending == _curr_bkt:
+                    # ── CONFIRMED: same non-canonical bucket seen twice in a row ──
+                    _fs["ml_flip_occurred"]       = True
+                    _fs["ml_flip_count"]          = _prev_flip_count + 1
+                    _fs["ml_flip_bucket"]         = _curr_bkt
+                    _fs["ml_flip_pending_bucket"] = None   # clear — no longer pending
+                    # Append to confirmed history; deduplicate tail
+                    if not _prev_history or _prev_history[-1] != _curr_bkt:
+                        _fs["ml_flip_history"] = _prev_history + [_curr_bkt]
+                    else:
+                        _fs["ml_flip_history"] = _prev_history
+                    _chain = " → ".join([_canon_bkt] + _fs["ml_flip_history"])
+                    print(f"  ✅ Flip #{_fs['ml_flip_count']} CONFIRMED (2 consecutive runs): {_chain}")
                 else:
-                    _fs["ml_flip_history"] = _prev_history
-                _chain = " → ".join([_canon_bkt] + _fs["ml_flip_history"])
-                print(f"  🔀 Flip #{_fs['ml_flip_count']} recorded: {_chain}")
-            elif _pfs.get("ml_flip_occurred"):
-                # Bucket returned to canonical — preserve the full historical record
-                _fs["ml_flip_occurred"] = True
-                _fs["ml_flip_count"]    = _prev_flip_count
-                _fs["ml_flip_bucket"]   = _pfs.get("ml_flip_bucket", _curr_bkt)
-                _fs["ml_flip_history"]  = _prev_history
-                _chain = " → ".join([_canon_bkt] + _prev_history + [f"{_curr_bkt} (back)"])
-                print(f"  ↩️  Returned to canonical — flip record preserved: {_chain}")
+                    # ── PENDING: first time seeing this non-canonical bucket ──
+                    # Do NOT set ml_flip_occurred — gate not yet passed.
+                    # Preserve any prior confirmed flip state so history isn't lost.
+                    _fs["ml_flip_pending_bucket"] = _curr_bkt
+                    if _prev_confirmed:
+                        _fs["ml_flip_occurred"] = True
+                        _fs["ml_flip_count"]    = _prev_flip_count
+                        _fs["ml_flip_bucket"]   = _pfs.get("ml_flip_bucket", _curr_bkt)
+                        _fs["ml_flip_history"]  = _prev_history
+                    print(f"  ⏳ Flip PENDING ({_canon_bkt} → {_curr_bkt}) — "
+                          f"awaiting one more run to confirm (gate: 2 consecutive)")
+            else:
+                # curr_bkt == canon_bkt: back at canonical
+                _fs["ml_flip_pending_bucket"] = None   # always clear pending on return
+                if _prev_confirmed:
+                    # Preserve confirmed history
+                    _fs["ml_flip_occurred"] = True
+                    _fs["ml_flip_count"]    = _prev_flip_count
+                    _fs["ml_flip_bucket"]   = _pfs.get("ml_flip_bucket", _curr_bkt)
+                    _fs["ml_flip_history"]  = _prev_history
+                    _chain = " → ".join([_canon_bkt] + _prev_history + ["back"])
+                    print(f"  ↩️  Returned to canonical — confirmed flip record preserved: {_chain}")
+                elif _prev_pending:
+                    # Was only pending — discard silently (never made it to the display)
+                    print(f"  🗑️  Pending flip ({_prev_pending}) discarded — "
+                          f"returned to canonical before confirmation, nothing shown")
             if _fs:
                 payload["atm_snapshot"] = json.dumps(_fs)
 
@@ -5572,6 +5606,55 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
             payload["atm_snapshot"] = json.dumps(snap_tm)
             print(f"  📊 D+1 atm_snapshot: mm_spread={snap_tm.get('mm_spread')}, "
                   f"mm_mean={snap_tm.get('mm_mean')}, hrrr={snap_tm.get('mm_hrrr_max')}")
+
+    # ── D+1 flip tracking (no confirmation gate — 30-min polling, less noisy) ──
+    # Tomorrow's prediction reruns every 30 min as today's obs flow in.
+    # No two-run confirmation gate needed (lower polling frequency = less jitter).
+    # Tracks bucket changes vs the D+1 canonical so the dashboard card can show
+    # "Opened 83-84, now 85-86" just like today's card does.
+    if not is_canonical_write and isinstance(existing, dict):
+        _d1_canon = existing.get("ml_bucket_canonical")
+        _d1_curr  = payload.get("ml_bucket")
+        if _d1_canon and _d1_curr:
+            _d1_snap_raw = payload.get("atm_snapshot") or existing.get("atm_snapshot")
+            try:
+                _d1_fs = (json.loads(_d1_snap_raw) if isinstance(_d1_snap_raw, str)
+                          else (_d1_snap_raw.copy() if isinstance(_d1_snap_raw, dict) else {})) \
+                         if _d1_snap_raw else {}
+            except Exception:
+                _d1_fs = {}
+            _d1_pfs_raw = existing.get("atm_snapshot")
+            try:
+                _d1_pfs = (json.loads(_d1_pfs_raw) if isinstance(_d1_pfs_raw, str)
+                           else (_d1_pfs_raw if isinstance(_d1_pfs_raw, dict) else {})) \
+                          if _d1_pfs_raw else {}
+            except Exception:
+                _d1_pfs = {}
+            _d1_prev_count   = int(_d1_pfs.get("ml_flip_count") or 0)
+            _d1_prev_history = _d1_pfs.get("ml_flip_history") or []
+            if isinstance(_d1_prev_history, str):
+                try:    _d1_prev_history = json.loads(_d1_prev_history)
+                except: _d1_prev_history = []
+            if not isinstance(_d1_prev_history, list):
+                _d1_prev_history = []
+
+            if _d1_curr != _d1_canon:
+                _d1_fs["ml_flip_occurred"] = True
+                _d1_fs["ml_flip_count"]    = _d1_prev_count + 1
+                _d1_fs["ml_flip_bucket"]   = _d1_curr
+                if not _d1_prev_history or _d1_prev_history[-1] != _d1_curr:
+                    _d1_fs["ml_flip_history"] = _d1_prev_history + [_d1_curr]
+                else:
+                    _d1_fs["ml_flip_history"] = _d1_prev_history
+                _d1_chain = " → ".join([_d1_canon] + _d1_fs["ml_flip_history"])
+                print(f"  🔀 D+1 shift #{_d1_fs['ml_flip_count']} recorded: {_d1_chain}")
+            elif _d1_pfs.get("ml_flip_occurred"):
+                _d1_fs["ml_flip_occurred"] = True
+                _d1_fs["ml_flip_count"]    = _d1_prev_count
+                _d1_fs["ml_flip_bucket"]   = _d1_pfs.get("ml_flip_bucket", _d1_curr)
+                _d1_fs["ml_flip_history"]  = _d1_prev_history
+            if _d1_fs:
+                payload["atm_snapshot"] = json.dumps(_d1_fs)
 
     supabase_upsert(payload)
 

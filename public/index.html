@@ -3650,19 +3650,46 @@ function renderMLBetSignal() {
   }
 
   // ── Intraday flip indicator ───────────────────────────────────────────────
-  // Shows when the canonical (first-of-day) bucket differs from the current bucket,
-  // signalling the model changed its mind since market open.
+  // Shows when the model's current bucket differs from the canonical (first-of-day) bucket,
+  // OR a confirmed flip occurred earlier today (and returned), OR a flip is pending.
   const _flipNote = document.getElementById("prediction-flip-today");
   if (_flipNote) {
-    const _canonBucket = ml.todayMLBucketCanonical;
-    const _currBucket  = ml.todayMLBucket;
+    const _canonBucket   = ml.todayMLBucketCanonical;
+    const _currBucket    = ml.todayMLBucket;
+    const _fnSnap        = ml.todayAtmSnapshot || {};
+    const _fnOccurred    = !!_fnSnap.ml_flip_occurred;
+    const _fnBucket      = _fnSnap.ml_flip_bucket || null;
+    const _fnCount       = parseInt(_fnSnap.ml_flip_count) || 0;
+    const _fnHistory     = Array.isArray(_fnSnap.ml_flip_history) ? _fnSnap.ml_flip_history : [];
+    const _fnPending     = _fnSnap.ml_flip_pending_bucket || null;
+    const _fnLabel       = b => cleanKalshiLabel ? cleanKalshiLabel(b) : b;
+
     if (_canonBucket && _currBucket && _canonBucket !== _currBucket) {
+      // Currently shifted (confirmed)
+      const _fnHist  = _fnHistory.length > 0 ? _fnHistory : [_currBucket];
+      const _fnChain = [_canonBucket, ..._fnHist].map(_fnLabel).join(' → ');
+      const _fnCnt   = _fnCount > 1 ? ` (×${_fnCount} flips)` : '';
       _flipNote.innerHTML = `
         <div style="margin-top:8px;padding:6px 10px;background:#fffbeb;border-left:3px solid #f59e0b;
                     border-radius:4px;font-size:12px;color:#92400e;line-height:1.4;">
-          🔄 <strong>Prediction shifted today</strong> —
-          opened <span style="font-weight:700;">${cleanKalshiLabel(_canonBucket)}</span>,
-          now <span style="font-weight:700;">${cleanKalshiLabel(_currBucket)}</span>
+          🔄 <strong>Prediction shifted today</strong> — ${_fnChain}${_fnCnt}
+        </div>`;
+    } else if (_fnOccurred && _canonBucket && _currBucket) {
+      // Confirmed flip happened but returned to canonical
+      const _fnRHist  = _fnHistory.length > 0 ? _fnHistory : (_fnBucket ? [_fnBucket] : []);
+      const _fnRChain = [_canonBucket, ..._fnRHist].map(_fnLabel).join(' → ');
+      const _fnRCnt   = _fnCount > 1 ? ` (×${_fnCount} flips)` : '';
+      _flipNote.innerHTML = `
+        <div style="margin-top:8px;padding:6px 10px;background:#fffbeb;border-left:3px solid #b45309;
+                    border-radius:4px;font-size:12px;color:#92400e;line-height:1.4;">
+          ↩️ <strong>Shifted and returned</strong> — ${_fnRChain} → <em>back</em>${_fnRCnt}
+        </div>`;
+    } else if (_fnPending && _canonBucket && !_fnOccurred) {
+      // One non-canonical run — not yet confirmed
+      _flipNote.innerHTML = `
+        <div style="margin-top:8px;padding:6px 10px;background:#fffbeb;border-left:3px solid #b45309;
+                    border-radius:4px;font-size:12px;color:#92400e;line-height:1.4;">
+          ⏳ <strong>Possible shift</strong> — model may be moving toward ${_fnLabel(_fnPending)} (awaiting confirmation)
         </div>`;
     } else {
       _flipNote.innerHTML = '';
@@ -3872,14 +3899,18 @@ function renderFlipRisk() {
   const flipAlreadyOccurred = canonBucket && currentBucket && canonBucket !== currentBucket;
 
   // Read flip history from atm_snapshot — persisted even after bucket returns to canonical
-  const _todaySnap      = ml2.todayAtmSnapshot || {};
-  const _flipOccurred   = !!_todaySnap.ml_flip_occurred;   // ever flipped today?
-  const _flipBucket     = _todaySnap.ml_flip_bucket || null; // most recent non-canonical bucket
-  const _flipCount      = parseInt(_todaySnap.ml_flip_count) || 0;
-  // Full ordered list of every non-canonical bucket this day — e.g. ["76-77","78-79"]
-  const _flipHistory    = Array.isArray(_todaySnap.ml_flip_history) ? _todaySnap.ml_flip_history : [];
-  // "Returned" = bucket is back at canonical but a flip did happen earlier today
+  const _todaySnap        = ml2.todayAtmSnapshot || {};
+  const _flipOccurred     = !!_todaySnap.ml_flip_occurred;      // ever flipped today (confirmed ≥2 runs)?
+  const _flipBucket       = _todaySnap.ml_flip_bucket || null;  // most recent confirmed non-canonical bucket
+  const _flipCount        = parseInt(_todaySnap.ml_flip_count) || 0;
+  // Full ordered list of every CONFIRMED non-canonical bucket this day — e.g. ["76-77","78-79"]
+  const _flipHistory      = Array.isArray(_todaySnap.ml_flip_history) ? _todaySnap.ml_flip_history : [];
+  // PENDING: one run has shown a different bucket but not yet confirmed (needs 2 consecutive)
+  const _flipPendingBucket = _todaySnap.ml_flip_pending_bucket || null;
+  // "Returned" = bucket is back at canonical but a confirmed flip did happen earlier today
   const flipReturnedToCanonical = !flipAlreadyOccurred && _flipOccurred && canonBucket && currentBucket;
+  // "Watching" = a single non-canonical run seen; not yet confirmed, not yet shown as OCCURRED
+  const flipWatching = !flipAlreadyOccurred && !_flipOccurred && !!_flipPendingBucket && !!canonBucket;
 
   // Helper: build a human-readable chain from canonical → every flip state → (optional suffix)
   function _buildFlipChain(canon, history, suffix) {
@@ -3922,6 +3953,14 @@ function renderFlipRisk() {
     displayFlipLabel   = 'Prediction Shift';
     displayFlipSummary = _buildFlipChain(canonBucket, _retHistory, 'back') + _countNote;
     displayFlipColor   = '#b45309';  // amber — "this happened, watch for recurrence"
+    displayFlipBg      = '#fffbeb';
+  } else if (flipWatching) {
+    // One run showed a different bucket — awaiting second consecutive run to confirm
+    displayFlipLevel   = 'WATCHING';
+    displayFlipLabel   = 'Prediction Shift';
+    const _pendingLabel = cleanKalshiLabel ? cleanKalshiLabel(_flipPendingBucket) : _flipPendingBucket;
+    displayFlipSummary = `Possible shift → ${_pendingLabel} (unconfirmed)`;
+    displayFlipColor   = '#b45309';  // amber — cautionary, not alarm
     displayFlipBg      = '#fffbeb';
   } else if (windowClosed) {
     // Past 2pm and current temp well below ML center — flip window effectively closed
@@ -5352,16 +5391,17 @@ window._predTomorrow = predTomorrow;
         const _mlForFlip    = window.mlPredictions || {};
         const _canonBucket  = _mlForFlip.todayMLBucketCanonical;
         const _currBucket   = _mlForFlip.todayMLBucket;
-        const _snapForFlip  = _mlForFlip.todayAtmSnapshot || {};
-        const _fOccurred    = !!_snapForFlip.ml_flip_occurred;
-        const _fBucket      = _snapForFlip.ml_flip_bucket || null;
-        const _fCount       = parseInt(_snapForFlip.ml_flip_count) || 0;
-        const _fHistory     = Array.isArray(_snapForFlip.ml_flip_history) ? _snapForFlip.ml_flip_history : [];
+        const _snapForFlip      = _mlForFlip.todayAtmSnapshot || {};
+        const _fOccurred        = !!_snapForFlip.ml_flip_occurred;
+        const _fBucket          = _snapForFlip.ml_flip_bucket || null;
+        const _fCount           = parseInt(_snapForFlip.ml_flip_count) || 0;
+        const _fHistory         = Array.isArray(_snapForFlip.ml_flip_history) ? _snapForFlip.ml_flip_history : [];
+        const _fPendingBucket   = _snapForFlip.ml_flip_pending_bucket || null;
         // Build chain: canonical → every intermediate → current/back
         const _chainSteps = b => cleanKalshiLabel ? cleanKalshiLabel(b) : b;
         let canonicalFlipNote = '';
         if (_canonBucket && _currBucket && _canonBucket !== _currBucket) {
-          // Currently at a different bucket — show every step so oscillations are visible
+          // Currently at a different (CONFIRMED) bucket — show every step so oscillations are visible
           const _activeHist = _fHistory.length > 0 ? _fHistory : [_currBucket];
           const _chain2     = [_canonBucket, ..._activeHist].map(_chainSteps).join(' → ');
           const _cNote2     = _fCount > 1 ? ` (×${_fCount} flips)` : '';
@@ -5375,6 +5415,12 @@ window._predTomorrow = predTomorrow;
           const _cNote3   = _fCount > 1 ? ` (×${_fCount} flips)` : '';
           canonicalFlipNote = `<div style="font-size:12px;background:#fffbeb;border-left:3px solid #b45309;padding:6px 10px;margin-top:6px;border-radius:4px;color:#92400e;">
               ↩️ <strong>Prediction shifted and returned</strong> — ${_chain3}${_cNote3}
+             </div>`;
+        } else if (_fPendingBucket && _canonBucket && !_fOccurred) {
+          // One non-canonical run seen — not yet confirmed (needs 2 consecutive runs)
+          const _pendLbl = _chainSteps(_fPendingBucket);
+          canonicalFlipNote = `<div style="font-size:12px;background:#fffbeb;border-left:3px solid #b45309;padding:6px 10px;margin-top:6px;border-radius:4px;color:#92400e;">
+              ⏳ <strong>Possible shift</strong> — model may be moving toward ${_pendLbl} (awaiting confirmation)
              </div>`;
         }
 
@@ -5547,6 +5593,34 @@ window._predTomorrow = predTomorrow;
             </div>`
           : '';
 
+        // ── D+1 flip note: show if bucket has shifted since morning canonical ─
+        const _d1Snap        = ml.tomorrowAtmSnapshot || {};
+        const _d1Canon       = ml.tomorrowMLBucketCanonical || null;
+        const _d1Curr        = ml.tomorrowMLBucket || null;
+        const _d1FOccurred   = !!_d1Snap.ml_flip_occurred;
+        const _d1FBucket     = _d1Snap.ml_flip_bucket || null;
+        const _d1FCount      = parseInt(_d1Snap.ml_flip_count) || 0;
+        const _d1FHistory    = Array.isArray(_d1Snap.ml_flip_history) ? _d1Snap.ml_flip_history : [];
+        const _d1ChainStep   = b => cleanKalshiLabel ? cleanKalshiLabel(b) : b;
+        let d1FlipNote = '';
+        if (_d1Canon && _d1Curr && _d1Canon !== _d1Curr) {
+          // Currently shifted — show full chain
+          const _d1Hist = _d1FHistory.length > 0 ? _d1FHistory : [_d1Curr];
+          const _d1Ch   = [_d1Canon, ..._d1Hist].map(_d1ChainStep).join(' → ');
+          const _d1Cn   = _d1FCount > 1 ? ` (×${_d1FCount} flips)` : '';
+          d1FlipNote = `<div style="font-size:12px;background:#fffbeb;border-left:3px solid #f59e0b;padding:6px 10px;margin-top:6px;border-radius:4px;color:#92400e;">
+              🔄 <strong>D+1 prediction shifted</strong> — ${_d1Ch}${_d1Cn}
+             </div>`;
+        } else if (_d1FOccurred && _d1Canon && _d1Curr) {
+          // Returned to canonical — show full chain with "→ back"
+          const _d1RHist = _d1FHistory.length > 0 ? _d1FHistory : (_d1FBucket ? [_d1FBucket] : []);
+          const _d1RCh   = [_d1Canon, ..._d1RHist, 'back'].map((b, i) => i === 0 || b === 'back' ? (b === 'back' ? '<em>back</em>' : `<strong>${_d1ChainStep(b)}</strong>`) : _d1ChainStep(b)).join(' → ');
+          const _d1RCn   = _d1FCount > 1 ? ` (×${_d1FCount} flips)` : '';
+          d1FlipNote = `<div style="font-size:12px;background:#fffbeb;border-left:3px solid #b45309;padding:6px 10px;margin-top:6px;border-radius:4px;color:#92400e;">
+              ↩️ <strong>D+1 shifted and returned</strong> — ${_d1RCh}${_d1RCn}
+             </div>`;
+        }
+
         el1.innerHTML = `
           ${limitedDataHTML}
           ${top2b1tm ? `<div style="font-size:32px;font-weight:800;line-height:1.1;color:var(--text-primary);">${top2b1tm}</div>` : `<div class="prediction-value">${mlVal.toFixed(1)}°F</div>`}
@@ -5557,6 +5631,7 @@ window._predTomorrow = predTomorrow;
           ${kellyLineTm}
           <div style="font-size:12px;color:var(--text-muted);margin-top:5px;">ML: ${mlVal.toFixed(1)}°F${supportHTML ? ` · ${supportHTML}` : ''}</div>
           ${moatRiskHTMLTm}
+          ${d1FlipNote}
           ${warningHTML}
           ${historyHTML}
         `;
