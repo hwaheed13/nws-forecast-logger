@@ -3714,7 +3714,7 @@ function renderMLBetSignal() {
 
 // ===== Live Data Sources Panel =====
 // Live obs cache: fetched independently every 5 min, not tied to atm_snapshot
-window._liveRegionalObs = { jfk: null, lga: null, fetchedAt: null };
+window._liveRegionalObs = { jfk: null, lga: null, kteb: null, fetchedAt: null };
 
 // Per-city regional station config (mirrors city_config.py)
 const REGIONAL_STATIONS = {
@@ -3746,10 +3746,13 @@ async function fetchLiveRegionalObs() {
   if (typeof fetchNwsCurrentTemp !== 'function') return;
   const cfg = REGIONAL_STATIONS[currentCity] || REGIONAL_STATIONS.nyc;
   try {
-    // For LAX, also fetch KCQT (USC Downtown) — the NWS/Kalshi reference point
-    const stations = [fetchNwsCurrentTemp(cfg.s1), fetchNwsCurrentTemp(cfg.s2)];
     const isLax = currentCity === 'lax';
-    if (isLax) stations.push(fetchNwsCurrentTemp('KCQT'));
+    const isNyc = !isLax;
+    // For LAX: also fetch KCQT (USC Downtown — Kalshi/NWS reference)
+    // For NYC: also fetch KTEB (Teterboro NJ — most inland station, warm-advection indicator)
+    const stations = [fetchNwsCurrentTemp(cfg.s1), fetchNwsCurrentTemp(cfg.s2)];
+    if (isLax)  stations.push(fetchNwsCurrentTemp('KCQT'));
+    if (isNyc)  stations.push(fetchNwsCurrentTemp('KTEB'));
 
     const [s1Res, s2Res, s3Res] = await Promise.allSettled(stations);
     const _fmtObsTime = iso => {
@@ -3766,6 +3769,9 @@ async function fetchLiveRegionalObs() {
       // LAX-only: KCQT (USC Downtown) — the Kalshi/NWS official measurement reference
       kcqt:      isLax && s3Res?.status === 'fulfilled' && s3Res.value?.currentF != null ? Number(s3Res.value.currentF) : null,
       kcqtObsAt: isLax && s3Res?.status === 'fulfilled' ? _fmtObsTime(s3Res.value?.atISO) : null,
+      // NYC-only: KTEB (Teterboro NJ) — most inland station, first to warm on warm-advection days
+      kteb:      isNyc && s3Res?.status === 'fulfilled' && s3Res.value?.currentF != null ? Number(s3Res.value.currentF) : null,
+      ktebObsAt: isNyc && s3Res?.status === 'fulfilled' ? _fmtObsTime(s3Res.value?.atISO) : null,
       city:     currentCity,
       fetchedAt: new Date(),
     };
@@ -3853,11 +3859,19 @@ async function fetchFlipRisk() {
   if (_marineFromLro || _marineFromSnap) params.set('marine_active', '1');
 
   // HRRR vs NWS (cap signal: HRRR sees cold pool NWS is missing)
-  // mm_hrrr_max is written by prediction_writer from Open-Meteo HRRR member
   const _hrrr = _snap.mm_hrrr_max ?? null;
   if (_hrrr != null && nwsF != null) {
     params.set('hrrr_vs_nws', (Number(_hrrr) - nwsF).toFixed(1));
   }
+
+  // Stratus clearing + inland warming acceleration — new nowcast signals
+  if (_snap.obs_snap_stratus_clearing) params.set('stratus_clearing', '1');
+  if (_snap.obs_snap_warming_accel)    params.set('warming_accel', '1');
+  const _inlandRate = _snap.obs_snap_inland_warming_rate ?? null;
+  if (_inlandRate != null)             params.set('inland_warming_rate', Number(_inlandRate).toFixed(1));
+  // Live KTEB (Teterboro NJ) — most inland, first to warm
+  const _lroKteb = _lroOk && _lro.kteb != null ? Number(_lro.kteb) : (_snap.obs_snap_kteb ?? null);
+  if (_lroKteb != null && nwsF != null) params.set('kteb_vs_nws', (Number(_lroKteb) - nwsF).toFixed(1));
 
   try {
     const r = await fetch(`/api/flip-risk?${params}&cb=${Date.now()}`, { signal: AbortSignal.timeout(10000) });
@@ -4131,8 +4145,17 @@ function renderAtmSignals() {
     ? (solar > 700 ? 'Strong heating' : solar > 400 ? 'Moderate' : 'Weak — suppressed') + solarNowStr
     : '';
 
+  // ── Pull intraday obs signals from atm_snapshot for consensus ─────────────
+  // These live in the snap (updated every cycle) and give real-time context
+  // the atmospheric forecast models cannot see.
+  const _snapForAtm         = (window.mlPredictions || {}).todayAtmSnapshot || {};
+  const _snapStratusClearing = !!_snapForAtm.obs_snap_stratus_clearing;
+  const _snapWarmingAccel    = !!_snapForAtm.obs_snap_warming_accel;
+  const _snapInlandRate      = _snapForAtm.obs_snap_inland_warming_rate ?? null;
+  const _snapMorningCloud    = _snapForAtm.obs_snap_morning_cloud ?? null;
+
   // ── Signal agreement summary ─────────────────────────────────────────────
-  // Count warm vs cool signals across the 5 key atmospheric indicators.
+  // Count warm vs cool signals across key atmospheric + observational indicators.
   let _warmSigs = 0, _coolSigs = 0;
   // Mixing layer: deep = warm-leaning (less concentration), shallow = cool-leaning
   if (blCat === 'deep')         _warmSigs++;
@@ -4149,9 +4172,26 @@ function renderAtmSignals() {
   const _windDir = (cur.wind_dir_card || '').toUpperCase();
   const _isContiBlow = ['N', 'NW', 'NNW', 'WNW', 'W'].includes(_windDir);
   if (wSea || _isContiBlow) _coolSigs++;
+  // Stratus clearing: morning cloudy → afternoon clear = late warmth (warm-signal)
+  if (_snapStratusClearing) _warmSigs++;
+  // Inland warming acceleration: NNJ stations rising fast = warm advection arriving (warm-signal)
+  if (_snapWarmingAccel) _warmSigs++;
 
   const _totalSigs = _warmSigs + _coolSigs;
   let _consensusHTML = '';
+  // Build additional context lines for nowcasting signals
+  let _nowcastLines = '';
+  if (_snapStratusClearing) {
+    _nowcastLines += `<div style="font-size:11px;margin-top:4px;color:#d97706;font-weight:600;">
+      🌤️ Stratus clearing — morning cloud cover dissolving (late warmth risk)
+    </div>`;
+  }
+  if (_snapWarmingAccel) {
+    const _rateStr = _snapInlandRate != null ? ` (+${_snapInlandRate}°/cycle)` : '';
+    _nowcastLines += `<div style="font-size:11px;margin-top:4px;color:#d97706;font-weight:600;">
+      🔥 NNJ inland warming acceleration${_rateStr} — warm advection arriving
+    </div>`;
+  }
   if (_totalSigs >= 3) {
     if (_warmSigs >= _totalSigs * 0.75) {
       _consensusHTML = `<div style="font-size:11px;margin-top:6px;color:#16a34a;font-weight:600;">
@@ -4170,12 +4210,15 @@ function renderAtmSignals() {
 
   // Cloud cover: keep forecasted peak-window avg as the primary number (that's what
   // matters for the full day's heating potential), append live current as a suffix.
-  // Switching the main number to live was confusing (0% at 8am vs 37% forecast peak).
+  // Also show morning cloud anchor if stratus clearing detected.
   const cloudDisplay   = cloud;  // forecasted peak window avg — stable anchor
   const cloudNowStr    = cloudNow != null ? ` · now ${cloudNow}%` : '';
+  const _stratusStr    = _snapStratusClearing && _snapMorningCloud != null
+    ? ` · was ${_snapMorningCloud}% at open 🌤️`
+    : '';
   const cloudDispLabel = cloudDisplay != null
     ? (cloudDisplay < 20 ? 'Mostly clear' : cloudDisplay < 50 ? 'Partly cloudy' : 'Mostly cloudy')
-      + ' (fcst peak)' + cloudNowStr
+      + ' (fcst peak)' + cloudNowStr + _stratusStr
     : '';
 
   grid.innerHTML = [
@@ -4185,7 +4228,7 @@ function renderAtmSignals() {
     sig('850mb Temp',   fmt(t850, 1), '°F',    advTip, advColor),
     sig('925mb Temp',   fmt(t925, 1), '°F',    adv925Tip, adv925Color),
     sig('Surface Wind', windMph != null ? fmt(windMph, 0) : '–', 'mph', windTip, windColor),
-  ].join('') + _consensusHTML;
+  ].join('') + _consensusHTML + _nowcastLines;
 
   if (ts && d.fetchedAt) {
     const t = new Date(d.fetchedAt).toLocaleTimeString('en-US', { timeZone: dispTZ, hour: 'numeric', minute: '2-digit' });
@@ -4435,15 +4478,18 @@ function renderLiveSourcesPanel() {
   // Synoptic card label: for LAX use "USC Area (8mi)" since we now query near KCQT
   const synLabel = isLax ? "USC Area (8mi)" : "Synoptic (5mi)";
 
-  // ── Airport marine-cap card (v9: named ASOS station diffs) ──────────────────
-  // KJFK - KNYC is the clearest marine cap signal: when JFK (coastal Queens/Jamaica Bay)
-  // is colder than Central Park, the sea breeze is penetrating inland.
-  // Gradient: KJFK (coldest, coastal) → KLGA → KNYC → KEWR → KTEB (warmest, inland)
-  // Prefer Synoptic-sourced named station keys (v9); fall back to existing regional obs
+  // ── Airport marine-cap / inland-warming card ─────────────────────────────
+  // Captures TWO opposing signals in one card:
+  //   Marine cap: JFK (coastal) colder than inland (EWR/TEB) → sea breeze / cap holding
+  //   Inland warming: TEB/EWR rising faster than coastal → warm-advection / cap-break risk
+  // Gradient: KJFK (coldest, coastal) → KLGA → KNYC → KEWR → KTEB (warmest, inland NJ)
+  // Prefer Synoptic-sourced named station keys (v9); fall back to live regional obs
   const snap_kjfk = s.obs_snap_kjfk ?? s.obs_snap_jfk ?? (lroValid ? lro.jfk : null);
   const snap_klga = s.obs_snap_klga ?? s.obs_snap_lga ?? (lroValid ? lro.lga : null);
   const snap_kewr = s.obs_snap_kewr ?? null;
-  const snap_kteb = s.obs_snap_kteb ?? null;
+  // KTEB: Teterboro NJ — most inland, warmest station, first to warm on warm-advection days.
+  // Priority: (1) Synoptic snapshot, (2) live NWS fetch (refreshed every 5 min)
+  const snap_kteb = s.obs_snap_kteb ?? (lroValid && lro.kteb != null ? lro.kteb : null);
   // Compute JFK-KNYC diff live if we have both values but the snapshot diff isn't written yet
   const _knycForDiff = knyc_display ?? s.obs_snap_knyc_syn ?? null;
   const snap_kjfk_vs_knyc = s.obs_snap_kjfk_vs_knyc
@@ -4462,22 +4508,38 @@ function renderLiveSourcesPanel() {
   // Marine signal: coastal (JFK, LGA) colder than inland (EWR, TEB)
   const _marineStrong = snap_coastal_vs_inland != null && Number(snap_coastal_vs_inland) <= -3;
   const _marineMild   = snap_coastal_vs_inland != null && Number(snap_coastal_vs_inland) <= -1.5 && !_marineStrong;
-  const _airportCardColor = _marineStrong ? "#dc2626"    // red: strong marine cap
-                          : _marineMild   ? "#d97706"    // orange: mild marine
+
+  // Inland warming signal (new): TEB/EWR warming faster = warm-advection from NNJ
+  // Uses per-cycle delta from backend (obs_snap_kteb_delta, obs_snap_kewr_delta)
+  const _ktebDelta       = s.obs_snap_kteb_delta ?? null;        // °F since last cycle (~30min)
+  const _kewrDelta       = s.obs_snap_kewr_delta ?? null;
+  const _inlandWarmRate  = s.obs_snap_inland_warming_rate ?? null; // composite NNJ rate
+  const _warmingAccel    = !!s.obs_snap_warming_accel;            // rapid NNJ + positive surface
+  const _stratusClearing = !!s.obs_snap_stratus_clearing;         // morning cloud → afternoon clear
+
+  // Card color: marine cap wins if both present (it's the suppression signal)
+  // Inland warming gets orange when no marine cap and NNJ is accelerating
+  const _airportCardColor = _marineStrong ? "#dc2626"
+                          : _marineMild   ? "#d97706"
+                          : _warmingAccel ? "#d97706"    // amber: inland warmth accelerating
                           : snap_kjfk != null ? "var(--accent-blue)"
                           : "var(--border-default)";
 
   // Per-station observation staleness from Synoptic API timestamps
-  // KNYC/KJFK/KLGA/KEWR/KTEB each carry their own obs_at ISO string
   const _kjfkAge = minsAgo(s.obs_snap_kjfk_obs_at);
   const _kewrAge = minsAgo(s.obs_snap_kewr_obs_at);
+  const _ktebAge = minsAgo(s.obs_snap_kteb_obs_at);
   const _knyc_obs_age = minsAgo(s.obs_snap_knyc_obs_at);
-  // Build "JFK: 52°F (8 min ago) / EWR: 58°F (6 min ago)" style main value
+
+  // Build main value: JFK / EWR as before, add TEB when available
   const _jfkStr = snap_kjfk != null
     ? f1(snap_kjfk) + (_kjfkAge ? ` <span style="font-size:10px;color:var(--text-muted)">(${_kjfkAge})</span>` : "")
     : null;
   const _kewrStr = snap_kewr != null
     ? f1(snap_kewr) + (_kewrAge ? ` <span style="font-size:10px;color:var(--text-muted)">(${_kewrAge})</span>` : "")
+    : null;
+  const _ktebStr = snap_kteb != null
+    ? f1(snap_kteb) + (_ktebAge ? ` <span style="font-size:10px;color:var(--text-muted)">(${_ktebAge})</span>` : "")
     : null;
   const _airportMain = _jfkStr && _kewrStr
     ? `${_jfkStr} / ${_kewrStr}`
@@ -4492,15 +4554,26 @@ function renderLiveSourcesPanel() {
   const _airportSpreadStr = snap_airport_spread != null
     ? `Spread: ${Number(snap_airport_spread).toFixed(1)}°F`
     : "";
-  const _marineLabel = _marineStrong ? " 🌊 Strong marine cap" : _marineMild ? " 🌊 Marine influence" : "";
+  // KTEB display: show current temp + inter-cycle delta (warming rate proxy)
+  const _ktebDispStr = snap_kteb != null
+    ? `TEB: ${f1(snap_kteb)}${_ktebDelta != null ? ` (${_ktebDelta >= 0 ? '+' : ''}${_ktebDelta}°)` : ''}`
+    : "";
+  const _inlandRateStr = _inlandWarmRate != null && Math.abs(_inlandWarmRate) >= 0.5
+    ? `NNJ Δ: ${_inlandWarmRate >= 0 ? '+' : ''}${_inlandWarmRate}°/cycle`
+    : "";
 
-  const _airportSub = [_jfkKnycStr, _coastalInlandStr, _airportSpreadStr]
+  const _marineLabel    = _marineStrong ? " 🌊 Strong marine cap"
+                        : _marineMild   ? " 🌊 Marine influence" : "";
+  const _warmLabel      = _warmingAccel ? " 🔥 NNJ warming accel" : "";
+  const _stratusLabel   = _stratusClearing ? " 🌤️ Stratus clearing" : "";
+
+  const _airportSub = [_jfkKnycStr, _coastalInlandStr, _airportSpreadStr, _ktebDispStr, _inlandRateStr]
     .filter(Boolean).join(" · ")
-    + (_marineLabel || "")
+    + (_marineLabel || _warmLabel || _stratusLabel || "")
     || "Awaiting next cycle";
 
   const airportCard = !isLax ? card(
-    "JFK / EWR (Marine Signal)",
+    "JFK / EWR / TEB",
     _airportMain,
     _airportSub,
     _airportCardColor

@@ -4838,6 +4838,24 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                                   f"mm_hrrr_max={snap.get('mm_hrrr_max')})")
                     except Exception as _rescue_e:
                         print(f"  ⚠️  Last-resort mm_* re-fetch failed: {_rescue_e}")
+                # ── Propagate morning cloud anchor into recompute snap ─────────
+                # The morning cloud was frozen at canonical write.  If the recompute
+                # path rebuilt snap from scratch, restore it from stored_snapshot_dict
+                # so the stratus-clearing signal isn't lost.
+                if snap.get("obs_snap_morning_cloud") is None:
+                    _recompute_mc = stored_snapshot_dict.get("obs_snap_morning_cloud")
+                    if _recompute_mc is not None:
+                        snap["obs_snap_morning_cloud"] = _recompute_mc
+                # ── Stratus clearing on recompute path ────────────────────────
+                _r_mc = snap.get("obs_snap_morning_cloud")
+                _r_cc = snap.get("obs_snap_cloud_cover")
+                _r_hr = snap.get("obs_snap_hour")
+                if _r_mc is not None and _r_cc is not None and _r_hr is not None:
+                    snap["obs_snap_stratus_clearing"] = bool(
+                        float(_r_mc) >= 50
+                        and float(_r_cc) <= 25
+                        and 11 <= float(_r_hr) <= 19
+                    )
                 payload["atm_snapshot"] = json.dumps(snap)
                 print(f"📸 Atmospheric baseline advanced after recompute ({len(snap)} keys)")
 
@@ -5120,6 +5138,77 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 except Exception as _obs_disp_e:
                     print(f"  ⚠️  Stable-cycle obs display refresh skipped: {_obs_disp_e}")
 
+                # ── Derived signals: stratus clearing + inland NJ warming ────────
+                # These use the current _ex_snap values (freshly merged above) vs
+                # stored_snapshot_dict (the previous snapshot from Supabase) to
+                # detect intraday changes the community nowcasters see before NWS.
+                try:
+                    # Preserve morning cloud anchor from stored snapshot if not yet
+                    # in _ex_snap (canonical write may have been on a different run)
+                    _stored_mc = stored_snapshot_dict.get("obs_snap_morning_cloud")
+                    if _stored_mc is not None and _ex_snap.get("obs_snap_morning_cloud") is None:
+                        _ex_snap["obs_snap_morning_cloud"] = _stored_mc
+
+                    # ── Stratus clearing: cap dissolving mid-afternoon ─────────
+                    # If cloud cover was ≥50% at market open but is now ≤25%,
+                    # the stratus is clearing → late-session warmth risk.
+                    _mc  = _ex_snap.get("obs_snap_morning_cloud")
+                    _cc  = _ex_snap.get("obs_snap_cloud_cover")
+                    _hr  = _ex_snap.get("obs_snap_hour")
+                    if _mc is not None and _cc is not None and _hr is not None:
+                        _ex_snap["obs_snap_stratus_clearing"] = bool(
+                            float(_mc) >= 50
+                            and float(_cc) <= 25
+                            and 11 <= float(_hr) <= 19
+                        )
+                        if _ex_snap["obs_snap_stratus_clearing"]:
+                            print(f"  🌤️  Stratus clearing detected: "
+                                  f"morning {_mc}% → current {_cc}% at hour {_hr}")
+
+                    # ── Inter-run KTEB / KEWR delta (inland NJ warming rate) ───
+                    # Compare current named-station temps against the PREVIOUS
+                    # snapshot to detect rapid NNJ surface warming — the early
+                    # warm-advection signal that nowcasters see before NWS updates.
+                    # KTEB = Teterboro NJ (most inland, warmest station)
+                    # KEWR = Newark NJ (inland, second reference)
+                    if _CITY_KEY != "lax":
+                        _prev_kteb = stored_snapshot_dict.get("obs_snap_kteb")
+                        _curr_kteb = _ex_snap.get("obs_snap_kteb")
+                        _kteb_d: float | None = None
+                        if _prev_kteb is not None and _curr_kteb is not None:
+                            _kteb_d = round(float(_curr_kteb) - float(_prev_kteb), 1)
+                            _ex_snap["obs_snap_kteb_delta"] = _kteb_d
+                        else:
+                            _kteb_d = _ex_snap.get("obs_snap_kteb_delta")
+
+                        _prev_kewr = stored_snapshot_dict.get("obs_snap_kewr")
+                        _curr_kewr = _ex_snap.get("obs_snap_kewr")
+                        _kewr_d: float | None = None
+                        if _prev_kewr is not None and _curr_kewr is not None:
+                            _kewr_d = round(float(_curr_kewr) - float(_prev_kewr), 1)
+                            _ex_snap["obs_snap_kewr_delta"] = _kewr_d
+                        else:
+                            _kewr_d = _ex_snap.get("obs_snap_kewr_delta")
+
+                        # Inland NNJ composite warming rate (avg across available stations)
+                        _inland_vals = [v for v in [_kteb_d, _kewr_d] if v is not None]
+                        if _inland_vals:
+                            _inland_rate = round(sum(_inland_vals) / len(_inland_vals), 1)
+                            _ex_snap["obs_snap_inland_warming_rate"] = _inland_rate
+                            # Warming acceleration: rapid NNJ warming + positive surface rate
+                            _surf_r = _ex_snap.get("obs_snap_heating_rate")
+                            _ex_snap["obs_snap_warming_accel"] = bool(
+                                _inland_rate >= 1.5
+                                and _surf_r is not None
+                                and float(_surf_r) >= 0.3
+                            )
+                            if _inland_rate >= 1.5:
+                                print(f"  🔥 Inland NNJ warming: KTEB Δ={_kteb_d} "
+                                      f"KEWR Δ={_kewr_d} composite={_inland_rate}°F/cycle "
+                                      f"accel={_ex_snap.get('obs_snap_warming_accel')}")
+                except Exception as _sig_e:
+                    print(f"  ⚠️  Derived signals skipped: {_sig_e}")
+
                 payload["atm_snapshot"] = json.dumps(_ex_snap)
                 print(f"📸 Obs panel refreshed in stable snapshot "
                       f"({len(_ex_snap)} keys, ml_recomputed=False)")
@@ -5161,6 +5250,14 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                     # Pass live_atm so Synoptic/NYSM written back by _compute_ml_prediction
                     # via prefetched_atm are included (they're not in live_obs).
                     _add_obs_to_snap(snap, live_obs, live_atm)
+                    # ── obs_snap_morning_cloud anchor ────────────────────────────────
+                    # Freeze cloud cover at canonical (first-of-day) write so that
+                    # intraday stratus clearing can be detected: if morning cloud ≥50%
+                    # and afternoon cloud ≤25% the cap is dissolving — warm-side risk.
+                    _cld_at_open = snap.get("obs_snap_cloud_cover")
+                    if _cld_at_open is not None:
+                        snap["obs_snap_morning_cloud"] = _cld_at_open
+                        print(f"  ☁️  Morning cloud anchor: {_cld_at_open}%")
                     # ── mm_morning_* daily anchor ──────────────────────────────────────
                     # Written once here at canonical (first-of-day) write and NEVER
                     # overwritten on subsequent intraday upserts.  Serves as the
