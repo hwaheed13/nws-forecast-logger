@@ -863,8 +863,7 @@ class NYCTemperatureModelTrainer:
                 sb.table("prediction_logs")
                 .select(
                     "target_date,ml_actual_high,atm_snapshot,"
-                    "nws_last,accu_last,nws_first,nws_mean,nws_spread,"
-                    "ml_f,rolling_bias_7d,rolling_bias_21d"
+                    "accu_last,rolling_bias_7d,rolling_bias_21d"
                 )
                 .eq("city", self.city_key)
                 .in_("lead_used", ["today_for_today", "D0"])
@@ -883,9 +882,10 @@ class NYCTemperatureModelTrainer:
                 snap = json.loads(snap_raw) if isinstance(snap_raw, str) else snap_raw
                 record = {"target_date": str(r["target_date"])[:10]}
                 record["actual_high"]          = r.get("ml_actual_high")
-                record["nws_last"]             = r.get("nws_last") or snap.get("nws_last")
+                # nws_last/nws_first/nws_mean/nws_spread live in atm_snapshot, not top-level cols
+                record["nws_last"]             = snap.get("nws_last")
                 record["accu_last"]            = r.get("accu_last") or snap.get("accu_last")
-                record["nws_first"]            = r.get("nws_first") or snap.get("nws_first")
+                record["nws_first"]            = snap.get("nws_first")
                 record["nws_mean"]             = snap.get("nws_mean")
                 record["nws_spread"]           = snap.get("nws_spread")
                 record["rolling_bias_7d"]      = r.get("rolling_bias_7d") or snap.get("rolling_bias_7d")
