@@ -88,6 +88,11 @@ jobs:
           python train_models.py --all --v10
         continue-on-error: true  # graceful skip until enough v10 rows are populated
 
+      - name: Run v11 training (model-vs-NWS divergence — runs whenever v9 has data)
+        run: |
+          python train_models.py --all --v11
+        continue-on-error: true
+
       - name: Show training results
         run: |
           for meta in model_metadata*.json lax_model_metadata*.json; do
@@ -109,12 +114,13 @@ jobs:
           if git diff --cached --quiet; then
             echo "No model changes to commit"
           else
-            git commit -m "Retrain ML models v1–v8 (+v9/v10 if ready) $(date +%Y-%m-%d)
+            git commit -m "Retrain ML models v1–v8 (+v9/v10/v11 if ready) $(date +%Y-%m-%d)
 
-          Daily retrain: v1 v2 v4 v5 v6 v7 v8 + v9 (Synoptic stations) + v10 (MANH 5-min).
+          Daily retrain: v1 v2 v4 v5 v6 v7 v8 + v9/v10/v11.
           v9: KJFK/KLGA/KEWR/KTEB temps, coastal-vs-inland gradient, JFK-KNYC diff.
           v10: MANH Manhattan Mesonet 5-min fill-in between KNYC hourly reports.
-          v9/v10 training skipped automatically if not enough rows backfilled yet.
+          v11: model-vs-NWS divergence (mm_hrrr_vs_nws, mm_nbm_vs_nws, mm_mean_vs_nws).
+          v9/v10/v11 training skipped automatically if not enough rows yet.
           See model_metadata*.json for updated accuracy metrics."
             git push
           fi

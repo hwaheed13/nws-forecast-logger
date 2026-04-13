@@ -371,6 +371,52 @@ def _load_v10_models():
     )
 
 
+def _load_v11_models():
+    """Load v11 models: bcp_v11 regressor + classifier + feature cols (cached).
+    v11 = v10 (151 features) + model-vs-NWS divergence (3 features = 154 total).
+    mm_hrrr_vs_nws / mm_nbm_vs_nws / mm_mean_vs_nws — derived at inference time.
+    """
+    import nws_auto_logger as _nal
+    prefix = _nal._CITY_CFG.get("model_prefix", "")
+    cache_key = f"{prefix}v11_regressor"
+    if cache_key not in _ML_MODEL_CACHE:
+        _ML_MODEL_CACHE[cache_key] = None
+        _ML_MODEL_CACHE[f"{prefix}v11_classifier"] = None
+        _ML_MODEL_CACHE[f"{prefix}v11_feature_cols"] = None
+
+        try:
+            with open(f"{prefix}bcp_v11_regressor.pkl", "rb") as f:
+                _ML_MODEL_CACHE[cache_key] = pickle.load(f)
+            print(f"✅ Loaded v11 regression model [model-vs-NWS divergence] (prefix='{prefix}')")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            print(f"⚠️ v11 regression load error: {e}")
+
+        try:
+            from train_classifier import BucketClassifier
+            if os.path.exists(f"{prefix}bcp_v11_classifier.pkl"):
+                _ML_MODEL_CACHE[f"{prefix}v11_classifier"] = BucketClassifier.load(
+                    f"{prefix}bcp_v11_classifier.pkl"
+                )
+                print(f"✅ Loaded v11 bucket classifier (prefix='{prefix}')")
+        except Exception as e:
+            print(f"⚠️ v11 classifier load error: {e}")
+
+        try:
+            if os.path.exists(f"{prefix}bcp_v11_feature_cols.pkl"):
+                with open(f"{prefix}bcp_v11_feature_cols.pkl", "rb") as f:
+                    _ML_MODEL_CACHE[f"{prefix}v11_feature_cols"] = pickle.load(f)
+        except Exception as e:
+            print(f"⚠️ v11 feature cols load error: {e}")
+
+    return (
+        _ML_MODEL_CACHE.get(cache_key),
+        _ML_MODEL_CACHE.get(f"{prefix}v11_classifier"),
+        _ML_MODEL_CACHE.get(f"{prefix}v11_feature_cols"),
+    )
+
+
 def _load_v9_models():
     """Load v9 models: bcp_v9 regressor + classifier + feature cols (cached).
     v9 = v8 (HRRR-anchored + stall signal, 139 features) + 10 named Synoptic station
@@ -1675,6 +1721,7 @@ def _compute_ml_prediction(
     # v6: AccuWeather/NWS base + NBM, GEM HRDPS, HRRR 925mb, OKX radiosonde (138 features)
     # v5: AccuWeather/NWS base + high-timing features (122 features)
     # v4+: older architectures (backward compat)
+    v11_regressor, v11_classifier, v11_feature_cols = _load_v11_models()
     v10_regressor, v10_classifier, v10_feature_cols = _load_v10_models()
     v9_regressor, v9_classifier, v9_feature_cols = _load_v9_models()
     v8_regressor, v8_classifier, v8_feature_cols = _load_v8_models()
@@ -1685,15 +1732,21 @@ def _compute_ml_prediction(
     v2_temp_model, v2_bucket_info, v2_classifier, v2_atm_predictor = _load_v2_models()
 
     # Select best available model (prefer newest)
-    use_v10 = v10_classifier is not None and v10_feature_cols is not None
-    use_v9 = not use_v10 and v9_classifier is not None and v9_feature_cols is not None
-    use_v8 = not use_v10 and not use_v9 and v8_classifier is not None and v8_feature_cols is not None
-    use_v7 = not use_v10 and not use_v9 and not use_v8 and v7_classifier is not None and v7_feature_cols is not None
-    use_v6 = not use_v10 and not use_v9 and not use_v8 and not use_v7 and v6_classifier is not None and v6_feature_cols is not None
-    use_v5 = not use_v10 and not use_v9 and not use_v8 and not use_v7 and not use_v6 and v5_classifier is not None and v5_feature_cols is not None
-    use_v4 = not use_v10 and not use_v9 and not use_v8 and not use_v7 and not use_v6 and not use_v5 and v4_classifier is not None
+    use_v11 = v11_classifier is not None and v11_feature_cols is not None
+    use_v10 = not use_v11 and v10_classifier is not None and v10_feature_cols is not None
+    use_v9 = not use_v11 and not use_v10 and v9_classifier is not None and v9_feature_cols is not None
+    use_v8 = not use_v11 and not use_v10 and not use_v9 and v8_classifier is not None and v8_feature_cols is not None
+    use_v7 = not use_v11 and not use_v10 and not use_v9 and not use_v8 and v7_classifier is not None and v7_feature_cols is not None
+    use_v6 = not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and v6_classifier is not None and v6_feature_cols is not None
+    use_v5 = not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and not use_v6 and v5_classifier is not None and v5_feature_cols is not None
+    use_v4 = not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and not use_v6 and not use_v5 and v4_classifier is not None
 
-    if use_v10:
+    if use_v11:
+        active_classifier = v11_classifier
+        active_regressor  = v11_regressor
+        active_feature_cols = v11_feature_cols
+        active_version = "v11_model_vs_nws_divergence"
+    elif use_v10:
         active_classifier = v10_classifier
         active_regressor  = v10_regressor
         active_feature_cols = v10_feature_cols
@@ -1951,6 +2004,21 @@ def _compute_ml_prediction(
 
             _hrrr_base = _valid_temp(v2_features.get("mm_hrrr_max"))
             _nbm_base  = _valid_temp(v2_features.get("mm_nbm_max"))
+
+            # v11: derive model-vs-NWS divergence features now that both mm_* and
+            # nws_last are assembled in v2_features.  HistGradientBoosting handles
+            # NaN natively so partial availability (e.g. HRRR available, NBM not) is fine.
+            _nws_ref = v2_features.get("nws_last")
+            if _nws_ref is not None and not (isinstance(_nws_ref, float) and math.isnan(_nws_ref)):
+                _mm_hrrr = v2_features.get("mm_hrrr_max")
+                _mm_nbm  = v2_features.get("mm_nbm_max")
+                _mm_mean = v2_features.get("mm_mean")
+                if _mm_hrrr is not None and not (isinstance(_mm_hrrr, float) and math.isnan(_mm_hrrr)):
+                    v2_features["mm_hrrr_vs_nws"] = round(float(_mm_hrrr) - float(_nws_ref), 1)
+                if _mm_nbm is not None and not (isinstance(_mm_nbm, float) and math.isnan(_mm_nbm)):
+                    v2_features["mm_nbm_vs_nws"]  = round(float(_mm_nbm)  - float(_nws_ref), 1)
+                if _mm_mean is not None and not (isinstance(_mm_mean, float) and math.isnan(_mm_mean)):
+                    v2_features["mm_mean_vs_nws"] = round(float(_mm_mean) - float(_nws_ref), 1)
 
             _use_hrrr_anchor = (use_v8 or use_v7) and active_regressor is not None
             if _use_hrrr_anchor and _hrrr_base is not None:

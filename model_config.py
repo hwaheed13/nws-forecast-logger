@@ -458,6 +458,40 @@ FEATURE_COLS_V10_LAX = list(FEATURE_COLS_V9_LAX)
 
 FEATURE_COLS_V10 = list(FEATURE_COLS_V9) + MANHATTAN_MESONET_COLS
 
+# ═══════════════════════════════════════════════════════════════════════
+# v11 feature columns — v10 + model-vs-NWS divergence features
+# ═══════════════════════════════════════════════════════════════════════
+#
+# The core insight: NWS point forecast is ranked #11-16 by 90-day accuracy
+# (wethr.net), yet the existing features treat it as the reference benchmark
+# (obs_synoptic_vs_nws, rolling_bias_7d, etc.). The model must INFER the
+# HRRR-vs-NWS gap from two separate features (mm_hrrr_max, nws_last).
+#
+# Explicitly computing the divergence gives the model a clean, direct signal:
+#   "Right now HRRR is calling +5.6°F above NWS. How should I adjust?"
+#
+# Three complementary divergence signals:
+#   mm_hrrr_vs_nws   — HRRR (#1 accuracy) vs slow NWS. The primary upside/downside flag.
+#   mm_nbm_vs_nws    — NBM (#3, blends 50+ models, updates hourly) vs NWS.
+#                      NBM agreement with HRRR = high conviction. Disagreement = caution.
+#   mm_mean_vs_nws   — Full 7-model consensus vs NWS. When ALL fast models are above
+#                      NWS, that's a unanimous signal the official forecast is stale.
+#
+# All three are derived at train time (features_df has both mm_* and nws_last) and at
+# inference time (v2_features assembled before model.predict() is called).
+#
+# Total: v10(151) + divergence(3) = 154 features
+MM_VS_NWS_COLS = [
+    "mm_hrrr_vs_nws",     # HRRR - nws_last: fast mesoscale model vs slow official forecast
+    "mm_nbm_vs_nws",      # NBM - nws_last: 50-model blend vs slow official forecast
+    "mm_mean_vs_nws",     # 7-model consensus mean - nws_last: unanimous fast-model signal
+]
+
+FEATURE_COLS_V11 = list(FEATURE_COLS_V10) + MM_VS_NWS_COLS
+
+# v11 LAX equivalent — same divergence features apply
+FEATURE_COLS_V11_LAX = list(FEATURE_COLS_V10_LAX) + MM_VS_NWS_COLS
+
 # Additional features added per-candidate-bucket during classification (4)
 BUCKET_POSITION_COLS = [
     "bucket_center",

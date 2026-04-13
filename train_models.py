@@ -1137,6 +1137,47 @@ class NYCTemperatureModelTrainer:
         filled = mask.sum()
         print(f"  Observation proxy: filled {filled} recent rows with as-of-noon features")
 
+    def _compute_model_vs_nws_features(self) -> None:
+        """
+        Derive v11 model-vs-NWS divergence columns from existing features.
+
+        mm_hrrr_vs_nws  = mm_hrrr_max - nws_last
+        mm_nbm_vs_nws   = mm_nbm_max  - nws_last
+        mm_mean_vs_nws  = mm_mean     - nws_last
+
+        Called after all merges so both mm_* and nws_last are in features_df.
+        Rows without nws_last (multi-year atmospheric-only rows) get NaN —
+        HistGradientBoosting handles NaN natively, so no data is lost.
+        """
+        df = self.features_df
+        nws = df["nws_last"] if "nws_last" in df.columns else None
+        if nws is None:
+            for col in ["mm_hrrr_vs_nws", "mm_nbm_vs_nws", "mm_mean_vs_nws"]:
+                df[col] = np.nan
+            self.features_df = df
+            return
+
+        if "mm_hrrr_max" in df.columns:
+            df["mm_hrrr_vs_nws"] = (df["mm_hrrr_max"] - nws).round(1)
+        else:
+            df["mm_hrrr_vs_nws"] = np.nan
+
+        if "mm_nbm_max" in df.columns:
+            df["mm_nbm_vs_nws"] = (df["mm_nbm_max"] - nws).round(1)
+        else:
+            df["mm_nbm_vs_nws"] = np.nan
+
+        if "mm_mean" in df.columns:
+            df["mm_mean_vs_nws"] = (df["mm_mean"] - nws).round(1)
+        else:
+            df["mm_mean_vs_nws"] = np.nan
+
+        n_hrrr = df["mm_hrrr_vs_nws"].notna().sum()
+        n_nbm  = df["mm_nbm_vs_nws"].notna().sum()
+        print(f"  v11 divergence features: mm_hrrr_vs_nws={n_hrrr} rows, mm_nbm_vs_nws={n_nbm} rows")
+        self.features_df = df
+
+
     def _train_atm_predictor(self) -> None:
         """
         Train first-stage atmospheric temperature predictor on historical data.
@@ -2777,7 +2818,142 @@ class NYCTemperatureModelTrainer:
         except Exception:
             pass
 
-    def run(self, v2: bool = False, v4: bool = False, v5: bool = False, v6: bool = False, v7: bool = False, v8: bool = False, v9: bool = False, v10: bool = False):
+    def train_v11(self) -> None:
+        """
+        Train v11 model: v10 (151 features) + model-vs-NWS divergence (3 features = 154 total).
+
+        New features:
+          mm_hrrr_vs_nws  — HRRR - nws_last: how far #1-accuracy fast model is above/below NWS
+          mm_nbm_vs_nws   — NBM  - nws_last: how far 50-model blend is above/below NWS
+          mm_mean_vs_nws  — 7-model consensus - nws_last: unanimous fast-model divergence signal
+
+        Motivation: NWS is ranked #11-16 by 90-day accuracy yet the model currently infers
+        the HRRR-vs-NWS gap implicitly from separate mm_hrrr_max and nws_last columns.
+        Explicit divergence features give the model a direct "how stale is NWS?" signal.
+        Example: HRRR +5.6°F above NWS tonight → mm_hrrr_vs_nws = 5.6 → model confidently
+        raises prediction above NWS without having to discover that relationship indirectly.
+        """
+        from model_config import FEATURE_COLS_V11
+        from train_classifier import BucketClassifier
+
+        print(f"\n{'═'*60}")
+        print(f"v11 Training: v10 + model-vs-NWS divergence ({len(FEATURE_COLS_V11)} total features)")
+        print(f"{'═'*60}")
+
+        # Compute the three derived divergence columns
+        self._compute_model_vs_nws_features()
+
+        if self.features_df.empty:
+            print("  ⚠️ No feature data — skipping v11.")
+            return
+
+        prefix = self.model_prefix
+        forecast_df = self.features_df[self.features_df["nws_last"].notna()].copy()
+        n_forecast = len(forecast_df)
+        if n_forecast < 30:
+            print(f"  ⚠️ Only {n_forecast} forecast rows (need 30+). Skipping v11.")
+            return
+
+        # Check how many rows have the new divergence features populated
+        n_div = forecast_df["mm_hrrr_vs_nws"].notna().sum() if "mm_hrrr_vs_nws" in forecast_df.columns else 0
+        print(f"  mm_hrrr_vs_nws: {n_div} non-null rows (of {n_forecast} forecast rows)")
+
+        missing_v11 = [c for c in FEATURE_COLS_V11 if c not in self.features_df.columns]
+        if missing_v11:
+            print(f"  Missing v11 cols (NaN for historical rows): {missing_v11}")
+            for col in missing_v11:
+                self.features_df[col] = np.nan
+
+        forecast_df = self.features_df[self.features_df["nws_last"].notna()].copy()
+        X_v11    = forecast_df[FEATURE_COLS_V11]
+        nws_last = forecast_df["nws_last"]
+        y_actual = forecast_df["actual_high"]
+        y_bias   = y_actual - nws_last   # train residual vs NWS (same target as v7-v10)
+
+        v11_regressor = HistGradientBoostingRegressor(
+            max_iter=400, learning_rate=0.04, max_depth=4,
+            min_samples_leaf=6, l2_regularization=0.3,
+            random_state=42,
+        )
+
+        mae_scores = -cross_val_score(v11_regressor, X_v11, y_bias, cv=5, scoring="neg_mean_absolute_error")
+        bucket_acc = cross_val_score(
+            v11_regressor, X_v11, y_bias, cv=5,
+            scoring=lambda est, X, y: float(np.mean(
+                np.abs((est.predict(X) + nws_last.iloc[:len(X)]) - y_actual.iloc[:len(X)]) <= 1
+            )),
+        )
+        residual_std = float(np.std(y_bias))
+
+        print(f"  v11 CV MAE:        {np.mean(mae_scores):.2f}°F")
+        print(f"  v11 CV Bucket Acc: {np.mean(bucket_acc):.1%}")
+        print(f"  v11 Residual Std:  {residual_std:.2f}°F")
+        v11_regressor.fit(X_v11, y_bias)
+
+        try:
+            fi = dict(zip(FEATURE_COLS_V11, v11_regressor.feature_importances_))
+            print(f"  mm_hrrr_vs_nws importance: {fi.get('mm_hrrr_vs_nws', 0):.4f}")
+            print(f"  mm_nbm_vs_nws importance:  {fi.get('mm_nbm_vs_nws', 0):.4f}")
+            print(f"  mm_mean_vs_nws importance: {fi.get('mm_mean_vs_nws', 0):.4f}")
+            print(f"  mm_hrrr_max importance:    {fi.get('mm_hrrr_max', 0):.4f}")
+            print(f"  nws_last importance:       {fi.get('nws_last', 0):.4f}")
+        except Exception:
+            pass
+
+        classifier = BucketClassifier()
+        classifier.train(
+            self.features_df.copy().reset_index(drop=True),
+            feature_cols=FEATURE_COLS_V11,
+            residual_std=residual_std,
+            forecast_weight=5.0,
+        )
+
+        with open(f"{prefix}bcp_v11_regressor.pkl", "wb") as f:
+            pickle.dump(v11_regressor, f)
+        with open(f"{prefix}bcp_v11_classifier.pkl", "wb") as f:
+            pickle.dump(classifier, f)
+        with open(f"{prefix}bcp_v11_feature_cols.pkl", "wb") as f:
+            pickle.dump(list(FEATURE_COLS_V11), f)
+
+        v11_meta = {
+            "trained_on": datetime.now().isoformat(),
+            "version": "v11_model_vs_nws_divergence",
+            "base_cascade": "HRRR > NBM > AccuWeather > NWS",
+            "new_features": "mm_hrrr_vs_nws, mm_nbm_vs_nws, mm_mean_vs_nws",
+            "motivation": "NWS is #11-16 accuracy; explicit model-vs-NWS divergence replaces "
+                          "implicit inference from separate mm_hrrr_max + nws_last columns",
+            "n_divergence_rows": int(n_div),
+            "v11_regression": {
+                "cv_mae": float(np.mean(mae_scores)),
+                "cv_bucket_accuracy": float(np.mean(bucket_acc)),
+                "residual_std": residual_std,
+                "n_features": len(FEATURE_COLS_V11),
+                "n_training_rows": n_forecast,
+            },
+            "feature_columns_v11": list(FEATURE_COLS_V11),
+        }
+        import json as _json
+        with open(f"{prefix}model_metadata_v11.json", "w") as f:
+            _json.dump(v11_meta, f, indent=2)
+
+        print(f"\n  ✅ Saved v11 models: bcp_v11_regressor.pkl, bcp_v11_classifier.pkl")
+        print(f"  v11 Classifier Bucket Acc: {classifier.cv_bucket_accuracy:.1%}")
+
+        try:
+            import json as _j
+            with open(f"{prefix}model_metadata_v10.json") as f:
+                v10_meta = _j.load(f)
+            v10_mae = v10_meta.get("v10_regression", {}).get("cv_mae")
+            v10_bkt = v10_meta.get("v10_regression", {}).get("cv_bucket_accuracy")
+            print(f"\n{'─'*50}")
+            print(f"COMPARISON: v10 vs v11 (added: model-vs-NWS divergence features)")
+            if v10_mae: print(f"  MAE:        v10={v10_mae:.2f}°F → v11={np.mean(mae_scores):.2f}°F")
+            if v10_bkt: print(f"  Bucket Acc: v10={v10_bkt:.1%} → v11={np.mean(bucket_acc):.1%}")
+            print(f"{'─'*50}")
+        except Exception:
+            pass
+
+    def run(self, v2: bool = False, v4: bool = False, v5: bool = False, v6: bool = False, v7: bool = False, v8: bool = False, v9: bool = False, v10: bool = False, v11: bool = False):
         label = self.city_cfg["label"]
         print("=" * 60)
         print(f"{label} Temperature Model Training")
@@ -2899,6 +3075,24 @@ class NYCTemperatureModelTrainer:
                 self.train_v9()
             self.train_v10()
 
+        if v11:
+            if not v2:
+                self.train_v2()
+                self.train_v3()
+            if not v4:
+                self.train_v4()
+            if not v5:
+                self.train_v5()
+            if not v6:
+                self.train_v6()
+            if not v7:
+                self.train_v7()
+            if not v8:
+                self.train_v8()
+            if not v9:
+                self.train_v9()
+            self.train_v11()
+
         print("\nTraining complete.")
 
 
@@ -2924,6 +3118,8 @@ if __name__ == "__main__":
                              "coastal-vs-inland gradient, JFK-KNYC diff — the April 12 marine cap fix)")
     parser.add_argument("--v10", action="store_true",
                         help="Train v10 (v9 + Manhattan Mesonet MANH: 5-min fill-in between KNYC hourly reports)")
+    parser.add_argument("--v11", action="store_true",
+                        help="Train v11 (v10 + model-vs-NWS divergence: mm_hrrr_vs_nws, mm_nbm_vs_nws, mm_mean_vs_nws)")
     args = parser.parse_args()
 
     if args.all:
@@ -2940,6 +3136,7 @@ if __name__ == "__main__":
                 v8=getattr(args, "v8", False),
                 v9=getattr(args, "v9", False),
                 v10=getattr(args, "v10", False),
+                v11=getattr(args, "v11", False),
             )
     else:
         trainer = NYCTemperatureModelTrainer(city_key=args.city)
@@ -2949,4 +3146,6 @@ if __name__ == "__main__":
             v7=getattr(args, "v7", False),
             v8=getattr(args, "v8", False),
             v9=getattr(args, "v9", False),
+            v10=getattr(args, "v10", False),
+            v11=getattr(args, "v11", False),
         )
