@@ -122,5 +122,6 @@ jobs:
           v11: model-vs-NWS divergence (mm_hrrr_vs_nws, mm_nbm_vs_nws, mm_mean_vs_nws).
           v9/v10/v11 training skipped automatically if not enough rows yet.
           See model_metadata*.json for updated accuracy metrics."
+            git pull --rebase origin main
             git push
           fi

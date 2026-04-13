@@ -2835,6 +2835,9 @@ class NYCTemperatureModelTrainer:
         """
         from model_config import FEATURE_COLS_V11
         from train_classifier import BucketClassifier
+        from sklearn.ensemble import HistGradientBoostingRegressor
+        from sklearn.model_selection import cross_val_score
+        import numpy as np
 
         print(f"\n{'═'*60}")
         print(f"v11 Training: v10 + model-vs-NWS divergence ({len(FEATURE_COLS_V11)} total features)")
