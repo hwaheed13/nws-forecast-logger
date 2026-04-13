@@ -4018,6 +4018,20 @@ function renderFlipRisk() {
       return `<div style="font-size:11px; color:var(--text-secondary); margin-top:3px;">${icon} ${s.label}</div>`;
     }).join('');
 
+  // When a flip has already OCCURRED or RETURNED, the original flip.level badge
+  // is replaced by the state label. But the underlying risk score is still computed
+  // each cycle — surface it as a "re-flip risk" so users know if another shift is brewing.
+  let _reFlipNote = '';
+  if ((flipAlreadyOccurred || flipReturnedToCanonical) && flip.level) {
+    const _rfColor = flip.level === 'HIGH'   ? '#dc2626'
+                   : flip.level === 'MEDIUM' ? '#d97706'
+                   : '#16a34a';
+    const _rfLabel = flip.level === 'HIGH'   ? '⚠️ Re-flip risk HIGH — another shift possible'
+                   : flip.level === 'MEDIUM' ? '↕️ Re-flip risk MEDIUM — watch for changes'
+                   : '✅ Re-flip risk LOW — current bucket likely stable';
+    _reFlipNote = `<div style="font-size:11px;font-weight:600;color:${_rfColor};margin-top:4px;">${_rfLabel}</div>`;
+  }
+
   content.innerHTML = `
     <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-start; margin-bottom:8px;">
       <div style="background:${flipBg}; border:1px solid ${flipColor}; border-radius:8px; padding:6px 12px; display:inline-flex; flex-direction:column; min-width:110px;">
@@ -4034,6 +4048,7 @@ function renderFlipRisk() {
         ${sigLines}
       </div>
     </div>
+    ${_reFlipNote}
     ${histLine}
   `;
 }

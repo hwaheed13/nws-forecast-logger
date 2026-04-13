@@ -4856,6 +4856,47 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                         and float(_r_cc) <= 25
                         and 11 <= float(_r_hr) <= 19
                     )
+                # ── Inland NJ warming deltas on recompute path ────────────────
+                # Compare current snap KTEB/KEWR vs stored_snapshot_dict so the
+                # inland warming rate is available immediately after ML reruns,
+                # not 30 min later when the next stable cycle writes it.
+                if _CITY_KEY != "lax":
+                    _rk_prev_kteb = stored_snapshot_dict.get("obs_snap_kteb")
+                    _rk_curr_kteb = snap.get("obs_snap_kteb")
+                    _rk_kteb_d: float | None = None
+                    if _rk_prev_kteb is not None and _rk_curr_kteb is not None:
+                        _rk_kteb_d = round(float(_rk_curr_kteb) - float(_rk_prev_kteb), 1)
+                        snap["obs_snap_kteb_delta"] = _rk_kteb_d
+                    else:
+                        _rk_kteb_d = stored_snapshot_dict.get("obs_snap_kteb_delta")
+                        if _rk_kteb_d is not None:
+                            snap["obs_snap_kteb_delta"] = _rk_kteb_d
+
+                    _rk_prev_kewr = stored_snapshot_dict.get("obs_snap_kewr")
+                    _rk_curr_kewr = snap.get("obs_snap_kewr")
+                    _rk_kewr_d: float | None = None
+                    if _rk_prev_kewr is not None and _rk_curr_kewr is not None:
+                        _rk_kewr_d = round(float(_rk_curr_kewr) - float(_rk_prev_kewr), 1)
+                        snap["obs_snap_kewr_delta"] = _rk_kewr_d
+                    else:
+                        _rk_kewr_d = stored_snapshot_dict.get("obs_snap_kewr_delta")
+                        if _rk_kewr_d is not None:
+                            snap["obs_snap_kewr_delta"] = _rk_kewr_d
+
+                    _rk_inland_vals = [v for v in [_rk_kteb_d, _rk_kewr_d] if v is not None]
+                    if _rk_inland_vals:
+                        _rk_inland_rate = round(sum(_rk_inland_vals) / len(_rk_inland_vals), 1)
+                        snap["obs_snap_inland_warming_rate"] = _rk_inland_rate
+                        _rk_surf_r = snap.get("obs_snap_heating_rate")
+                        snap["obs_snap_warming_accel"] = bool(
+                            _rk_inland_rate >= 1.5
+                            and _rk_surf_r is not None
+                            and float(_rk_surf_r) >= 0.3
+                        )
+                    elif stored_snapshot_dict.get("obs_snap_inland_warming_rate") is not None:
+                        # Preserve previous cycle's rate when deltas can't be computed
+                        snap["obs_snap_inland_warming_rate"] = stored_snapshot_dict["obs_snap_inland_warming_rate"]
+                        snap["obs_snap_warming_accel"] = stored_snapshot_dict.get("obs_snap_warming_accel", False)
                 payload["atm_snapshot"] = json.dumps(snap)
                 print(f"📸 Atmospheric baseline advanced after recompute ({len(snap)} keys)")
 
@@ -5107,21 +5148,48 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                         atm_features=live_atm,
                     )
                     _OBS_DISPLAY_KEYS = (
+                        # ── Primary KNYC observation ──────────────────────────
                         "obs_snap_temp", "obs_snap_max_so_far",
                         "obs_snap_is_overnight_high", "obs_snap_high_peak_hour",
                         "obs_snap_temp_falling_hrs", "obs_snap_heating_rate",
+                        "obs_snap_heating_rate_delta",   # stall signal — was missing, went stale
                         "obs_snap_vs_forecast", "obs_snap_hour",
+                        "obs_snap_wind_speed", "obs_snap_cloud_cover",
+                        # ── Regional NWS stations (JFK / LGA) ────────────────
                         "obs_snap_jfk", "obs_snap_lga",
                         "obs_snap_regional_spread", "obs_snap_regional_mean",
                         "obs_snap_regional_vs_nws",
-                        "obs_snap_wind_speed", "obs_snap_cloud_cover",
-                        "obs_snap_wu_mean", "obs_snap_wu_vs_nws",
-                        "obs_snap_wu_spread", "obs_snap_wu_count",
-                        "obs_snap_populated",
-                        # Synoptic network keys — written by _add_obs_to_snap but were
-                        # previously missing here, causing Synoptic card to stay "Awaiting"
+                        # ── Named ASOS stations (v9 Synoptic) ────────────────
+                        # These were missing — caused KEWR/KTEB/marine card to go
+                        # stale and show "Awaiting next cycle" after 2 PM.
+                        "obs_snap_kjfk", "obs_snap_klga",
+                        "obs_snap_kewr", "obs_snap_kteb", "obs_snap_knyc_syn",
+                        "obs_snap_kjfk_vs_knyc", "obs_snap_klga_vs_knyc",
+                        "obs_snap_kewr_vs_knyc",
+                        "obs_snap_airport_spread", "obs_snap_coastal_vs_inland",
+                        # ── Named station observation timestamps ──────────────
+                        # Staleness badges (e.g. "47 min ago") depend on these;
+                        # without them the badge freezes at the canonical write time.
+                        "obs_snap_knyc_obs_at", "obs_snap_kjfk_obs_at",
+                        "obs_snap_klga_obs_at", "obs_snap_kewr_obs_at",
+                        "obs_snap_kteb_obs_at", "obs_snap_manh_obs_at",
+                        # ── Manhattan Mesonet (5-min fill-in) ────────────────
+                        "obs_snap_manh_temp", "obs_snap_manh_vs_knyc",
+                        # ── Synoptic network (5mi radius) ────────────────────
                         "obs_snap_syn_mean", "obs_snap_syn_min", "obs_snap_syn_max",
                         "obs_snap_syn_spread", "obs_snap_syn_vs_nws", "obs_snap_syn_count",
+                        # ── WU PWS (citizen weather stations) ────────────────
+                        "obs_snap_wu_mean", "obs_snap_wu_vs_nws",
+                        "obs_snap_wu_spread", "obs_snap_wu_count",
+                        # ── Derived nowcast signals ───────────────────────────
+                        # These were missing — stratus clearing and inland warming
+                        # signals froze after 2pm just when they're most relevant.
+                        "obs_snap_morning_cloud",
+                        "obs_snap_stratus_clearing",
+                        "obs_snap_kteb_delta", "obs_snap_kewr_delta",
+                        "obs_snap_inland_warming_rate", "obs_snap_warming_accel",
+                        # ── Metadata ─────────────────────────────────────────
+                        "obs_snap_populated",
                     )
                     # _fetch_observation_features returns raw feature keys (obs_*),
                     # not the snap keys (obs_snap_*).  Map via _add_obs_to_snap
