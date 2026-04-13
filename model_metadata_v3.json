@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-04-12T23:56:06.156618",
+  "trained_on": "2026-04-13T00:25:31.526965",
   "version": "v3_unified_regression",
   "num_days": 1562,
   "num_forecast_days": 267,
@@ -17,7 +17,7 @@
       0.38,
       0.33,
       0.55,
-      1.92
+      1.91
     ],
     "per_fold_bucket_acc": [
       0.0,
@@ -27,15 +27,15 @@
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 1.5889
+      "importance": 1.5857
     },
     {
       "name": "intra_temp_5pm",
-      "importance": 0.0041
+      "importance": 0.0036
     },
     {
       "name": "intra_temp_noon",
-      "importance": 0.0022
+      "importance": 0.0031
     },
     {
       "name": "accu_last",
@@ -50,6 +50,10 @@
       "importance": 0.0004
     },
     {
+      "name": "intra_high_vs_noon",
+      "importance": 0.0002
+    },
+    {
       "name": "atm_vs_forecast_diff",
       "importance": 0.0002
     },
@@ -58,20 +62,12 @@
       "importance": 0.0002
     },
     {
-      "name": "intra_high_vs_noon",
+      "name": "accu_max",
       "importance": 0.0002
     },
     {
       "name": "atm_temp_range",
       "importance": 0.0002
-    },
-    {
-      "name": "accu_max",
-      "importance": 0.0002
-    },
-    {
-      "name": "prev_day_high",
-      "importance": 0.0001
     },
     {
       "name": "intra_temp_9am",
@@ -83,6 +79,10 @@
     },
     {
       "name": "atm_morning_temp_6am",
+      "importance": 0.0001
+    },
+    {
+      "name": "prev_day_high",
       "importance": 0.0001
     }
   ],

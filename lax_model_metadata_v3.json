@@ -1,36 +1,36 @@
 {
-  "trained_on": "2026-04-12T23:46:49.657809",
+  "trained_on": "2026-04-13T00:16:15.959484",
   "version": "v3_unified_regression",
-  "num_days": 1561,
+  "num_days": 1562,
   "num_forecast_days": 41,
-  "num_multiyear_days": 1520,
+  "num_multiyear_days": 1521,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-04-11"
+    "end": "2026-04-12"
   },
   "performance": {
     "cv_mae": 0.58,
-    "cv_bucket_accuracy_1f": 0.1463,
-    "residual_std": 2.65,
+    "cv_bucket_accuracy_1f": 0.0976,
+    "residual_std": 2.7,
     "per_fold_mae": [
       0.91,
-      0.51,
-      0.4,
-      0.44,
-      0.66
+      0.48,
+      0.42,
+      0.42,
+      0.67
     ],
     "per_fold_bucket_acc": [
-      0.1463
+      0.0976
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 1.8064
+      "importance": 1.8219
     },
     {
       "name": "atm_temp_range",
-      "importance": 0.0029
+      "importance": 0.0024
     },
     {
       "name": "intra_temp_5pm",
@@ -38,34 +38,38 @@
     },
     {
       "name": "intra_rise_from_overnight",
-      "importance": 0.0015
+      "importance": 0.0013
     },
     {
       "name": "atm_dewpoint_mean",
       "importance": 0.0011
     },
     {
-      "name": "prev_day_high",
-      "importance": 0.0009
-    },
-    {
       "name": "atm_pressure_mean",
-      "importance": 0.0008
+      "importance": 0.001
     },
     {
-      "name": "day_of_year_cos",
+      "name": "prev_day_high",
       "importance": 0.0008
     },
     {
       "name": "atm_overnight_min",
-      "importance": 0.0006
+      "importance": 0.0005
+    },
+    {
+      "name": "atm_wind_max",
+      "importance": 0.0004
+    },
+    {
+      "name": "day_of_year_cos",
+      "importance": 0.0004
     },
     {
       "name": "atm_humidity_mean",
       "importance": 0.0004
     },
     {
-      "name": "atm_bl_height_max",
+      "name": "atm_humidity_min",
       "importance": 0.0004
     },
     {
@@ -73,15 +77,11 @@
       "importance": 0.0002
     },
     {
-      "name": "atm_morning_temp_6am",
+      "name": "atm_pressure_change",
       "importance": 0.0002
     },
     {
-      "name": "atm_wind_max",
-      "importance": 0.0002
-    },
-    {
-      "name": "atm_precip_total",
+      "name": "atm_bl_height_max",
       "importance": 0.0002
     }
   ],
