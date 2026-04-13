@@ -4552,6 +4552,43 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             print(f"⚠️ Live atmospheric fetch failed: {_atm_e}")
             live_atm = {}
 
+        # ── Carry-forward: seed live_atm with previous snapshot's mm_* / ATM values
+        # if the fresh Open-Meteo ensemble fetch missed them (partial or timeout).
+        #
+        # WHY THIS MATTERS: The Open-Meteo ensemble endpoint sometimes returns null
+        # for individual members (HRRR, NBM, GEM) even when the base forecast works.
+        # Without this carry-forward:
+        #   1. The ML model runs with NaN for mm_hrrr_max / mm_spread → prediction
+        #      shifts toward the NWS baseline, flipping the displayed bucket.
+        #   2. The snapshot is written without those keys → dashboard shows
+        #      "Awaiting next cycle" for Multi-Model Spread / HRRR vs NWS.
+        # The carry-forward only activates when the fresh fetch returns None/NaN for
+        # a key; if HRRR genuinely updated, the fresh value takes precedence.
+        _MM_CARRY_KEYS = (
+            "mm_spread", "mm_std", "mm_mean",
+            "mm_hrrr_max", "mm_nbm_max", "mm_gem_max", "mm_icon_max",
+            "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff", "mm_ecmwf_gfs_diff",
+            "mm_icon_gfs_diff", "mm_gem_ecmwf_diff",
+            "mm_nbm_hrrr_diff", "mm_nbm_gfs_diff", "mm_nbm_ecmwf_diff",
+            "mm_gem_hrdps_max", "mm_gem_hrdps_hrrr_diff",
+            "atm_925mb_hrrr_max", "atm_925mb_hrrr_mean",
+            "atm_850mb_hrrr_max", "atm_850mb_hrrr_mean",
+            "atm_925mb_gfs_hrrr_diff",
+        )
+        if stored_snapshot_dict and live_atm:
+            _carried = []
+            for _ck in _MM_CARRY_KEYS:
+                _fresh_v = live_atm.get(_ck)
+                _prev_v  = stored_snapshot_dict.get(_ck)
+                if (_fresh_v is None or (isinstance(_fresh_v, float) and math.isnan(_fresh_v))) \
+                        and _prev_v is not None:
+                    live_atm[_ck] = _prev_v
+                    _carried.append(_ck)
+            if _carried:
+                print(f"  🔁 Carried {len(_carried)} mm_/atm_ keys from prev snapshot "
+                      f"(ensemble fetch partial): "
+                      f"{', '.join(_carried[:5])}{'…' if len(_carried) > 5 else ''}")
+
         # NWS obs trigger: only before agency_cutoff (2pm). After 2pm, station
         # temps reflect observed reality — using them is thermometer-chasing.
         live_obs = {}
@@ -4731,10 +4768,16 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 # Pass live_atm so Synoptic/NYSM keys written back by _compute_ml_prediction
                 # via prefetched_atm are also included (they're not in live_obs).
                 _add_obs_to_snap(snap, live_obs, live_atm)
-                # Restore obs_snap_* display keys that _add_obs_to_snap wrote as None
-                # because live_atm lacked Synoptic data (AccuWeather-only advance path).
+                # Restore display keys from the previous snapshot that the fresh write
+                # left as None — covers two cases:
+                #   obs_snap_*: Synoptic/NYSM data absent on AccuWeather-only advance path
+                #   mm_* / atm_925mb_hrrr_* etc: ensemble endpoint returned partial data
+                #     (the carry-forward above handles this for the ML model; this is the
+                #     safety-net for any residual gaps after _add_obs_to_snap runs).
                 for _pk, _pv in _prev_snap.items():
-                    if _pk.startswith("obs_snap_") and _pv is not None and snap.get(_pk) is None:
+                    if (_pk.startswith("obs_snap_") or _pk.startswith("mm_")
+                            or _pk in _MM_CARRY_KEYS) \
+                            and _pv is not None and snap.get(_pk) is None:
                         snap[_pk] = _pv
                 payload["atm_snapshot"] = json.dumps(snap)
                 print(f"📸 Atmospheric baseline advanced after recompute ({len(snap)} keys)")
