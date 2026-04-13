@@ -5224,6 +5224,51 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 print(f"📌 market_prob_at_prediction={payload['market_prob_at_prediction']:.4f} for bucket '{direct_bucket}'")
                 print(f"📐 kelly_fraction={kelly_f:.1%} (half-Kelly — bet this % of bankroll)")
 
+    # ── Inject flip-history tracking into atm_snapshot (no schema change) ───
+    # Persists ml_flip_occurred=True even when the bucket RETURNS to canonical.
+    # Without this the dashboard shows no evidence a flip ever happened, which is
+    # misleading — e.g. a 80→79→80 oscillation looks identical to a stable day.
+    # Stored in atm_snapshot JSONB (no new column needed):
+    #   ml_flip_occurred  bool   — True if bucket ever differed from canonical today
+    #   ml_flip_count     int    — number of times it flipped away from canonical
+    #   ml_flip_bucket    str    — the non-canonical bucket it flipped to (last one)
+    if not is_canonical_write and isinstance(existing, dict):
+        _canon_bkt = existing.get("ml_bucket_canonical")
+        _curr_bkt  = payload.get("ml_bucket")
+        if _canon_bkt and _curr_bkt:
+            # Load whichever snapshot we're writing, or the existing one as fallback
+            _fs_raw = payload.get("atm_snapshot") or existing.get("atm_snapshot")
+            try:
+                _fs = (json.loads(_fs_raw) if isinstance(_fs_raw, str)
+                       else (_fs_raw.copy() if isinstance(_fs_raw, dict) else {})) \
+                       if _fs_raw else {}
+            except Exception:
+                _fs = {}
+            # Read prior flip state from the existing (pre-write) snapshot
+            _pfs_raw = existing.get("atm_snapshot")
+            try:
+                _pfs = (json.loads(_pfs_raw) if isinstance(_pfs_raw, str)
+                        else (_pfs_raw if isinstance(_pfs_raw, dict) else {})) \
+                        if _pfs_raw else {}
+            except Exception:
+                _pfs = {}
+            _prev_flip_count = int(_pfs.get("ml_flip_count") or 0)
+            if _curr_bkt != _canon_bkt:
+                # Bucket is currently away from canonical — record the flip
+                _fs["ml_flip_occurred"] = True
+                _fs["ml_flip_count"]    = _prev_flip_count + 1
+                _fs["ml_flip_bucket"]   = _curr_bkt
+                print(f"  🔀 Flip #{_fs['ml_flip_count']} recorded: {_canon_bkt} → {_curr_bkt}")
+            elif _pfs.get("ml_flip_occurred"):
+                # Bucket returned to canonical — preserve the historical flip record
+                _fs["ml_flip_occurred"] = True
+                _fs["ml_flip_count"]    = _prev_flip_count
+                _fs["ml_flip_bucket"]   = _pfs.get("ml_flip_bucket", _curr_bkt)
+                print(f"  ↩️  Returned to canonical — flip record preserved "
+                      f"(was: {_fs['ml_flip_bucket']}, count={_fs['ml_flip_count']})")
+            if _fs:
+                payload["atm_snapshot"] = json.dumps(_fs)
+
     supabase_upsert(payload)
 
 def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:

@@ -3867,9 +3867,17 @@ function renderFlipRisk() {
 
   // ── Post-flip and late-day state detection ────────────────────────────────
   const ml2 = window.mlPredictions || {};
-  const canonBucket  = ml2.todayMLBucketCanonical;
+  const canonBucket   = ml2.todayMLBucketCanonical;
   const currentBucket = ml2.todayMLBucket;
   const flipAlreadyOccurred = canonBucket && currentBucket && canonBucket !== currentBucket;
+
+  // Read flip history from atm_snapshot — persisted even after bucket returns to canonical
+  const _todaySnap      = ml2.todayAtmSnapshot || {};
+  const _flipOccurred   = !!_todaySnap.ml_flip_occurred;   // ever flipped today?
+  const _flipBucket     = _todaySnap.ml_flip_bucket || null; // what it flipped TO
+  const _flipCount      = parseInt(_todaySnap.ml_flip_count) || 0;
+  // "Returned" = bucket is back at canonical but a flip did happen earlier today
+  const flipReturnedToCanonical = !flipAlreadyOccurred && _flipOccurred && canonBucket && currentBucket;
 
   const dispTZ2 = currentCity === 'lax' ? 'America/Los_Angeles' : 'America/New_York';
   const localHour2 = parseInt(new Date().toLocaleString('en-US', { timeZone: dispTZ2, hour: 'numeric', hour12: false }), 10);
@@ -3886,12 +3894,21 @@ function renderFlipRisk() {
   let displayFlipLabel = 'Bucket Flip';
 
   if (flipAlreadyOccurred) {
-    // Flip already occurred — show that, not future risk
+    // Flip currently active — show that, not future risk
     displayFlipLevel   = 'OCCURRED';
     displayFlipLabel   = 'Prediction Shift';
     displayFlipSummary = `Opened ${cleanKalshiLabel ? cleanKalshiLabel(canonBucket) : canonBucket} → now ${cleanKalshiLabel ? cleanKalshiLabel(currentBucket) : currentBucket}`;
     displayFlipColor   = '#7c3aed';  // purple — informational, not warning
     displayFlipBg      = '#f5f3ff';
+  } else if (flipReturnedToCanonical) {
+    // Bucket returned to opening after flipping — still show it happened
+    const _flipedToLabel = _flipBucket ? (cleanKalshiLabel ? cleanKalshiLabel(_flipBucket) : _flipBucket) : '?';
+    const _countNote     = _flipCount > 1 ? ` (×${_flipCount})` : '';
+    displayFlipLevel   = 'RETURNED';
+    displayFlipLabel   = 'Prediction Shift';
+    displayFlipSummary = `Opened ${cleanKalshiLabel ? cleanKalshiLabel(canonBucket) : canonBucket} → shifted ${_flipedToLabel} → back${_countNote}`;
+    displayFlipColor   = '#b45309';  // amber — "this happened, watch for recurrence"
+    displayFlipBg      = '#fffbeb';
   } else if (windowClosed) {
     // Past 2pm and current temp well below ML center — flip window effectively closed
     displayFlipLevel   = 'UNLIKELY';
@@ -5314,15 +5331,31 @@ window._predTomorrow = predTomorrow;
              </div>`
           : '';
 
-        // Show canonical flip note when today's first prediction differs from current
-        const _mlForFlip = window.mlPredictions || {};
-        const _canonBucket = _mlForFlip.todayMLBucketCanonical;
-        const _currBucket  = _mlForFlip.todayMLBucket;
-        const canonicalFlipNote = (_canonBucket && _currBucket && _canonBucket !== _currBucket)
-          ? `<div style="font-size:12px;background:#fffbeb;border-left:3px solid #f59e0b;padding:6px 10px;margin-top:6px;border-radius:4px;color:#92400e;">
+        // Show canonical flip note — covers three states:
+        //  1. Currently shifted: opened X, now Y
+        //  2. Returned to opening: opened X → shifted Y → back (flip still noteworthy)
+        //  3. No flip: omit
+        const _mlForFlip    = window.mlPredictions || {};
+        const _canonBucket  = _mlForFlip.todayMLBucketCanonical;
+        const _currBucket   = _mlForFlip.todayMLBucket;
+        const _snapForFlip  = _mlForFlip.todayAtmSnapshot || {};
+        const _fOccurred    = !!_snapForFlip.ml_flip_occurred;
+        const _fBucket      = _snapForFlip.ml_flip_bucket || null;
+        const _fCount       = parseInt(_snapForFlip.ml_flip_count) || 0;
+        let canonicalFlipNote = '';
+        if (_canonBucket && _currBucket && _canonBucket !== _currBucket) {
+          // Currently at a different bucket than canonical
+          canonicalFlipNote = `<div style="font-size:12px;background:#fffbeb;border-left:3px solid #f59e0b;padding:6px 10px;margin-top:6px;border-radius:4px;color:#92400e;">
               🔄 <strong>Prediction shifted today</strong> — opened <strong>${cleanKalshiLabel(_canonBucket)}</strong>, now <strong>${cleanKalshiLabel(_currBucket)}</strong>
-             </div>`
-          : '';
+             </div>`;
+        } else if (_fOccurred && _canonBucket && _currBucket) {
+          // Back at canonical but a flip happened — show the history
+          const _wasLabel   = _fBucket ? cleanKalshiLabel(_fBucket) : '?';
+          const _countBadge = _fCount > 1 ? ` (×${_fCount} total shifts)` : '';
+          canonicalFlipNote = `<div style="font-size:12px;background:#fffbeb;border-left:3px solid #b45309;padding:6px 10px;margin-top:6px;border-radius:4px;color:#92400e;">
+              ↩️ <strong>Prediction shifted and returned</strong> — opened <strong>${cleanKalshiLabel(_canonBucket)}</strong>, briefly <strong>${_wasLabel}</strong>, back to opening${_countBadge}
+             </div>`;
+        }
 
         el0.innerHTML = `
           ${liveInvalidationBanner}
