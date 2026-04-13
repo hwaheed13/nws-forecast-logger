@@ -245,12 +245,19 @@ def get_synoptic_obs_features(
     if not _token():
         return nan_result
 
-    stations = fetch_nearby_obs(lat, lon, radius_miles=radius_miles)
-    if not stations:
-        return nan_result
-
-    # Determine which named stations to track based on city
+    # Determine which named stations to track based on city — must be set BEFORE
+    # the radius sweep so the STID fallback can run even when the radius returns
+    # nothing (e.g. LAX: all named airports are 10-13mi from the USC/KCQT center
+    # and thus outside the 8mi radius sweep; if urban mesonets are stale the sweep
+    # returns [], previously causing early-return before any STID fetch).
     named_stids = _NAMED_ASOS_STIDS_LAX if city.lower() == "lax" else _NAMED_ASOS_STIDS_NYC
+
+    stations = fetch_nearby_obs(lat, lon, radius_miles=radius_miles)
+    # Only hard-exit if the radius returned nothing AND there are no named STIDs to
+    # fall back to.  For LAX the named airports (KLAX, KBUR, etc.) are fetched by
+    # direct STID below — we still want those even on a zero-radius-station day.
+    if not stations and not named_stids:
+        return nan_result
 
     temps = []
     borough_temps = []
@@ -304,15 +311,13 @@ def get_synoptic_obs_features(
             except (ValueError, TypeError):
                 pass
 
-    if not temps:
-        return nan_result
-
     # ── Supplement: direct STID fetch for named stations outside the radius ────
     # KJFK (13.9mi) and KEWR (12.7mi) are beyond the default 10-mile radius so they
-    # never appear in the radius results. The nightly backfill fetches them by STID
-    # directly, so historical training rows have their values — but without this
-    # secondary fetch, the live inference would always see KJFK=NaN (training-inference
-    # mismatch). We fix it by fetching any missing named stations by STID explicitly.
+    # never appear in the radius results.  For LAX ALL named airports (KLAX, KBUR, etc.)
+    # are 10-13mi from the USC/KCQT sweep center — so on days when urban mesonets are
+    # stale and the radius returns nothing, this is the ONLY data we get.
+    # Run BEFORE the `if not temps` guard so named-station values are populated
+    # even on zero-radius-station days (previously: early return dropped everything).
     missing_named = [s for s in named_stids if s not in named_temps]
     if missing_named:
         print(f"  🔍 Fetching {len(missing_named)} named station(s) by STID "
@@ -338,21 +343,32 @@ def get_synoptic_obs_features(
                 except (ValueError, TypeError):
                     pass
 
-    # ── Network aggregate ─────────────────────────────────────────────
-    mean_t = sum(temps) / len(temps)
-    nan_result["obs_synoptic_mean"] = round(mean_t, 1)
-    nan_result["obs_synoptic_min"] = round(min(temps), 1)
-    nan_result["obs_synoptic_max"] = round(max(temps), 1)
-    nan_result["obs_synoptic_spread"] = round(max(temps) - min(temps), 1)
-    nan_result["obs_synoptic_count"] = float(len(temps))
-    if nws_last is not None:
-        nan_result["obs_synoptic_vs_nws"] = round(mean_t - nws_last, 1)
+    # If we have no radius stations AND no named stations, there's genuinely nothing
+    # to return — bail here rather than at the start (STID fetch had a chance to run).
+    if not temps and not named_temps:
+        return nan_result
 
-    vs_str = f"  vs NWS={nan_result['obs_synoptic_vs_nws']:+.1f}°F" if nws_last else ""
-    print(f"  🗺️ Synoptic: {len(temps)} stations — "
-          f"min={nan_result['obs_synoptic_min']:.1f}°F  "
-          f"mean={mean_t:.1f}°F  "
-          f"max={nan_result['obs_synoptic_max']:.1f}°F{vs_str}")
+    # ── Network aggregate ─────────────────────────────────────────────
+    # obs_synoptic_mean is only populated when the radius sweep found stations.
+    # On zero-radius days (e.g. LAX urban mesonet stale) it stays NaN — but
+    # named station values (KLAX, KBUR, etc.) are still populated above.
+    if temps:
+        mean_t = sum(temps) / len(temps)
+        nan_result["obs_synoptic_mean"]   = round(mean_t, 1)
+        nan_result["obs_synoptic_min"]    = round(min(temps), 1)
+        nan_result["obs_synoptic_max"]    = round(max(temps), 1)
+        nan_result["obs_synoptic_spread"] = round(max(temps) - min(temps), 1)
+        nan_result["obs_synoptic_count"]  = float(len(temps))
+        if nws_last is not None:
+            nan_result["obs_synoptic_vs_nws"] = round(mean_t - nws_last, 1)
+        vs_str = f"  vs NWS={nan_result['obs_synoptic_vs_nws']:+.1f}°F" if nws_last else ""
+        print(f"  🗺️ Synoptic: {len(temps)} stations — "
+              f"min={nan_result['obs_synoptic_min']:.1f}°F  "
+              f"mean={mean_t:.1f}°F  "
+              f"max={nan_result['obs_synoptic_max']:.1f}°F{vs_str}")
+    else:
+        print(f"  🗺️ Synoptic: 0 radius stations — radius sweep returned nothing, "
+              f"named STID fallback only")
 
     # ── Borough subset (NYSM) ─────────────────────────────────────────
     if borough_temps:
