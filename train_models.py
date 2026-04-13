@@ -859,12 +859,12 @@ class NYCTemperatureModelTrainer:
         try:
             from supabase import create_client
             sb = create_client(url, key)
+            # Select ONLY columns that exist in the prediction_logs schema.
+            # All forecast-related fields (nws_last, accu_last, rolling_bias_*,
+            # nws_first, etc.) live inside atm_snapshot JSONB — not as top-level cols.
             resp = (
                 sb.table("prediction_logs")
-                .select(
-                    "target_date,ml_actual_high,atm_snapshot,"
-                    "accu_last,rolling_bias_7d,rolling_bias_21d"
-                )
+                .select("target_date,ml_actual_high,atm_snapshot")
                 .eq("city", self.city_key)
                 .in_("lead_used", ["today_for_today", "D0"])
                 .not_.is_("atm_snapshot", "null")
@@ -881,16 +881,10 @@ class NYCTemperatureModelTrainer:
                 snap_raw = r.get("atm_snapshot") or {}
                 snap = json.loads(snap_raw) if isinstance(snap_raw, str) else snap_raw
                 record = {"target_date": str(r["target_date"])[:10]}
-                record["actual_high"]          = r.get("ml_actual_high")
-                # nws_last/nws_first/nws_mean/nws_spread live in atm_snapshot, not top-level cols
-                record["nws_last"]             = snap.get("nws_last")
-                record["accu_last"]            = r.get("accu_last") or snap.get("accu_last")
-                record["nws_first"]            = snap.get("nws_first")
-                record["nws_mean"]             = snap.get("nws_mean")
-                record["nws_spread"]           = snap.get("nws_spread")
-                record["rolling_bias_7d"]      = r.get("rolling_bias_7d") or snap.get("rolling_bias_7d")
-                record["rolling_bias_21d"]     = r.get("rolling_bias_21d") or snap.get("rolling_bias_21d")
-                # Unpack all atm_snapshot keys as training features
+                record["actual_high"] = r.get("ml_actual_high")
+                # All other training features come from atm_snapshot JSONB.
+                # This includes nws_last, accu_last, nws_first, rolling_bias_*,
+                # and all the Synoptic/atmospheric obs features.
                 for k, v in snap.items():
                     if k not in record:
                         record[k] = v
