@@ -505,6 +505,298 @@ def backfill(
     print(f"Next step: retrain v9 with `python train_models.py --v9`")
 
 
+def _scrub_snap(obj):
+    """Recursively replace NaN/inf with None so Supabase JSONB accepts it."""
+    import math
+    if isinstance(obj, dict):
+        return {k: _scrub_snap(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_scrub_snap(v) for v in obj]
+    try:
+        fv = float(obj)
+        return None if not math.isfinite(fv) else obj
+    except (TypeError, ValueError):
+        return obj
+
+
+def csv_backfill(
+    csv_path: str = "multiyear_atmospheric.csv",
+    nws_log_path: str = "nws_forecast_log.csv",
+    city: str = "nyc",
+    dry_run: bool = False,
+    limit: Optional[int] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    sleep_sec: float = 1.5,
+):
+    """
+    THE MOAT UNLOCK.
+
+    Reads historical dates from multiyear_atmospheric.csv (2022-01-01 → today),
+    fetches Synoptic timeseries for KJFK/KLGA/KEWR/KTEB/KNYC/MANH + radius for
+    each date, then upserts minimal prediction_logs rows so train_models.py's
+    _load_prediction_logs_with_snapshots() picks them up for v9/v10 training.
+
+    This transforms v9 from "10 days of KJFK signal" → "3+ years of actual
+    marine cap fingerprints" — the full historical moat.
+
+    Why this matters:
+      On a cap day: KJFK=50°F, KNYC=56°F → obs_kjfk_vs_knyc=-6 → strong signal
+      On a clear day: KJFK=72°F, KNYC=71°F → diff≈0 → no suppression signal
+      With 3 years of data, the model learns exactly what the gradient means.
+
+    Rate limits: Synoptic free tier = 1000 calls/day. Each date = 2 calls
+    (named STIDs + radius). For 1562 dates: ~3124 calls.
+    Use --limit 400 to run in 3-day batches under the free tier.
+    Enterprise tier (unlimited) can run the full set in one shot.
+
+    Upserted prediction_logs row schema (minimum required by _load_prediction_logs):
+      target_date, city, lead_used, ml_actual_high, nws_last, atm_snapshot
+
+    Idempotent: skips dates that already have obs_kjfk_temp in prediction_logs.
+
+    Usage:
+        # Full historical backfill (enterprise token):
+        python backfill_synoptic.py --csv-backfill
+
+        # Incremental batches under free tier (run 3 days in a row):
+        python backfill_synoptic.py --csv-backfill --limit 400
+
+        # Specific date range:
+        python backfill_synoptic.py --csv-backfill --start 2024-06-01 --end 2024-09-30
+
+        # Dry run to verify:
+        python backfill_synoptic.py --csv-backfill --dry-run --limit 5
+    """
+    import math, csv as csv_mod
+
+    token = _token()
+    if not token:
+        print("❌ SYNOPTIC_TOKEN not set — aborting")
+        sys.exit(1)
+
+    client = _supabase_client()
+    print(f"✅ Synoptic token present, Supabase connected")
+    print(f"   city={city}  dry_run={dry_run}  limit={limit}  "
+          f"start={start_date}  end={end_date}\n")
+
+    # ── Load multiyear CSV → dates + actual highs ─────────────────────
+    if not os.path.exists(csv_path):
+        print(f"❌ {csv_path} not found — run from the repo root directory")
+        sys.exit(1)
+
+    import pandas as pd
+    multi = pd.read_csv(csv_path)
+    multi["target_date"] = pd.to_datetime(multi["target_date"]).dt.strftime("%Y-%m-%d")
+    # Filter to the correct city
+    if "city" in multi.columns:
+        multi = multi[multi["city"] == city].copy()
+
+    # Date range filter
+    if start_date:
+        multi = multi[multi["target_date"] >= start_date]
+    if end_date:
+        multi = multi[multi["target_date"] <= end_date]
+
+    # Build actual_high lookup
+    actual_map: dict[str, float] = {}
+    for _, row in multi.iterrows():
+        d = str(row["target_date"])
+        ah = row.get("actual_high")
+        if ah is not None and not (isinstance(ah, float) and math.isnan(ah)):
+            actual_map[d] = float(ah)
+
+    print(f"CSV: {len(multi)} rows  ({multi['target_date'].min()} → {multi['target_date'].max()})")
+    print(f"     {len(actual_map)} dates with actual_high\n")
+
+    # ── Load NWS forecast log → nws_last per date ─────────────────────
+    nws_map: dict[str, float] = {}
+    if os.path.exists(nws_log_path):
+        nws_df = pd.read_csv(nws_log_path)
+        forecasts = nws_df[nws_df["forecast_or_actual"] == "forecast"].copy()
+        forecasts["timestamp"] = pd.to_datetime(forecasts["timestamp"])
+        forecasts["target_date"] = pd.to_datetime(forecasts["target_date"]).dt.strftime("%Y-%m-%d")
+        # Last D0 forecast per date (closest to day-of) = what NWS said that morning
+        last_f = (forecasts.sort_values("timestamp")
+                            .groupby("target_date")["predicted_high"]
+                            .last())
+        for d, v in last_f.items():
+            if v is not None and not (isinstance(v, float) and math.isnan(v)):
+                nws_map[str(d)] = float(v)
+        print(f"NWS log: {len(nws_map)} D0 forecasts\n")
+
+    # ── Check which dates already have Synoptic data in prediction_logs ─
+    PAGE = 1000
+    existing_kjfk: set[str] = set()
+    offset = 0
+    while True:
+        resp = (
+            client.table("prediction_logs")
+            .select("target_date, atm_snapshot")
+            .eq("city", city)
+            .range(offset, offset + PAGE - 1)
+            .execute()
+        )
+        page = resp.data or []
+        for row in page:
+            d = str(row.get("target_date", ""))[:10]
+            snap = row.get("atm_snapshot") or {}
+            if isinstance(snap, str):
+                try: snap = json.loads(snap)
+                except: snap = {}
+            if snap.get("obs_kjfk_temp") is not None:
+                existing_kjfk.add(d)
+        if len(page) < PAGE:
+            break
+        offset += PAGE
+
+    print(f"Supabase: {len(existing_kjfk)} dates already have obs_kjfk_temp — will skip\n")
+
+    # ── Build ordered work list ────────────────────────────────────────
+    # Process oldest-first so the model learns cap season in order
+    all_dates = sorted(actual_map.keys())
+    todo = [d for d in all_dates if d not in existing_kjfk]
+
+    print(f"Dates to process: {len(todo)}  (skipping {len(all_dates)-len(todo)} already done)")
+    if limit:
+        todo = todo[:limit]
+        print(f"  → Limiting to {limit} dates for this run (rate-limit safety)\n")
+    else:
+        print()
+
+    if not todo:
+        print("Nothing to backfill — all CSV dates already have Synoptic station data.")
+        return
+
+    # ── Determine STIDs by city ────────────────────────────────────────
+    if city.lower() == "lax":
+        named_stids_str = "KLAX,KSMO,KBUR,KVNY,KCQT"
+        nysm_stids_str  = ""
+        radius_lat, radius_lon = 33.9425, -118.4081  # LAX
+    else:
+        named_stids_str = "KNYC,KJFK,KLGA,KEWR,KTEB"
+        nysm_stids_str  = "MANH,BRON,QUEE,BKLN,STAT"
+        radius_lat, radius_lon = CENTRAL_PARK_LAT, CENTRAL_PARK_LON
+
+    all_stids_str = named_stids_str
+    if nysm_stids_str:
+        all_stids_str += "," + nysm_stids_str
+
+    ok_count  = 0
+    err_count = 0
+
+    for idx, d in enumerate(todo, 1):
+        actual_high = actual_map.get(d)
+        nws_last    = nws_map.get(d)
+
+        print(f"[{idx}/{len(todo)}] {d}  actual={actual_high}°F  nws_last={nws_last}°F")
+
+        # ── Fetch Synoptic timeseries ──────────────────────────────────
+        named_ts = fetch_timeseries(all_stids_str, d,
+                                    NOON_WINDOW_START_EDT, NOON_WINDOW_END_EDT)
+        time.sleep(0.3)
+        radius_ts = fetch_radius_timeseries(
+            radius_lat, radius_lon, RADIUS_MILES, d,
+            NOON_WINDOW_START_EDT, NOON_WINDOW_END_EDT,
+        )
+        time.sleep(0.3)
+
+        feats = compute_features_for_day(d, nws_high=nws_last)
+
+        # ── Scrub NaN/inf ──────────────────────────────────────────────
+        snap: dict = {}
+        for k, v in feats.items():
+            try:
+                fv = float(v)
+                if math.isfinite(fv):
+                    snap[k] = round(fv, 4)
+            except (TypeError, ValueError):
+                snap[k] = v
+
+        if not snap or snap.get("obs_kjfk_temp") is None:
+            print(f"    ⚠️  No KJFK data for {d} — Synoptic may not have records "
+                  f"this far back. Skipping.\n")
+            err_count += 1
+            time.sleep(sleep_sec)
+            continue
+
+        snap = _scrub_snap(snap)
+
+        if dry_run:
+            print(f"    [DRY RUN] Would upsert: KJFK={snap.get('obs_kjfk_temp')}°F  "
+                  f"KJFK-KNYC={snap.get('obs_kjfk_vs_knyc')}  "
+                  f"coastal-inland={snap.get('obs_coastal_vs_inland')}\n")
+            ok_count += 1
+            time.sleep(sleep_sec)
+            continue
+
+        # ── Upsert into prediction_logs ────────────────────────────────
+        # Use upsert with on_conflict="target_date,city,lead_used" so we
+        # don't duplicate rows. For dates that already have a row, we merge
+        # the atm_snapshot rather than replacing it wholesale.
+        try:
+            # Check if row exists
+            existing_resp = (
+                client.table("prediction_logs")
+                .select("id, atm_snapshot")
+                .eq("target_date", d)
+                .eq("city", city)
+                .in_("lead_used", ["today_for_today", "D0"])
+                .limit(1)
+                .execute()
+            )
+            existing = (existing_resp.data or [])
+
+            if existing:
+                # Row exists — merge snapshot
+                row_id = existing[0]["id"]
+                old_snap = existing[0].get("atm_snapshot") or {}
+                if isinstance(old_snap, str):
+                    try: old_snap = json.loads(old_snap)
+                    except: old_snap = {}
+                old_snap.update(snap)
+                merged = _scrub_snap(old_snap)
+                update_payload: dict = {"atm_snapshot": merged}
+                if actual_high is not None:
+                    update_payload["ml_actual_high"] = actual_high
+                client.table("prediction_logs").update(update_payload).eq("id", row_id).execute()
+                print(f"    ✓ Updated row id={row_id}  KJFK={snap.get('obs_kjfk_temp')}°F  "
+                      f"KJFK-KNYC={snap.get('obs_kjfk_vs_knyc'):+.1f}  "
+                      f"coastal-inland={snap.get('obs_coastal_vs_inland', 'NaN')}\n"
+                      if snap.get('obs_kjfk_vs_knyc') is not None else
+                      f"    ✓ Updated row id={row_id}  KJFK={snap.get('obs_kjfk_temp')}°F\n")
+            else:
+                # No row — insert minimal row with enough fields for training
+                insert_payload = {
+                    "target_date":    d,
+                    "city":           city,
+                    "lead_used":      "today_for_today",
+                    "atm_snapshot":   snap,
+                    "ml_actual_high": actual_high,
+                }
+                if nws_last is not None:
+                    insert_payload["nws_last"] = nws_last
+                    insert_payload["nws_d0"]   = nws_last
+                client.table("prediction_logs").insert(insert_payload).execute()
+                print(f"    ✓ Inserted new row  KJFK={snap.get('obs_kjfk_temp')}°F  "
+                      f"KJFK-KNYC={snap.get('obs_kjfk_vs_knyc')}\n")
+
+            ok_count += 1
+
+        except Exception as e:
+            print(f"    ❌ Supabase write failed for {d}: {e}\n")
+            err_count += 1
+
+        time.sleep(sleep_sec)
+
+    print(f"\n{'='*60}")
+    print(f"CSV Backfill complete: {ok_count} OK, {err_count} errors / no-data")
+    if ok_count > 0:
+        print(f"\n🎯 Next: retrain v9 with `python train_models.py --v9`")
+        print(f"   v9 now has {ok_count} historical Synoptic rows to learn from")
+        print(f"   (was: ~10 rows → now: potentially {ok_count}+ years of cap-day signal)")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Backfill Synoptic named-station features into atm_snapshot"
@@ -515,8 +807,43 @@ def main():
                         help="Only backfill last N days (default: all available)")
     parser.add_argument("--date", type=str, default=None, dest="target_date",
                         help="Backfill a single specific date (YYYY-MM-DD)")
+
+    # ── CSV backfill mode — the historical moat unlock ─────────────────
+    parser.add_argument("--csv-backfill", action="store_true",
+                        help="Backfill Synoptic features for all dates in multiyear_atmospheric.csv. "
+                             "Creates/updates prediction_logs rows so v9/v10 training has full history.")
+    parser.add_argument("--csv-path", type=str, default="multiyear_atmospheric.csv",
+                        help="Path to multiyear_atmospheric.csv (default: ./multiyear_atmospheric.csv)")
+    parser.add_argument("--nws-log", type=str, default="nws_forecast_log.csv",
+                        help="Path to nws_forecast_log.csv for D0 forecast lookup")
+    parser.add_argument("--city", type=str, default="nyc",
+                        help="City key: nyc (default) or lax")
+    parser.add_argument("--limit", type=int, default=None,
+                        help="Max dates to process per run (rate-limit safety — "
+                             "free tier: use 400; enterprise: omit for all)")
+    parser.add_argument("--start", type=str, default=None,
+                        help="Start date filter YYYY-MM-DD (csv-backfill mode)")
+    parser.add_argument("--end", type=str, default=None,
+                        help="End date filter YYYY-MM-DD (csv-backfill mode)")
+    parser.add_argument("--sleep", type=float, default=1.5,
+                        help="Seconds to sleep between dates (default: 1.5 — "
+                             "reduce to 0.5 on enterprise tier for faster runs)")
+
     args = parser.parse_args()
-    backfill(dry_run=args.dry_run, days=args.days, target_date=args.target_date)
+
+    if args.csv_backfill:
+        csv_backfill(
+            csv_path=args.csv_path,
+            nws_log_path=args.nws_log,
+            city=args.city,
+            dry_run=args.dry_run,
+            limit=args.limit,
+            start_date=args.start,
+            end_date=args.end,
+            sleep_sec=args.sleep,
+        )
+    else:
+        backfill(dry_run=args.dry_run, days=args.days, target_date=args.target_date)
 
 
 if __name__ == "__main__":

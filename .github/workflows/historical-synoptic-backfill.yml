@@ -1,0 +1,134 @@
+name: Historical Synoptic Backfill (Moat Unlock)
+
+on:
+  workflow_dispatch:
+    inputs:
+      city:
+        description: "City key (nyc or lax)"
+        type: string
+        required: false
+        default: "nyc"
+      limit:
+        description: "Max dates per run (free tier: 400; enterprise/unlimited: leave blank for all)"
+        type: string
+        required: false
+        default: "400"
+      start_date:
+        description: "Start date YYYY-MM-DD (optional — defaults to earliest in CSV)"
+        type: string
+        required: false
+        default: ""
+      end_date:
+        description: "End date YYYY-MM-DD (optional — defaults to latest in CSV)"
+        type: string
+        required: false
+        default: ""
+      dry_run:
+        description: "Dry run (print what would be written without touching Supabase)"
+        type: boolean
+        required: false
+        default: false
+
+# THE MOAT UNLOCK
+#
+# Reads every date from multiyear_atmospheric.csv (2022-01-01 → today),
+# fetches Synoptic timeseries for KJFK, KLGA, KEWR, KTEB, KNYC, MANH +
+# the 20-station radius aggregate for each date's noon window (10am-2pm EDT),
+# then upserts a prediction_logs row per date with:
+#   - obs_kjfk_temp, obs_kjfk_vs_knyc, obs_coastal_vs_inland, obs_airport_spread
+#   - obs_klga_temp, obs_kewr_temp, obs_kteb_temp, obs_knyc_temp
+#   - obs_synoptic_mean, obs_synoptic_spread, obs_nysm_mean, etc.
+#
+# This transforms v9/v10 training from "10 days" → "3+ years of real cap-day
+# fingerprints" — the full historical moat.
+#
+# Rate limits:
+#   Free tier  (1000 calls/day):  run with limit=400 for 3 days in a row
+#   Enterprise (unlimited):       set limit blank to process all ~1562 dates
+#
+# This workflow is idempotent — dates that already have obs_kjfk_temp are skipped.
+# After the first full run, subsequent runs only process new missing dates.
+#
+# TYPICAL WORKFLOW:
+#   1. Run this workflow with limit=400 (day 1 → processes 2022-2023 dates)
+#   2. Run again next day with limit=400 (day 2 → processes 2023-2024)
+#   3. Run again next day with limit=400 (day 3 → processes 2024-2026)
+#   4. Trigger retrain-model.yml → v9 now trains on 3+ years of cap signal
+#
+# Or if you have enterprise Synoptic token: run once with limit blank for all.
+
+jobs:
+  csv-backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180  # 3 hours max (1562 dates × ~6s each ≈ 2.5h)
+
+    env:
+      SYNOPTIC_TOKEN:            ${{ secrets.SYNOPTIC_TOKEN }}
+      SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+      SUPABASE_KEY:              ${{ secrets.SUPABASE_KEY }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy pandas requests supabase python-dotenv
+
+      - name: Build backfill command
+        id: cmd
+        run: |
+          CMD="python backfill_synoptic.py --csv-backfill"
+          CMD="$CMD --city ${{ github.event.inputs.city || 'nyc' }}"
+
+          LIMIT="${{ github.event.inputs.limit }}"
+          if [ -n "$LIMIT" ] && [ "$LIMIT" != "0" ]; then
+            CMD="$CMD --limit $LIMIT"
+          fi
+
+          START="${{ github.event.inputs.start_date }}"
+          if [ -n "$START" ]; then
+            CMD="$CMD --start $START"
+          fi
+
+          END="${{ github.event.inputs.end_date }}"
+          if [ -n "$END" ]; then
+            CMD="$CMD --end $END"
+          fi
+
+          DRY="${{ github.event.inputs.dry_run }}"
+          if [ "$DRY" = "true" ]; then
+            CMD="$CMD --dry-run"
+          fi
+
+          # Enterprise token can process faster; free tier needs 1.5s sleep
+          CMD="$CMD --sleep 1.5"
+
+          echo "cmd=$CMD" >> "$GITHUB_OUTPUT"
+          echo "Command: $CMD"
+
+      - name: Run CSV historical backfill
+        run: |
+          echo "🚀 Starting historical Synoptic backfill..."
+          echo "   This reads multiyear_atmospheric.csv (2022→today)"
+          echo "   and fetches KJFK/KLGA/KEWR/KTEB/KNYC/MANH for each date."
+          echo ""
+          ${{ steps.cmd.outputs.cmd }}
+
+      - name: Summarise results
+        if: always()
+        run: |
+          echo ""
+          echo "============================================================"
+          echo "Historical backfill complete. Next steps:"
+          echo "  1. Check logs above for OK/error count per date"
+          echo "  2. Trigger retrain-model.yml → v9 trains on full history"
+          echo "  3. If limit was set, run this workflow again for next batch"
+          echo "============================================================"
