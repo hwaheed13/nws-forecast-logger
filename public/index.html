@@ -3874,10 +3874,20 @@ function renderFlipRisk() {
   // Read flip history from atm_snapshot — persisted even after bucket returns to canonical
   const _todaySnap      = ml2.todayAtmSnapshot || {};
   const _flipOccurred   = !!_todaySnap.ml_flip_occurred;   // ever flipped today?
-  const _flipBucket     = _todaySnap.ml_flip_bucket || null; // what it flipped TO
+  const _flipBucket     = _todaySnap.ml_flip_bucket || null; // most recent non-canonical bucket
   const _flipCount      = parseInt(_todaySnap.ml_flip_count) || 0;
+  // Full ordered list of every non-canonical bucket this day — e.g. ["76-77","78-79"]
+  const _flipHistory    = Array.isArray(_todaySnap.ml_flip_history) ? _todaySnap.ml_flip_history : [];
   // "Returned" = bucket is back at canonical but a flip did happen earlier today
   const flipReturnedToCanonical = !flipAlreadyOccurred && _flipOccurred && canonBucket && currentBucket;
+
+  // Helper: build a human-readable chain from canonical → every flip state → (optional suffix)
+  function _buildFlipChain(canon, history, suffix) {
+    const lbl = b => cleanKalshiLabel ? cleanKalshiLabel(b) : b;
+    const steps = [lbl(canon), ...history.map(lbl)];
+    if (suffix) steps.push(suffix);
+    return steps.join(' → ');
+  }
 
   const dispTZ2 = currentCity === 'lax' ? 'America/Los_Angeles' : 'America/New_York';
   const localHour2 = parseInt(new Date().toLocaleString('en-US', { timeZone: dispTZ2, hour: 'numeric', hour12: false }), 10);
@@ -3894,19 +3904,23 @@ function renderFlipRisk() {
   let displayFlipLabel = 'Bucket Flip';
 
   if (flipAlreadyOccurred) {
-    // Flip currently active — show that, not future risk
+    // Flip currently active — show full chain including every intermediate bucket
+    // e.g. "80-81 → 76-77 → 78-79 (×2 flips)" so intraday oscillations are visible
     displayFlipLevel   = 'OCCURRED';
     displayFlipLabel   = 'Prediction Shift';
-    displayFlipSummary = `Opened ${cleanKalshiLabel ? cleanKalshiLabel(canonBucket) : canonBucket} → now ${cleanKalshiLabel ? cleanKalshiLabel(currentBucket) : currentBucket}`;
+    const _activeHistory = _flipHistory.length > 0 ? _flipHistory : (currentBucket ? [currentBucket] : []);
+    const _countNote2    = _flipCount > 1 ? ` (×${_flipCount} flips)` : '';
+    displayFlipSummary = _buildFlipChain(canonBucket, _activeHistory) + _countNote2;
     displayFlipColor   = '#7c3aed';  // purple — informational, not warning
     displayFlipBg      = '#f5f3ff';
   } else if (flipReturnedToCanonical) {
-    // Bucket returned to opening after flipping — still show it happened
-    const _flipedToLabel = _flipBucket ? (cleanKalshiLabel ? cleanKalshiLabel(_flipBucket) : _flipBucket) : '?';
-    const _countNote     = _flipCount > 1 ? ` (×${_flipCount})` : '';
+    // Bucket returned to opening — show full chain with "back" suffix
+    // e.g. "80-81 → 76-77 → 78-79 → back (×2 flips)"
+    const _retHistory = _flipHistory.length > 0 ? _flipHistory : (_flipBucket ? [_flipBucket] : []);
+    const _countNote  = _flipCount > 1 ? ` (×${_flipCount} flips)` : '';
     displayFlipLevel   = 'RETURNED';
     displayFlipLabel   = 'Prediction Shift';
-    displayFlipSummary = `Opened ${cleanKalshiLabel ? cleanKalshiLabel(canonBucket) : canonBucket} → shifted ${_flipedToLabel} → back${_countNote}`;
+    displayFlipSummary = _buildFlipChain(canonBucket, _retHistory, 'back') + _countNote;
     displayFlipColor   = '#b45309';  // amber — "this happened, watch for recurrence"
     displayFlipBg      = '#fffbeb';
   } else if (windowClosed) {
@@ -5342,18 +5356,25 @@ window._predTomorrow = predTomorrow;
         const _fOccurred    = !!_snapForFlip.ml_flip_occurred;
         const _fBucket      = _snapForFlip.ml_flip_bucket || null;
         const _fCount       = parseInt(_snapForFlip.ml_flip_count) || 0;
+        const _fHistory     = Array.isArray(_snapForFlip.ml_flip_history) ? _snapForFlip.ml_flip_history : [];
+        // Build chain: canonical → every intermediate → current/back
+        const _chainSteps = b => cleanKalshiLabel ? cleanKalshiLabel(b) : b;
         let canonicalFlipNote = '';
         if (_canonBucket && _currBucket && _canonBucket !== _currBucket) {
-          // Currently at a different bucket than canonical
+          // Currently at a different bucket — show every step so oscillations are visible
+          const _activeHist = _fHistory.length > 0 ? _fHistory : [_currBucket];
+          const _chain2     = [_canonBucket, ..._activeHist].map(_chainSteps).join(' → ');
+          const _cNote2     = _fCount > 1 ? ` (×${_fCount} flips)` : '';
           canonicalFlipNote = `<div style="font-size:12px;background:#fffbeb;border-left:3px solid #f59e0b;padding:6px 10px;margin-top:6px;border-radius:4px;color:#92400e;">
-              🔄 <strong>Prediction shifted today</strong> — opened <strong>${cleanKalshiLabel(_canonBucket)}</strong>, now <strong>${cleanKalshiLabel(_currBucket)}</strong>
+              🔄 <strong>Prediction shifted today</strong> — ${_chain2}${_cNote2}
              </div>`;
         } else if (_fOccurred && _canonBucket && _currBucket) {
-          // Back at canonical but a flip happened — show the history
-          const _wasLabel   = _fBucket ? cleanKalshiLabel(_fBucket) : '?';
-          const _countBadge = _fCount > 1 ? ` (×${_fCount} total shifts)` : '';
+          // Back at canonical — show full chain with "→ back" suffix
+          const _retHist  = _fHistory.length > 0 ? _fHistory : (_fBucket ? [_fBucket] : []);
+          const _chain3   = [_canonBucket, ..._retHist, 'back'].map((b, i) => i === 0 || b === 'back' ? (b === 'back' ? '<em>back</em>' : `<strong>${_chainSteps(b)}</strong>`) : _chainSteps(b)).join(' → ');
+          const _cNote3   = _fCount > 1 ? ` (×${_fCount} flips)` : '';
           canonicalFlipNote = `<div style="font-size:12px;background:#fffbeb;border-left:3px solid #b45309;padding:6px 10px;margin-top:6px;border-radius:4px;color:#92400e;">
-              ↩️ <strong>Prediction shifted and returned</strong> — opened <strong>${cleanKalshiLabel(_canonBucket)}</strong>, briefly <strong>${_wasLabel}</strong>, back to opening${_countBadge}
+              ↩️ <strong>Prediction shifted and returned</strong> — ${_chain3}${_cNote3}
              </div>`;
         }
 
