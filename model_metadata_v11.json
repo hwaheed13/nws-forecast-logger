@@ -1,16 +1,18 @@
 {
-  "trained_on": "2026-04-13T10:58:00.969351",
-  "version": "v8_hrrr_anchored_stall_signal",
+  "trained_on": "2026-04-13T10:58:34.773654",
+  "version": "v11_model_vs_nws_divergence",
   "base_cascade": "HRRR > NBM > AccuWeather > NWS",
-  "new_feature": "obs_heating_rate_delta (stall = cap fingerprint)",
-  "v8_regression": {
-    "cv_mae": 1.1793402696729556,
-    "cv_bucket_accuracy": 0.3181818181818182,
-    "residual_std": 1.579753091482149,
-    "n_features": 150,
+  "new_features": "mm_hrrr_vs_nws, mm_nbm_vs_nws, mm_mean_vs_nws",
+  "motivation": "NWS is #11-16 accuracy; explicit model-vs-NWS divergence replaces implicit inference from separate mm_hrrr_max + nws_last columns",
+  "n_divergence_rows": 2,
+  "v11_regression": {
+    "cv_mae": 0.8605095218053099,
+    "cv_bucket_accuracy": 0.3770090845562543,
+    "residual_std": 2.2881902853749274,
+    "n_features": 165,
     "n_training_rows": 267
   },
-  "feature_columns_v8": [
+  "feature_columns_v11": [
     "nws_first",
     "nws_last",
     "nws_max",
@@ -160,6 +162,21 @@
     "raob_700mb_temp",
     "raob_925mb_gfs_diff",
     "raob_925mb_hrrr_diff",
-    "obs_heating_rate_delta"
+    "obs_heating_rate_delta",
+    "obs_kjfk_temp",
+    "obs_klga_temp",
+    "obs_kewr_temp",
+    "obs_kteb_temp",
+    "obs_knyc_temp",
+    "obs_kjfk_vs_knyc",
+    "obs_klga_vs_knyc",
+    "obs_kewr_vs_knyc",
+    "obs_airport_spread",
+    "obs_coastal_vs_inland",
+    "obs_manh_temp",
+    "obs_manh_vs_knyc",
+    "mm_hrrr_vs_nws",
+    "mm_nbm_vs_nws",
+    "mm_mean_vs_nws"
   ]
 }

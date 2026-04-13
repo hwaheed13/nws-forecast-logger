@@ -1,44 +1,48 @@
 {
-  "trained_on": "2026-04-13T01:53:15.627277",
+  "trained_on": "2026-04-13T10:45:05.043069",
   "version": "v3_unified_regression",
   "num_days": 1562,
-  "num_forecast_days": 41,
-  "num_multiyear_days": 1521,
+  "num_forecast_days": 42,
+  "num_multiyear_days": 1520,
   "date_range": {
     "start": "2022-01-02",
     "end": "2026-04-12"
   },
   "performance": {
-    "cv_mae": 0.58,
-    "cv_bucket_accuracy_1f": 0.0976,
-    "residual_std": 2.7,
+    "cv_mae": 0.59,
+    "cv_bucket_accuracy_1f": 0.1667,
+    "residual_std": 2.77,
     "per_fold_mae": [
-      0.91,
-      0.48,
-      0.42,
-      0.42,
-      0.67
+      0.89,
+      0.51,
+      0.4,
+      0.44,
+      0.69
     ],
     "per_fold_bucket_acc": [
-      0.0976
+      0.1667
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 1.8195
+      "importance": 1.7592
     },
     {
       "name": "atm_temp_range",
-      "importance": 0.0025
+      "importance": 0.003
     },
     {
       "name": "intra_temp_5pm",
-      "importance": 0.002
+      "importance": 0.0023
     },
     {
       "name": "intra_rise_from_overnight",
       "importance": 0.0014
+    },
+    {
+      "name": "prev_day_high",
+      "importance": 0.0012
     },
     {
       "name": "atm_dewpoint_mean",
@@ -49,27 +53,19 @@
       "importance": 0.001
     },
     {
-      "name": "prev_day_high",
-      "importance": 0.0008
-    },
-    {
       "name": "atm_overnight_min",
-      "importance": 0.0006
+      "importance": 0.0009
     },
     {
       "name": "day_of_year_cos",
-      "importance": 0.0005
-    },
-    {
-      "name": "atm_wind_max",
-      "importance": 0.0005
+      "importance": 0.0006
     },
     {
       "name": "atm_humidity_mean",
       "importance": 0.0004
     },
     {
-      "name": "atm_humidity_min",
+      "name": "atm_cloud_cover_mean",
       "importance": 0.0004
     },
     {
@@ -77,7 +73,11 @@
       "importance": 0.0003
     },
     {
-      "name": "atm_pressure_change",
+      "name": "atm_morning_temp_6am",
+      "importance": 0.0003
+    },
+    {
+      "name": "atm_precip_total",
       "importance": 0.0003
     },
     {
