@@ -1958,6 +1958,24 @@ def _compute_ml_prediction(
                 v2_features["atm_predicted_high"] = np.nan
                 v2_features["atm_vs_forecast_diff"] = np.nan
 
+            # v11: derive model-vs-NWS divergence features BEFORE building X_v2,
+            # so they are populated in the DataFrame (not left as NaN fill-ins).
+            # mm_hrrr_vs_nws = HRRR - nws_last: how far the #1-accuracy fast model
+            # sits above/below the (often stale) NWS point forecast.
+            # HistGradientBoosting handles NaN natively so partial availability
+            # (e.g. HRRR available, NBM not) is fine.
+            _nws_ref = v2_features.get("nws_last")
+            if _nws_ref is not None and not (isinstance(_nws_ref, float) and math.isnan(_nws_ref)):
+                _mm_hrrr = v2_features.get("mm_hrrr_max")
+                _mm_nbm  = v2_features.get("mm_nbm_max")
+                _mm_mean = v2_features.get("mm_mean")
+                if _mm_hrrr is not None and not (isinstance(_mm_hrrr, float) and math.isnan(_mm_hrrr)):
+                    v2_features["mm_hrrr_vs_nws"] = round(float(_mm_hrrr) - float(_nws_ref), 1)
+                if _mm_nbm is not None and not (isinstance(_mm_nbm, float) and math.isnan(_mm_nbm)):
+                    v2_features["mm_nbm_vs_nws"]  = round(float(_mm_nbm)  - float(_nws_ref), 1)
+                if _mm_mean is not None and not (isinstance(_mm_mean, float) and math.isnan(_mm_mean)):
+                    v2_features["mm_mean_vs_nws"] = round(float(_mm_mean) - float(_nws_ref), 1)
+
             # Build feature DataFrame (v4 or v2 depending on available model)
             X_v2 = pd.DataFrame([v2_features])
             for col in active_feature_cols:
@@ -2004,21 +2022,6 @@ def _compute_ml_prediction(
 
             _hrrr_base = _valid_temp(v2_features.get("mm_hrrr_max"))
             _nbm_base  = _valid_temp(v2_features.get("mm_nbm_max"))
-
-            # v11: derive model-vs-NWS divergence features now that both mm_* and
-            # nws_last are assembled in v2_features.  HistGradientBoosting handles
-            # NaN natively so partial availability (e.g. HRRR available, NBM not) is fine.
-            _nws_ref = v2_features.get("nws_last")
-            if _nws_ref is not None and not (isinstance(_nws_ref, float) and math.isnan(_nws_ref)):
-                _mm_hrrr = v2_features.get("mm_hrrr_max")
-                _mm_nbm  = v2_features.get("mm_nbm_max")
-                _mm_mean = v2_features.get("mm_mean")
-                if _mm_hrrr is not None and not (isinstance(_mm_hrrr, float) and math.isnan(_mm_hrrr)):
-                    v2_features["mm_hrrr_vs_nws"] = round(float(_mm_hrrr) - float(_nws_ref), 1)
-                if _mm_nbm is not None and not (isinstance(_mm_nbm, float) and math.isnan(_mm_nbm)):
-                    v2_features["mm_nbm_vs_nws"]  = round(float(_mm_nbm)  - float(_nws_ref), 1)
-                if _mm_mean is not None and not (isinstance(_mm_mean, float) and math.isnan(_mm_mean)):
-                    v2_features["mm_mean_vs_nws"] = round(float(_mm_mean) - float(_nws_ref), 1)
 
             _use_hrrr_anchor = (use_v8 or use_v7) and active_regressor is not None
             if _use_hrrr_anchor and _hrrr_base is not None:
