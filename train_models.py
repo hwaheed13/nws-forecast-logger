@@ -2513,8 +2513,8 @@ class NYCTemperatureModelTrainer:
         n_kjfk = self.features_df["obs_kjfk_temp"].notna().sum() \
                  if "obs_kjfk_temp" in self.features_df.columns else 0
         print(f"  obs_kjfk_temp: {n_kjfk} non-null rows")
-        if n_kjfk < 10:
-            print(f"  ⚠️ Only {n_kjfk} rows with KJFK data (need 10+). Run backfill_synoptic.py first.")
+        if n_kjfk < 5:
+            print(f"  ⚠️ Only {n_kjfk} rows with KJFK data (need 5+). Run backfill_synoptic.py first.")
             print(f"     Skipping v9 training — will retry tomorrow after nightly backfill.")
             return
 
