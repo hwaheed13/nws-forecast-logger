@@ -4779,6 +4779,27 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                             or _pk in _MM_CARRY_KEYS) \
                             and _pv is not None and snap.get(_pk) is None:
                         snap[_pk] = _pv
+                # ── Last-resort mm_* re-fetch ────────────────────────────────
+                # If mm_spread is STILL null after carry-forward + restoration
+                # (meaning both live_atm and stored_snapshot_dict lacked it —
+                # e.g. consecutive fetch failures or first run of the day), do
+                # one targeted re-fetch.  This recovers the currently-stuck
+                # "Awaiting next cycle" state without waiting for a stable cycle.
+                if snap.get("mm_spread") is None:
+                    try:
+                        _rescue_atm = _fetch_atmospheric_features(target_date_iso)
+                        _rescued = []
+                        for _rk in _MM_CARRY_KEYS:
+                            _rv = _rescue_atm.get(_rk)
+                            if _rv is not None and not (isinstance(_rv, float) and math.isnan(_rv)):
+                                snap[_rk] = _rv
+                                _rescued.append(_rk)
+                        if _rescued:
+                            print(f"  🆘 Last-resort mm_* re-fetch recovered {len(_rescued)} keys "
+                                  f"(mm_spread={snap.get('mm_spread')}, "
+                                  f"mm_hrrr_max={snap.get('mm_hrrr_max')})")
+                    except Exception as _rescue_e:
+                        print(f"  ⚠️  Last-resort mm_* re-fetch failed: {_rescue_e}")
                 payload["atm_snapshot"] = json.dumps(snap)
                 print(f"📸 Atmospheric baseline advanced after recompute ({len(snap)} keys)")
 
@@ -4842,15 +4863,30 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                     "raob_925mb_temp", "raob_850mb_temp", "raob_700mb_temp",
                     "raob_925mb_gfs_diff", "raob_925mb_hrrr_diff",
                 )
-                if _ex_snap.get("mm_spread") is None:
+                # Trigger if ANY key display card uses is null — not just mm_spread.
+                # mm_hrrr_max can be null independently (HRRR vs NWS gap blank) even
+                # when mm_spread is populated, and would never be healed under the old
+                # mm_spread-only guard.
+                _mm_needs_heal = any(
+                    _ex_snap.get(k) is None
+                    for k in ("mm_spread", "mm_hrrr_max", "mm_nbm_max", "mm_gem_max")
+                )
+                if _mm_needs_heal:
                     try:
                         _fresh_atm = _fetch_atmospheric_features(target_date_iso)
+                        _injected = []
                         for _k in _MM_KEYS:
                             if _k in _fresh_atm:
                                 v = _fresh_atm[_k]
                                 _ex_snap[_k] = None if (v is None or (isinstance(v, float) and math.isnan(v))) else v
-                        if _ex_snap.get("mm_spread") is not None:
-                            print(f"  📊 Injected mm_spread={_ex_snap['mm_spread']:.1f}°F into stable snapshot")
+                                if _ex_snap[_k] is not None:
+                                    _injected.append(_k)
+                        if _injected:
+                            print(f"  📊 Stable-cycle mm_* heal: injected {len(_injected)} keys "
+                                  f"(mm_spread={_ex_snap.get('mm_spread')}, "
+                                  f"mm_hrrr_max={_ex_snap.get('mm_hrrr_max')})")
+                        else:
+                            print(f"  ⚠️  Stable-cycle mm_* heal: Open-Meteo returned null for all ensemble keys")
                     except Exception as _mm_e:
                         print(f"  ⚠️  mm_spread refresh skipped: {_mm_e}")
 
@@ -5220,6 +5256,42 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
         live_atm_tm = _fetch_atmospheric_features(tomorrow_iso)
     except Exception as _atm_e:
         print(f"⚠️ write_today_for_tomorrow: _fetch_atmospheric_features failed: {_atm_e}")
+
+    # ── Carry-forward: seed live_atm_tm with previous D+1 snapshot's mm_* values
+    # if the fresh fetch missed them (same partial-fetch issue as write_today_for_today).
+    # Reads from the existing tomorrow row's atm_snapshot in Supabase.
+    _MM_CARRY_KEYS_TM = (
+        "mm_spread", "mm_std", "mm_mean",
+        "mm_hrrr_max", "mm_nbm_max", "mm_gem_max", "mm_icon_max",
+        "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff", "mm_ecmwf_gfs_diff",
+        "mm_icon_gfs_diff", "mm_gem_ecmwf_diff",
+        "mm_nbm_hrrr_diff", "mm_nbm_gfs_diff", "mm_nbm_ecmwf_diff",
+        "mm_gem_hrdps_max", "mm_gem_hrdps_hrrr_diff",
+        "atm_925mb_hrrr_max", "atm_925mb_hrrr_mean",
+        "atm_850mb_hrrr_max", "atm_850mb_hrrr_mean",
+        "atm_925mb_gfs_hrrr_diff",
+    )
+    if live_atm_tm and isinstance(existing, dict):
+        try:
+            _prev_snap_tm_raw = existing.get("atm_snapshot")
+            _prev_snap_tm = (
+                json.loads(_prev_snap_tm_raw) if isinstance(_prev_snap_tm_raw, str)
+                else (_prev_snap_tm_raw if isinstance(_prev_snap_tm_raw, dict) else {})
+            )
+            _carried_tm = []
+            for _ck in _MM_CARRY_KEYS_TM:
+                _fresh_v = live_atm_tm.get(_ck)
+                _prev_v  = _prev_snap_tm.get(_ck)
+                if (_fresh_v is None or (isinstance(_fresh_v, float) and math.isnan(_fresh_v))) \
+                        and _prev_v is not None:
+                    live_atm_tm[_ck] = _prev_v
+                    _carried_tm.append(_ck)
+            if _carried_tm:
+                print(f"  🔁 D+1 carry-forward: {len(_carried_tm)} mm_/atm_ keys from prev snapshot "
+                      f"(ensemble fetch partial)")
+        except Exception as _cf_e:
+            print(f"  ⚠️  D+1 carry-forward skipped: {_cf_e}")
+
     ml = _compute_ml_prediction(rows, tomorrow_iso, prefetched_atm=live_atm_tm if live_atm_tm else None)
     if ml:
         trigger = "first_write" if existing is _LOCK_NOT_FOUND else "intraday_refresh"
