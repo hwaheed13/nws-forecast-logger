@@ -4862,9 +4862,31 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 except Exception as _syn_e:
                     print(f"  ⚠️  Stable-cycle Synoptic skipped: {_syn_e}")
 
-                # NYSM (NY Mesonet) removed — DNS unreachable from GitHub Actions,
-                # IEM fallback returns empty data, Synoptic free tier doesn't expose
-                # NYSM STIDs. Dashboard card also removed. No-op here.
+                # MANH (Manhattan Mesonet via Synoptic) — re-enabled: enterprise
+                # Synoptic access includes NYSM STIDs.  Primary path: MANH shows up
+                # in the 10-mile radius sweep (~2.5mi from Central Park) and
+                # obs_snap_manh_temp is populated above from _syn_fresh.get("obs_manh_temp").
+                # Fallback: if MANH was still null (e.g. station briefly offline, radius
+                # sweep missed it), do a targeted direct STID fetch for just MANH.
+                if _CITY_KEY != "lax" and _ex_snap.get("obs_snap_manh_temp") is None:
+                    try:
+                        from synoptic_client import _fetch_stids_direct
+                        _manh_stns = _fetch_stids_direct(["MANH"])
+                        if _manh_stns:
+                            _m_obs = _manh_stns[0].get("OBSERVATIONS", {})
+                            _m_tv  = _m_obs.get("air_temp_value_1", {})
+                            _m_t   = _m_tv.get("value") if isinstance(_m_tv, dict) else _m_tv
+                            _m_at  = _m_tv.get("date_time") if isinstance(_m_tv, dict) else None
+                            if _m_t is not None:
+                                try:
+                                    _ex_snap["obs_snap_manh_temp"] = round(float(_m_t), 1)
+                                    if _m_at:
+                                        _ex_snap["obs_snap_manh_obs_at"] = _m_at
+                                    print(f"  🏙️ MANH (direct fallback): {_ex_snap['obs_snap_manh_temp']}°F")
+                                except (TypeError, ValueError):
+                                    pass
+                    except Exception as _nysm_e:
+                        print(f"  ⚠️ MANH direct fallback skipped: {_nysm_e}")
 
                 # ── Refresh KNYC / obs display keys for dashboard ─────────────
                 # agency_cutoff silences live_obs for ML trigger purposes (correct —
@@ -5222,7 +5244,14 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
         "ens_spread", "ens_mean",
     )
     if live_atm_tm:
-        snap_tm = {k: live_atm_tm[k] for k in _ATM_SNAP_KEYS if live_atm_tm.get(k) is not None}
+        # Filter both None AND NaN — json.dumps emits bare 'NaN' for np.nan which is
+        # not valid JSON and causes Supabase JSONB to reject the entire atm_snapshot,
+        # leaving the Multi-Model Spread and HRRR vs NWS Gap cards blank on D+1.
+        def _valid_snap(v):
+            if v is None: return False
+            if isinstance(v, float) and math.isnan(v): return False
+            return True
+        snap_tm = {k: live_atm_tm[k] for k in _ATM_SNAP_KEYS if _valid_snap(live_atm_tm.get(k))}
         if snap_tm:
             payload["atm_snapshot"] = json.dumps(snap_tm)
             print(f"  📊 D+1 atm_snapshot: mm_spread={snap_tm.get('mm_spread')}, "
