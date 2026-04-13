@@ -4470,6 +4470,37 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     live_atm: dict = {}
     live_obs: dict = {}
 
+    # ── mm_* carry-key registry and morning-anchor helper ─────────────────────
+    # Defined at function scope so they're available in ALL branches:
+    #   - the normal intraday branch (carry-forward, restoration loop)
+    #   - the LOCK_NOT_FOUND branch (canonical write for first write of the day)
+    #   - the stable-cycle branch (self-heal and obs-panel refresh)
+    _MM_CARRY_KEYS = (
+        "mm_spread", "mm_std", "mm_mean",
+        "mm_hrrr_max", "mm_nbm_max", "mm_gem_max", "mm_icon_max",
+        "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff", "mm_ecmwf_gfs_diff",
+        "mm_icon_gfs_diff", "mm_gem_ecmwf_diff",
+        "mm_nbm_hrrr_diff", "mm_nbm_gfs_diff", "mm_nbm_ecmwf_diff",
+        "mm_gem_hrdps_max", "mm_gem_hrdps_hrrr_diff",
+        "atm_925mb_hrrr_max", "atm_925mb_hrrr_mean",
+        "atm_850mb_hrrr_max", "atm_850mb_hrrr_mean",
+        "atm_925mb_gfs_hrrr_diff",
+    )
+
+    def _morning_anchor_key(ck: str) -> str:
+        """Map a carry-key to its frozen daily morning-anchor key.
+
+        Naming convention (keeps all anchors under the mm_morning_ namespace):
+          mm_spread            → mm_morning_spread
+          mm_hrrr_max          → mm_morning_hrrr_max
+          atm_925mb_hrrr_max   → mm_morning_atm_925mb_hrrr_max
+
+        Written once at canonical write, NEVER overwritten intraday.
+        Acts as the ultimate fallback when consecutive Open-Meteo ensemble
+        failures deplete the stored_snapshot_dict of all mm_* values.
+        """
+        return "mm_morning_" + (ck[3:] if ck.startswith("mm_") else ck)
+
     # ── Dynamic high-lock: detects overnight highs and clearly-peaked late highs
     # regardless of clock time.  Runs BEFORE the hard clock cutoffs so it can
     # lock a prediction at 9am if the high occurred at 1am, or at 4pm if the
@@ -4564,30 +4595,37 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         #      "Awaiting next cycle" for Multi-Model Spread / HRRR vs NWS.
         # The carry-forward only activates when the fresh fetch returns None/NaN for
         # a key; if HRRR genuinely updated, the fresh value takes precedence.
-        _MM_CARRY_KEYS = (
-            "mm_spread", "mm_std", "mm_mean",
-            "mm_hrrr_max", "mm_nbm_max", "mm_gem_max", "mm_icon_max",
-            "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff", "mm_ecmwf_gfs_diff",
-            "mm_icon_gfs_diff", "mm_gem_ecmwf_diff",
-            "mm_nbm_hrrr_diff", "mm_nbm_gfs_diff", "mm_nbm_ecmwf_diff",
-            "mm_gem_hrdps_max", "mm_gem_hrdps_hrrr_diff",
-            "atm_925mb_hrrr_max", "atm_925mb_hrrr_mean",
-            "atm_850mb_hrrr_max", "atm_850mb_hrrr_mean",
-            "atm_925mb_gfs_hrrr_diff",
-        )
         if stored_snapshot_dict and live_atm:
-            _carried = []
+            _carried         = []
+            _morning_rescued = []
             for _ck in _MM_CARRY_KEYS:
                 _fresh_v = live_atm.get(_ck)
                 _prev_v  = stored_snapshot_dict.get(_ck)
                 if (_fresh_v is None or (isinstance(_fresh_v, float) and math.isnan(_fresh_v))) \
                         and _prev_v is not None:
+                    # Primary carry-forward: use the previous snapshot's value.
                     live_atm[_ck] = _prev_v
                     _carried.append(_ck)
+                elif (_fresh_v is None or (isinstance(_fresh_v, float) and math.isnan(_fresh_v))) \
+                        and _prev_v is None:
+                    # Tertiary fallback: morning anchor (immune to cascading API failures).
+                    # If consecutive fetch failures have also wiped the previous snapshot
+                    # of mm_* values (cascading null), carry-forward has nothing to copy.
+                    # The mm_morning_* anchor is written once at canonical time and never
+                    # overwritten, so it's always available as the day-of baseline.
+                    _ak  = _morning_anchor_key(_ck)
+                    _mav = stored_snapshot_dict.get(_ak)
+                    if _mav is not None:
+                        live_atm[_ck] = _mav
+                        _morning_rescued.append(_ck)
             if _carried:
                 print(f"  🔁 Carried {len(_carried)} mm_/atm_ keys from prev snapshot "
                       f"(ensemble fetch partial): "
                       f"{', '.join(_carried[:5])}{'…' if len(_carried) > 5 else ''}")
+            if _morning_rescued:
+                print(f"  🌅 Morning anchor rescued {len(_morning_rescued)} mm_/atm_ key(s) "
+                      f"(cascading-null prevention — both live + prev snapshot were null): "
+                      f"{', '.join(_morning_rescued[:5])}{'…' if len(_morning_rescued) > 5 else ''}")
 
         # NWS obs trigger: only before agency_cutoff (2pm). After 2pm, station
         # temps reflect observed reality — using them is thermometer-chasing.
@@ -5123,6 +5161,31 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                     # Pass live_atm so Synoptic/NYSM written back by _compute_ml_prediction
                     # via prefetched_atm are included (they're not in live_obs).
                     _add_obs_to_snap(snap, live_obs, live_atm)
+                    # ── mm_morning_* daily anchor ──────────────────────────────────────
+                    # Written once here at canonical (first-of-day) write and NEVER
+                    # overwritten on subsequent intraday upserts.  Serves as the
+                    # ultimate fallback in the carry-forward block (~40 lines above)
+                    # when consecutive Open-Meteo ensemble failures have depleted BOTH
+                    # live_atm AND the stored_snapshot_dict of all mm_* values.
+                    #
+                    # Naming: mm_spread → mm_morning_spread
+                    #         atm_925mb_hrrr_max → mm_morning_atm_925mb_hrrr_max
+                    # (all under the mm_morning_ namespace so the restoration loop
+                    # `_pk.startswith("mm_")` carries them through non-canonical writes)
+                    _morning_anchored = []
+                    for _ck in _MM_CARRY_KEYS:
+                        _v = snap.get(_ck)
+                        if _v is not None and not (isinstance(_v, float) and math.isnan(_v)):
+                            snap[_morning_anchor_key(_ck)] = _v
+                            _morning_anchored.append(_ck)
+                    if _morning_anchored:
+                        print(f"  🌅 Morning anchor written: {len(_morning_anchored)} keys "
+                              f"(mm_morning_spread={snap.get('mm_morning_spread')}, "
+                              f"mm_morning_hrrr_max={snap.get('mm_morning_hrrr_max')}, "
+                              f"mm_morning_nbm_max={snap.get('mm_morning_nbm_max')})")
+                    else:
+                        print(f"  ⚠️  Morning anchor: no mm_* values available at canonical "
+                              f"write — cascading-null fallback unavailable for today")
                     payload["atm_snapshot"] = json.dumps(snap)
                     obs_populated = sum(
                         1 for v in (live_obs or {}).values()
