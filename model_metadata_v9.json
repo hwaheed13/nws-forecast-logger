@@ -1,47 +1,18 @@
 {
-  "trained_on": "2026-04-13T02:02:59.039276",
-  "version": "v4_observation_features",
-  "num_days": 1562,
-  "date_range": {
-    "start": "2022-01-02",
-    "end": "2026-04-12"
+  "trained_on": "2026-04-13T02:04:15.351855",
+  "version": "v9_marine_cap_stations",
+  "base_cascade": "HRRR > NBM > AccuWeather > NWS",
+  "new_features": "KJFK/KLGA/KEWR/KTEB temps + coastal-vs-inland gradient + JFK-KNYC diff",
+  "motivation": "April 12 2026: model flipped to 56-57 on marine cap day \u2014 station signals now wired in",
+  "n_kjfk_rows": 9,
+  "v9_regression": {
+    "cv_mae": 1.1705275293219946,
+    "cv_bucket_accuracy": 0.3181818181818182,
+    "residual_std": 1.5738438543638429,
+    "n_features": 160,
+    "n_training_rows": 267
   },
-  "v4_regression": {
-    "cv_mae": 1.17,
-    "cv_bucket_accuracy": 0.3227,
-    "residual_std": 1.57,
-    "num_features": 130
-  },
-  "v4_classifier": {
-    "cv_bucket_accuracy": 0.2618,
-    "cv_log_loss": 0.3985,
-    "insample_bucket_accuracy": 0.2443,
-    "num_training_days": 1562,
-    "num_forecast_days": 267,
-    "num_persistence_days": 1295,
-    "forecast_weight": 5.0,
-    "num_classification_rows": 13296,
-    "n_candidate_buckets": 7,
-    "feature_cols_used": 134,
-    "positive_rate": 0.0862,
-    "residual_std": 1.574
-  },
-  "observation_features": [
-    "obs_latest_temp",
-    "obs_latest_hour",
-    "obs_max_so_far",
-    "obs_6hr_max",
-    "obs_vs_intra_forecast",
-    "obs_wind_speed",
-    "obs_wind_gust",
-    "obs_wind_dir_sin",
-    "obs_wind_dir_cos",
-    "obs_cloud_cover",
-    "obs_heating_rate",
-    "obs_heating_rate_delta",
-    "obs_temp_vs_forecast_max"
-  ],
-  "feature_columns_v4": [
+  "feature_columns_v9": [
     "nws_first",
     "nws_last",
     "nws_max",
@@ -171,6 +142,36 @@
     "obs_nysm_max",
     "obs_nysm_spread",
     "obs_nysm_vs_nws",
-    "obs_nysm_count"
+    "obs_nysm_count",
+    "obs_high_peak_hour",
+    "obs_is_overnight_high",
+    "obs_temp_falling_hrs",
+    "mm_nbm_max",
+    "mm_nbm_hrrr_diff",
+    "mm_nbm_gfs_diff",
+    "mm_nbm_ecmwf_diff",
+    "mm_gem_hrdps_max",
+    "mm_gem_hrdps_hrrr_diff",
+    "atm_925mb_hrrr_max",
+    "atm_925mb_hrrr_mean",
+    "atm_850mb_hrrr_max",
+    "atm_850mb_hrrr_mean",
+    "atm_925mb_gfs_hrrr_diff",
+    "raob_925mb_temp",
+    "raob_850mb_temp",
+    "raob_700mb_temp",
+    "raob_925mb_gfs_diff",
+    "raob_925mb_hrrr_diff",
+    "obs_heating_rate_delta",
+    "obs_kjfk_temp",
+    "obs_klga_temp",
+    "obs_kewr_temp",
+    "obs_kteb_temp",
+    "obs_knyc_temp",
+    "obs_kjfk_vs_knyc",
+    "obs_klga_vs_knyc",
+    "obs_kewr_vs_knyc",
+    "obs_airport_spread",
+    "obs_coastal_vs_inland"
   ]
 }
