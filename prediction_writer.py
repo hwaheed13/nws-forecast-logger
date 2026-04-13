@@ -3824,12 +3824,17 @@ def _add_obs_to_snap(snap: dict, live_obs: dict, live_atm: dict = None) -> None:
     snap["obs_snap_klga"]        = _safe(_atm_fallback("obs_klga_temp", "obs_klga_temp"))
     snap["obs_snap_kewr"]        = _safe(_atm_fallback("obs_kewr_temp", "obs_kewr_temp"))
     snap["obs_snap_kteb"]        = _safe(_atm_fallback("obs_kteb_temp", "obs_kteb_temp"))
+    # KCDW (Caldwell NJ, ~25mi) and KSMQ (Somerville NJ, ~35mi) — deeper inland probes
+    snap["obs_snap_kcdw"]        = _safe(_atm_fallback("obs_kcdw_temp", "obs_kcdw_temp"))
+    snap["obs_snap_ksmq"]        = _safe(_atm_fallback("obs_ksmq_temp", "obs_ksmq_temp"))
     snap["obs_snap_knyc_syn"]    = _safe(_atm_fallback("obs_knyc_temp", "obs_knyc_temp"))
     snap["obs_snap_kjfk_vs_knyc"]        = _safe(_atm_fallback("obs_kjfk_vs_knyc", "obs_kjfk_vs_knyc"))
     snap["obs_snap_klga_vs_knyc"]        = _safe(_atm_fallback("obs_klga_vs_knyc", "obs_klga_vs_knyc"))
     snap["obs_snap_kewr_vs_knyc"]        = _safe(_atm_fallback("obs_kewr_vs_knyc", "obs_kewr_vs_knyc"))
     snap["obs_snap_airport_spread"]      = _safe(_atm_fallback("obs_airport_spread", "obs_airport_spread"))
     snap["obs_snap_coastal_vs_inland"]   = _safe(_atm_fallback("obs_coastal_vs_inland", "obs_coastal_vs_inland"))
+    # Full coast→inland gradient: JFK to deepest available inland (SMQ > CDW > TEB > EWR)
+    snap["obs_snap_inland_gradient"]     = _safe(_atm_fallback("obs_inland_gradient", "obs_inland_gradient"))
     # Manhattan Mesonet — 5-min updates, near-Central Park fill-in between KNYC hourly drops
     snap["obs_snap_manh_temp"]     = _safe(_atm_fallback("obs_manh_temp",     "obs_manh_temp"))
     snap["obs_snap_manh_vs_knyc"]  = _safe(_atm_fallback("obs_manh_vs_knyc",  "obs_manh_vs_knyc"))
@@ -3841,6 +3846,8 @@ def _add_obs_to_snap(snap: dict, live_obs: dict, live_atm: dict = None) -> None:
         ("KLGA", "obs_snap_klga_obs_at", "obs_klga_obs_at"),
         ("KEWR", "obs_snap_kewr_obs_at", "obs_kewr_obs_at"),
         ("KTEB", "obs_snap_kteb_obs_at", "obs_kteb_obs_at"),
+        ("KCDW", "obs_snap_kcdw_obs_at", "obs_kcdw_obs_at"),
+        ("KSMQ", "obs_snap_ksmq_obs_at", "obs_ksmq_obs_at"),
         ("MANH", "obs_snap_manh_obs_at", "obs_manh_obs_at"),
     ]:
         _ts = _atm_fallback(_atm_key, _atm_key)
@@ -4861,29 +4868,25 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 # inland warming rate is available immediately after ML reruns,
                 # not 30 min later when the next stable cycle writes it.
                 if _CITY_KEY != "lax":
-                    _rk_prev_kteb = stored_snapshot_dict.get("obs_snap_kteb")
-                    _rk_curr_kteb = snap.get("obs_snap_kteb")
-                    _rk_kteb_d: float | None = None
-                    if _rk_prev_kteb is not None and _rk_curr_kteb is not None:
-                        _rk_kteb_d = round(float(_rk_curr_kteb) - float(_rk_prev_kteb), 1)
-                        snap["obs_snap_kteb_delta"] = _rk_kteb_d
-                    else:
-                        _rk_kteb_d = stored_snapshot_dict.get("obs_snap_kteb_delta")
-                        if _rk_kteb_d is not None:
-                            snap["obs_snap_kteb_delta"] = _rk_kteb_d
+                    def _rk_delta(key: str) -> "float | None":
+                        """Compute inter-run delta for a named snap key, falling back to stored."""
+                        _prev = stored_snapshot_dict.get(key)
+                        _curr = snap.get(key)
+                        if _prev is not None and _curr is not None:
+                            _d = round(float(_curr) - float(_prev), 1)
+                            snap[f"{key}_delta"] = _d
+                            return _d
+                        _stored_d = stored_snapshot_dict.get(f"{key}_delta")
+                        if _stored_d is not None:
+                            snap[f"{key}_delta"] = _stored_d
+                        return _stored_d
 
-                    _rk_prev_kewr = stored_snapshot_dict.get("obs_snap_kewr")
-                    _rk_curr_kewr = snap.get("obs_snap_kewr")
-                    _rk_kewr_d: float | None = None
-                    if _rk_prev_kewr is not None and _rk_curr_kewr is not None:
-                        _rk_kewr_d = round(float(_rk_curr_kewr) - float(_rk_prev_kewr), 1)
-                        snap["obs_snap_kewr_delta"] = _rk_kewr_d
-                    else:
-                        _rk_kewr_d = stored_snapshot_dict.get("obs_snap_kewr_delta")
-                        if _rk_kewr_d is not None:
-                            snap["obs_snap_kewr_delta"] = _rk_kewr_d
+                    _rk_kteb_d = _rk_delta("obs_snap_kteb")
+                    _rk_kewr_d = _rk_delta("obs_snap_kewr")
+                    _rk_kcdw_d = _rk_delta("obs_snap_kcdw")
+                    _rk_ksmq_d = _rk_delta("obs_snap_ksmq")
 
-                    _rk_inland_vals = [v for v in [_rk_kteb_d, _rk_kewr_d] if v is not None]
+                    _rk_inland_vals = [v for v in [_rk_kteb_d, _rk_kewr_d, _rk_kcdw_d, _rk_ksmq_d] if v is not None]
                     if _rk_inland_vals:
                         _rk_inland_rate = round(sum(_rk_inland_vals) / len(_rk_inland_vals), 1)
                         snap["obs_snap_inland_warming_rate"] = _rk_inland_rate
@@ -5164,15 +5167,19 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                         # stale and show "Awaiting next cycle" after 2 PM.
                         "obs_snap_kjfk", "obs_snap_klga",
                         "obs_snap_kewr", "obs_snap_kteb", "obs_snap_knyc_syn",
+                        # KCDW (Caldwell NJ, ~25mi) + KSMQ (Somerville NJ, ~35mi) — deeper inland
+                        "obs_snap_kcdw", "obs_snap_ksmq",
                         "obs_snap_kjfk_vs_knyc", "obs_snap_klga_vs_knyc",
                         "obs_snap_kewr_vs_knyc",
                         "obs_snap_airport_spread", "obs_snap_coastal_vs_inland",
+                        "obs_snap_inland_gradient",   # JFK→SMQ full spread
                         # ── Named station observation timestamps ──────────────
                         # Staleness badges (e.g. "47 min ago") depend on these;
                         # without them the badge freezes at the canonical write time.
                         "obs_snap_knyc_obs_at", "obs_snap_kjfk_obs_at",
                         "obs_snap_klga_obs_at", "obs_snap_kewr_obs_at",
-                        "obs_snap_kteb_obs_at", "obs_snap_manh_obs_at",
+                        "obs_snap_kteb_obs_at", "obs_snap_kcdw_obs_at",
+                        "obs_snap_ksmq_obs_at", "obs_snap_manh_obs_at",
                         # ── Manhattan Mesonet (5-min fill-in) ────────────────
                         "obs_snap_manh_temp", "obs_snap_manh_vs_knyc",
                         # ── Synoptic network (5mi radius) ────────────────────
@@ -5187,6 +5194,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                         "obs_snap_morning_cloud",
                         "obs_snap_stratus_clearing",
                         "obs_snap_kteb_delta", "obs_snap_kewr_delta",
+                        "obs_snap_kcdw_delta", "obs_snap_ksmq_delta",
                         "obs_snap_inland_warming_rate", "obs_snap_warming_accel",
                         # ── Metadata ─────────────────────────────────────────
                         "obs_snap_populated",
@@ -5233,12 +5241,12 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                             print(f"  🌤️  Stratus clearing detected: "
                                   f"morning {_mc}% → current {_cc}% at hour {_hr}")
 
-                    # ── Inter-run KTEB / KEWR delta (inland NJ warming rate) ───
+                    # ── Inter-run NNJ inland delta (4-station warming rate) ──────
                     # Compare current named-station temps against the PREVIOUS
                     # snapshot to detect rapid NNJ surface warming — the early
                     # warm-advection signal that nowcasters see before NWS updates.
-                    # KTEB = Teterboro NJ (most inland, warmest station)
-                    # KEWR = Newark NJ (inland, second reference)
+                    # KEWR: Newark NJ (~15mi), KTEB: Teterboro (~20mi),
+                    # KCDW: Caldwell (~25mi), KSMQ: Somerville (~35mi — deepest probe)
                     if _CITY_KEY != "lax":
                         _prev_kteb = stored_snapshot_dict.get("obs_snap_kteb")
                         _curr_kteb = _ex_snap.get("obs_snap_kteb")
@@ -5258,8 +5266,26 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                         else:
                             _kewr_d = _ex_snap.get("obs_snap_kewr_delta")
 
-                        # Inland NNJ composite warming rate (avg across available stations)
-                        _inland_vals = [v for v in [_kteb_d, _kewr_d] if v is not None]
+                        _prev_kcdw = stored_snapshot_dict.get("obs_snap_kcdw")
+                        _curr_kcdw = _ex_snap.get("obs_snap_kcdw")
+                        _kcdw_d: float | None = None
+                        if _prev_kcdw is not None and _curr_kcdw is not None:
+                            _kcdw_d = round(float(_curr_kcdw) - float(_prev_kcdw), 1)
+                            _ex_snap["obs_snap_kcdw_delta"] = _kcdw_d
+                        else:
+                            _kcdw_d = _ex_snap.get("obs_snap_kcdw_delta")
+
+                        _prev_ksmq = stored_snapshot_dict.get("obs_snap_ksmq")
+                        _curr_ksmq = _ex_snap.get("obs_snap_ksmq")
+                        _ksmq_d: float | None = None
+                        if _prev_ksmq is not None and _curr_ksmq is not None:
+                            _ksmq_d = round(float(_curr_ksmq) - float(_prev_ksmq), 1)
+                            _ex_snap["obs_snap_ksmq_delta"] = _ksmq_d
+                        else:
+                            _ksmq_d = _ex_snap.get("obs_snap_ksmq_delta")
+
+                        # Inland NNJ composite warming rate (avg across all available stations)
+                        _inland_vals = [v for v in [_kteb_d, _kewr_d, _kcdw_d, _ksmq_d] if v is not None]
                         if _inland_vals:
                             _inland_rate = round(sum(_inland_vals) / len(_inland_vals), 1)
                             _ex_snap["obs_snap_inland_warming_rate"] = _inland_rate
@@ -5271,8 +5297,9 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                                 and float(_surf_r) >= 0.3
                             )
                             if _inland_rate >= 1.5:
-                                print(f"  🔥 Inland NNJ warming: KTEB Δ={_kteb_d} "
-                                      f"KEWR Δ={_kewr_d} composite={_inland_rate}°F/cycle "
+                                print(f"  🔥 Inland NNJ warming: TEB Δ={_kteb_d} "
+                                      f"EWR Δ={_kewr_d} CDW Δ={_kcdw_d} SMQ Δ={_ksmq_d} "
+                                      f"composite={_inland_rate}°F/cycle "
                                       f"accel={_ex_snap.get('obs_snap_warming_accel')}")
                 except Exception as _sig_e:
                     print(f"  ⚠️  Derived signals skipped: {_sig_e}")

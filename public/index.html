@@ -577,6 +577,7 @@ input[type="date"] {
           </div>
           <div id="correctionBoxToday" class="prediction-content">Loading...</div>
           <div id="prediction-flip-today"></div>
+          <div id="blow-past-warn-today"></div>
           <div id="overnight-warn-today"></div>
         </div>
         <div class="prediction-card" id="ml-signal-tomorrow-card">
@@ -3757,15 +3758,19 @@ async function fetchLiveRegionalObs() {
     const isLax = currentCity === 'lax';
     const isNyc = !isLax;
     // For LAX: also fetch KCQT (USC Downtown — Kalshi/NWS reference)
-    // For NYC: also fetch KEWR (Newark NJ) + KTEB (Teterboro NJ)
-    //   KEWR is the inland-NJ anchor for the coastal-vs-inland marine gradient
-    //   KTEB is the most inland station, first to warm on warm-advection days
-    //   Both fetched live so the JFK/EWR card never goes blank between model runs
+    // For NYC: fetch full inland NNJ gradient:
+    //   KEWR (Newark NJ)      — ~15mi inland, coastal boundary
+    //   KTEB (Teterboro NJ)   — ~20mi inland, warm-advection sentinel
+    //   KCDW (Caldwell NJ)    — ~25mi inland, Essex County
+    //   KSMQ (Somerville NJ)  — ~35mi inland, deepest NNJ probe
+    //   All four fetched live so the JFK/EWR card never goes blank between model runs
+    //   and so the full coastal→inland gradient can be computed every cycle
     const stations = [fetchNwsCurrentTemp(cfg.s1), fetchNwsCurrentTemp(cfg.s2)];
     if (isLax)  stations.push(fetchNwsCurrentTemp('KCQT'));
-    if (isNyc)  stations.push(fetchNwsCurrentTemp('KEWR'), fetchNwsCurrentTemp('KTEB'));
+    if (isNyc)  stations.push(fetchNwsCurrentTemp('KEWR'), fetchNwsCurrentTemp('KTEB'),
+                              fetchNwsCurrentTemp('KCDW'), fetchNwsCurrentTemp('KSMQ'));
 
-    const [s1Res, s2Res, s3Res, s4Res] = await Promise.allSettled(stations);
+    const [s1Res, s2Res, s3Res, s4Res, s5Res, s6Res] = await Promise.allSettled(stations);
     const _fmtObsTime = iso => {
       if (!iso) return null;
       try {
@@ -3780,12 +3785,16 @@ async function fetchLiveRegionalObs() {
       // LAX-only: KCQT (USC Downtown) — the Kalshi/NWS official measurement reference
       kcqt:      isLax && s3Res?.status === 'fulfilled' && s3Res.value?.currentF != null ? Number(s3Res.value.currentF) : null,
       kcqtObsAt: isLax && s3Res?.status === 'fulfilled' ? _fmtObsTime(s3Res.value?.atISO) : null,
-      // NYC-only: KEWR (Newark NJ) — inland NJ anchor for coastal-vs-inland gradient
+      // NYC-only: full inland NNJ gradient (coastal → deep inland)
       kewr:      isNyc && s3Res?.status === 'fulfilled' && s3Res.value?.currentF != null ? Number(s3Res.value.currentF) : null,
       kewrObsAt: isNyc && s3Res?.status === 'fulfilled' ? _fmtObsTime(s3Res.value?.atISO) : null,
-      // NYC-only: KTEB (Teterboro NJ) — most inland, first to warm on warm-advection days
       kteb:      isNyc && s4Res?.status === 'fulfilled' && s4Res.value?.currentF != null ? Number(s4Res.value.currentF) : null,
       ktebObsAt: isNyc && s4Res?.status === 'fulfilled' ? _fmtObsTime(s4Res.value?.atISO) : null,
+      // KCDW (Caldwell NJ, ~25mi) and KSMQ (Somerville NJ, ~35mi) — deeper inland probes
+      kcdw:      isNyc && s5Res?.status === 'fulfilled' && s5Res.value?.currentF != null ? Number(s5Res.value.currentF) : null,
+      kcdwObsAt: isNyc && s5Res?.status === 'fulfilled' ? _fmtObsTime(s5Res.value?.atISO) : null,
+      ksmq:      isNyc && s6Res?.status === 'fulfilled' && s6Res.value?.currentF != null ? Number(s6Res.value.currentF) : null,
+      ksmqObsAt: isNyc && s6Res?.status === 'fulfilled' ? _fmtObsTime(s6Res.value?.atISO) : null,
       city:     currentCity,
       fetchedAt: new Date(),
     };
@@ -4049,11 +4058,12 @@ function renderFlipRisk() {
         <span style="font-size:18px; font-weight:800; color:${flipColor};">${displayFlipLevel || '—'}</span>
         <span style="font-size:10px; color:var(--text-muted);">${displayFlipSummary}</span>
       </div>
+      ${blow.level && blow.level !== 'NONE' ? `
       <div style="background:${blowBg}; border:1px solid ${blowColor}; border-radius:8px; padding:6px 12px; display:inline-flex; flex-direction:column; min-width:110px;">
         <span style="font-size:10px; font-weight:700; text-transform:uppercase; color:${blowColor}; letter-spacing:.05em;">Blow Past</span>
-        <span style="font-size:18px; font-weight:800; color:${blowColor};">${blow.level || '—'}</span>
-        <span style="font-size:10px; color:var(--text-muted);">${blow.level === 'HIGH' ? 'actual may exceed all models' : blow.level === 'MEDIUM' ? 'elevated risk of exceeding range' : 'actual likely within predicted range'}</span>
-      </div>
+        <span style="font-size:18px; font-weight:800; color:${blowColor};">${blow.level}</span>
+        <span style="font-size:10px; color:var(--text-muted);">${blow.level === 'HIGH' ? 'actual may exceed top of range' : 'elevated risk of exceeding range'}</span>
+      </div>` : ''}
       <div style="flex:1; min-width:180px;">
         ${sigLines}
       </div>
@@ -4061,6 +4071,34 @@ function renderFlipRisk() {
     ${_reFlipNote}
     ${histLine}
   `;
+
+  // ── Blow-past banner in the prediction card ───────────────────────────────
+  // When blow-past is HIGH or MEDIUM, surface a callout directly in the today
+  // card so users see it immediately — not buried in the reversal panel below.
+  const _bpWarn = document.getElementById('blow-past-warn-today');
+  if (_bpWarn) {
+    if (blow.level === 'HIGH' || blow.level === 'MEDIUM') {
+      const _ml2 = window.mlPredictions || {};
+      const _currBktLabel = _ml2.todayMLBucket
+        ? (cleanKalshiLabel ? cleanKalshiLabel(_ml2.todayMLBucket) : _ml2.todayMLBucket)
+        : 'predicted range';
+      // Extract upper bound from bucket label (e.g. "78° to 79°" → "79°F")
+      const _bktMatch = (_ml2.todayMLBucket || '').match(/^(\d+)-(\d+)$/);
+      const _upperBound = _bktMatch ? `${_bktMatch[2]}°F` : null;
+      const _exceed = _upperBound ? ` — actual may exceed ${_upperBound}` : '';
+      const _bpBg    = blow.level === 'HIGH' ? '#fef2f2' : '#fffbeb';
+      const _bpBorder= blow.level === 'HIGH' ? '#dc2626' : '#d97706';
+      const _bpColor = blow.level === 'HIGH' ? '#991b1b' : '#92400e';
+      const _bpIcon  = blow.level === 'HIGH' ? '🔥' : '⚠️';
+      _bpWarn.innerHTML = `
+        <div style="margin-top:8px;padding:7px 11px;background:${_bpBg};border-left:3px solid ${_bpBorder};
+                    border-radius:4px;font-size:12px;color:${_bpColor};line-height:1.4;">
+          ${_bpIcon} <strong>Blow-past risk ${blow.level}</strong> — model predicts ${_currBktLabel}${_exceed}
+        </div>`;
+    } else {
+      _bpWarn.innerHTML = '';
+    }
+  }
 }
 
 // ── Atmospheric Signals ──────────────────────────────────────────────────
@@ -4184,6 +4222,18 @@ function renderAtmSignals() {
   const _snapWarmingAccel    = !!_snapForAtm.obs_snap_warming_accel;
   const _snapInlandRate      = _snapForAtm.obs_snap_inland_warming_rate ?? null;
   const _snapMorningCloud    = _snapForAtm.obs_snap_morning_cloud ?? null;
+  // Live inland gradient from the 4-station NNJ live fetch (updated every 5 min)
+  const _lroForAtm    = window._liveRegionalObs || {};
+  const _lroAtmValid  = !_lroForAtm.city || _lroForAtm.city === currentCity;
+  const _liveJfkForGrad = _lroAtmValid && _lroForAtm.jfk != null ? Number(_lroForAtm.jfk) : null;
+  const _liveSmqForGrad = _lroAtmValid && _lroForAtm.ksmq != null ? Number(_lroForAtm.ksmq) : null;
+  const _liveCdwForGrad = _lroAtmValid && _lroForAtm.kcdw != null ? Number(_lroForAtm.kcdw) : null;
+  const _liveGradient   = _liveJfkForGrad != null && (_liveSmqForGrad ?? _liveCdwForGrad) != null
+    ? Number((_liveSmqForGrad ?? _liveCdwForGrad) - _liveJfkForGrad).toFixed(1)
+    : null;
+  // Strong gradient = inland significantly warmer = warm air approaching coast
+  const _strongGradient = _liveGradient != null && Number(_liveGradient) >= 5;
+  const _coolGradient   = _liveGradient != null && Number(_liveGradient) <= -2;
 
   // ── Signal agreement summary ─────────────────────────────────────────────
   // Count warm vs cool signals across key atmospheric + observational indicators.
@@ -4207,6 +4257,9 @@ function renderAtmSignals() {
   if (_snapStratusClearing) _warmSigs++;
   // Inland warming acceleration: NNJ stations rising fast = warm advection arriving (warm-signal)
   if (_snapWarmingAccel) _warmSigs++;
+  // Live NNJ gradient: inland significantly warmer than coast = warm air advancing (warm-signal)
+  if (_strongGradient) _warmSigs++;
+  else if (_coolGradient) _coolSigs++;
 
   const _totalSigs = _warmSigs + _coolSigs;
   let _consensusHTML = '';
@@ -4221,6 +4274,12 @@ function renderAtmSignals() {
     const _rateStr = _snapInlandRate != null ? ` (+${_snapInlandRate}°/cycle)` : '';
     _nowcastLines += `<div style="font-size:11px;margin-top:4px;color:#d97706;font-weight:600;">
       🔥 NNJ inland warming acceleration${_rateStr} — warm advection arriving
+    </div>`;
+  }
+  if (_strongGradient) {
+    const _gSrc = _liveSmqForGrad != null ? 'SMQ' : 'CDW';
+    _nowcastLines += `<div style="font-size:11px;margin-top:4px;color:#d97706;font-weight:600;">
+      🌡️ NNJ inland gradient +${_liveGradient}°F (JFK→${_gSrc}) — warm air advancing toward coast
     </div>`;
   }
   if (_totalSigs >= 3) {
@@ -4520,23 +4579,37 @@ function renderLiveSourcesPanel() {
   // KEWR: Newark NJ — inland anchor for coastal-vs-inland gradient.
   // Priority: (1) Synoptic snapshot, (2) live NWS fetch (every 5 min — never blank between model runs)
   const snap_kewr = s.obs_snap_kewr ?? (lroValid && lro.kewr != null ? lro.kewr : null);
-  // KTEB: Teterboro NJ — most inland, warmest station, first to warm on warm-advection days.
-  // Priority: (1) Synoptic snapshot, (2) live NWS fetch (refreshed every 5 min)
+  // KTEB: Teterboro NJ (~20mi) — first to warm on warm-advection days.
   const snap_kteb = s.obs_snap_kteb ?? (lroValid && lro.kteb != null ? lro.kteb : null);
+  // KCDW: Caldwell NJ (~25mi) — deeper inland probe
+  const snap_kcdw = lroValid && lro.kcdw != null ? lro.kcdw : null;
+  // KSMQ: Somerville NJ (~35mi) — deepest inland probe, leading indicator for warm advection
+  const snap_ksmq = lroValid && lro.ksmq != null ? lro.ksmq : null;
   // Compute JFK-KNYC diff live if we have both values but the snapshot diff isn't written yet
   const _knycForDiff = knyc_display ?? s.obs_snap_knyc_syn ?? null;
   const snap_kjfk_vs_knyc = s.obs_snap_kjfk_vs_knyc
     ?? (snap_kjfk != null && _knycForDiff != null
         ? Math.round((Number(snap_kjfk) - Number(_knycForDiff)) * 10) / 10
         : null);
+  // Coastal avg (JFK + LGA) vs best available inland reference
+  const _bestInlandRef = snap_ksmq ?? snap_kcdw ?? snap_kteb ?? snap_kewr ?? null;
   const snap_coastal_vs_inland = s.obs_snap_coastal_vs_inland
-    ?? (snap_kjfk != null && snap_klga != null && snap_kewr != null
-        ? Math.round(((Number(snap_kjfk) + Number(snap_klga)) / 2 - Number(snap_kewr)) * 10) / 10
+    ?? (snap_kjfk != null && snap_klga != null && _bestInlandRef != null
+        ? Math.round(((Number(snap_kjfk) + Number(snap_klga)) / 2 - Number(_bestInlandRef)) * 10) / 10
+        : snap_kjfk != null && snap_kewr != null
+        ? Math.round(((Number(snap_kjfk)) - Number(snap_kewr)) * 10) / 10
         : null);
   const snap_airport_spread = s.obs_snap_airport_spread
     ?? (snap_kjfk != null && snap_kewr != null
         ? Math.round(Math.abs(Number(snap_kewr) - Number(snap_kjfk)) * 10) / 10
         : null);
+  // Full coastal→inland gradient: JFK(coast) to SMQ(deepest inland)
+  // Positive = inland warmer than coast = warm advection arriving from west
+  const _inlandGradient = snap_kjfk != null && snap_ksmq != null
+    ? Math.round((Number(snap_ksmq) - Number(snap_kjfk)) * 10) / 10
+    : snap_kjfk != null && snap_kcdw != null
+    ? Math.round((Number(snap_kcdw) - Number(snap_kjfk)) * 10) / 10
+    : null;
 
   // Marine signal: coastal (JFK, LGA) colder than inland (EWR, TEB)
   const _marineStrong = snap_coastal_vs_inland != null && Number(snap_coastal_vs_inland) <= -3;
@@ -4593,6 +4666,14 @@ function renderLiveSourcesPanel() {
   const _ktebDispStr = snap_kteb != null
     ? `TEB: ${f1(snap_kteb)}${_ktebDelta != null ? ` (${_ktebDelta >= 0 ? '+' : ''}${_ktebDelta}°)` : ''}`
     : "";
+  // CDW / SMQ: deeper inland probes — show if available (live only, not in snap)
+  const _kcdwDispStr = snap_kcdw != null ? `CDW: ${f1(snap_kcdw)}` : "";
+  const _ksmqDispStr = snap_ksmq != null ? `SMQ: ${f1(snap_ksmq)}` : "";
+  // Full coastal→inland gradient: JFK (coast) to SMQ or CDW (deepest available inland)
+  // Positive = inland warmer than coast = warm air arriving from the west
+  const _gradientStr = _inlandGradient != null && Math.abs(_inlandGradient) >= 1
+    ? `Gradient: ${_inlandGradient >= 0 ? '+' : ''}${_inlandGradient}°F inland` + (_inlandGradient >= 5 ? ' 🔥' : _inlandGradient <= -3 ? ' 🌊' : '')
+    : "";
   const _inlandRateStr = _inlandWarmRate != null && Math.abs(_inlandWarmRate) >= 0.5
     ? `NNJ Δ: ${_inlandWarmRate >= 0 ? '+' : ''}${_inlandWarmRate}°/cycle`
     : "";
@@ -4602,13 +4683,19 @@ function renderLiveSourcesPanel() {
   const _warmLabel      = _warmingAccel ? " 🔥 NNJ warming accel" : "";
   const _stratusLabel   = _stratusClearing ? " 🌤️ Stratus clearing" : "";
 
-  const _airportSub = [_jfkKnycStr, _coastalInlandStr, _airportSpreadStr, _ktebDispStr, _inlandRateStr]
+  const _airportSub = [_jfkKnycStr, _coastalInlandStr, _airportSpreadStr, _ktebDispStr, _kcdwDispStr, _ksmqDispStr, _gradientStr, _inlandRateStr]
     .filter(Boolean).join(" · ")
     + (_marineLabel || _warmLabel || _stratusLabel || "")
     || "Awaiting next cycle";
 
+  // Card title expands when CDW or SMQ are live
+  const _airportCardTitle = !isLax ? (
+    snap_ksmq != null ? "JFK / EWR / TEB / CDW / SMQ" :
+    snap_kcdw != null ? "JFK / EWR / TEB / CDW" :
+    "JFK / EWR / TEB"
+  ) : "";
   const airportCard = !isLax ? card(
-    "JFK / EWR / TEB",
+    _airportCardTitle,
     _airportMain,
     _airportSub,
     _airportCardColor
