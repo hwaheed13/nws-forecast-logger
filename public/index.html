@@ -1123,9 +1123,11 @@ async function logUIprediction(which, prediction, candidates, warning, bias, rms
   }
 }
     
-// Gate inputs (populated by updateObservations / updateSixHourMax)
+// Gate inputs (populated by updateObservations / updateSixHourMax / nws_daily_summary listener)
 window._recentObservedF = window._recentObservedF ?? null;
 window._sixHourMaxF    = window._sixHourMaxF ?? null;
+window._dsmHighF       = window._dsmHighF ?? null;
+window._dsmHighTime    = window._dsmHighTime ?? null;
 
 // --- Detect if overnight high exceeded forecast (full hourly scan) ---
 async function checkEarlyMorningExceedance() {
@@ -2933,6 +2935,8 @@ await updateCorrectionBoxes();  // now uses the freshly-trained state
         // Independent API-only updates (don't affect predictions)
         updateDSM();
         updateSixHourMax();
+        // Re-initialize DSM real-time listener for new city
+        try { setupDSMRealtimeListener && setupDSMRealtimeListener(); } catch {}
 
         console.log(`🏙️ Switched to ${cfg.label} (${cfg.short})`);
       } catch (e) {
@@ -4419,15 +4423,21 @@ function renderLiveSourcesPanel() {
   const _stallActive  = knyc_rate_delta != null && Number(knyc_rate_delta) < -0.8;
   const _stallStrong  = knyc_rate_delta != null && Number(knyc_rate_delta) < -1.5;
   const isLaxDisplay = currentCity === 'lax';
-  const knyc_sub = [
-    knyc_max  != null ? `Max: ${f0(knyc_max)}` : "",
+  // DSM high from real-time Supabase listener (separate line below Max)
+  const _dsmHighStr = !isLaxDisplay && window._dsmHighF != null
+    ? `DSM High: ${f0(window._dsmHighF)}`
+    : "";
+  const knyc_line1 = knyc_max != null ? `Max: ${f0(knyc_max)}` : "";
+  const knyc_line2 = _dsmHighStr || "";
+  const knyc_line3 = [
     (!isLaxDisplay && _manhStr  != null) ? _manhStr : "",          // 5-min Mesonet fill-in (NYC only)
     (_snapRecent && knyc_vs   != null) ? `vs fcst: ${fSign(knyc_vs)}` : "",
     (_snapRecent && knyc_rate != null && Math.abs(Number(knyc_rate)) >= 0.2)
       ? `${Number(knyc_rate) >= 0 ? "+" : ""}${Number(knyc_rate).toFixed(1)}°/hr` : "",
     (_snapRecent && _stallActive)
       ? `stall ${Number(knyc_rate_delta).toFixed(1)}°/hr${_stallStrong ? " ⚠️" : ""}` : "",
-  ].filter(Boolean).join(" · ") || "–";
+  ].filter(Boolean).join(" · ");
+  const knyc_sub = [knyc_line1, knyc_line2, knyc_line3].filter(Boolean).join("<br>") || "–";
 
   // ── Regional stations (JFK/LGA for NYC, LAX/BUR for LAX)
   const lro = window._liveRegionalObs || {};
@@ -7188,6 +7198,49 @@ async function bootApp() {
     }
     // Refresh ML predictions every 30 min (matches prediction_writer schedule)
     setInterval(() => { try { loadMLPredictions(); } catch {} }, 30 * 60 * 1000);
+
+    // ── Set up Supabase real-time listener for DSM high temperature ──
+    async function setupDSMRealtimeListener() {
+      try {
+        const todayISO = nycISODate(0);
+        const cityCode = currentCity === 'lax' ? 'lax' : 'nyc';
+
+        // Subscribe to real-time changes on nws_daily_summary table
+        const channel = supabase
+          .channel(`dsm_${cityCode}_${todayISO}`)
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'nws_daily_summary',
+              filter: `city=eq.${cityCode}|date=eq.${todayISO}`
+            },
+            (payload) => {
+              const row = payload.new;
+              if (row && row.dsm_high != null) {
+                window._dsmHighF = Number(row.dsm_high);
+                window._dsmHighTime = row.dsm_high_time || null;
+                console.log(`📊 DSM High updated: ${window._dsmHighF}°F at ${window._dsmHighTime}`);
+                // Re-render the live sources panel with the new DSM data
+                try { renderLiveSourcesPanel(); } catch (e) { console.error("renderLiveSourcesPanel error:", e); }
+              }
+            }
+          )
+          .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              console.log(`✅ DSM real-time listener active for ${cityCode} ${todayISO}`);
+            }
+          });
+      } catch (e) {
+        console.error("setupDSMRealtimeListener error:", e);
+      }
+    }
+
+    // Initialize DSM real-time listener
+    if (window.supabase) {
+      setupDSMRealtimeListener();
+    }
 
   try {
       localStorage.setItem("dashboard_heartbeat", String(Date.now()));
