@@ -5628,7 +5628,7 @@ window._predTomorrow = predTomorrow;
             <span style="font-size:13px;">${statsLine}</span>
           </div>
           ${kellyLine}
-          <div style="font-size:12px;color:var(--text-muted);margin-top:5px;">ML: ${mlVal.toFixed(1)}°F${supportHTML ? ` · ${supportHTML}` : ''}</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:5px;" title="${ml.todayMLVersion ? `Model: ${ml.todayMLVersion.replace(/_/g, ' ')}` : ''}">ML: ${mlVal.toFixed(1)}°F${supportHTML ? ` · ${supportHTML}` : ''}</div>
           ${moatRiskHTMLTd}
           ${canonicalFlipNote}
           ${bucketRevisedNote}
@@ -5824,7 +5824,7 @@ window._predTomorrow = predTomorrow;
             <span style="font-size:13px;">${statsLineTm}</span>
           </div>
           ${kellyLineTm}
-          <div style="font-size:12px;color:var(--text-muted);margin-top:5px;">ML: ${mlVal.toFixed(1)}°F${supportHTML ? ` · ${supportHTML}` : ''}</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:5px;" title="${ml.tomorrowMLVersion ? `Model: ${ml.tomorrowMLVersion.replace(/_/g, ' ')}` : ''}">ML: ${mlVal.toFixed(1)}°F${supportHTML ? ` · ${supportHTML}` : ''}</div>
           ${moatRiskHTMLTm}
           ${d1FlipNote}
           ${warningHTML}
