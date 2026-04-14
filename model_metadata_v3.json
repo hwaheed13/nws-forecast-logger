@@ -1,12 +1,12 @@
 {
-  "trained_on": "2026-04-13T11:36:06.575843",
+  "trained_on": "2026-04-14T02:10:37.623855",
   "version": "v3_unified_regression",
-  "num_days": 1562,
-  "num_forecast_days": 267,
+  "num_days": 1563,
+  "num_forecast_days": 268,
   "num_multiyear_days": 1295,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-04-12"
+    "end": "2026-04-13"
   },
   "performance": {
     "cv_mae": 0.75,
@@ -14,10 +14,10 @@
     "residual_std": 2.66,
     "per_fold_mae": [
       0.57,
-      0.38,
-      0.33,
-      0.55,
-      1.91
+      0.37,
+      0.34,
+      0.56,
+      1.92
     ],
     "per_fold_bucket_acc": [
       0.0,
@@ -27,19 +27,19 @@
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 1.5858
+      "importance": 1.5971
     },
     {
       "name": "intra_temp_5pm",
-      "importance": 0.0036
+      "importance": 0.0039
     },
     {
       "name": "intra_temp_noon",
-      "importance": 0.0031
+      "importance": 0.0026
     },
     {
       "name": "accu_last",
-      "importance": 0.0015
+      "importance": 0.0016
     },
     {
       "name": "intra_temp_3pm",
@@ -47,30 +47,30 @@
     },
     {
       "name": "atm_dewpoint_mean",
-      "importance": 0.0004
-    },
-    {
-      "name": "intra_high_vs_noon",
-      "importance": 0.0002
+      "importance": 0.0005
     },
     {
       "name": "atm_vs_forecast_diff",
-      "importance": 0.0002
+      "importance": 0.0003
     },
     {
       "name": "mm_mean",
       "importance": 0.0002
     },
     {
-      "name": "accu_max",
+      "name": "intra_high_vs_noon",
       "importance": 0.0002
+    },
+    {
+      "name": "prev_day_high",
+      "importance": 0.0002
+    },
+    {
+      "name": "accu_max",
+      "importance": 0.0001
     },
     {
       "name": "atm_temp_range",
-      "importance": 0.0002
-    },
-    {
-      "name": "intra_temp_9am",
       "importance": 0.0001
     },
     {
@@ -82,7 +82,7 @@
       "importance": 0.0001
     },
     {
-      "name": "prev_day_high",
+      "name": "intra_temp_9am",
       "importance": 0.0001
     }
   ],
