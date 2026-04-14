@@ -4540,6 +4540,7 @@ function renderLiveSourcesPanel() {
     ecmwf      != null ? `HRES: ${f0(ecmwf)}` : "",
     nbm        != null ? `NBM: ${f0(nbm)}` : "",
     gem_hrdps  != null ? `GEM: ${f0(gem_hrdps)}` : "",
+    hrrr_ecmwf != null ? `HRRR-ECMWF: ${fSign(hrrr_ecmwf)}` : "",
   ].filter(Boolean).join(" · ") || "Awaiting next cycle";
 
   // ── WU PWS (citizen weather stations)
