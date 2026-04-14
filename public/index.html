@@ -3084,18 +3084,13 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
       const dd = String(dateMatch[1]).padStart(2, "0");
       const mmMon = String(dateMatch[2]).padStart(2, "0");
       const dayISO = `${year}-${mmMon}-${dd}`;
-      // NWS DSM always reports time in Local Standard Time (LST), not current local time.
-      // For NYC: LST = EST = UTC-5. During EDT (summer), this means the displayed
-      // time must be shifted +1 hr to show the correct local time (e.g. 11:40 EST → 12:40 EDT).
-      // Force UTC-5 offset so Intl.DateTimeFormat handles the DST conversion automatically.
-      const lstOffset = CC().timezone === "America/Los_Angeles" ? "-08:00" : "-05:00";
-      const isoLST = `${year}-${mmMon}-${dd}T${hh}:${mm}:00${lstOffset}`;
-      const when = new Date(isoLST);
-      const fmtET = new Intl.DateTimeFormat("en-US", {
-        timeZone: CC().timezone,
-        hour: "numeric",
-        minute: "2-digit"
-      }).format(when);
+      // NWS DSM reports time in the current local timezone (EDT/EST/PDT/PST).
+      // Display as-is without timezone conversion — the time is already in local time.
+      const hhNum = parseInt(hh, 10);
+      const ampm = hhNum >= 12 ? "PM" : "AM";
+      const hhDisplay = hhNum === 0 ? 12 : hhNum > 12 ? hhNum - 12 : hhNum;
+      const fmtET = `${hhDisplay}:${mm} ${ampm}`;
+      const isoLST = `${year}-${mmMon}-${dd}T${hh}:${mm}:00`;
       return { tempF, timeET: fmtET, iso: isoLST, dayISO, raw: block };
     }
 
