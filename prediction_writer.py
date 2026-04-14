@@ -1417,6 +1417,7 @@ def _compute_ml_prediction(
     has_accu = len(accu_vals) > 0
 
     # ─ DEBUG: Log forecast values and detect anomalies ─
+    accu_anomaly_override = False
     if len(nws_fc) > 0 or len(accu_fc) > 0:
         print(f"\n  📊 Forecast debug for {target_date_iso}:")
         if nws_fc:
@@ -1433,8 +1434,13 @@ def _compute_ml_prediction(
                 # Check if AccuWeather has made a sudden jump
                 if len(accu_vals) > 1:
                     accu_jump = abs(accu_vals[-1] - accu_vals[-2])
+                    nws_jump = abs(nws_vals[-1] - nws_vals[-2]) if len(nws_vals) > 1 else 0.0
                     if accu_jump > 5.0:
                         print(f"    ⚠️  AccuWeather jumped {accu_jump:.1f}°F in last update (likely API glitch/cutover)")
+                    # CONSENSUS CHECK: if AccuWeather made sudden jump but NWS is stable → override with NWS
+                    if accu_jump > 8.0 and nws_jump < 2.0:
+                        print(f"    🔧 CORRECTION: AccuWeather anomaly ({accu_jump:.1f}°F jump) while NWS stable → using NWS value {nws_vals[-1]:.1f}°F")
+                        accu_anomaly_override = True
 
     # --- 3. NWS features ---
     features: dict = {
@@ -1455,9 +1461,13 @@ def _compute_ml_prediction(
 
     # --- 4. AccuWeather features ---
     if has_accu:
+        accu_last_val = float(accu_vals[-1])
+        # Apply anomaly override if AccuWeather jumped but NWS didn't
+        if accu_anomaly_override:
+            accu_last_val = float(nws_vals[-1])
         features.update({
             "accu_first": float(accu_vals[0]),
-            "accu_last": float(accu_vals[-1]),
+            "accu_last": accu_last_val,
             "accu_max": float(accu_vals.max()),
             "accu_min": float(accu_vals.min()),
             "accu_mean": float(accu_vals.mean()),
