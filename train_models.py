@@ -2978,6 +2978,12 @@ class NYCTemperatureModelTrainer:
         from sklearn.model_selection import cross_val_score
         import numpy as np
 
+        # Load Supabase snapshot data to ensure obs_ksmq_temp, obs_kcdw_temp are available
+        # (written by backfill_synoptic.py into the atm_snapshot JSONB column)
+        sb_snap_df = self._load_supabase_snapshot_features()
+        if sb_snap_df is not None:
+            self._merge_supabase_snapshots(sb_snap_df)
+
         print(f"\n{'═'*60}")
         print(f"v12 Training: v11 + deep NNJ inland stations ({len(FEATURE_COLS_V12)} total features)")
         print(f"{'═'*60}")
