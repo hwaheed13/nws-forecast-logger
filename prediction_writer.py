@@ -1416,6 +1416,26 @@ def _compute_ml_prediction(
     accu_vals = np.array([v for _, v in accu_fc]) if accu_fc else np.array([])
     has_accu = len(accu_vals) > 0
 
+    # ─ DEBUG: Log forecast values and detect anomalies ─
+    if len(nws_fc) > 0 or len(accu_fc) > 0:
+        print(f"\n  📊 Forecast debug for {target_date_iso}:")
+        if nws_fc:
+            print(f"    NWS ({len(nws_fc)} forecasts): {' → '.join([f'{v}°F@{ts[:19]}' for ts, v in nws_fc])}")
+            print(f"    NWS last={nws_vals[-1]:.1f}°F, trend={nws_vals[-1]-nws_vals[0]:+.1f}°F")
+        if accu_fc:
+            print(f"    AccuWeather ({len(accu_fc)} forecasts): {' → '.join([f'{v}°F@{ts[:19]}' for ts, v in accu_fc])}")
+            print(f"    AccuWeather last={accu_vals[-1]:.1f}°F, trend={accu_vals[-1]-accu_vals[0]:+.1f}°F")
+        # Anomaly detection: flag if one source is >5°F different from the other (recent issue)
+        if has_accu and len(nws_vals) > 0:
+            delta = abs(accu_vals[-1] - nws_vals[-1])
+            if delta > 5.0:
+                print(f"    ⚠️  ANOMALY: AccuWeather vs NWS delta={delta:.1f}°F (AccuWeather may be stale)")
+                # Check if AccuWeather has made a sudden jump
+                if len(accu_vals) > 1:
+                    accu_jump = abs(accu_vals[-1] - accu_vals[-2])
+                    if accu_jump > 5.0:
+                        print(f"    ⚠️  AccuWeather jumped {accu_jump:.1f}°F in last update (likely API glitch/cutover)")
+
     # --- 3. NWS features ---
     features: dict = {
         "nws_first": float(nws_vals[0]),
