@@ -27,24 +27,59 @@ export default async function handler(req, res) {
   const product = String(req.query.product || "DSM").toUpperCase();
 
   try {
-    const url = `https://forecast.weather.gov/product.php?site=${encodeURIComponent(
+    // Map city to Iowa Mesonet PIL code for DSM
+    const pilMap = {
+      "NYC": "DSMNYC",  // NYC/OKX office
+      "LAX": "DSMLAX",  // LAX/LOX office
+    };
+    const pil = pilMap[issuedby] || `DSM${issuedby}`;
+
+    // Add timestamp to force "latest" (anti-cache) via Iowa Mesonet
+    const now = Math.floor(Date.now() / 1000); // Unix timestamp
+    const iowaUrl = `https://mesonet.agron.iastate.edu/wx/afos/p.php?pil=${encodeURIComponent(pil)}&e=${now}`;
+
+    // Fallback to NWS website if Iowa Mesonet fails
+    const nwsUrl = `https://forecast.weather.gov/product.php?site=${encodeURIComponent(
       site
     )}&issuedby=${encodeURIComponent(
       issuedby
     )}&product=${encodeURIComponent(product)}&format=CI&version=1&glossary=1`;
 
-    const r = await fetch(url, {
-      headers: {
-        Accept: "text/html, text/plain",
-        "User-Agent": "dailydewpoint (contact: you@example.com)",
-        "Cache-Control": "no-cache",
-        Pragma: "no-cache",
-      },
-    });
-    if (!r.ok) {
-      return res.status(502).json({ error: "NWS DSM upstream error", status: r.status });
+    let r;
+    let text;
+
+    // Try Iowa Mesonet first (faster)
+    try {
+      r = await fetch(iowaUrl, {
+        headers: {
+          Accept: "text/plain",
+          "User-Agent": "dailydewpoint (contact: you@example.com)",
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
+      });
+      if (r.ok) {
+        text = await r.text();
+        console.log(`✅ DSM via Iowa Mesonet (${pil})`);
+      } else {
+        throw new Error(`Iowa Mesonet returned ${r.status}`);
+      }
+    } catch (e) {
+      // Fallback to NWS website
+      console.log(`⚠️ Iowa Mesonet failed, falling back to NWS: ${e.message}`);
+      r = await fetch(nwsUrl, {
+        headers: {
+          Accept: "text/html, text/plain",
+          "User-Agent": "dailydewpoint (contact: you@example.com)",
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
+      });
+      if (!r.ok) {
+        return res.status(502).json({ error: "NWS DSM upstream error", status: r.status });
+      }
+      text = await r.text();
     }
-    const text = await r.text();
 
     // Frontend parseDSM() expects raw text; serve as text/plain
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
