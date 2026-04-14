@@ -50,8 +50,9 @@ except ImportError:
 
 # ── Config ────────────────────────────────────────────────────────────────────
 SYNOPTIC_BASE = "https://api.synopticdata.com/v2"
-# Stations to query: KNYC + the four airport ASOS stations
-BACKFILL_STIDS = "KNYC,KJFK,KLGA,KEWR,KTEB"
+# Stations to query: KNYC + airport ASOS stations + deep NJ inland (v12)
+# KCDW = Caldwell NJ (~25mi inland), KSMQ = Somerville NJ (~35mi inland)
+BACKFILL_STIDS = "KNYC,KJFK,KLGA,KEWR,KTEB,KCDW,KSMQ"
 # Borough mesonet stations also tracked in the aggregate
 NYSM_STIDS = "MANH,BRON,QUEE,BKLN,STAT"
 CENTRAL_PARK_LAT = 40.7834
@@ -232,13 +233,17 @@ def compute_features_for_day(date_str: str, nws_high: Optional[float] = None) ->
         "obs_synoptic_mean":   nan, "obs_synoptic_min":    nan,
         "obs_synoptic_max":    nan, "obs_synoptic_spread": nan,
         "obs_synoptic_vs_nws": nan, "obs_synoptic_count":  nan,
-        # Named stations
+        # Named stations (v9)
         "obs_kjfk_temp": nan, "obs_klga_temp": nan,
         "obs_kewr_temp": nan, "obs_kteb_temp": nan, "obs_knyc_temp": nan,
-        # Cross-station diffs
+        # Cross-station diffs (v9)
         "obs_kjfk_vs_knyc":      nan, "obs_klga_vs_knyc":      nan,
         "obs_kewr_vs_knyc":      nan, "obs_airport_spread":     nan,
         "obs_coastal_vs_inland": nan,
+        # Deep NJ inland stations (v12)
+        "obs_kcdw_temp":       nan,  # Caldwell NJ ~25mi inland
+        "obs_ksmq_temp":       nan,  # Somerville NJ ~35mi inland
+        "obs_inland_gradient": nan,  # KSMQ - KJFK: full 35mi spread
         # NYSM borough aggregate
         "obs_nysm_mean": nan, "obs_nysm_min": nan, "obs_nysm_max": nan,
         "obs_nysm_spread": nan, "obs_nysm_vs_nws": nan, "obs_nysm_count": nan,
@@ -268,12 +273,16 @@ def compute_features_for_day(date_str: str, nws_high: Optional[float] = None) ->
     klga_t = _mean_temp(named_ts.get("KLGA", []))
     kewr_t = _mean_temp(named_ts.get("KEWR", []))
     kteb_t = _mean_temp(named_ts.get("KTEB", []))
+    kcdw_t = _mean_temp(named_ts.get("KCDW", []))   # Caldwell NJ ~25mi (v12)
+    ksmq_t = _mean_temp(named_ts.get("KSMQ", []))   # Somerville NJ ~35mi (v12)
 
     if knyc_t is not None: result["obs_knyc_temp"] = knyc_t
     if kjfk_t is not None: result["obs_kjfk_temp"] = kjfk_t
     if klga_t is not None: result["obs_klga_temp"] = klga_t
     if kewr_t is not None: result["obs_kewr_temp"] = kewr_t
     if kteb_t is not None: result["obs_kteb_temp"] = kteb_t
+    if kcdw_t is not None: result["obs_kcdw_temp"] = kcdw_t
+    if ksmq_t is not None: result["obs_ksmq_temp"] = ksmq_t
 
     # Cross-station diffs (anchored at KNYC)
     if knyc_t is not None:
@@ -291,6 +300,10 @@ def compute_features_for_day(date_str: str, nws_high: Optional[float] = None) ->
         result["obs_coastal_vs_inland"] = round(
             sum(coastal)/len(coastal) - sum(inland)/len(inland), 1
         )
+
+    # Deep inland gradient: KSMQ - KJFK (v12 feature — full 35mi spread)
+    if kjfk_t is not None and ksmq_t is not None:
+        result["obs_inland_gradient"] = round(ksmq_t - kjfk_t, 1)
 
     # ── NYSM borough aggregate ────────────────────────────────────────
     borough_temps = []
@@ -331,7 +344,9 @@ def compute_features_for_day(date_str: str, nws_high: Optional[float] = None) ->
     print(f"    ✓ {pop}/{len(result)} features populated  "
           f"KJFK={result.get('obs_kjfk_temp')}  "
           f"KNYC={result.get('obs_knyc_temp')}  "
-          f"KJFK-KNYC={result.get('obs_kjfk_vs_knyc')}  "
+          f"KCDW={result.get('obs_kcdw_temp')}  "
+          f"KSMQ={result.get('obs_ksmq_temp')}  "
+          f"gradient={result.get('obs_inland_gradient')}  "
           f"coastal-inland={result.get('obs_coastal_vs_inland')}")
 
     return result

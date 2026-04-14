@@ -2956,7 +2956,157 @@ class NYCTemperatureModelTrainer:
         except Exception:
             pass
 
-    def run(self, v2: bool = False, v4: bool = False, v5: bool = False, v6: bool = False, v7: bool = False, v8: bool = False, v9: bool = False, v10: bool = False, v11: bool = False):
+    def train_v12(self) -> None:
+        """
+        Train v12 model: v11 (154 features) + deep NNJ inland stations (3 features = 157 total).
+
+        New features:
+          obs_kcdw_temp       — Caldwell NJ ASOS (~25mi inland from JFK)
+          obs_ksmq_temp       — Somerville NJ ASOS (~35mi inland from JFK, deepest reference)
+          obs_inland_gradient — KSMQ - KJFK: full 35-mile coastal-to-inland temperature spread
+
+        Motivation: v9 uses EWR (~15mi) and TEB (~20mi) as the inland anchor for
+        obs_coastal_vs_inland.  KCDW and KSMQ push 25-35mi into NJ interior where the sea
+        breeze NEVER reaches even on cap days.  On a strong marine cap day the gradient
+        (JFK=68°F, KSMQ=84°F) is +16°F — an unambiguous fingerprint that is completely
+        invisible to v11.  This feature alone can distinguish "coast capped, inland free"
+        from "uniform cap across all stations".
+        """
+        from model_config import FEATURE_COLS_V12
+        from train_classifier import BucketClassifier
+        from sklearn.ensemble import HistGradientBoostingRegressor
+        from sklearn.model_selection import cross_val_score
+        import numpy as np
+
+        print(f"\n{'═'*60}")
+        print(f"v12 Training: v11 + deep NNJ inland stations ({len(FEATURE_COLS_V12)} total features)")
+        print(f"{'═'*60}")
+
+        if self.features_df.empty:
+            print("  ⚠️ No feature data — skipping v12.")
+            return
+
+        prefix = self.model_prefix
+        forecast_df = self.features_df[self.features_df["nws_last"].notna()].copy()
+        n_forecast = len(forecast_df)
+        if n_forecast < 30:
+            print(f"  ⚠️ Only {n_forecast} forecast rows (need 30+). Skipping v12.")
+            return
+
+        # Check how many rows have the new inland station data
+        n_ksmq = forecast_df["obs_ksmq_temp"].notna().sum() if "obs_ksmq_temp" in forecast_df.columns else 0
+        n_kcdw = forecast_df["obs_kcdw_temp"].notna().sum() if "obs_kcdw_temp" in forecast_df.columns else 0
+        print(f"  obs_ksmq_temp: {n_ksmq} non-null rows (of {n_forecast} forecast rows)")
+        print(f"  obs_kcdw_temp: {n_kcdw} non-null rows")
+        if n_ksmq < 14:
+            print(f"  ⚠️ Only {n_ksmq} rows with KSMQ data (need 14+) — "
+                  f"run backfill_synoptic.py to populate history. Skipping v12.")
+            return
+
+        missing_v12 = [c for c in FEATURE_COLS_V12 if c not in self.features_df.columns]
+        if missing_v12:
+            print(f"  Missing v12 cols (NaN for historical rows): {missing_v12}")
+            for col in missing_v12:
+                self.features_df[col] = np.nan
+
+        # Also derive the v11 divergence features (needed since we build on v11)
+        self._compute_model_vs_nws_features()
+
+        forecast_df = self.features_df[self.features_df["nws_last"].notna()].copy()
+        X_v12    = forecast_df[FEATURE_COLS_V12]
+        nws_last = forecast_df["nws_last"]
+        y_actual = forecast_df["actual_high"]
+        y_bias   = y_actual - nws_last   # train residual vs NWS (same target as v7-v11)
+
+        v12_regressor = HistGradientBoostingRegressor(
+            max_iter=400, learning_rate=0.04, max_depth=4,
+            min_samples_leaf=6, l2_regularization=0.3,
+            random_state=42,
+        )
+
+        mae_scores = -cross_val_score(v12_regressor, X_v12, y_bias, cv=5, scoring="neg_mean_absolute_error")
+        bucket_acc = cross_val_score(
+            v12_regressor, X_v12, y_bias, cv=5,
+            scoring=lambda est, X, y: float(np.mean(
+                np.abs((est.predict(X) + nws_last.iloc[:len(X)]) - y_actual.iloc[:len(X)]) <= 1
+            )),
+        )
+        residual_std = float(np.std(y_bias))
+
+        print(f"  v12 CV MAE:        {np.mean(mae_scores):.2f}°F")
+        print(f"  v12 CV Bucket Acc: {np.mean(bucket_acc):.1%}")
+        print(f"  v12 Residual Std:  {residual_std:.2f}°F")
+        v12_regressor.fit(X_v12, y_bias)
+
+        try:
+            fi = dict(zip(FEATURE_COLS_V12, v12_regressor.feature_importances_))
+            print(f"  obs_inland_gradient importance: {fi.get('obs_inland_gradient', 0):.4f}")
+            print(f"  obs_ksmq_temp importance:       {fi.get('obs_ksmq_temp', 0):.4f}")
+            print(f"  obs_kcdw_temp importance:       {fi.get('obs_kcdw_temp', 0):.4f}")
+            print(f"  obs_coastal_vs_inland (v9):     {fi.get('obs_coastal_vs_inland', 0):.4f}")
+        except Exception:
+            pass
+
+        classifier = BucketClassifier()
+        classifier.train(
+            self.features_df.copy().reset_index(drop=True),
+            feature_cols=FEATURE_COLS_V12,
+            residual_std=residual_std,
+            forecast_weight=5.0,
+        )
+
+        with open(f"{prefix}bcp_v12_regressor.pkl", "wb") as f:
+            pickle.dump(v12_regressor, f)
+        with open(f"{prefix}bcp_v12_classifier.pkl", "wb") as f:
+            pickle.dump(classifier, f)
+        with open(f"{prefix}bcp_v12_feature_cols.pkl", "wb") as f:
+            pickle.dump(list(FEATURE_COLS_V12), f)
+
+        v12_meta = {
+            "trained_on": datetime.now().isoformat(),
+            "version": "v12_deep_nj_inland_stations",
+            "base_cascade": "HRRR > NBM > AccuWeather > NWS",
+            "new_features": "obs_kcdw_temp, obs_ksmq_temp, obs_inland_gradient (KSMQ-JFK)",
+            "motivation": (
+                "v11's obs_coastal_vs_inland uses EWR/TEB as the inland anchor (~20mi). "
+                "KCDW (~25mi) and KSMQ (~35mi) push the reference into NJ interior where "
+                "the sea breeze never reaches, making the full coast-to-inland gradient "
+                "visible for the first time. On strong cap days the KSMQ-JFK spread is "
+                "+15-20°F — a signal completely hidden from v11."
+            ),
+            "n_ksmq_rows": int(n_ksmq),
+            "n_kcdw_rows": int(n_kcdw),
+            "v12_regression": {
+                "cv_mae": float(np.mean(mae_scores)),
+                "cv_bucket_accuracy": float(np.mean(bucket_acc)),
+                "residual_std": residual_std,
+                "n_features": len(FEATURE_COLS_V12),
+                "n_training_rows": n_forecast,
+            },
+            "feature_columns_v12": list(FEATURE_COLS_V12),
+        }
+        import json as _json
+        with open(f"{prefix}model_metadata_v12.json", "w") as f:
+            _json.dump(v12_meta, f, indent=2)
+
+        print(f"\n  ✅ Saved v12 models: bcp_v12_regressor.pkl, bcp_v12_classifier.pkl")
+        print(f"  v12 Classifier Bucket Acc: {classifier.cv_bucket_accuracy:.1%}")
+
+        try:
+            import json as _j
+            with open(f"{prefix}model_metadata_v11.json") as f:
+                v11_meta = _j.load(f)
+            v11_mae = v11_meta.get("v11_regression", {}).get("cv_mae")
+            v11_bkt = v11_meta.get("v11_regression", {}).get("cv_bucket_accuracy")
+            print(f"\n{'─'*50}")
+            print(f"COMPARISON: v11 vs v12 (added: KCDW + KSMQ + inland_gradient)")
+            if v11_mae: print(f"  MAE:        v11={v11_mae:.2f}°F → v12={np.mean(mae_scores):.2f}°F")
+            if v11_bkt: print(f"  Bucket Acc: v11={v11_bkt:.1%} → v12={np.mean(bucket_acc):.1%}")
+            print(f"{'─'*50}")
+        except Exception:
+            pass
+
+    def run(self, v2: bool = False, v4: bool = False, v5: bool = False, v6: bool = False, v7: bool = False, v8: bool = False, v9: bool = False, v10: bool = False, v11: bool = False, v12: bool = False):
         label = self.city_cfg["label"]
         print("=" * 60)
         print(f"{label} Temperature Model Training")
@@ -3096,6 +3246,26 @@ class NYCTemperatureModelTrainer:
                 self.train_v9()
             self.train_v11()
 
+        if v12:
+            if not v2:
+                self.train_v2()
+                self.train_v3()
+            if not v4:
+                self.train_v4()
+            if not v5:
+                self.train_v5()
+            if not v6:
+                self.train_v6()
+            if not v7:
+                self.train_v7()
+            if not v8:
+                self.train_v8()
+            if not v9:
+                self.train_v9()
+            if not v11:
+                self.train_v11()
+            self.train_v12()
+
         print("\nTraining complete.")
 
 
@@ -3123,6 +3293,8 @@ if __name__ == "__main__":
                         help="Train v10 (v9 + Manhattan Mesonet MANH: 5-min fill-in between KNYC hourly reports)")
     parser.add_argument("--v11", action="store_true",
                         help="Train v11 (v10 + model-vs-NWS divergence: mm_hrrr_vs_nws, mm_nbm_vs_nws, mm_mean_vs_nws)")
+    parser.add_argument("--v12", action="store_true",
+                        help="Train v12 (v11 + deep NNJ inland stations: KCDW ~25mi, KSMQ ~35mi, obs_inland_gradient)")
     args = parser.parse_args()
 
     if args.all:
@@ -3140,6 +3312,7 @@ if __name__ == "__main__":
                 v9=getattr(args, "v9", False),
                 v10=getattr(args, "v10", False),
                 v11=getattr(args, "v11", False),
+                v12=getattr(args, "v12", False),
             )
     else:
         trainer = NYCTemperatureModelTrainer(city_key=args.city)

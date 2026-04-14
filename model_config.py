@@ -492,6 +492,37 @@ FEATURE_COLS_V11 = list(FEATURE_COLS_V10) + MM_VS_NWS_COLS
 # v11 LAX equivalent — same divergence features apply
 FEATURE_COLS_V11_LAX = list(FEATURE_COLS_V10_LAX) + MM_VS_NWS_COLS
 
+# ═══════════════════════════════════════════════════════════════════════
+# v12 feature columns — v11 + deep NNJ inland stations (KCDW + KSMQ)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# v9 captured EWR (~15mi) and TEB (~20mi) as the inland reference.
+# obs_coastal_vs_inland = mean(JFK,LGA) - mean(EWR,TEB) — only 20mi spread.
+#
+# KCDW (Caldwell NJ, ~25mi) and KSMQ (Somerville NJ, ~35mi) push the
+# inland reference much deeper into the NJ interior, where the sea breeze
+# NEVER reaches on any day.  When JFK is 68°F and KSMQ is 84°F, the
+# gradient (+16°F over 35mi) is an unambiguous marine cap fingerprint.
+# That gradient is invisible to v11, which only sees the 20mi EWR/TEB signal.
+#
+# obs_inland_gradient = KSMQ - KJFK:
+#   Positive and large (≥+5°F): warm air mass inland, sea breeze not penetrating far
+#   Positive and huge (≥+10°F): strong cap day — JFK pinned, inland heating
+#   Near zero:                  uniform conditions, no differential heating
+#
+# These features are populated by:
+#   - Live: prediction_writer.py obs pipeline via synoptic_client.py
+#   - Historical backfill: backfill_synoptic.py (KCDW/KSMQ added to BACKFILL_STIDS)
+#
+# Total: v11(154) + deep_inland(3) = 157 features
+DEEP_INLAND_STATION_COLS = [
+    "obs_kcdw_temp",        # Caldwell NJ ASOS (~25mi inland) — warmer than TEB on cap days
+    "obs_ksmq_temp",        # Somerville NJ ASOS (~35mi inland) — deepest inland reference
+    "obs_inland_gradient",  # KSMQ - KJFK: positive = warm inland air mass, negative = uniform cap
+]
+
+FEATURE_COLS_V12 = list(FEATURE_COLS_V11) + DEEP_INLAND_STATION_COLS
+
 # Additional features added per-candidate-bucket during classification (4)
 BUCKET_POSITION_COLS = [
     "bucket_center",
