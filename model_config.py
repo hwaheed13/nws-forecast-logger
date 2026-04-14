@@ -86,6 +86,7 @@ MULTIMODEL_COLS = [
     "mm_mean",                # Multi-model consensus mean
     "mm_ecmwf_gfs_diff",      # ECMWF - GFS difference
     "mm_hrrr_max",            # HRRR predicted daily max (#1 accuracy, runs hourly)
+    "mm_ecmwf_max",           # ECMWF/HRES predicted daily max (top-tier global, #2 accuracy)
     "mm_hrrr_ecmwf_diff",     # HRRR - ECMWF: positive = HRRR overmixing
     "mm_hrrr_gfs_diff",       # HRRR - GFS: mesoscale vs synoptic agreement
     "mm_icon_max",            # ICON (German DWD) predicted daily max
