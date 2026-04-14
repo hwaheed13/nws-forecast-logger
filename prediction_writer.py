@@ -4106,6 +4106,17 @@ _ATM_SNAPSHOT_KEYS = (
     "obs_airport_spread",    # near-zero = all airports uniformly capped
     "obs_coastal_vs_inland", # mean(KJFK,KLGA) - mean(KEWR,KTEB): negative = marine
     # obs_heating_rate_delta already listed above under v8
+    # v10: NNJ inland gradient (KCDW + KSMQ, up to 35mi inland)
+    "obs_snap_kcdw", "obs_snap_ksmq",
+    "obs_snap_inland_gradient",     # KSMQ - JFK (positive = warm air advancing from west)
+    "obs_snap_inland_warming_rate", # rate of intraday gradient change
+    # v10: scored outcome features (written at scoring time, not prediction time)
+    # These are the ground-truth labels for training the blow-past and oscillation models.
+    "scored_blow_past_occurred",    # bool: actual_high > bucket_ceiling (did it blow past?)
+    "scored_actual_vs_ceiling",     # float: actual_high - bucket_ceiling (magnitude of blow-past or miss)
+    "scored_intraday_flip_count",   # int: confirmed model flip count for the scored day
+    "scored_flip_history",          # list[str]: sequence of confirmed non-canonical buckets
+    "scored_obs_inland_gradient",   # float: NNJ gradient at time of last obs update
 )
 
 
@@ -4175,7 +4186,7 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
         url = (f"{endpoint}?idempotency_key=eq.{idem_key}"
                f"&select=ml_bucket,ml_f,ml_result,ml_actual_high,kalshi_market_snapshot,"
                f"ml_bucket_canonical,ml_f_canonical,ml_result_canonical,"
-               f"ml_bucket_2,ml_bucket_2_prob,bucket_rank_hit")
+               f"ml_bucket_2,ml_bucket_2_prob,bucket_rank_hit,atm_snapshot")
         req = urllib.request.Request(url, headers={
             "apikey": key, "Authorization": f"Bearer {key}",
             "Accept": "application/json",
@@ -4262,6 +4273,58 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
 
         result = "WIN" if is_win else "MISS"
 
+        # ── Compute blow-past and oscillation features for ML training ───────────
+        # Blow-past: did the actual high exceed the TOP of the predicted bucket?
+        # For "lo-hi" buckets the ceiling is `hi`.  ">=" buckets have no ceiling.
+        _bucket_ceiling: "float | None" = None
+        if "-" in ml_bucket:
+            _bk_parts = ml_bucket.split("-")
+            if len(_bk_parts) == 2:
+                try: _bucket_ceiling = float(_bk_parts[1])
+                except ValueError: pass
+        elif ml_bucket.startswith("<="):
+            try: _bucket_ceiling = float(ml_bucket[2:])
+            except ValueError: pass
+        # ">=" is unbounded above — no ceiling, blow-past not applicable.
+        _blow_past_occurred = bool(
+            _bucket_ceiling is not None and actual_high > _bucket_ceiling
+        )
+        _actual_vs_ceiling = (
+            round(actual_high - _bucket_ceiling, 1)
+            if _bucket_ceiling is not None else None
+        )
+
+        # Read flip state from yesterday's atm_snapshot (already fetched above).
+        _atm_raw = pred.get("atm_snapshot")
+        try:
+            _atm_snap: dict = (
+                json.loads(_atm_raw) if isinstance(_atm_raw, str)
+                else (_atm_raw if isinstance(_atm_raw, dict) else {})
+            ) if _atm_raw else {}
+        except Exception:
+            _atm_snap = {}
+        _intraday_flip_count = int(_atm_snap.get("ml_flip_count") or 0)
+        _flip_history        = _atm_snap.get("ml_flip_history") or []
+
+        # Persist scored features back into atm_snapshot so the training pipeline
+        # can use them as ground-truth labels / contextual features next season.
+        _atm_snap["scored_blow_past_occurred"]  = _blow_past_occurred
+        _atm_snap["scored_intraday_flip_count"] = _intraday_flip_count
+        if _actual_vs_ceiling is not None:
+            _atm_snap["scored_actual_vs_ceiling"] = _actual_vs_ceiling
+        if isinstance(_flip_history, list) and _flip_history:
+            _atm_snap["scored_flip_history"] = _flip_history
+        # inland gradient at scoring time (already in snap from obs pipeline)
+        _atm_snap.setdefault("scored_obs_inland_gradient",
+                             _atm_snap.get("obs_snap_inland_gradient"))
+
+        _ceil_str = (f"ceiling={_bucket_ceiling}°F | delta={_actual_vs_ceiling:+.1f}°F"
+                     if _actual_vs_ceiling is not None else "no ceiling (≥ bucket)")
+        print(f"  📈 Scored ML features: blow_past={_blow_past_occurred} "
+              f"(actual={actual_high}°F vs {_ceil_str}), "
+              f"flip_count={_intraday_flip_count}")
+        # ────────────────────────────────────────────────────────────────────────
+
         # Score bucket rank: 1=bucket1 hit, 2=bucket2 hit (bucket1 missed), 0=both missed
         bucket_rank_hit: Optional[int] = None
         if is_win:
@@ -4278,8 +4341,10 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
             bucket_rank_hit = 0  # no bucket 2 stored (old row) — mark as miss
 
         # Score canonical (first-of-day) prediction separately for comparison research.
+        # Include the updated atm_snapshot so scored ML features are persisted.
         patch_data: dict = {"ml_result": result, "ml_actual_high": actual_high,
-                            "bucket_rank_hit": bucket_rank_hit}
+                            "bucket_rank_hit": bucket_rank_hit,
+                            "atm_snapshot": json.dumps(_atm_snap)}
         canonical_bucket = pred.get("ml_bucket_canonical")
         ks_raw = pred.get("kalshi_market_snapshot")
         if canonical_bucket and canonical_bucket != ml_bucket:
