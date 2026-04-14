@@ -4496,6 +4496,12 @@ function renderLiveSourcesPanel() {
   const hrrr_ecmwf   = ms.mm_hrrr_ecmwf_diff;
   const nbm          = ms.mm_nbm_max;
   const gem_hrdps    = ms.mm_gem_hrdps_max;
+  // ECMWF/HRES: prefer explicit mm_ecmwf_max if available, otherwise calculate from HRRR - delta
+  const ecmwf        = ms.mm_ecmwf_max != null
+    ? ms.mm_ecmwf_max
+    : (hrrr != null && hrrr_ecmwf != null)
+    ? Number(hrrr) - Number(hrrr_ecmwf)
+    : null;
   // Expose ensemble range globally so flip-risk fetch can use it
   if (mm_spread != null) window._ensembleRange = mm_spread;
 
@@ -4531,9 +4537,9 @@ function renderLiveSourcesPanel() {
   const mm_sub = [
     mm_mean    != null ? `Consensus: ${f0(mm_mean)}` : "",
     hrrr       != null ? `HRRR: ${f0(hrrr)}` : "",
+    ecmwf      != null ? `HRES: ${f0(ecmwf)}` : "",
     nbm        != null ? `NBM: ${f0(nbm)}` : "",
     gem_hrdps  != null ? `GEM: ${f0(gem_hrdps)}` : "",
-    hrrr_ecmwf != null ? `HRRR-ECMWF: ${fSign(hrrr_ecmwf)}` : "",
   ].filter(Boolean).join(" · ") || "Awaiting next cycle";
 
   // ── WU PWS (citizen weather stations)

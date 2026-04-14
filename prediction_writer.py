@@ -4092,7 +4092,7 @@ _ATM_SNAPSHOT_KEYS = (
     # Multi-model spread (original 5 models)
     "mm_spread", "mm_std", "mm_mean",
     "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff", "mm_ecmwf_gfs_diff",
-    "mm_hrrr_max", "mm_icon_max", "mm_gem_max",
+    "mm_hrrr_max", "mm_ecmwf_max", "mm_icon_max", "mm_gem_max",
     "mm_icon_gfs_diff", "mm_gem_ecmwf_diff",
     # v6: high-accuracy models (NBM #3 accuracy, GEM HRDPS #5 accuracy per wethr.net)
     "mm_nbm_max", "mm_nbm_hrrr_diff", "mm_nbm_gfs_diff", "mm_nbm_ecmwf_diff",
@@ -5045,7 +5045,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 _MM_KEYS = (
                     "mm_spread", "mm_std", "mm_mean",
                     "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff", "mm_ecmwf_gfs_diff",
-                    "mm_hrrr_max", "mm_icon_max", "mm_gem_max",
+                    "mm_hrrr_max", "mm_ecmwf_max", "mm_icon_max", "mm_gem_max",
                     "mm_icon_gfs_diff", "mm_gem_ecmwf_diff",
                     # v6 additions — high-accuracy models (NBM, GEM HRDPS)
                     "mm_nbm_max", "mm_nbm_hrrr_diff", "mm_nbm_gfs_diff", "mm_nbm_ecmwf_diff",
@@ -5713,7 +5713,7 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     # Reads from the existing tomorrow row's atm_snapshot in Supabase.
     _MM_CARRY_KEYS_TM = (
         "mm_spread", "mm_std", "mm_mean",
-        "mm_hrrr_max", "mm_nbm_max", "mm_gem_max", "mm_icon_max",
+        "mm_hrrr_max", "mm_ecmwf_max", "mm_nbm_max", "mm_gem_max", "mm_icon_max",
         "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff", "mm_ecmwf_gfs_diff",
         "mm_icon_gfs_diff", "mm_gem_ecmwf_diff",
         "mm_nbm_hrrr_diff", "mm_nbm_gfs_diff", "mm_nbm_ecmwf_diff",
@@ -5864,7 +5864,7 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     _ATM_SNAP_KEYS = (
         "mm_spread", "mm_std", "mm_mean",
         "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff", "mm_ecmwf_gfs_diff",
-        "mm_hrrr_max", "mm_icon_max", "mm_gem_max",
+        "mm_hrrr_max", "mm_ecmwf_max", "mm_icon_max", "mm_gem_max",
         # v6 high-accuracy models
         "mm_nbm_max", "mm_nbm_hrrr_diff", "mm_nbm_gfs_diff",
         "mm_gem_hrdps_max", "mm_gem_hrdps_hrrr_diff",

@@ -548,6 +548,10 @@ def extract_multimodel_features(multimodel_data: dict, target_date: str) -> dict
     else:
         features["mm_ecmwf_gfs_diff"] = np.nan
 
+    # ECMWF (European HRES) — top-tier global model, #2 accuracy behind HRRR for regional.
+    # Store explicit forecast value for dashboard display and ensemble analysis.
+    features["mm_ecmwf_max"] = float(ecmwf) if ecmwf is not None else np.nan
+
     # HRRR features — HRRR has a known boundary-layer warm bias that sophisticated
     # traders exploit. When HRRR diverges from ECMWF, it's a strong uncertainty signal.
     features["mm_hrrr_max"] = float(hrrr) if hrrr is not None else np.nan
