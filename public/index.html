@@ -7209,7 +7209,7 @@ async function bootApp() {
               event: '*',
               schema: 'public',
               table: 'nws_daily_summary',
-              filter: `city=eq.${cityCode}|date=eq.${todayISO}`
+              filter: `and(city.eq.${cityCode},date.eq.${todayISO})`
             },
             (payload) => {
               const row = payload.new;
