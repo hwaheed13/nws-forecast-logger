@@ -432,8 +432,9 @@ def backfill(
         if isinstance(snap, str):
             try: snap = json.loads(snap)
             except: snap = {}
-        # Skip if already has kjfk data (idempotent)
-        if snap.get("obs_kjfk_temp") is not None:
+        # Skip only if already has KSMQ data (new v12 feature).
+        # Rows with only v9 data (KJFK) will be refetched to add KCDW/KSMQ.
+        if snap.get("obs_ksmq_temp") is not None:
             already_filled += 1
             continue
         dates_to_process.append((d, row))
@@ -659,13 +660,13 @@ def csv_backfill(
             if isinstance(snap, str):
                 try: snap = json.loads(snap)
                 except: snap = {}
-            if snap.get("obs_kjfk_temp") is not None:
+            if snap.get("obs_ksmq_temp") is not None:
                 existing_kjfk.add(d)
         if len(page) < PAGE:
             break
         offset += PAGE
 
-    print(f"Supabase: {len(existing_kjfk)} dates already have obs_kjfk_temp — will skip\n")
+    print(f"Supabase: {len(existing_kjfk)} dates already have obs_ksmq_temp (v12) — will skip\n")
 
     # ── Build ordered work list ────────────────────────────────────────
     # Process oldest-first so the model learns cap season in order
