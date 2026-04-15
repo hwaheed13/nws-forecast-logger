@@ -35,49 +35,76 @@ function fetchEndpoint(url, name) {
           name,
           responseTime: Date.now() - startTime,
           statusCode: res.statusCode,
-          data,
+          data: data.length > 0 ? data : null,
           success: res.statusCode === 200
         });
       });
     });
     request.on('error', (err) => {
-      resolve({ name, responseTime: Date.now() - startTime, error: err.message, success: false });
+      resolve({ name, responseTime: Date.now() - startTime, error: err.message, success: false, data: null });
     });
     request.setTimeout(10000, () => {
       request.destroy();
-      resolve({ name, responseTime: Date.now() - startTime, error: 'Timeout', success: false });
+      resolve({ name, responseTime: Date.now() - startTime, error: 'Timeout', success: false, data: null });
     });
   });
 }
 
-function extractTemp(text) {
-  if (!text) return null;
-  const match = text.match(/KNYC\s+DS\s+\d+\s+\d+\/\d+\s+\d+\s+\d+\/\s+(\d+)\//);
-  return match ? parseFloat(match[1]) : null;
+function extractTemp(text, source) {
+  if (!text) {
+    console.log(`[${source}] No text to extract from`);
+    return null;
+  }
+  
+  // Try to extract from raw AFOS format (new endpoint)
+  let match = text.match(/KNYC\s+DS\s+\d+\s+\d+\/\d+\s+\d+\s+\d+\/\s+(\d+)\//);
+  if (match && match[1]) {
+    console.log(`[${source}] Extracted temp: ${match[1]}°F (from AFOS format)`);
+    return parseFloat(match[1]);
+  }
+  
+  // Try to extract from HTML (old endpoint)
+  const preMatch = text.match(/<pre[^>]*>([\s\S]*?)<\/pre>/);
+  if (preMatch && preMatch[1]) {
+    console.log(`[${source}] Found <pre> block, extracting from HTML...`);
+    match = preMatch[1].match(/KNYC\s+DS\s+\d+\s+\d+\/\d+\s+\d+\s+\d+\/\s+(\d+)\//);
+    if (match && match[1]) {
+      console.log(`[${source}] Extracted temp: ${match[1]}°F (from HTML)`);
+      return parseFloat(match[1]);
+    }
+  }
+  
+  console.log(`[${source}] Failed to extract temperature. Text length: ${text.length}, First 200 chars: ${text.substring(0, 200)}`);
+  return null;
 }
 
 async function main() {
-  console.log('Testing DSM endpoints...');
+  console.log('🌡️  Testing DSM endpoints...');
   const utcTimestamp = getUTCTimestamp();
   const oldEndpoint = `https://mesonet.agron.iastate.edu/wx/afos/p.php?pil=DSMNYC&e=${utcTimestamp}`;
   const newEndpoint = `https://mesonet.agron.iastate.edu/cgi-bin/afos/retrieve.py?pil=DSMNYC`;
+
+  console.log(`Old endpoint: ${oldEndpoint}`);
+  console.log(`New endpoint: ${newEndpoint}\n`);
 
   const [oldResult, newResult] = await Promise.all([
     fetchEndpoint(oldEndpoint, 'old'),
     fetchEndpoint(newEndpoint, 'new'),
   ]);
 
-  console.log(`Old endpoint: ${oldResult.responseTime}ms`);
-  console.log(`New endpoint: ${newResult.responseTime}ms`);
+  console.log(`\nResults:`);
+  console.log(`Old: ${oldResult.responseTime}ms (${oldResult.statusCode}) - success: ${oldResult.success}`);
+  console.log(`New: ${newResult.responseTime}ms (${newResult.statusCode}) - success: ${newResult.success}`);
 
-  const oldTemp = oldResult.success ? extractTemp(oldResult.data) : null;
-  const newTemp = newResult.success ? extractTemp(newResult.data) : null;
+  const oldTemp = oldResult.success ? extractTemp(oldResult.data, 'OLD') : null;
+  const newTemp = newResult.success ? extractTemp(newResult.data, 'NEW') : null;
 
   const winner = oldResult.success && newResult.success 
     ? (oldResult.responseTime < newResult.responseTime ? 'old' : 'new')
-    : (oldResult.success ? 'old' : 'new');
+    : (oldResult.success ? 'old' : (newResult.success ? 'new' : null));
 
-  console.log(`Winner: ${winner}`);
+  console.log(`\n🏆 Winner: ${winner}`);
+  console.log(`Temperatures - Old: ${oldTemp}°F, New: ${newTemp}°F`);
 
   const testRecord = {
     test_date: today,
@@ -89,19 +116,48 @@ async function main() {
     new_endpoint_success: newResult.success,
     old_endpoint_high: oldTemp,
     new_endpoint_high: newTemp,
+    old_endpoint_raw: oldResult.data ? oldResult.data.substring(0, 1000) : oldResult.error,
+    new_endpoint_raw: newResult.data ? newResult.data.substring(0, 1000) : newResult.error,
   };
 
-  const { error } = await supabase.from('dsm_endpoint_tests').insert([testRecord]);
-  if (error) {
-    console.error(`Failed to store: ${error.message}`);
-    process.exit(1);
+  const { error: testError } = await supabase.from('dsm_endpoint_tests').insert([testRecord]);
+  if (testError) {
+    console.error(`Failed to store test results: ${testError.message}`);
+  } else {
+    console.log('✅ Test results stored in dsm_endpoint_tests');
   }
 
-  console.log('Results stored in Supabase');
+  // Update nws_daily_summary with winner's data
+  if (winner && ((winner === 'old' && oldTemp) || (winner === 'new' && newTemp))) {
+    const winnerTemp = winner === 'old' ? oldTemp : newTemp;
+    console.log(`\n📝 Updating nws_daily_summary with ${winner} endpoint (${winnerTemp}°F)...`);
+
+    const { error: upsertError } = await supabase
+      .from('nws_daily_summary')
+      .upsert({
+        city: 'nyc',
+        date: today,
+        dsm_high: winnerTemp,
+        dsm_high_time: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'city,date',
+      });
+
+    if (upsertError) {
+      console.error(`❌ Failed to update nws_daily_summary: ${upsertError.message}`);
+    } else {
+      console.log(`✅ Updated nws_daily_summary for ${today}`);
+    }
+  } else {
+    console.log(`⚠️  No valid temperature to store (winner: ${winner}, temps: old=${oldTemp}, new=${newTemp})`);
+  }
+
   fs.writeFileSync('dsm-test-results.json', JSON.stringify(testRecord, null, 2));
+  console.log(`\n📄 Results saved to dsm-test-results.json`);
 }
 
 main().catch(err => {
-  console.error(`Error: ${err.message}`);
+  console.error(`❌ Fatal error: ${err.message}`);
   process.exit(1);
 });
