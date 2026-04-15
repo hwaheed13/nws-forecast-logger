@@ -7194,6 +7194,33 @@ async function bootApp() {
     // Refresh ML predictions every 30 min (matches prediction_writer schedule)
     setInterval(() => { try { loadMLPredictions(); } catch {} }, 30 * 60 * 1000);
 
+    // ── Fetch DSM data on page load (from GitHub Actions workflow) ──
+    // This populates window._dsmHighF immediately so it persists across page refreshes
+    async function loadDSMOnPageLoad() {
+      try {
+        const todayISO = nycISODate(0);
+        const cityCode = currentCity === 'lax' ? 'lax' : 'nyc';
+
+        const { data, error } = await supabase
+          .from('nws_daily_summary')
+          .select('dsm_high, dsm_high_time')
+          .eq('city', cityCode)
+          .eq('date', todayISO)
+          .single();
+
+        if (data && data.dsm_high != null) {
+          window._dsmHighF = Number(data.dsm_high);
+          window._dsmHighTime = data.dsm_high_time || null;
+          console.log(`📊 DSM High loaded on page init: ${window._dsmHighF}°F at ${window._dsmHighTime}`);
+        }
+      } catch (e) {
+        // Silently handle errors (no data yet is expected early in the day)
+      }
+    }
+
+    // Call on page load
+    try { await loadDSMOnPageLoad(); } catch {}
+
     // ── Set up Supabase real-time listener for DSM high temperature ──
     async function setupDSMRealtimeListener() {
       try {
