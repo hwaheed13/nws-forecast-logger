@@ -55,25 +55,27 @@ function extractTemp(text, source) {
     console.log(`[${source}] No text to extract from`);
     return null;
   }
-  
+
   // Try to extract from raw AFOS format (new endpoint)
-  let match = text.match(/KNYC\s+DS\s+\d+\s+\d+\/\d+\s+\d+\s+\d+\/\s+(\d+)\//);
+  // Format: KNYC DS 1600 15/04 901414/ 670430// 90/ 67//...
+  // Pattern: KNYC DS [time] [date] [codes]// [HIGH]/ [LOW]//
+  let match = text.match(/KNYC\s+DS.*?\/\/\s+(\d+)\//);
   if (match && match[1]) {
     console.log(`[${source}] Extracted temp: ${match[1]}°F (from AFOS format)`);
     return parseFloat(match[1]);
   }
-  
+
   // Try to extract from HTML (old endpoint)
   const preMatch = text.match(/<pre[^>]*>([\s\S]*?)<\/pre>/);
   if (preMatch && preMatch[1]) {
     console.log(`[${source}] Found <pre> block, extracting from HTML...`);
-    match = preMatch[1].match(/KNYC\s+DS\s+\d+\s+\d+\/\d+\s+\d+\s+\d+\/\s+(\d+)\//);
+    match = preMatch[1].match(/KNYC\s+DS.*?\/\/\s+(\d+)\//);
     if (match && match[1]) {
       console.log(`[${source}] Extracted temp: ${match[1]}°F (from HTML)`);
       return parseFloat(match[1]);
     }
   }
-  
+
   console.log(`[${source}] Failed to extract temperature. Text length: ${text.length}, First 200 chars: ${text.substring(0, 200)}`);
   return null;
 }
