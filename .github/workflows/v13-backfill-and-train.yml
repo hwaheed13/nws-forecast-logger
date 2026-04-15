@@ -69,13 +69,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No v13 model changes detected."
           else
-            git commit -m "Train v13 BL safeguard model with backfilled features" -m "Backfilled 3 BL safeguard features into 4-year prediction_logs:
-- entrainment_temp_diff: 925mb temp gradient
-- marine_containment: normalized coastal gradient / BL depth
-- inland_strength: inland station bias vs ensemble consensus
-
-Trained v13 HistGradientBoostingRegressor on 160 features.
-Expected: April 15 miss fixed (89-90F instead of 87-88F), April 12 cap maintained (55F or lower)."
+            git commit -m "Train v13 BL safeguard model with backfilled features into 4-year prediction_logs"
             git fetch origin main
             git rebase origin/main || { echo "Rebase failed; aborting"; git rebase --abort || true; exit 0; }
             git push origin HEAD:main || true
