@@ -51,15 +51,28 @@ jobs:
           python backfill_v13_features.py
           echo "✅ Backfill complete: entrainment_temp_diff, marine_containment, inland_strength"
 
-      - name: Train v13 model
+      - name: Train v13 model (NYC)
         run: |
-          echo "=== Training v13 HistGradientBoostingRegressor on 160 features ==="
-          python train_models.py --all --v13
-          echo "✅ v13 training complete: bcp_v13_regressor.pkl, bcp_v13_classifier.pkl, metadata"
+          echo "=== Training v13 HistGradientBoostingRegressor on 160 features (NYC) ==="
+          python train_models.py --city nyc --v13
+          echo "✅ NYC v13 training complete"
+
+      - name: Backfill v13 features (LAX)
+        run: |
+          echo "=== Populating 3 BL safeguard features for LAX history ==="
+          python backfill_v13_features.py --city lax
+          echo "✅ LAX backfill complete: entrainment_temp_diff, marine_containment, inland_strength"
+
+      - name: Train v13 model (LAX)
+        run: |
+          echo "=== Training v13 HistGradientBoostingRegressor on 160 features (LAX) ==="
+          python train_models.py --city lax --v13
+          echo "✅ LAX v13 training complete"
 
       - name: Verify model files
         run: |
           ls -lh bcp_v13_*.pkl model_metadata_v13.json 2>/dev/null || echo "Checking files..."
+          echo "NYC and LAX v13 models trained and ready"
 
       - name: Commit updated v13 model files
         run: |
@@ -69,7 +82,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No v13 model changes detected."
           else
-            git commit -m "Train v13 BL safeguard model with backfilled features into 4-year prediction_logs"
+            git commit -m "Train v13 BL safeguard models (NYC + LAX) with backfilled features"
             git fetch origin main
             git rebase origin/main || { echo "Rebase failed; aborting"; git rebase --abort || true; exit 0; }
             git push origin HEAD:main || true
