@@ -523,6 +523,37 @@ DEEP_INLAND_STATION_COLS = [
 
 FEATURE_COLS_V12 = list(FEATURE_COLS_V11) + DEEP_INLAND_STATION_COLS
 
+# ═══════════════════════════════════════════════════════════════════════
+# v13 feature columns — v12 + BL safeguard features (entrainment, marine, inland)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# MOTIVATION (April 15, 2026):
+#   v12 BL height spike triggered downward revision even though:
+#   - Entrainment gradient was established, not actively growing
+#   - Marine layer was contained at coast (not penetrating inland)
+#   - Inland stations showed forecast was tracking well
+#
+# These 3 features encode those guard rails directly, letting model learn:
+#   "BL trigger is conditional on atmospheric state"
+#   "Don't reduce forecast if entrainment, marine, inland signals don't align"
+#
+# Feature definitions:
+#   entrainment_temp_diff = atm_925mb_temp_mean - obs_latest_temp
+#     → Negative = cool aloft (potential mixing), positive/near-zero = neutral
+#   marine_containment = obs_kjfk_vs_knyc / atm_bl_height_max
+#     → Ratio of coastal gradient to BL depth; large negative + deep BL = contained
+#   inland_strength = mean(obs_kteb_temp, obs_kcdw_temp, obs_ksmq_temp) - mm_mean
+#     → Inland actual vs forecast consensus; positive = inland beating forecast
+#
+# Total: v12(157) + BL_safeguard(3) = 160 features
+BL_SAFEGUARD_COLS = [
+    "entrainment_temp_diff",    # 925mb - obs: is aloft air actively cooling surface?
+    "marine_containment",        # JFK_vs_KNYC / BL_max: is ocean penetrating inland?
+    "inland_strength",           # inland_mean - forecast_mean: who's winning?
+]
+
+FEATURE_COLS_V13 = list(FEATURE_COLS_V12) + BL_SAFEGUARD_COLS
+
 # Additional features added per-candidate-bucket during classification (4)
 BUCKET_POSITION_COLS = [
     "bucket_center",

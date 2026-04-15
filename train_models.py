@@ -1177,6 +1177,62 @@ class NYCTemperatureModelTrainer:
         print(f"  v11 divergence features: mm_hrrr_vs_nws={n_hrrr} rows, mm_nbm_vs_nws={n_nbm} rows")
         self.features_df = df
 
+    def _compute_bl_safeguard_features(self) -> None:
+        """
+        Derive v13 BL safeguard columns from existing features.
+
+        entrainment_temp_diff = atm_925mb_temp_mean - obs_latest_temp
+          → Negative = cool aloft (potential mixing), positive/near-zero = neutral
+
+        marine_containment = obs_kjfk_vs_knyc / atm_bl_height_max
+          → Ratio of coastal gradient to BL depth; captures how contained ocean air is
+
+        inland_strength = mean(obs_kteb_temp, obs_kcdw_temp, obs_ksmq_temp) - mm_mean
+          → Inland actual vs forecast consensus; positive = inland beating forecast
+
+        Called after all merges so all input columns are populated.
+        Rows with missing inputs get NaN — HistGradientBoosting handles NaN natively.
+        """
+        df = self.features_df
+
+        # 1) entrainment_temp_diff = 925mb - obs_latest_temp
+        if "atm_925mb_temp_mean" in df.columns and "obs_latest_temp" in df.columns:
+            df["entrainment_temp_diff"] = (df["atm_925mb_temp_mean"] - df["obs_latest_temp"]).round(1)
+        else:
+            df["entrainment_temp_diff"] = np.nan
+
+        # 2) marine_containment = obs_kjfk_vs_knyc / atm_bl_height_max
+        # Avoid division by zero and negative BL heights
+        if "obs_kjfk_vs_knyc" in df.columns and "atm_bl_height_max" in df.columns:
+            mask = (df["atm_bl_height_max"] > 0) & (df["atm_bl_height_max"].notna())
+            df["marine_containment"] = np.where(
+                mask,
+                (df["obs_kjfk_vs_knyc"] / df["atm_bl_height_max"]).round(6),
+                np.nan
+            )
+        else:
+            df["marine_containment"] = np.nan
+
+        # 3) inland_strength = mean(kteb, kcdw, ksmq) - mm_mean
+        if "mm_mean" in df.columns:
+            inland_cols = ["obs_kteb_temp", "obs_kcdw_temp", "obs_ksmq_temp"]
+            available = [c for c in inland_cols if c in df.columns]
+            if available:
+                inland_mean = df[available].mean(axis=1, skipna=True)
+                df["inland_strength"] = (inland_mean - df["mm_mean"]).round(1)
+            else:
+                df["inland_strength"] = np.nan
+        else:
+            df["inland_strength"] = np.nan
+
+        # Log coverage
+        n_entrainment = df["entrainment_temp_diff"].notna().sum()
+        n_marine = df["marine_containment"].notna().sum()
+        n_inland = df["inland_strength"].notna().sum()
+        print(f"  v13 BL safeguard features: entrainment={n_entrainment} rows, "
+              f"marine_containment={n_marine} rows, inland_strength={n_inland} rows")
+        self.features_df = df
+
 
     def _train_atm_predictor(self) -> None:
         """
@@ -3112,7 +3168,166 @@ class NYCTemperatureModelTrainer:
         except Exception:
             pass
 
-    def run(self, v2: bool = False, v4: bool = False, v5: bool = False, v6: bool = False, v7: bool = False, v8: bool = False, v9: bool = False, v10: bool = False, v11: bool = False, v12: bool = False):
+    def train_v13(self) -> None:
+        """
+        Train v13 model: v12 (157 features) + BL safeguard features (3 features = 160 total).
+
+        New features (computed derived features):
+          entrainment_temp_diff  = atm_925mb_temp_mean - obs_latest_temp
+          marine_containment     = obs_kjfk_vs_knyc / atm_bl_height_max
+          inland_strength        = mean(obs_kteb_temp, obs_kcdw_temp, obs_ksmq_temp) - mm_mean
+
+        Motivation (April 15, 2026):
+          v12 BL height spike (+951m at 1:55 PM EDT) triggered downward revision (89-90 → 87-88)
+          even though actual high reached 90°F. Root cause: BL trigger was conditional on other
+          atmospheric state that wasn't being explicitly modeled.
+
+          entrainment_temp_diff detects whether cool aloft air is actively mixing (new signal).
+          marine_containment shows whether ocean air is penetrating inland or contained at coast.
+          inland_strength verifies whether inland stations are beating the forecast (upside signal).
+
+          With these 3 features, the model learns: "BL increase matters only if OTHER conditions
+          align. Don't reduce forecast if entrainment is weak, marine is contained, inland is
+          tracking well." This prevents the April 15 miss while still catching actual cap days.
+        """
+        from model_config import FEATURE_COLS_V13
+        from train_classifier import BucketClassifier
+        from sklearn.ensemble import HistGradientBoostingRegressor
+        from sklearn.model_selection import cross_val_score
+        import numpy as np
+
+        print(f"\n{'═'*60}")
+        print(f"v13 Training: v12 + BL safeguard features ({len(FEATURE_COLS_V13)} total features)")
+        print(f"{'═'*60}")
+
+        # Compute the three derived BL safeguard columns
+        self._compute_bl_safeguard_features()
+
+        if self.features_df.empty:
+            print("  ⚠️ No feature data — skipping v13.")
+            return
+
+        prefix = self.model_prefix
+        forecast_df = self.features_df[self.features_df["nws_last"].notna()].copy()
+        n_forecast = len(forecast_df)
+        if n_forecast < 30:
+            print(f"  ⚠️ Only {n_forecast} forecast rows (need 30+). Skipping v13.")
+            return
+
+        # Check how many rows have the new BL safeguard features populated
+        n_entrainment = forecast_df["entrainment_temp_diff"].notna().sum() if "entrainment_temp_diff" in forecast_df.columns else 0
+        n_marine = forecast_df["marine_containment"].notna().sum() if "marine_containment" in forecast_df.columns else 0
+        n_inland = forecast_df["inland_strength"].notna().sum() if "inland_strength" in forecast_df.columns else 0
+        print(f"  entrainment_temp_diff: {n_entrainment} non-null rows (of {n_forecast} forecast rows)")
+        print(f"  marine_containment:    {n_marine} non-null rows")
+        print(f"  inland_strength:       {n_inland} non-null rows")
+
+        missing_v13 = [c for c in FEATURE_COLS_V13 if c not in self.features_df.columns]
+        if missing_v13:
+            print(f"  Missing v13 cols (NaN for historical rows): {missing_v13}")
+            for col in missing_v13:
+                self.features_df[col] = np.nan
+
+        # Also derive the v12 (and earlier) features to ensure they're available
+        self._compute_model_vs_nws_features()
+
+        forecast_df = self.features_df[self.features_df["nws_last"].notna()].copy()
+        X_v13    = forecast_df[FEATURE_COLS_V13]
+        nws_last = forecast_df["nws_last"]
+        y_actual = forecast_df["actual_high"]
+        y_bias   = y_actual - nws_last   # train residual vs NWS (same target as v7-v12)
+
+        v13_regressor = HistGradientBoostingRegressor(
+            max_iter=400, learning_rate=0.04, max_depth=4,
+            min_samples_leaf=6, l2_regularization=0.3,
+            random_state=42,
+        )
+
+        mae_scores = -cross_val_score(v13_regressor, X_v13, y_bias, cv=5, scoring="neg_mean_absolute_error")
+        bucket_acc = cross_val_score(
+            v13_regressor, X_v13, y_bias, cv=5,
+            scoring=lambda est, X, y: float(np.mean(
+                np.abs((est.predict(X) + nws_last.iloc[:len(X)]) - y_actual.iloc[:len(X)]) <= 1
+            )),
+        )
+        residual_std = float(np.std(y_bias))
+
+        print(f"  v13 CV MAE:        {np.mean(mae_scores):.2f}°F")
+        print(f"  v13 CV Bucket Acc: {np.mean(bucket_acc):.1%}")
+        print(f"  v13 Residual Std:  {residual_std:.2f}°F")
+        v13_regressor.fit(X_v13, y_bias)
+
+        try:
+            fi = dict(zip(FEATURE_COLS_V13, v13_regressor.feature_importances_))
+            print(f"  entrainment_temp_diff importance: {fi.get('entrainment_temp_diff', 0):.4f}")
+            print(f"  marine_containment importance:    {fi.get('marine_containment', 0):.4f}")
+            print(f"  inland_strength importance:       {fi.get('inland_strength', 0):.4f}")
+        except Exception:
+            pass
+
+        classifier = BucketClassifier()
+        classifier.train(
+            self.features_df.copy().reset_index(drop=True),
+            feature_cols=FEATURE_COLS_V13,
+            residual_std=residual_std,
+            forecast_weight=5.0,
+        )
+
+        with open(f"{prefix}bcp_v13_regressor.pkl", "wb") as f:
+            pickle.dump(v13_regressor, f)
+        with open(f"{prefix}bcp_v13_classifier.pkl", "wb") as f:
+            pickle.dump(classifier, f)
+        with open(f"{prefix}bcp_v13_feature_cols.pkl", "wb") as f:
+            pickle.dump(list(FEATURE_COLS_V13), f)
+
+        v13_meta = {
+            "trained_on": datetime.now().isoformat(),
+            "version": "v13_bl_safeguard_features",
+            "base_cascade": "HRRR > NBM > AccuWeather > NWS",
+            "new_features": "entrainment_temp_diff, marine_containment, inland_strength",
+            "motivation": (
+                "April 15, 2026: v12 BL spike triggered downward revision (89-90 → 87-88) "
+                "even though actual high was 90°F. Root cause: BL height increase was "
+                "conditional on other atmospheric state not being explicitly modeled. "
+                "These 3 features encode the guard rails directly, letting the model learn: "
+                "'BL trigger matters only if entrainment is cooling, marine penetrates inland, "
+                "and inland underperforms forecast. Otherwise, don't reduce.' This prevents "
+                "the April 15 miss while still catching actual cap days."
+            ),
+            "n_entrainment_rows": int(n_entrainment),
+            "n_marine_rows": int(n_marine),
+            "n_inland_rows": int(n_inland),
+            "v13_regression": {
+                "cv_mae": float(np.mean(mae_scores)),
+                "cv_bucket_accuracy": float(np.mean(bucket_acc)),
+                "residual_std": residual_std,
+                "n_features": len(FEATURE_COLS_V13),
+                "n_training_rows": n_forecast,
+            },
+            "feature_columns_v13": list(FEATURE_COLS_V13),
+        }
+        import json as _json
+        with open(f"{prefix}model_metadata_v13.json", "w") as f:
+            _json.dump(v13_meta, f, indent=2)
+
+        print(f"\n  ✅ Saved v13 models: bcp_v13_regressor.pkl, bcp_v13_classifier.pkl")
+        print(f"  v13 Classifier Bucket Acc: {classifier.cv_bucket_accuracy:.1%}")
+
+        try:
+            import json as _j
+            with open(f"{prefix}model_metadata_v12.json") as f:
+                v12_meta = _j.load(f)
+            v12_mae = v12_meta.get("v12_regression", {}).get("cv_mae")
+            v12_bkt = v12_meta.get("v12_regression", {}).get("cv_bucket_accuracy")
+            print(f"\n{'─'*50}")
+            print(f"COMPARISON: v12 vs v13 (added: entrainment + marine + inland)")
+            if v12_mae: print(f"  MAE:        v12={v12_mae:.2f}°F → v13={np.mean(mae_scores):.2f}°F")
+            if v12_bkt: print(f"  Bucket Acc: v12={v12_bkt:.1%} → v13={np.mean(bucket_acc):.1%}")
+            print(f"{'─'*50}")
+        except Exception:
+            pass
+
+    def run(self, v2: bool = False, v4: bool = False, v5: bool = False, v6: bool = False, v7: bool = False, v8: bool = False, v9: bool = False, v10: bool = False, v11: bool = False, v12: bool = False, v13: bool = False):
         label = self.city_cfg["label"]
         print("=" * 60)
         print(f"{label} Temperature Model Training")
@@ -3272,6 +3487,30 @@ class NYCTemperatureModelTrainer:
                 self.train_v11()
             self.train_v12()
 
+        if v13:
+            if not v2:
+                self.train_v2()
+                self.train_v3()
+            if not v4:
+                self.train_v4()
+            if not v5:
+                self.train_v5()
+            if not v6:
+                self.train_v6()
+            if not v7:
+                self.train_v7()
+            if not v8:
+                self.train_v8()
+            if not v9:
+                self.train_v9()
+            if not v10:
+                self.train_v10()
+            if not v11:
+                self.train_v11()
+            if not v12:
+                self.train_v12()
+            self.train_v13()
+
         print("\nTraining complete.")
 
 
@@ -3301,6 +3540,8 @@ if __name__ == "__main__":
                         help="Train v11 (v10 + model-vs-NWS divergence: mm_hrrr_vs_nws, mm_nbm_vs_nws, mm_mean_vs_nws)")
     parser.add_argument("--v12", action="store_true",
                         help="Train v12 (v11 + deep NNJ inland stations: KCDW ~25mi, KSMQ ~35mi, obs_inland_gradient)")
+    parser.add_argument("--v13", action="store_true",
+                        help="Train v13 (v12 + BL safeguard features: entrainment_temp_diff, marine_containment, inland_strength)")
     args = parser.parse_args()
 
     if args.all:
@@ -3319,6 +3560,7 @@ if __name__ == "__main__":
                 v10=getattr(args, "v10", False),
                 v11=getattr(args, "v11", False),
                 v12=getattr(args, "v12", False),
+                v13=getattr(args, "v13", False),
             )
     else:
         trainer = NYCTemperatureModelTrainer(city_key=args.city)
@@ -3330,4 +3572,6 @@ if __name__ == "__main__":
             v9=getattr(args, "v9", False),
             v10=getattr(args, "v10", False),
             v11=getattr(args, "v11", False),
+            v12=getattr(args, "v12", False),
+            v13=getattr(args, "v13", False),
         )

@@ -2006,6 +2006,37 @@ def _compute_ml_prediction(
                 if _mm_mean is not None and not (isinstance(_mm_mean, float) and math.isnan(_mm_mean)):
                     v2_features["mm_mean_vs_nws"] = round(float(_mm_mean) - float(_nws_ref), 1)
 
+            # v13: derive BL safeguard features BEFORE building X_v2.
+            # These guard against BL-triggered reductions when atmospheric state doesn't align.
+            # entrainment_temp_diff = 925mb - obs_latest_temp (negative = cool aloft)
+            # marine_containment = JFK_vs_KNYC / BL_max (ratio of gradient to depth)
+            # inland_strength = mean(TEB,CDW,SMQ) - mm_mean (inland actual vs forecast)
+            _atm_925mb = v2_features.get("atm_925mb_temp_mean")
+            _obs_latest = v2_features.get("obs_latest_temp")
+            if _atm_925mb is not None and _obs_latest is not None:
+                if not (isinstance(_atm_925mb, float) and math.isnan(_atm_925mb)) and \
+                   not (isinstance(_obs_latest, float) and math.isnan(_obs_latest)):
+                    v2_features["entrainment_temp_diff"] = round(float(_atm_925mb) - float(_obs_latest), 1)
+
+            _jfk_knyc = v2_features.get("obs_kjfk_vs_knyc")
+            _bl_max = v2_features.get("atm_bl_height_max")
+            if _jfk_knyc is not None and _bl_max is not None:
+                if not (isinstance(_jfk_knyc, float) and math.isnan(_jfk_knyc)) and \
+                   not (isinstance(_bl_max, float) and math.isnan(_bl_max)) and \
+                   float(_bl_max) > 0:
+                    v2_features["marine_containment"] = round(float(_jfk_knyc) / float(_bl_max), 6)
+
+            _mm_mean = v2_features.get("mm_mean")
+            if _mm_mean is not None and not (isinstance(_mm_mean, float) and math.isnan(_mm_mean)):
+                inland_temps = []
+                for col in ["obs_kteb_temp", "obs_kcdw_temp", "obs_ksmq_temp"]:
+                    val = v2_features.get(col)
+                    if val is not None and not (isinstance(val, float) and math.isnan(val)):
+                        inland_temps.append(float(val))
+                if inland_temps:
+                    inland_mean = sum(inland_temps) / len(inland_temps)
+                    v2_features["inland_strength"] = round(inland_mean - float(_mm_mean), 1)
+
             # Build feature DataFrame (v4 or v2 depending on available model)
             X_v2 = pd.DataFrame([v2_features])
             for col in active_feature_cols:
