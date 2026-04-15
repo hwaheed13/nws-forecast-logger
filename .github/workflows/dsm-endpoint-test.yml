@@ -28,7 +28,7 @@ jobs:
       - name: Test DSM endpoints and store results
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE }}
         run: node scripts/test-dsm-endpoints.js
 
       - name: Upload results
