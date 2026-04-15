@@ -7237,6 +7237,50 @@ async function bootApp() {
       setupDSMRealtimeListener();
     }
 
+    // ── DSM polling fallback (every 30 seconds during release window) ──
+    async function pollDSMData() {
+      try {
+        const todayISO = nycISODate(0);
+        const cityCode = currentCity === 'lax' ? 'lax' : 'nyc';
+
+        const { data, error } = await supabase
+          .from('nws_daily_summary')
+          .select('dsm_high, dsm_high_time')
+          .eq('city', cityCode)
+          .eq('date', todayISO)
+          .single();
+
+        if (data && data.dsm_high != null) {
+          window._dsmHighF = Number(data.dsm_high);
+          window._dsmHighTime = data.dsm_high_time || null;
+          console.log(`📊 DSM polled: ${window._dsmHighF}°F at ${window._dsmHighTime}`);
+          try { renderLiveSourcesPanel(); } catch (e) { console.error("renderLiveSourcesPanel error:", e); }
+        }
+      } catch (e) {
+        // Silently handle errors (no data yet is expected)
+      }
+    }
+
+    // Start polling from 4:00 PM to 4:45 PM ET (covers release window + buffer)
+    function startDSMPolling() {
+      const now = new Date();
+      const et = new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' }).format(now);
+      const [hours, mins] = et.split(':').map(Number);
+      const currentMinutes = hours * 60 + mins;
+      const releaseStart = 16 * 60; // 4:00 PM ET
+      const releaseEnd = 16 * 60 + 45; // 4:45 PM ET
+
+      if (currentMinutes >= releaseStart && currentMinutes <= releaseEnd) {
+        console.log('🔄 Starting DSM polling (within release window)');
+        window._dsmPollingInterval = setInterval(pollDSMData, 30 * 1000); // Poll every 30 seconds
+        pollDSMData(); // Fetch immediately
+      }
+    }
+
+    startDSMPolling();
+    // Check every minute if we should start polling (for edge cases)
+    setInterval(startDSMPolling, 60 * 1000);
+
   try {
       localStorage.setItem("dashboard_heartbeat", String(Date.now()));
       setInterval(() => { try { localStorage.setItem("dashboard_heartbeat", String(Date.now())); } catch {} }, 60 * 1000);
