@@ -3972,6 +3972,7 @@ function renderFlipRisk() {
 
   const dispTZ2 = currentCity === 'lax' ? 'America/Los_Angeles' : 'America/New_York';
   const localHour2 = parseInt(new Date().toLocaleString('en-US', { timeZone: dispTZ2, hour: 'numeric', hour12: false }), 10);
+  const localMin2 = parseInt(new Date().toLocaleString('en-US', { timeZone: dispTZ2, minute: '2-digit' }), 10);
   // "Window closed" = past 2pm local and current obs clearly below ML center
   const mlCenter = ml2.today != null ? parseFloat(ml2.today) : null;
   const curObs = window._recentObservedF != null ? parseFloat(window._recentObservedF) : null;
@@ -4019,7 +4020,8 @@ function renderFlipRisk() {
   } else if (windowClosed) {
     // Past 2pm and current temp well below ML center — flip window effectively closed
     displayFlipLevel   = 'UNLIKELY';
-    displayFlipSummary = `${localHour2}:XX, obs ${curObs}°F vs center ${mlCenter}°F`;
+    const minStr = localMin2.toString().padStart(2, '0');
+    displayFlipSummary = `${localHour2}:${minStr}, obs ${curObs}°F vs center ${mlCenter}°F`;
     displayFlipColor   = '#16a34a';  // green — low risk
     displayFlipBg      = '#f0fdf4';
   }
