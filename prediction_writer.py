@@ -5182,25 +5182,48 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                         radius_miles=_syn_radius,
                         city=_CITY_KEY,
                     )
-                    _ex_snap["obs_snap_syn_mean"]   = _safe_snap(_syn_fresh.get("obs_synoptic_mean"))
-                    _ex_snap["obs_snap_syn_min"]    = _safe_snap(_syn_fresh.get("obs_synoptic_min"))
-                    _ex_snap["obs_snap_syn_max"]    = _safe_snap(_syn_fresh.get("obs_synoptic_max"))
-                    _ex_snap["obs_snap_syn_spread"] = _safe_snap(_syn_fresh.get("obs_synoptic_spread"))
-                    _ex_snap["obs_snap_syn_vs_nws"] = _safe_snap(_syn_fresh.get("obs_synoptic_vs_nws"))
-                    _ex_snap["obs_snap_syn_count"]  = _syn_fresh.get("obs_synoptic_count")
+                    # ── CRITICAL: Only overwrite if we got actual data ──
+                    # When Synoptic API fails (403/rate-limit), it returns all NaN.
+                    # _safe_snap(NaN) → None. If we unconditionally write None,
+                    # we DESTROY existing valid data every 10-min cycle.
+                    # Fix: Only update fields that have real (non-None) values.
+                    _syn_pop = 0
+                    for _snap_key, _fresh_key in [
+                        ("obs_snap_syn_mean",   "obs_synoptic_mean"),
+                        ("obs_snap_syn_min",    "obs_synoptic_min"),
+                        ("obs_snap_syn_max",    "obs_synoptic_max"),
+                        ("obs_snap_syn_spread", "obs_synoptic_spread"),
+                        ("obs_snap_syn_vs_nws", "obs_synoptic_vs_nws"),
+                    ]:
+                        _v = _safe_snap(_syn_fresh.get(_fresh_key))
+                        if _v is not None:
+                            _ex_snap[_snap_key] = _v
+                            _syn_pop += 1
+                    _sc = _syn_fresh.get("obs_synoptic_count")
+                    if _sc is not None and not (isinstance(_sc, float) and math.isnan(_sc)):
+                        _ex_snap["obs_snap_syn_count"] = _sc
+                        _syn_pop += 1
+                    if _syn_pop == 0:
+                        print(f"  ⚠️ Synoptic API returned no data — preserving existing snapshot values")
 
                     # v9: named station readings — city-specific
+                    # Same guard: only overwrite if fresh data is non-None
                     if _CITY_KEY == "lax":
                         # LAX regional stations
-                        _ex_snap["obs_snap_lax"]                = _safe_snap(_syn_fresh.get("obs_lax_temp"))
-                        _ex_snap["obs_snap_smo"]                = _safe_snap(_syn_fresh.get("obs_smo_temp"))
-                        _ex_snap["obs_snap_bur"]                = _safe_snap(_syn_fresh.get("obs_bur_temp"))
-                        _ex_snap["obs_snap_vny"]                = _safe_snap(_syn_fresh.get("obs_vny_temp"))
-                        _ex_snap["obs_snap_cqt"]                = _safe_snap(_syn_fresh.get("obs_cqt_temp"))
-                        _ex_snap["obs_snap_bur_vs_lax"]         = _safe_snap(_syn_fresh.get("obs_bur_vs_lax"))
-                        _ex_snap["obs_snap_coastal_vs_inland_lax"] = _safe_snap(_syn_fresh.get("obs_coastal_vs_inland_lax"))
-                        _ex_snap["obs_snap_airport_spread_lax"]   = _safe_snap(_syn_fresh.get("obs_airport_spread_lax"))
-                        # LAX observation timestamps
+                        for _snap_key, _fresh_key in [
+                            ("obs_snap_lax", "obs_lax_temp"),
+                            ("obs_snap_smo", "obs_smo_temp"),
+                            ("obs_snap_bur", "obs_bur_temp"),
+                            ("obs_snap_vny", "obs_vny_temp"),
+                            ("obs_snap_cqt", "obs_cqt_temp"),
+                            ("obs_snap_bur_vs_lax", "obs_bur_vs_lax"),
+                            ("obs_snap_coastal_vs_inland_lax", "obs_coastal_vs_inland_lax"),
+                            ("obs_snap_airport_spread_lax", "obs_airport_spread_lax"),
+                        ]:
+                            _v = _safe_snap(_syn_fresh.get(_fresh_key))
+                            if _v is not None:
+                                _ex_snap[_snap_key] = _v
+                        # LAX observation timestamps (only overwrite if string)
                         for _sk, _fk in [
                             ("obs_snap_lax_obs_at", "obs_lax_obs_at"),
                             ("obs_snap_smo_obs_at", "obs_smo_obs_at"),
@@ -5209,29 +5232,34 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                             ("obs_snap_cqt_obs_at", "obs_cqt_obs_at"),
                         ]:
                             _ts = _syn_fresh.get(_fk)
-                            _ex_snap[_sk] = _ts if isinstance(_ts, str) else None
+                            if isinstance(_ts, str):
+                                _ex_snap[_sk] = _ts
                         print(f"  📡 Stable-cycle Synoptic LAX: "
-                              f"{_ex_snap['obs_snap_syn_mean']} "
-                              f"({_ex_snap['obs_snap_syn_count']} stations)  "
+                              f"{_ex_snap.get('obs_snap_syn_mean')} "
+                              f"({_ex_snap.get('obs_snap_syn_count')} stations)  "
                               f"KLAX={_ex_snap.get('obs_snap_lax')}  "
                               f"KBUR-KLAX={_ex_snap.get('obs_snap_bur_vs_lax')}  "
                               f"KCQT={_ex_snap.get('obs_snap_cqt')}")
                     else:
                         # NYC regional airports + Manhattan Mesonet
-                        _ex_snap["obs_snap_kjfk"]               = _safe_snap(_syn_fresh.get("obs_kjfk_temp"))
-                        _ex_snap["obs_snap_klga"]               = _safe_snap(_syn_fresh.get("obs_klga_temp"))
-                        _ex_snap["obs_snap_kewr"]               = _safe_snap(_syn_fresh.get("obs_kewr_temp"))
-                        _ex_snap["obs_snap_kteb"]               = _safe_snap(_syn_fresh.get("obs_kteb_temp"))
-                        _ex_snap["obs_snap_knyc_syn"]           = _safe_snap(_syn_fresh.get("obs_knyc_temp"))
-                        _ex_snap["obs_snap_kjfk_vs_knyc"]       = _safe_snap(_syn_fresh.get("obs_kjfk_vs_knyc"))
-                        _ex_snap["obs_snap_klga_vs_knyc"]       = _safe_snap(_syn_fresh.get("obs_klga_vs_knyc"))
-                        _ex_snap["obs_snap_kewr_vs_knyc"]       = _safe_snap(_syn_fresh.get("obs_kewr_vs_knyc"))
-                        _ex_snap["obs_snap_airport_spread"]     = _safe_snap(_syn_fresh.get("obs_airport_spread"))
-                        _ex_snap["obs_snap_coastal_vs_inland"]  = _safe_snap(_syn_fresh.get("obs_coastal_vs_inland"))
-                        # Manhattan Mesonet — 5-min fill-in between KNYC's hourly drops
-                        _ex_snap["obs_snap_manh_temp"]          = _safe_snap(_syn_fresh.get("obs_manh_temp"))
-                        _ex_snap["obs_snap_manh_vs_knyc"]       = _safe_snap(_syn_fresh.get("obs_manh_vs_knyc"))
-                        # NYC observation timestamps (ISO strings)
+                        for _snap_key, _fresh_key in [
+                            ("obs_snap_kjfk", "obs_kjfk_temp"),
+                            ("obs_snap_klga", "obs_klga_temp"),
+                            ("obs_snap_kewr", "obs_kewr_temp"),
+                            ("obs_snap_kteb", "obs_kteb_temp"),
+                            ("obs_snap_knyc_syn", "obs_knyc_temp"),
+                            ("obs_snap_kjfk_vs_knyc", "obs_kjfk_vs_knyc"),
+                            ("obs_snap_klga_vs_knyc", "obs_klga_vs_knyc"),
+                            ("obs_snap_kewr_vs_knyc", "obs_kewr_vs_knyc"),
+                            ("obs_snap_airport_spread", "obs_airport_spread"),
+                            ("obs_snap_coastal_vs_inland", "obs_coastal_vs_inland"),
+                            ("obs_snap_manh_temp", "obs_manh_temp"),
+                            ("obs_snap_manh_vs_knyc", "obs_manh_vs_knyc"),
+                        ]:
+                            _v = _safe_snap(_syn_fresh.get(_fresh_key))
+                            if _v is not None:
+                                _ex_snap[_snap_key] = _v
+                        # NYC observation timestamps (only overwrite if string)
                         for _sk, _fk in [
                             ("obs_snap_knyc_obs_at", "obs_knyc_obs_at"),
                             ("obs_snap_kjfk_obs_at", "obs_kjfk_obs_at"),
@@ -5241,10 +5269,11 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                             ("obs_snap_manh_obs_at", "obs_manh_obs_at"),
                         ]:
                             _ts = _syn_fresh.get(_fk)
-                            _ex_snap[_sk] = _ts if isinstance(_ts, str) else None
+                            if isinstance(_ts, str):
+                                _ex_snap[_sk] = _ts
                         print(f"  📡 Stable-cycle Synoptic NYC: "
-                              f"{_ex_snap['obs_snap_syn_mean']} "
-                              f"({_ex_snap['obs_snap_syn_count']} stations)  "
+                              f"{_ex_snap.get('obs_snap_syn_mean')} "
+                              f"({_ex_snap.get('obs_snap_syn_count')} stations)  "
                               f"KJFK={_ex_snap.get('obs_snap_kjfk')}  "
                               f"KJFK-KNYC={_ex_snap.get('obs_snap_kjfk_vs_knyc')}  "
                               f"MANH={_ex_snap.get('obs_snap_manh_temp')}")
