@@ -7101,26 +7101,28 @@ async function bootApp() {
     }
 
     // Dynamic heating window configuration (based on 4+ years of historical analysis)
+    // Heating window config: (start_hour, end_hour) in local time
+    // Based on 4+ years of observation data (2022-2026)
+    const _heatingWindows = {
+      nyc: { winter: [10, 16], spring: [10, 16], summer: [10, 16], fall: [10, 16] },
+      lax: { winter: [10, 16], spring: [10, 13], summer: [10, 12], fall: [10, 13] }
+    };
+
+    function _getSeason() {
+      const month = new Date().getMonth() + 1; // 1-12
+      if (month >= 12 || month <= 2) return 'winter';
+      if (month >= 3 && month <= 5) return 'spring';
+      if (month >= 6 && month <= 8) return 'summer';
+      return 'fall';
+    }
+
+    function _getHeatingWindowHours(city) {
+      city = (city || 'nyc').toLowerCase();
+      return _heatingWindows[city]?.[_getSeason()] || [10, 16];
+    }
+
     function _getHeatingWindow(city, hour) {
-      // Determine season from current date
-      const now = new Date();
-      const month = now.getMonth() + 1; // 1-12
-      let season;
-      if (month >= 12 || month <= 2) season = 'winter';
-      else if (month >= 3 && month <= 5) season = 'spring';
-      else if (month >= 6 && month <= 8) season = 'summer';
-      else season = 'fall';
-
-      // Heating window config: (start_hour, end_hour) in local time
-      // Based on 4+ years of observation data (2022-2026)
-      const windows = {
-        nyc: { winter: [10, 16], spring: [10, 16], summer: [10, 16], fall: [10, 16] },
-        lax: { winter: [10, 16], spring: [10, 13], summer: [10, 12], fall: [10, 13] }
-      };
-
-      city = city.toLowerCase();
-      const window_hours = windows[city]?.[season] || [10, 16];
-      const [start, end] = window_hours;
+      const [start, end] = _getHeatingWindowHours(city);
       return hour >= start && hour < end;
     }
 
@@ -7170,7 +7172,9 @@ async function bootApp() {
           banner.style.cssText = 'background:#fffbeb;border:1px solid #f59e0b;border-radius:8px;' +
             'padding:6px 12px;margin-bottom:10px;font-size:12px;font-weight:600;color:#92400e;' +
             'display:flex;align-items:center;gap:6px;';
-          banner.innerHTML = '🌡️ <span>Heating window active (10 AM – 3 PM) — polling every 2 min · flip risk every 10 min</span>';
+          const [_hwStart, _hwEnd] = _getHeatingWindowHours(currentCity);
+          const _fmtHr = h => { const ap = h >= 12 ? 'PM' : 'AM'; return (h % 12 || 12) + ' ' + ap; };
+          banner.innerHTML = `🌡️ <span>Heating window active (${_fmtHr(_hwStart)} – ${_fmtHr(_hwEnd)}) — polling every 2 min · flip risk every 10 min</span>`;
           const content = document.getElementById('flip-risk-content');
           if (content && content.parentNode) {
             content.parentNode.insertBefore(banner, content);

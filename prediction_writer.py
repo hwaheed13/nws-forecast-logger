@@ -5068,6 +5068,11 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 )
             except Exception:
                 _ex_snap = {}
+            # ── Preserve pre-modification snapshot for derived signal deltas ──
+            # stored_snapshot_dict is used by inland warming / stratus clearing
+            # to compare current values against previous cycle.  On the recompute
+            # path it's defined earlier; on the stable-cycle path we define it here.
+            stored_snapshot_dict = dict(_ex_snap)
             if True:  # always run — see comment above re: self-healing null snapshots
                 # ── Sanitize NaN → None across entire snapshot before any writes ──
                 # Python json.dumps serializes float('nan') as the non-standard token
