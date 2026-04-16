@@ -4415,10 +4415,8 @@ function renderLiveSourcesPanel() {
 
   const _nowHour  = parseInt(new Date().toLocaleString("en-US", { timeZone: _cityTZ, hour: "numeric", hour12: false }), 10);
   const _snapRecent = _nowHour < 15;
-  // Dynamic heating window based on city and season (4+ years of historical analysis)
-  const _inHeatingWindow = _getHeatingWindow(currentCity, _nowHour);
   // Stall signal: obs_heating_rate_delta < -0.8 = deceleration = cap holding fingerprint
-  const _stallActive  = _inHeatingWindow && knyc_rate_delta != null && Number(knyc_rate_delta) < -0.8;
+  const _stallActive  = _snapRecent && knyc_rate_delta != null && Number(knyc_rate_delta) < -0.8;
   const _stallStrong  = knyc_rate_delta != null && Number(knyc_rate_delta) < -1.5;
   const isLaxDisplay = currentCity === 'lax';
   // DSM high from real-time Supabase listener (separate line below Max)
@@ -4434,9 +4432,9 @@ function renderLiveSourcesPanel() {
   const knyc_line3 = [
     (!isLaxDisplay && _manhStr  != null) ? _manhStr : "",          // 5-min Mesonet fill-in (NYC only)
     (_snapRecent && knyc_vs   != null) ? `vs fcst: ${fSign(knyc_vs)}` : "",
-    (_inHeatingWindow && knyc_rate != null && Math.abs(Number(knyc_rate)) >= 0.2)
+    (_snapRecent && knyc_rate != null && Math.abs(Number(knyc_rate)) >= 0.2)
       ? `${Number(knyc_rate) >= 0 ? "+" : ""}${Number(knyc_rate).toFixed(1)}°/hr` : "",
-    (_inHeatingWindow && _stallActive)
+    (_snapRecent && _stallActive)
       ? `stall ${Number(knyc_rate_delta).toFixed(1)}°/hr${_stallStrong ? " ⚠️" : ""}` : "",
   ].filter(Boolean).join(" · ");
   const knyc_sub = [knyc_line1, knyc_line2, knyc_line2b, knyc_line3].filter(Boolean).join("<br>") || "–";
