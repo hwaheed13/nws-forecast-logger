@@ -384,9 +384,7 @@ export default async function handler(req, res) {
       summary = "Mixed — flip and blow-past both possible, watch 10 AM obs";
     }
   } else if (flipRisk === "LOW") {
-    summary = blowRisk === "NONE"
-      ? "Canonical holding — suppressor signals intact"
-      : "Canonical bucket stable — monitor blow-past risk separately";
+    summary = "Flip risk LOW — canonical bucket stable";
   } else {
     summary = "Obs running warm — watch mid-morning heating rate";
   }

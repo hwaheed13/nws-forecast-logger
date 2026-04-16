@@ -4061,7 +4061,7 @@ function renderFlipRisk() {
       <div style="background:${blowBg}; border:1px solid ${blowColor}; border-radius:8px; padding:6px 12px; display:inline-flex; flex-direction:column; min-width:110px;">
         <span style="font-size:10px; font-weight:700; text-transform:uppercase; color:${blowColor}; letter-spacing:.05em;">Blow Past</span>
         <span style="font-size:18px; font-weight:800; color:${blowColor};">${blow.level}</span>
-        <span style="font-size:10px; color:var(--text-muted);">${blow.level === 'HIGH' ? 'actual may exceed top of range' : 'elevated risk of exceeding range'}</span>
+        <span style="font-size:10px; color:var(--text-muted);">${blow.level === 'HIGH' ? 'high risk of exceeding forecasts' : blow.level === 'MEDIUM' ? 'moderate risk of blow-past' : ''}</span>
       </div>` : ''}
       <div style="flex:1; min-width:180px;">
         ${sigLines}
