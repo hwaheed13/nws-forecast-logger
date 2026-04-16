@@ -52,6 +52,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install numpy==1.24.3 pandas==2.2.3 scikit-learn==1.3.0 requests beautifulsoup4 pytz supabase python-dotenv
 
+      # Update heating windows based on latest observation data
+      - name: Update heating windows (learns from new observations)
+        run: |
+          python update_heating_windows.py
+        continue-on-error: true
+
       # Lightweight: only re-run train_models.py — no backfill.
       # HistGradientBoosting handles NaN natively so new/missing rows are fine.
       - name: Retrain v1–v8 (core models)
@@ -73,19 +79,22 @@ jobs:
           python train_models.py --all --v13
         continue-on-error: true
 
-      - name: Commit updated model files
+      - name: Commit updated model files and heating windows
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add *.pkl *model_metadata*.json 2>/dev/null || true
+          git add *.pkl *model_metadata*.json heating_windows.py 2>/dev/null || true
           if git diff --cached --quiet; then
-            echo "No model changes — today's row likely unchanged since morning retrain."
+            echo "No changes — models and heating windows unchanged since last run."
           else
-            git commit -m "Nightly lightweight retrain (post-00Z HRRR) $(date +%Y-%m-%d)
+            git commit -m "Nightly lightweight retrain + heating window update $(date +%Y-%m-%d)
 
           Lightweight retrain at 1am EDT: picks up today's scored row before
           overnight D+1 predictions. Skips backfill (runs at 6am full retrain).
-          00Z HRRR data propagated and ingested by overnight-d1 job before this ran."
+
+          Heating window updater: analyzes latest observation data and updates
+          season-aware heating windows for NYC and LAX based on actual atmospheric
+          patterns. Windows evolve as more data is collected."
             git fetch origin main
             git rebase origin/main || { echo "Rebase failed; aborting"; git rebase --abort || true; exit 0; }
             git push origin HEAD:main || true

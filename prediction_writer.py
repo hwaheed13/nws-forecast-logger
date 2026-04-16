@@ -3864,6 +3864,7 @@ def _add_obs_to_snap(snap: dict, live_obs: dict, live_atm: dict = None) -> None:
     snap["obs_snap_temp_falling_hrs"]  = _safe(obs.get("obs_temp_falling_hrs"))
     snap["obs_snap_wind_speed"]  = _safe(obs.get("obs_wind_speed"))
     snap["obs_snap_cloud_cover"] = _safe(obs.get("obs_cloud_cover"))
+    snap["obs_snap_dewpoint"]    = _safe(_atm_fallback("obs_dewpoint", "atm_dewpoint_mean"))
     # Regional NWS stations (JFK / LGA)
     snap["obs_snap_jfk"]         = _safe(obs.get("obs_jfk_temp"))
     snap["obs_snap_lga"]         = _safe(obs.get("obs_lga_temp"))
