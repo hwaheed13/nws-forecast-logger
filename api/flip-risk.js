@@ -373,17 +373,20 @@ export default async function handler(req, res) {
   const flipGoodRate  = history.flipped > 0 ? history.flipGood  / history.flipped : null;
 
   // Human-readable summary — specific, actionable, not vague
+  // Flip risk summary focuses on flip risk; blow-past risk has its own card
   let summary = "";
-  if (flipRisk === "LOW" && blowRisk === "NONE") {
-    summary = "Canonical holding — suppressor signals intact";
-  } else if (flipRisk === "HIGH") {
+  if (flipRisk === "HIGH") {
     summary = "Structural flip risk — bucket may shift before settlement";
-  } else if (blowRisk === "HIGH") {
-    summary = "Blow-past risk — actual may exceed all model forecasts";
-  } else if (flipRisk === "MEDIUM" && blowRisk === "NONE") {
-    summary = "Watch for wind shift or obs surge after 10 AM";
   } else if (flipRisk === "MEDIUM") {
-    summary = "Mixed — flip and blow-past both possible, watch 10 AM obs";
+    if (blowRisk === "NONE") {
+      summary = "Watch for wind shift or obs surge after 10 AM";
+    } else {
+      summary = "Mixed — flip and blow-past both possible, watch 10 AM obs";
+    }
+  } else if (flipRisk === "LOW") {
+    summary = blowRisk === "NONE"
+      ? "Canonical holding — suppressor signals intact"
+      : "Canonical bucket stable — monitor blow-past risk separately";
   } else {
     summary = "Obs running warm — watch mid-morning heating rate";
   }
