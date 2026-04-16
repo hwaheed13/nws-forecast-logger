@@ -4810,18 +4810,19 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                       f"(cascading-null prevention — both live + prev snapshot were null): "
                       f"{', '.join(_morning_rescued[:5])}{'…' if len(_morning_rescued) > 5 else ''}")
 
-        # NWS obs trigger: only before agency_cutoff (2pm). After 2pm, station
-        # temps reflect observed reality — using them is thermometer-chasing.
+        # Fetch observation features for DISPLAY (slope, wind, cloud, etc.) throughout day.
+        # But only use them for ML triggers before agency_cutoff (2pm). After 2pm, station
+        # temps reflect observed reality — using them for triggers is thermometer-chasing.
+        # Display features (slope, wind direction) continue to update for dashboard visibility.
         live_obs = {}
-        if not agency_cutoff:
-            try:
-                live_obs = _fetch_observation_features(
-                    target_date_iso,
-                    nws_last=nws_latest,
-                    atm_features=live_atm,
-                )
-            except Exception as _obs_e:
-                print(f"⚠️ Live obs fetch failed: {_obs_e}")
+        try:
+            live_obs = _fetch_observation_features(
+                target_date_iso,
+                nws_last=nws_latest,
+                atm_features=live_atm,
+            )
+        except Exception as _obs_e:
+            print(f"⚠️ Live obs fetch failed: {_obs_e}")
 
         atm_triggered, atm_reasons = _check_atmospheric_shift(live_atm, stored_atm_snapshot)
         obs_triggered, obs_reasons = (
