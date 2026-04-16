@@ -925,7 +925,8 @@ function cleanKalshiLabel(s) {
 // Returns "(↔ oscillated ×N)" when same bucket repeated, "(×N shifts)" when multiple distinct
 function flipCountSuffix(cnt, history) {
   if (!cnt || cnt <= 1) return '';
-  const _uniq = new Set(Array.isArray(history) ? history : []).size;
+  const arr = Array.isArray(history) ? history : [];
+  const _uniq = new Set(arr).size;
   return _uniq <= 1 ? ` (↔ oscillated ×${cnt})` : ` (×${cnt} shifts)`;
 }
 
@@ -3940,7 +3941,14 @@ function renderFlipRisk() {
   const _flipBucket       = _todaySnap.ml_flip_bucket || null;  // most recent confirmed non-canonical bucket
   const _flipCount        = parseInt(_todaySnap.ml_flip_count) || 0;
   // Full ordered list of every CONFIRMED non-canonical bucket this day — e.g. ["76-77","78-79"]
-  const _flipHistory      = Array.isArray(_todaySnap.ml_flip_history) ? _todaySnap.ml_flip_history : [];
+  // Guard: JSONB may arrive as already-parsed array OR (edge case) as a string if the column
+  // was serialised twice.  Parse defensively so the oscillation note never silently disappears.
+  const _flipHistory = (() => {
+    const raw = _todaySnap.ml_flip_history;
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') { try { const p = JSON.parse(raw); return Array.isArray(p) ? p : []; } catch {} }
+    return [];
+  })();
   // PENDING: one run has shown a different bucket but not yet confirmed (needs 2 consecutive)
   const _flipPendingBucket = _todaySnap.ml_flip_pending_bucket || null;
   // "Returned" = bucket is back at canonical but a confirmed flip did happen earlier today
@@ -3951,7 +3959,11 @@ function renderFlipRisk() {
   // Helper: build a human-readable chain from canonical → every flip state → (optional suffix)
   function _buildFlipChain(canon, history, suffix) {
     const lbl = b => cleanKalshiLabel ? cleanKalshiLabel(b) : b;
-    const steps = [lbl(canon), ...history.map(lbl)];
+    // Guard: history must be an array; if Supabase returned a JSON string, parse it
+    let _hist = history;
+    if (typeof _hist === 'string') { try { _hist = JSON.parse(_hist); } catch { _hist = []; } }
+    if (!Array.isArray(_hist)) _hist = [];
+    const steps = [lbl(canon), ..._hist.map(lbl)];
     if (suffix) steps.push(suffix);
     return steps.join(' → ');
   }
@@ -3997,7 +4009,11 @@ function renderFlipRisk() {
     displayFlipLevel   = 'WATCHING';
     displayFlipLabel   = 'Prediction Shift';
     const _pendingLabel = cleanKalshiLabel ? cleanKalshiLabel(_flipPendingBucket) : _flipPendingBucket;
-    displayFlipSummary = `Possible shift → ${_pendingLabel} (unconfirmed)`;
+    // If prior confirmed flips exist, surface them so users know this could be an oscillation
+    const _watchPriorNote = _flipCount > 0
+      ? ` · ${_flipCount} prior flip${_flipCount > 1 ? 's' : ''} confirmed today`
+      : '';
+    displayFlipSummary = `Possible shift → ${_pendingLabel} (unconfirmed)${_watchPriorNote}`;
     displayFlipColor   = '#b45309';  // amber — cautionary, not alarm
     displayFlipBg      = '#fffbeb';
   } else if (windowClosed) {

@@ -4711,11 +4711,17 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         # only run until the agency_cutoff (2pm).
         stored_atm_snapshot = existing.get("atm_snapshot")
         try:
-            stored_snapshot_dict = (
+            _parsed_snap = (
                 json.loads(stored_atm_snapshot)
                 if isinstance(stored_atm_snapshot, str)
-                else (stored_atm_snapshot or {})
+                else stored_atm_snapshot
             )
+            # Guard: JSONB column must be a dict.  If it was ever written as a JSON
+            # array (e.g. from an early buggy serialisation) json.loads returns a list,
+            # causing 'list' object has no attribute 'get' on subsequent .get() calls.
+            stored_snapshot_dict = _parsed_snap if isinstance(_parsed_snap, dict) else {}
+            if _parsed_snap and not isinstance(_parsed_snap, dict):
+                print(f"  ⚠️  atm_snapshot is {type(_parsed_snap).__name__}, not dict — ignoring")
         except Exception:
             stored_snapshot_dict = {}
 
@@ -5035,6 +5041,12 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                         # Preserve previous cycle's rate when deltas can't be computed
                         snap["obs_snap_inland_warming_rate"] = stored_snapshot_dict["obs_snap_inland_warming_rate"]
                         snap["obs_snap_warming_accel"] = stored_snapshot_dict.get("obs_snap_warming_accel", False)
+
+                # ── Carry flip fields before overwriting snapshot (recompute path) ──
+                # Supabase merge-duplicates replaces the whole JSONB column, so any
+                # flip tracking state from prior cycles would be erased without this.
+                if isinstance(existing, dict):
+                    _carry_flip_fields(snap, existing)
 
                 # ── Cache complete snapshot for fallback on next API failures ──
                 cache_snapshot(_CITY_KEY, snap)
@@ -5555,6 +5567,13 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                         print(f"  ⚠️  Morning anchor: no mm_* values available at canonical "
                               f"write — cascading-null fallback unavailable for today")
 
+                    # ── Carry flip fields before overwriting snapshot (canonical path) ──
+                    # On the canonical write (first-of-day) there are no prior flip
+                    # fields to carry — but on a re-canonical (edge case: D1 row being
+                    # claimed as D0) there could be.  Safe to always call.
+                    if isinstance(existing, dict):
+                        _carry_flip_fields(snap, existing)
+
                     # ── Cache complete snapshot for fallback on next API failures ──
                     cache_snapshot(_CITY_KEY, snap)
 
@@ -5659,6 +5678,39 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 print(f"📌 market_prob_at_prediction={payload['market_prob_at_prediction']:.4f} for bucket '{direct_bucket}'")
                 print(f"📐 kelly_fraction={kelly_f:.1%} (half-Kelly — bet this % of bankroll)")
 
+    # ── Helper: carry forward flip fields into any snapshot being written ────
+    # CRITICAL: atm_snapshot is written as a whole JSONB value — Postgres merge-
+    # duplicates replaces the column wholesale, not key-by-key.  So if we rebuild
+    # the snapshot from live ATM data (recompute path, canonical write) without
+    # copying the flip tracking fields from the prior snapshot, those fields are
+    # silently erased and the dashboard loses all history of today's bucket shifts.
+    #
+    # Call this AFTER building any `snap` dict but BEFORE json.dumps / payload write.
+    _FLIP_FIELDS = (
+        "ml_flip_occurred", "ml_flip_count", "ml_flip_bucket",
+        "ml_flip_history", "ml_flip_pending_bucket",
+    )
+    def _carry_flip_fields(snap: dict, src_existing: dict) -> None:
+        """Copy flip tracking fields from the previous snapshot into snap (in-place).
+        Only copies fields that are absent or explicitly None in snap — never
+        overwrites a value that was freshly set by the flip state machine."""
+        _src_raw = src_existing.get("atm_snapshot") if isinstance(src_existing, dict) else None
+        if not _src_raw:
+            return
+        try:
+            _src = json.loads(_src_raw) if isinstance(_src_raw, str) else _src_raw
+        except Exception:
+            return
+        if not isinstance(_src, dict):
+            return
+        copied = []
+        for fk in _FLIP_FIELDS:
+            if fk in _src and fk not in snap:
+                snap[fk] = _src[fk]
+                copied.append(fk)
+        if copied:
+            print(f"  🔒 Carried flip fields into snapshot: {copied}")
+
     # ── Inject flip-history tracking into atm_snapshot (no schema change) ───
     # Persists ml_flip_occurred=True even when the bucket RETURNS to canonical.
     # Without this the dashboard shows no evidence a flip ever happened.
@@ -5688,6 +5740,12 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     if not is_canonical_write and isinstance(existing, dict):
         _canon_bkt = existing.get("ml_bucket_canonical")
         _curr_bkt  = payload.get("ml_bucket")
+        if not _canon_bkt:
+            print(f"  ⚠️  Flip tracking skipped: ml_bucket_canonical not set yet "
+                  f"(canonical write hasn't fired — likely first run of day)")
+        elif not _curr_bkt:
+            print(f"  ⚠️  Flip tracking skipped: ml_bucket absent from payload "
+                  f"(ml may be None this cycle — payload keys: {list(payload.keys())[:8]})")
         if _canon_bkt and _curr_bkt:
             # Load whichever snapshot we're writing, or the existing one as fallback
             _fs_raw = payload.get("atm_snapshot") or existing.get("atm_snapshot")
@@ -5975,6 +6033,12 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
             return True
         snap_tm = {k: live_atm_tm[k] for k in _ATM_SNAP_KEYS if _valid_snap(live_atm_tm.get(k))}
         if snap_tm:
+            # Carry D+1 flip fields so we don't erase them on every ATM refresh.
+            # D+1 flip tracking runs a few lines below; _carry_flip_fields only
+            # copies fields not already in snap_tm, so the state machine can still
+            # overwrite them cleanly.
+            if isinstance(existing, dict):
+                _carry_flip_fields(snap_tm, existing)
             payload["atm_snapshot"] = json.dumps(snap_tm)
             print(f"  📊 D+1 atm_snapshot: mm_spread={snap_tm.get('mm_spread')}, "
                   f"mm_mean={snap_tm.get('mm_mean')}, hrrr={snap_tm.get('mm_hrrr_max')}")
@@ -5987,6 +6051,10 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     if not is_canonical_write and isinstance(existing, dict):
         _d1_canon = existing.get("ml_bucket_canonical")
         _d1_curr  = payload.get("ml_bucket")
+        if not _d1_canon:
+            print(f"  ⚠️  D+1 flip tracking skipped: ml_bucket_canonical not set yet")
+        elif not _d1_curr:
+            print(f"  ⚠️  D+1 flip tracking skipped: ml_bucket absent from payload")
         if _d1_canon and _d1_curr:
             _d1_snap_raw = payload.get("atm_snapshot") or existing.get("atm_snapshot")
             try:
