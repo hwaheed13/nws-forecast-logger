@@ -98,6 +98,11 @@ jobs:
           python train_models.py --all --v12
         continue-on-error: true  # graceful skip until backfill populates enough KSMQ rows
 
+      - name: Run v13 training (BL safeguard features — entrainment + marine + inland strength)
+        run: |
+          python train_models.py --all --v13
+        continue-on-error: true  # graceful skip until BL features accumulate
+
       - name: Show training results
         run: |
           for meta in model_metadata*.json lax_model_metadata*.json; do
