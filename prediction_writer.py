@@ -4560,6 +4560,41 @@ def compare_canonical_vs_latest_accuracy() -> None:
         print(f"⚠️ compare_canonical_vs_latest_accuracy failed: {e}")
 
 
+# ── Flip-field carry-forward (module scope — used by both write_today_for_today
+# and write_today_for_tomorrow so it cannot be a local function) ──────────────
+_FLIP_FIELDS = (
+    "ml_flip_occurred", "ml_flip_count", "ml_flip_bucket",
+    "ml_flip_history", "ml_flip_pending_bucket",
+)
+
+def _carry_flip_fields(snap: dict, src_existing: dict) -> None:
+    """Copy flip tracking fields from the previous snapshot into snap (in-place).
+
+    CRITICAL: atm_snapshot is replaced wholesale by Supabase merge-duplicates,
+    not merged key-by-key.  So any path that rebuilds the snapshot from live ATM
+    data (recompute, canonical write, D+1 refresh) would silently erase all flip
+    history unless we explicitly carry these fields forward here.
+
+    Only copies fields that are absent from snap — never overwrites a value that
+    was freshly set by the flip state machine later in the same cycle."""
+    _src_raw = src_existing.get("atm_snapshot") if isinstance(src_existing, dict) else None
+    if not _src_raw:
+        return
+    try:
+        _src = json.loads(_src_raw) if isinstance(_src_raw, str) else _src_raw
+    except Exception:
+        return
+    if not isinstance(_src, dict):
+        return
+    copied = []
+    for fk in _FLIP_FIELDS:
+        if fk in _src and fk not in snap:
+            snap[fk] = _src[fk]
+            copied.append(fk)
+    if copied:
+        print(f"  🔒 Carried flip fields into snapshot: {copied}")
+
+
 def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     if not target_date_iso:
         target_date_iso = today_nyc().isoformat()
@@ -5677,39 +5712,6 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 payload["kelly_fraction"] = kelly_f
                 print(f"📌 market_prob_at_prediction={payload['market_prob_at_prediction']:.4f} for bucket '{direct_bucket}'")
                 print(f"📐 kelly_fraction={kelly_f:.1%} (half-Kelly — bet this % of bankroll)")
-
-    # ── Helper: carry forward flip fields into any snapshot being written ────
-    # CRITICAL: atm_snapshot is written as a whole JSONB value — Postgres merge-
-    # duplicates replaces the column wholesale, not key-by-key.  So if we rebuild
-    # the snapshot from live ATM data (recompute path, canonical write) without
-    # copying the flip tracking fields from the prior snapshot, those fields are
-    # silently erased and the dashboard loses all history of today's bucket shifts.
-    #
-    # Call this AFTER building any `snap` dict but BEFORE json.dumps / payload write.
-    _FLIP_FIELDS = (
-        "ml_flip_occurred", "ml_flip_count", "ml_flip_bucket",
-        "ml_flip_history", "ml_flip_pending_bucket",
-    )
-    def _carry_flip_fields(snap: dict, src_existing: dict) -> None:
-        """Copy flip tracking fields from the previous snapshot into snap (in-place).
-        Only copies fields that are absent or explicitly None in snap — never
-        overwrites a value that was freshly set by the flip state machine."""
-        _src_raw = src_existing.get("atm_snapshot") if isinstance(src_existing, dict) else None
-        if not _src_raw:
-            return
-        try:
-            _src = json.loads(_src_raw) if isinstance(_src_raw, str) else _src_raw
-        except Exception:
-            return
-        if not isinstance(_src, dict):
-            return
-        copied = []
-        for fk in _FLIP_FIELDS:
-            if fk in _src and fk not in snap:
-                snap[fk] = _src[fk]
-                copied.append(fk)
-        if copied:
-            print(f"  🔒 Carried flip fields into snapshot: {copied}")
 
     # ── Inject flip-history tracking into atm_snapshot (no schema change) ───
     # Persists ml_flip_occurred=True even when the bucket RETURNS to canonical.
