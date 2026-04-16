@@ -245,6 +245,7 @@ def get_synoptic_obs_features(
     }
 
     if not _token():
+        print("  ⚠️ SYNOPTIC_TOKEN not set in environment — returning NaN for all Synoptic features")
         return nan_result
 
     # Determine which named stations to track based on city — must be set BEFORE
