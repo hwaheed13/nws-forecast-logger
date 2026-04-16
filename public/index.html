@@ -4432,7 +4432,9 @@ function renderLiveSourcesPanel() {
     : null;
 
   const _nowHour  = parseInt(new Date().toLocaleString("en-US", { timeZone: _cityTZ, hour: "numeric", hour12: false }), 10);
-  const _snapRecent = _nowHour < 15;
+  // Snapshot is "recent" if we have observation data (heating rate) — shows all day
+  // (rate calculated all day for display, even if ML doesn't use it after 2pm for triggers)
+  const _snapRecent = knyc_rate != null;
   // Stall signal: obs_heating_rate_delta < -0.8 = deceleration = cap holding fingerprint
   const _stallActive  = _snapRecent && knyc_rate_delta != null && Number(knyc_rate_delta) < -0.8;
   const _stallStrong  = knyc_rate_delta != null && Number(knyc_rate_delta) < -1.5;
