@@ -1,16 +1,20 @@
 {
-  "trained_on": "2026-04-16T00:43:51.226080",
-  "version": "v8_hrrr_anchored_stall_signal",
+  "trained_on": "2026-04-16T00:44:45.680931",
+  "version": "v13_bl_safeguard_features",
   "base_cascade": "HRRR > NBM > AccuWeather > NWS",
-  "new_feature": "obs_heating_rate_delta (stall = cap fingerprint)",
-  "v8_regression": {
-    "cv_mae": 1.2104678226960548,
-    "cv_bucket_accuracy": 0.31999999999999995,
-    "residual_std": 1.6168802880390498,
-    "n_features": 150,
+  "new_features": "entrainment_temp_diff, marine_containment, inland_strength",
+  "motivation": "April 15, 2026: v12 BL spike triggered downward revision (89-90 \u2192 87-88) even though actual high was 90\u00b0F. Root cause: BL height increase was conditional on other atmospheric state not being explicitly modeled. These 3 features encode the guard rails directly, letting the model learn: 'BL trigger matters only if entrainment is cooling, marine penetrates inland, and inland underperforms forecast. Otherwise, don't reduce.' This prevents the April 15 miss while still catching actual cap days.",
+  "n_entrainment_rows": 4,
+  "n_marine_rows": 11,
+  "n_inland_rows": 3,
+  "v13_regression": {
+    "cv_mae": 0.8520950000428359,
+    "cv_bucket_accuracy": 0.3851851851851852,
+    "residual_std": 2.2869253234074454,
+    "n_features": 171,
     "n_training_rows": 270
   },
-  "feature_columns_v8": [
+  "feature_columns_v13": [
     "nws_first",
     "nws_last",
     "nws_max",
@@ -160,6 +164,27 @@
     "raob_700mb_temp",
     "raob_925mb_gfs_diff",
     "raob_925mb_hrrr_diff",
-    "obs_heating_rate_delta"
+    "obs_heating_rate_delta",
+    "obs_kjfk_temp",
+    "obs_klga_temp",
+    "obs_kewr_temp",
+    "obs_kteb_temp",
+    "obs_knyc_temp",
+    "obs_kjfk_vs_knyc",
+    "obs_klga_vs_knyc",
+    "obs_kewr_vs_knyc",
+    "obs_airport_spread",
+    "obs_coastal_vs_inland",
+    "obs_manh_temp",
+    "obs_manh_vs_knyc",
+    "mm_hrrr_vs_nws",
+    "mm_nbm_vs_nws",
+    "mm_mean_vs_nws",
+    "obs_kcdw_temp",
+    "obs_ksmq_temp",
+    "obs_inland_gradient",
+    "entrainment_temp_diff",
+    "marine_containment",
+    "inland_strength"
   ]
 }
