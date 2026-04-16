@@ -62,21 +62,25 @@ _CITY_KEY = "nyc"
 # PT for LAX). After this hour we freeze the ML prediction to prevent
 # AccuWeather retroactively echoing the observed high and intraday curve
 # features from leaking actual temperatures into the forecast.
-_D0_CUTOFF_HOUR_LOCAL = {
-    "nyc": 14,  # 2pm ET  — NYC high typically peaks 1–3pm
-    "lax": 14,  # 2pm PT  — LA  high typically peaks 2–4pm PT
-}
+# Dynamic agency cutoff: use seasonal cutoff from city_config
+# Falls back to hardcoded defaults if not available
+def _get_agency_cutoff_hour(city_key: str) -> int:
+    """Get agency cutoff hour for current date and city (dynamic by season)."""
+    try:
+        from city_config import get_seasonal_agency_cutoff
+        current_month = datetime.datetime.now().month
+        return get_seasonal_agency_cutoff(current_month)
+    except Exception:
+        # Fallback to static defaults if import fails
+        return {"nyc": 14, "lax": 14}.get(city_key, 14)
 
-# Atmospheric-only cutoff — later than the agency cutoff because BL height,
-# 925mb winds, and GFS/HRRR/ECMWF ensemble data are MODEL-derived, not
-# surface-observation-derived. A collapsing BL at 2:30pm is independent
-# evidence the mixing layer is done (high has peaked) without looking at
-# the thermometer — no contamination risk. Agency (NWS/AccuWeather) and obs
-# triggers still freeze at _D0_CUTOFF_HOUR_LOCAL to avoid thermometer-chasing.
-_D0_ATM_CUTOFF_HOUR_LOCAL = {
-    "nyc": 15,  # 3pm ET — GFS/HRRR update at ~2pm captures post-peak BL collapse
-    "lax": 15,  # 3pm PT — marine layer / BL feedback typically resolved by then
-}
+# Atmospheric-only cutoff — 1 hour later than agency cutoff
+# BL height, 925mb winds, and GFS/HRRR/ECMWF ensemble data are MODEL-derived,
+# not surface-observation-derived. A collapsing BL is independent evidence the
+# mixing layer is done without looking at the thermometer — no contamination risk.
+def _get_atm_cutoff_hour(city_key: str) -> int:
+    """Get atmospheric cutoff hour (agency_cutoff + 1 hour)."""
+    return _get_agency_cutoff_hour(city_key) + 1
 
 # ---------------------------------------------------------------------------
 # ML model inference
@@ -4627,17 +4631,20 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     #              preserving the correct comparison point for future cycles.
     ml_recomputed = False
 
-    # Two-tier D0 freeze:
-    #   agency_cutoff (2pm): freeze NWS/AccuWeather/obs triggers — these use observed
+    # Two-tier D0 freeze (seasonal):
+    #   agency_cutoff: freeze NWS/AccuWeather/obs triggers — these use observed
     #     surface data and agency echoes, which contaminate the prediction after peak heating.
-    #   atm_cutoff (3pm): freeze atmospheric triggers — BL height, 925mb temps, GFS/HRRR
+    #     Time varies by season: 2 PM (winter), 3 PM (spring/fall), 4 PM (summer).
+    #   atm_cutoff: freeze atmospheric triggers — BL height, 925mb temps, GFS/HRRR
     #     ensemble data are MODEL-derived (not surface-observation-derived), so they can
-    #     safely fire until 3pm. A collapsing BL at 2:30pm is independent evidence the
+    #     safely fire until atm_cutoff. A collapsing BL is independent evidence the
     #     mixing layer is done without looking at the thermometer.
     # The canonical write guard uses atm_cutoff (full freeze) so is_canonical_write is
     # only True in the morning before any cutoff fires.
-    agency_cutoff = now_nyc().hour >= _D0_CUTOFF_HOUR_LOCAL.get(_CITY_KEY, 14)
-    atm_cutoff    = now_nyc().hour >= _D0_ATM_CUTOFF_HOUR_LOCAL.get(_CITY_KEY, 15)
+    agency_cutoff_hour = _get_agency_cutoff_hour(_CITY_KEY)
+    atm_cutoff_hour = _get_atm_cutoff_hour(_CITY_KEY)
+    agency_cutoff = now_nyc().hour >= agency_cutoff_hour
+    atm_cutoff    = now_nyc().hour >= atm_cutoff_hour
     past_cutoff   = atm_cutoff  # full freeze = atm cutoff (used for canonical write gate)
     live_atm: Optional[dict] = None
 

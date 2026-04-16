@@ -59,6 +59,29 @@ CITIES = {
 
 DEFAULT_CITY = "nyc"
 
+# Dynamic agency cutoff times by season (hour in local timezone)
+# Before this hour: NWS/AccuWeather/obs triggers active (can trigger ML recompute)
+# After this hour: These triggers silenced, only atmospheric triggers live
+# Rationale: solar heating peak shifts with season length
+#   Spring (Mar-May):    3 PM — warming extends into afternoon
+#   Summer (Jun-Aug):    4 PM — peak heating 3-4 PM, especially late spring/early summer
+#   Fall (Sep-Oct):      3 PM — heating still extends into afternoon
+#   Winter (Nov-Feb):    2 PM — heating stops early, evenings get cold
+SEASONAL_AGENCY_CUTOFF = {
+    1: 14,   # Jan - 2 PM
+    2: 14,   # Feb - 2 PM
+    3: 15,   # Mar - 3 PM (spring starts)
+    4: 15,   # Apr - 3 PM
+    5: 16,   # May - 4 PM (late spring peak warming)
+    6: 16,   # Jun - 4 PM (summer peak warming)
+    7: 16,   # Jul - 4 PM (summer peak warming)
+    8: 16,   # Aug - 4 PM (summer peak warming)
+    9: 15,   # Sep - 3 PM (fall starts)
+    10: 15,  # Oct - 3 PM
+    11: 14,  # Nov - 2 PM (fall ends, winter starts)
+    12: 14,  # Dec - 2 PM
+}
+
 
 def get_city_config(city_key: str) -> dict:
     """Return config dict for the given city key. Raises KeyError if not found."""
@@ -66,3 +89,8 @@ def get_city_config(city_key: str) -> dict:
     if key not in CITIES:
         raise KeyError(f"Unknown city '{key}'. Available: {', '.join(CITIES.keys())}")
     return CITIES[key]
+
+
+def get_seasonal_agency_cutoff(month: int) -> int:
+    """Return the agency cutoff hour for a given month (1-12)."""
+    return SEASONAL_AGENCY_CUTOFF.get(month, 14)  # Default to 2 PM if undefined
