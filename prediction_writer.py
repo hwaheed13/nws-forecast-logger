@@ -7,6 +7,11 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+# Atmospheric snapshot caching (graceful fallback during API failures)
+from atm_cache import (
+    get_cached_snapshot, cache_snapshot, fill_missing_from_cache,
+)
+
 # reuse your existing helpers from nws_auto_logger.py (leave that file alone)
 from nws_auto_logger import (
     now_nyc, today_nyc, _read_all_rows,
@@ -1832,6 +1837,10 @@ def _compute_ml_prediction(
                 print(f"🌤️ Using prefetched atmospheric features ({len(atm_features)} keys)")
             else:
                 atm_features = _fetch_atmospheric_features(target_date_iso)
+
+                # ── Cache fallback: Fill missing values from cached snapshot ──
+                # If Open-Meteo or Synoptic APIs are rate-limited/down, fill gaps with cache
+                atm_features = fill_missing_from_cache(_CITY_KEY, atm_features)
 
             # Merge atmospheric features into the feature dict
             v2_features = dict(features)
@@ -5026,6 +5035,10 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                         # Preserve previous cycle's rate when deltas can't be computed
                         snap["obs_snap_inland_warming_rate"] = stored_snapshot_dict["obs_snap_inland_warming_rate"]
                         snap["obs_snap_warming_accel"] = stored_snapshot_dict.get("obs_snap_warming_accel", False)
+
+                # ── Cache complete snapshot for fallback on next API failures ──
+                cache_snapshot(_CITY_KEY, snap)
+
                 payload["atm_snapshot"] = json.dumps(snap)
                 print(f"📸 Atmospheric baseline advanced after recompute ({len(snap)} keys)")
 
@@ -5430,6 +5443,9 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 except Exception as _sig_e:
                     print(f"  ⚠️  Derived signals skipped: {_sig_e}")
 
+                # ── Cache complete snapshot for fallback on next API failures ──
+                cache_snapshot(_CITY_KEY, _ex_snap)
+
                 payload["atm_snapshot"] = json.dumps(_ex_snap)
                 print(f"📸 Obs panel refreshed in stable snapshot "
                       f"({len(_ex_snap)} keys, ml_recomputed=False)")
@@ -5504,6 +5520,10 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                     else:
                         print(f"  ⚠️  Morning anchor: no mm_* values available at canonical "
                               f"write — cascading-null fallback unavailable for today")
+
+                    # ── Cache complete snapshot for fallback on next API failures ──
+                    cache_snapshot(_CITY_KEY, snap)
+
                     payload["atm_snapshot"] = json.dumps(snap)
                     obs_populated = sum(
                         1 for v in (live_obs or {}).values()
