@@ -4423,12 +4423,8 @@ function renderLiveSourcesPanel() {
   const _dsmHighStr = !isLaxDisplay && window._dsmHighF != null
     ? `DSM High: ${f0(window._dsmHighF)}`
     : "";
-  // Dew point from observation snapshot (atmospheric moisture)
-  const knyc_dewpoint = s.obs_snap_dewpoint;
-  const _dewStr = knyc_dewpoint != null ? `Dew Point: ${f1(knyc_dewpoint)}` : "";
   const knyc_line1 = knyc_max != null ? `Max: ${f0(knyc_max)}` : "";
-  const knyc_line2 = _dewStr || _dsmHighStr || "";
-  const knyc_line2b = _dewStr && _dsmHighStr ? _dsmHighStr : "";
+  const knyc_line2 = _dsmHighStr || "";
   const knyc_line3 = [
     (!isLaxDisplay && _manhStr  != null) ? _manhStr : "",          // 5-min Mesonet fill-in (NYC only)
     (_snapRecent && knyc_vs   != null) ? `vs fcst: ${fSign(knyc_vs)}` : "",
@@ -4437,7 +4433,7 @@ function renderLiveSourcesPanel() {
     (_snapRecent && _stallActive)
       ? `stall ${Number(knyc_rate_delta).toFixed(1)}°/hr${_stallStrong ? " ⚠️" : ""}` : "",
   ].filter(Boolean).join(" · ");
-  const knyc_sub = [knyc_line1, knyc_line2, knyc_line2b, knyc_line3].filter(Boolean).join("<br>") || "–";
+  const knyc_sub = [knyc_line1, knyc_line2, knyc_line3].filter(Boolean).join("<br>") || "–";
 
   // ── Regional stations (JFK/LGA for NYC, LAX/BUR for LAX)
   const lro = window._liveRegionalObs || {};
