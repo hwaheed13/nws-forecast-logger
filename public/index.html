@@ -4074,8 +4074,9 @@ function renderFlipRisk() {
   // ── Blow-past banner in the prediction card ───────────────────────────────
   // When blow-past is HIGH or MEDIUM, surface a callout directly in the today
   // card so users see it immediately — not buried in the reversal panel below.
+  // CRITICAL: Only update if blow.level is actually defined (not undefined/null stale data)
   const _bpWarn = document.getElementById('blow-past-warn-today');
-  if (_bpWarn) {
+  if (_bpWarn && blow.level) {  // ← Only touch if blow.level exists
     if (blow.level === 'HIGH' || blow.level === 'MEDIUM') {
       const _ml2 = window.mlPredictions || {};
       const _currBktLabel = _ml2.todayMLBucket
@@ -4094,7 +4095,7 @@ function renderFlipRisk() {
                     border-radius:4px;font-size:12px;color:${_bpColor};line-height:1.4;">
           ${_bpIcon} <strong>Blow-past risk ${blow.level}</strong> — model predicts ${_currBktLabel}${_exceed}
         </div>`;
-    } else {
+    } else if (blow.level === 'LOW') {  // ← Only clear if explicitly LOW, not if undefined
       _bpWarn.innerHTML = '';
     }
   }
@@ -4414,25 +4415,31 @@ function renderLiveSourcesPanel() {
 
   const _nowHour  = parseInt(new Date().toLocaleString("en-US", { timeZone: _cityTZ, hour: "numeric", hour12: false }), 10);
   const _snapRecent = _nowHour < 15;
+  // Dynamic heating window based on city and season (4+ years of historical analysis)
+  const _inHeatingWindow = _getHeatingWindow(currentCity, _nowHour);
   // Stall signal: obs_heating_rate_delta < -0.8 = deceleration = cap holding fingerprint
-  const _stallActive  = knyc_rate_delta != null && Number(knyc_rate_delta) < -0.8;
+  const _stallActive  = _inHeatingWindow && knyc_rate_delta != null && Number(knyc_rate_delta) < -0.8;
   const _stallStrong  = knyc_rate_delta != null && Number(knyc_rate_delta) < -1.5;
   const isLaxDisplay = currentCity === 'lax';
   // DSM high from real-time Supabase listener (separate line below Max)
   const _dsmHighStr = !isLaxDisplay && window._dsmHighF != null
     ? `DSM High: ${f0(window._dsmHighF)}`
     : "";
+  // Dew point from observation snapshot (atmospheric moisture)
+  const knyc_dewpoint = s.obs_snap_dewpoint;
+  const _dewStr = knyc_dewpoint != null ? `Dew Point: ${f1(knyc_dewpoint)}` : "";
   const knyc_line1 = knyc_max != null ? `Max: ${f0(knyc_max)}` : "";
-  const knyc_line2 = _dsmHighStr || "";
+  const knyc_line2 = _dewStr || _dsmHighStr || "";
+  const knyc_line2b = _dewStr && _dsmHighStr ? _dsmHighStr : "";
   const knyc_line3 = [
     (!isLaxDisplay && _manhStr  != null) ? _manhStr : "",          // 5-min Mesonet fill-in (NYC only)
     (_snapRecent && knyc_vs   != null) ? `vs fcst: ${fSign(knyc_vs)}` : "",
-    (_snapRecent && knyc_rate != null && Math.abs(Number(knyc_rate)) >= 0.2)
+    (_inHeatingWindow && knyc_rate != null && Math.abs(Number(knyc_rate)) >= 0.2)
       ? `${Number(knyc_rate) >= 0 ? "+" : ""}${Number(knyc_rate).toFixed(1)}°/hr` : "",
-    (_snapRecent && _stallActive)
+    (_inHeatingWindow && _stallActive)
       ? `stall ${Number(knyc_rate_delta).toFixed(1)}°/hr${_stallStrong ? " ⚠️" : ""}` : "",
   ].filter(Boolean).join(" · ");
-  const knyc_sub = [knyc_line1, knyc_line2, knyc_line3].filter(Boolean).join("<br>") || "–";
+  const knyc_sub = [knyc_line1, knyc_line2, knyc_line2b, knyc_line3].filter(Boolean).join("<br>") || "–";
 
   // ── Regional stations (JFK/LGA for NYC, LAX/BUR for LAX)
   const lro = window._liveRegionalObs || {};
@@ -7099,10 +7106,33 @@ async function bootApp() {
       return parseInt(new Date().toLocaleString('en-US', { timeZone: tz, minute: 'numeric' }), 10);
     }
 
+    // Dynamic heating window configuration (based on 4+ years of historical analysis)
+    function _getHeatingWindow(city, hour) {
+      // Determine season from current date
+      const now = new Date();
+      const month = now.getMonth() + 1; // 1-12
+      let season;
+      if (month >= 12 || month <= 2) season = 'winter';
+      else if (month >= 3 && month <= 5) season = 'spring';
+      else if (month >= 6 && month <= 8) season = 'summer';
+      else season = 'fall';
+
+      // Heating window config: (start_hour, end_hour) in local time
+      // Based on 4+ years of observation data (2022-2026)
+      const windows = {
+        nyc: { winter: [10, 16], spring: [10, 16], summer: [10, 16], fall: [10, 16] },
+        lax: { winter: [10, 16], spring: [10, 13], summer: [10, 12], fall: [10, 13] }
+      };
+
+      city = city.toLowerCase();
+      const window_hours = windows[city]?.[season] || [10, 16];
+      const [start, end] = window_hours;
+      return hour >= start && hour < end;
+    }
+
     function _inHeatingWindow() {
-      const h = _localHour(), m = _localMinute();
-      const mins = h * 60 + m;
-      return mins >= 9 * 60 + 30 && mins <= 15 * 60 + 30; // 9:30 AM – 3:30 PM
+      const h = _localHour();
+      return _getHeatingWindow(currentCity, h);
     }
 
     function _setHeatingWindowMode(active) {
