@@ -29,6 +29,9 @@ export default async function handler(req, res) {
     "wind_speed_10m",          // Surface wind speed (mph)
     "wind_direction_10m",      // Surface wind direction (°)
     "temperature_2m",          // Surface temp (°F)
+    "dew_point_2m",            // Dewpoint at 2m — moisture measure
+    "precipitation",           // Hourly precipitation (in)
+    "precipitation_probability", // Chance of rain (%)
   ].join(",");
 
   // Current conditions — updated every 15 minutes by Open-Meteo.
@@ -41,6 +44,8 @@ export default async function handler(req, res) {
     "temperature_925hPa",      // Current 925mb temp (model analysis, updates every 15 min)
     "wind_speed_10m",          // Current surface wind speed
     "wind_direction_10m",      // Current surface wind direction
+    "dew_point_2m",            // Current dewpoint
+    "precipitation",           // Current precip (in last hour)
   ].join(",");
 
   const url =
@@ -66,6 +71,8 @@ export default async function handler(req, res) {
     const t925Now     = currentConditions.temperature_925hPa   ?? null;
     const windNowLive = currentConditions.wind_speed_10m       ?? null;
     const wdirNowLive = currentConditions.wind_direction_10m   ?? null;
+    const dewNow      = currentConditions.dew_point_2m         ?? null;
+    const precipNow   = currentConditions.precipitation        ?? null;
     const currentTime = currentConditions.time                 ?? null;
 
     const hourly = raw.hourly || {};
@@ -88,6 +95,9 @@ export default async function handler(req, res) {
         wind:  hourly.wind_speed_10m?.[i],
         wdir:  hourly.wind_direction_10m?.[i],
         temp:  hourly.temperature_2m?.[i],
+        dew:   hourly.dew_point_2m?.[i],
+        precip: hourly.precipitation?.[i],
+        precip_prob: hourly.precipitation_probability?.[i],
       };
     }).filter(r => r.date === todayStr);
 
@@ -142,6 +152,21 @@ export default async function handler(req, res) {
     const temp6am  = rows.find(r => r.hour === 6)?.temp;
     const wdirCard = degToCard(wdirNow);
 
+    // Precipitation aggregates:
+    //  - remaining_day_in: sum of hourly precip from current hour through 11pm
+    //  - max_prob_rest:    max precip-probability % from now through end of day
+    // Both are "what's coming" signals for the solar-window-before-rain pattern.
+    const restOfDay = rows.filter(r => r.hour >= currentHour);
+    const precipRemaining = restOfDay
+      .map(r => r.precip).filter(v => v != null && !isNaN(v))
+      .reduce((a, b) => a + b, 0);
+    const precipProbMax = Math.max(0, ...restOfDay
+      .map(r => r.precip_prob).filter(v => v != null && !isNaN(v)));
+    const precipHoursAhead = restOfDay.find(r => r.precip != null && r.precip > 0.01)?.hour;
+
+    // Dewpoint — mean dewpoint during peak heating window (moist air caps temps)
+    const dewPeak  = avg(peak, "dew");
+
     const warmAdv = t850Pk != null ? (t850Pk > 50 ? "warm" : t850Pk < 40 ? "cold" : "neutral") : null;
 
     res.status(200).json({
@@ -162,6 +187,8 @@ export default async function handler(req, res) {
         wind_mph_now:       windNowLive != null ? Math.round(windNowLive * 10) / 10 : null,
         wind_dir_deg_now:   wdirNowLive != null ? Math.round(wdirNowLive)           : null,
         wind_dir_card_now:  degToCard(wdirNowLive),
+        dewpoint_now:       dewNow      != null ? Math.round(dewNow * 10) / 10     : null,
+        precip_now_in:      precipNow   != null ? Math.round(precipNow * 100) / 100 : null,
         current_obs_time:   currentTime,
       },
       peak_heating: {
@@ -173,7 +200,13 @@ export default async function handler(req, res) {
         solar_mean_wm2:   solarMn != null ? Math.round(solarMn) : null,
         temp_850hPa:      t850Pk  != null ? Math.round(t850Pk  * 10) / 10 : null,
         temp_925hPa:      t925Pk  != null ? Math.round(t925Pk  * 10) / 10 : null,
+        dewpoint_mean:    dewPeak != null ? Math.round(dewPeak * 10) / 10 : null,
         warm_advection:   warmAdv,
+      },
+      precip_forecast: {
+        remaining_today_in: Math.round(precipRemaining * 100) / 100,
+        max_prob_rest_pct:  Number.isFinite(precipProbMax) ? Math.round(precipProbMax) : null,
+        first_hour_ahead:   precipHoursAhead ?? null,
       },
       morning: {
         temp_6am: temp6am != null ? Math.round(temp6am * 10) / 10 : null,
