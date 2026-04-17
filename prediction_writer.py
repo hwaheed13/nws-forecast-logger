@@ -5893,22 +5893,33 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     #   - AND obs-panel refresh didn't run (either not a stable cycle OR no existing row)
     #   - AND flip tracking didn't set it
     # This happens on the very first prediction write of a new day before ML runs.
-    # Fetch atmospheric features so the Live Observation Sources panel has data.
+    # Fetch atmospheric + observational features so Live Observation Sources has data.
     if "atm_snapshot" not in payload:
         try:
             fallback_atm = _fetch_atmospheric_features(target_date_iso)
-            if fallback_atm and any(
+            # Also fetch live observations (KNYC, regional, Synoptic, MANH, etc.)
+            fallback_obs = _fetch_observation_features(target_date_iso) or {}
+
+            # Build snapshot with both ATM and OBS data
+            fallback_snap = fallback_atm or {}
+            if fallback_obs:
+                _add_obs_to_snap(fallback_snap, fallback_obs, fallback_atm)
+
+            if fallback_snap and any(
                 v is not None and not (isinstance(v, float) and math.isnan(v))
-                for v in fallback_atm.values()
+                for v in fallback_snap.values()
             ):
                 # Cache for future fallback
-                cache_snapshot(_CITY_KEY, fallback_atm)
-                payload["atm_snapshot"] = json.dumps(fallback_atm)
-                print(f"📸 Fallback atm_snapshot written: {len(fallback_atm)} keys "
-                      f"({sum(1 for v in fallback_atm.values() if v is not None)} non-null)")
+                cache_snapshot(_CITY_KEY, fallback_snap)
+                payload["atm_snapshot"] = json.dumps(fallback_snap)
+                atm_keys = sum(1 for k in fallback_snap.keys() if k.startswith("atm_") or k.startswith("mm_"))
+                obs_keys = sum(1 for k in fallback_snap.keys() if k.startswith("obs_snap_"))
+                valid_keys = sum(1 for v in fallback_snap.values() if v is not None and not (isinstance(v, float) and math.isnan(v)))
+                print(f"📸 Fallback atm_snapshot written: {len(fallback_snap)} total keys "
+                      f"({atm_keys} atm/mm, {obs_keys} obs_snap, {valid_keys} non-null)")
             else:
                 # No data available yet — don't write empty snapshot
-                print(f"⚠️ Fallback atm_snapshot: no atmospheric data available yet")
+                print(f"⚠️ Fallback atm_snapshot: no atmospheric/observational data available yet")
         except Exception as _fb_e:
             print(f"⚠️ Fallback atm_snapshot fetch failed: {_fb_e}")
 
@@ -6266,20 +6277,30 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
 
     # ── Fallback: ensure atm_snapshot is always written (D+1) ──────────────────
     # Same logic as write_today_for_today: if we haven't set atm_snapshot yet,
-    # fetch atmospheric features so tomorrow's Live Sources panel has data.
+    # fetch atmospheric + observational features for tomorrow's Live Sources panel.
     if "atm_snapshot" not in payload:
         try:
             fallback_atm_tm = _fetch_atmospheric_features(tomorrow_iso)
-            if fallback_atm_tm and any(
+            fallback_obs_tm = _fetch_observation_features(tomorrow_iso) or {}
+
+            # Build snapshot with both ATM and OBS data
+            fallback_snap_tm = fallback_atm_tm or {}
+            if fallback_obs_tm:
+                _add_obs_to_snap(fallback_snap_tm, fallback_obs_tm, fallback_atm_tm)
+
+            if fallback_snap_tm and any(
                 v is not None and not (isinstance(v, float) and math.isnan(v))
-                for v in fallback_atm_tm.values()
+                for v in fallback_snap_tm.values()
             ):
                 # Cache for future fallback
-                cache_snapshot(_CITY_KEY, fallback_atm_tm)
-                payload["atm_snapshot"] = json.dumps(fallback_atm_tm)
-                print(f"📸 D+1 fallback atm_snapshot written: {len(fallback_atm_tm)} keys")
+                cache_snapshot(_CITY_KEY, fallback_snap_tm)
+                payload["atm_snapshot"] = json.dumps(fallback_snap_tm)
+                atm_keys = sum(1 for k in fallback_snap_tm.keys() if k.startswith("atm_") or k.startswith("mm_"))
+                obs_keys = sum(1 for k in fallback_snap_tm.keys() if k.startswith("obs_snap_"))
+                print(f"📸 D+1 fallback atm_snapshot written: {len(fallback_snap_tm)} total keys "
+                      f"({atm_keys} atm/mm, {obs_keys} obs_snap)")
             else:
-                print(f"⚠️ D+1 fallback atm_snapshot: no atmospheric data available yet")
+                print(f"⚠️ D+1 fallback atm_snapshot: no atmospheric/observational data available yet")
         except Exception as _fb_e:
             print(f"⚠️ D+1 fallback atm_snapshot fetch failed: {_fb_e}")
 
