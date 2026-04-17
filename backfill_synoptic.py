@@ -418,9 +418,13 @@ def backfill(
             if isinstance(new_snap, str):
                 try: new_snap = json.loads(new_snap)
                 except: new_snap = {}
+            if isinstance(new_snap, list):
+                new_snap = {}
             if isinstance(ex_snap, str):
                 try: ex_snap = json.loads(ex_snap)
                 except: ex_snap = {}
+            if isinstance(ex_snap, list):
+                ex_snap = {}
             if len(new_snap) > len(ex_snap):
                 by_date[d] = row
 
@@ -432,6 +436,9 @@ def backfill(
         if isinstance(snap, str):
             try: snap = json.loads(snap)
             except: snap = {}
+        # Handle case where snap is a list (malformed snapshot) → treat as empty
+        if isinstance(snap, list):
+            snap = {}
         # Skip only if already has KSMQ data (new v12 feature).
         # Rows with only v9 data (KJFK) will be refetched to add KCDW/KSMQ.
         if snap.get("obs_ksmq_temp") is not None:
