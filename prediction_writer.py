@@ -5420,7 +5420,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     elif isinstance(existing, dict) and existing.get("ml_f") is not None and past_cutoff:
         # Past the full freeze point (atm cutoff OR dynamic lock).
         # All signal types (agency, atmospheric, obs) are now stale or contaminated.
-        lock_label = _dlock["reason"] if _dlock["locked"] else f"atm cutoff ({_D0_ATM_CUTOFF_HOUR_LOCAL.get(_CITY_KEY, 15)}:00 local)"
+        lock_label = _dlock["reason"] if _dlock["locked"] else f"atm cutoff ({atm_cutoff_hour}:00 local)"
         print(f"⏸️ Full freeze [{lock_label}] — ML held: "
               f"{existing['ml_f']}°F → {existing.get('ml_bucket')}")
         ml = {
@@ -6844,7 +6844,6 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
 
     supabase_upsert(payload)
     # Log the 3-hourly snapshot archive
-    atm_keys_archived = sum(1 for k in payload.get("atm_snapshot", "{}").count(":") if k) if isinstance(payload.get("atm_snapshot"), str) else 0
     print(f"📦 3-hourly snapshot archived for hour {snapshot_hour:02d}:00 EST "
           f"(prediction={payload.get('prediction_value', 'N/A')}°F)")
 
