@@ -88,10 +88,39 @@ export default async function handler(req, res) {
 
     if (bestF == null) return res.status(204).end();
 
+    // ── Overnight profile (hours 2-6 ET) for airmass-warmth signal ──
+    // Option B overnight-exceedance: use the MINIMUM temp between 2-6am ET
+    // as the baseline.  If the overnight min is still close to the forecast
+    // high, the airmass is genuinely stuck warm (not just a post-midnight
+    // spillover from yesterday that cools off normally).
+    let overnightMinF = null, overnightMinTs = null;
+    let overnightMaxF = null, overnightMaxTs = null;
+    for (const f of feats) {
+      const ts = f?.properties?.timestamp;
+      if (!ts) continue;
+      const d = new Date(ts);
+      if (toNYDate(d) !== todayNY) continue;
+      const nyHourStr = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz, hour: "numeric", hour12: false
+      }).format(d);
+      const nyHour = Number(nyHourStr);
+      if (!Number.isFinite(nyHour) || nyHour < 2 || nyHour > 6) continue;
+
+      const c = f?.properties?.temperature?.value;
+      if (c == null || !Number.isFinite(c)) continue;
+      const F = c * 9/5 + 32;
+      if (overnightMinF == null || F < overnightMinF) { overnightMinF = F; overnightMinTs = ts; }
+      if (overnightMaxF == null || F > overnightMaxF) { overnightMaxF = F; overnightMaxTs = ts; }
+    }
+
     res.status(200).json({
       station,
       highF: Math.round(bestF * 10) / 10,
       atISO: bestTs,
+      overnightMinF: overnightMinF != null ? Math.round(overnightMinF * 10) / 10 : null,
+      overnightMinAt: overnightMinTs,
+      overnightMaxF: overnightMaxF != null ? Math.round(overnightMaxF * 10) / 10 : null,
+      overnightMaxAt: overnightMaxTs,
     });
   } catch (e) {
     console.error(e);
