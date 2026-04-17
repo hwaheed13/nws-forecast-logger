@@ -43,6 +43,17 @@ export default async function handler(req, res) {
     // Support both standard (1,7,13,19) and DST-shifted (0,6,12,18) :51 snapshots
     const targetHours = new Set([0, 1, 6, 7, 12, 13, 18, 19]);
 
+    // Today's date *in ET* — needed for month rollover logic. The server runs
+    // in UTC on Vercel, so we cannot use now.getFullYear/getMonth/getDate.
+    const etTodayParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(now);
+    const getPart = (parts, t) => parseInt(parts.find(p => p.type === t).value, 10);
+    const etTodayYear = getPart(etTodayParts, 'year');
+    const etTodayMonth = getPart(etTodayParts, 'month') - 1; // 0-indexed
+    const etTodayDay = getPart(etTodayParts, 'day');
+
     const rows = [];
     $("table tr").each((_, tr) => {
       const cells = $(tr).find("td");
@@ -64,20 +75,22 @@ export default async function handler(req, res) {
       const tempVal = parseFloat(maxStr);
       if (!Number.isFinite(tempVal)) return;
 
-      const dt = parseObsTime(dayStr, hh, mm, now);
+      const dt = parseObsTimeET(dayStr, hh, mm, etTodayYear, etTodayMonth, etTodayDay);
       if (!dt) return;
 
       // Drop rows older than our window or accidentally in the future
       if (dt < cutoff || dt > now) return;
 
-      // Include the ISO date so frontend can filter to today's data only
-      // Compute date in NY/ET timezone (where observations are recorded) to match frontend's nycISODate(0)
-      const etNow = new Date(dt.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-      const isoDate = etNow.toISOString().split('T')[0];  // YYYY-MM-DD in ET
+      // ET calendar date for this observation. en-CA locale gives YYYY-MM-DD.
+      const isoDate = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/New_York',
+        year: 'numeric', month: '2-digit', day: '2-digit'
+      }).format(dt);
+
       rows.push({
         dt,
         date: isoDate,
-        value: Math.round(tempVal), // keep it clean/int-ish like the site shows
+        value: Math.round(tempVal),
         time: formatAsETClock(hh, mm),
         source: "6hrMax",
       });
@@ -95,27 +108,39 @@ export default async function handler(req, res) {
 }
 
 /**
- * Build a Date in local server tz from table fields, fixing month rollovers.
- * If the row's day-of-month is greater than today's day, it's from the previous month.
+ * Build a Date (UTC instant) from an NWS obs-history row, treating the row's
+ * hh:mm as ET wall-clock time. Handles month/year rollover when day-of-month
+ * is greater than today's ET day-of-month.
  */
-function parseObsTime(dayStr, hh, mm, nowRef) {
+function parseObsTimeET(dayStr, hh, mm, etTodayYear, etTodayMonth, etTodayDay) {
   const day = parseInt(dayStr, 10);
   if (!Number.isFinite(day)) return null;
 
-  let year = nowRef.getFullYear();
-  let month = nowRef.getMonth(); // 0..11
-
-  // Proper rollover: e.g., now=Sep 1 and row says "31" → August 31
-  if (day > nowRef.getDate()) {
+  let year = etTodayYear;
+  let month = etTodayMonth;
+  if (day > etTodayDay) {
     month -= 1;
-    if (month < 0) {
-      month = 11;
-      year -= 1;
-    }
+    if (month < 0) { month = 11; year -= 1; }
   }
 
-  // Construct and return
-  return new Date(year, month, day, hh, mm);
+  // Convert "year-month-day hh:mm in ET wall-clock" to a UTC instant.
+  // ET is UTC-5 (EST) or UTC-4 (EDT) depending on date. We compute the
+  // correct offset for this specific instant by round-tripping through
+  // the Intl ET formatter.
+  const asIfUTC = Date.UTC(year, month, day, hh, mm, 0);
+  const etParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  }).formatToParts(new Date(asIfUTC));
+  const get = (t) => parseInt(etParts.find(p => p.type === t).value, 10);
+  const etWallAsUTC = Date.UTC(
+    get('year'), get('month') - 1, get('day'),
+    get('hour') % 24, get('minute')
+  );
+  const offsetMs = asIfUTC - etWallAsUTC;
+
+  return new Date(asIfUTC + offsetMs);
 }
 
 function formatAsETClock(hh, mm) {
