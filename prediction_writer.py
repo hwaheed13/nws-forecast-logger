@@ -4935,6 +4935,16 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 live_atm = _fetch_atmospheric_features(target_date_iso)
             except Exception:
                 live_atm = {}
+            # Fallback: if fetch failed, use cached snapshot to ensure we always have
+            # at least some atmospheric data for display cards on the first write.
+            if not live_atm or not any(v is not None and not (isinstance(v, float) and math.isnan(v)) for v in live_atm.values()):
+                try:
+                    cached = get_cached_snapshot(_CITY_KEY)
+                    if cached:
+                        live_atm = fill_missing_from_cache(_CITY_KEY, live_atm)
+                        print(f"📦 Filled live_atm from cache after fetch failure")
+                except Exception:
+                    pass
             try:
                 live_obs = _fetch_observation_features(
                     target_date_iso,
@@ -5630,7 +5640,11 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             ):
                 # Populate atm_* / mm_* / ens_* / nws_* keys from live_atm
                 snap = {k: live_atm[k] for k in _ATM_SNAPSHOT_KEYS if k in live_atm}
-            if snap or live_obs:  # Always run if we have ANY data (obs or atm)
+            # Always write snapshot on canonical (first-write) path, even if empty.
+            # An empty snapshot dict still allows _add_obs_to_snap to populate obs_snap_*
+            # display keys, which is essential for the "Live Observation Sources" panel.
+            # NULL snapshot breaks dashboard panel rendering and makes the cards disappear.
+            if True:  # Always run on canonical write to ensure snapshot is always persisted
                     # Inject NWS sequence features — computed inside _compute_ml_prediction()
                     # but not returned via live_atm (which is Open-Meteo only).
                     _inject_nws_sequence_to_snap(snap, nws_latest, target_date_iso, rows)
