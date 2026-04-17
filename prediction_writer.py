@@ -3943,22 +3943,23 @@ def _add_obs_to_snap(snap: dict, live_obs: dict, live_atm: dict = None) -> None:
     # ── Cirrostratus plume monitoring (non-model, for data collection) ──
     # Detects conditions suggesting high-altitude reflective clouds (cirrostratus)
     # that reduce solar radiation and suppress afternoon heating.
-    # Tracks: solar_rad below seasonal mean + high cloud cover + BL height stable
-    _sol_rad = _atm_fallback("atm_solar_radiation_mean", "atm_solar_radiation_mean")
-    _cloud_pct = _atm_fallback("atm_cloud_cover_mean", "atm_cloud_cover_mean")
-    _bl_max = _atm_fallback("atm_bl_height_max", "atm_bl_height_max")
-    # Heuristic: plume signal if solar rad < 400 W/m² AND cloud cover > 60%
+    # Use LIVE current values from Open-Meteo (not forecast averages) for real-time detection
     # (this is monitoring/tracking only, not fed to model)
+    _sol_rad_live = live_atm.get("solar_now_wm2") if live_atm else None
+    _cloud_pct_live = live_atm.get("cloud_cover_now") if live_atm else None
+    # Heuristic: plume signal if solar rad < 400 W/m² AND cloud cover > 60% (during meaningful daytime)
+    # Skip detection at night (solar < 50 W/m² indicates sunset/night, not plume)
     _plume_detected = None
-    if _sol_rad is not None and _cloud_pct is not None:
-        if _sol_rad < 400 and _cloud_pct > 60:
+    if _sol_rad_live is not None and _cloud_pct_live is not None:
+        # Only flag plume during daytime (50 < solar < 400) with high clouds
+        if 50 <= _sol_rad_live < 400 and _cloud_pct_live > 60:
             _plume_detected = 1  # flag: plume likely overhead
         else:
             _plume_detected = 0
     snap["atm_plume_monitoring"] = _plume_detected  # 1=plume, 0=clear, None=unknown
     if _plume_detected == 1:
-        print(f"  ⚠️  Cirrostratus plume signal: solar_rad={_sol_rad:.0f} W/m² (low), "
-              f"cloud_cover={_cloud_pct:.0f}% (high)")
+        print(f"  ⚠️  Cirrostratus plume signal: solar_rad_now={_sol_rad_live:.0f} W/m² (suppressed), "
+              f"cloud_cover_now={_cloud_pct_live:.0f}% (high)")
 
     obs_count = sum(
         1 for v in obs.values()
