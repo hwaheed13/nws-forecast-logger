@@ -122,6 +122,9 @@ jobs:
             exit 0
           fi
           git commit -m "Update forecast log [skip ci]"
+          # Stash any other unstaged changes (atm_cache.json, __pycache__ etc.)
+          # so they don't block the rebase.  They're re-applied and discarded after.
+          git stash push --include-untracked -m "pre-rebase junk" 2>/dev/null || true
           pushed=0
           for attempt in 1 2 3 4 5; do
             echo "Push attempt $attempt"
@@ -140,6 +143,8 @@ jobs:
             fi
             sleep $((RANDOM % 8 + 3))
           done
+          # Drop the stash — we don't need the junk files persisted.
+          git stash drop 2>/dev/null || true
           if [ "$pushed" -ne 1 ]; then
             echo "Failed to push after 5 attempts"
             exit 1
