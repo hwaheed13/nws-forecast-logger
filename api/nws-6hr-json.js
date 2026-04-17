@@ -70,8 +70,11 @@ export default async function handler(req, res) {
       // Drop rows older than our window or accidentally in the future
       if (dt < cutoff || dt > now) return;
 
+      // Include the ISO date so frontend can filter to today's data only
+      const isoDate = dt.toLocaleDateString('en-CA');  // YYYY-MM-DD
       rows.push({
         dt,
+        date: isoDate,
         value: Math.round(tempVal), // keep it clean/int-ish like the site shows
         time: formatAsETClock(hh, mm),
         source: "6hrMax",

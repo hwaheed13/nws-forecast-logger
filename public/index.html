@@ -3182,10 +3182,19 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
       note.textContent = "";
       try {
         const parsed = await fetchJSON(NWS_6HR_JSON_URLS, { station: CC().station });
-        if (parsed && parsed.value != null) {
+        // Only use 6-hr max if it's from TODAY, not yesterday
+        // The date field was added to nws-6hr-json.js to enable this check
+        const todayISO = nycISODate(0);
+        const isToday = parsed && parsed.date === todayISO;
+        if (parsed && parsed.value != null && isToday) {
          el.textContent = `${parsed.value}°F`;
         window._sixHourMaxF = Number(parsed.value);
           note.textContent = parsed.time ? `as of ${parsed.time} • 6-hr max` : "Latest 6-hr max";
+        } else if (parsed && parsed.value != null) {
+          // Data exists but is stale (from yesterday)
+          console.debug(`[6hr-max] Data is from ${parsed.date}, not today ${todayISO}; waiting for today's obs`);
+          note.textContent = "Awaiting today's observations";
+          window._sixHourMaxF = null;
         } else {
           note.textContent = "6-Hr Max not available";
             }
