@@ -6829,9 +6829,11 @@ async function loadMLPredictions() {
       .order('timestamp', { ascending: false });
 
     if (error) {
-      console.debug("loadMLPredictions error:", error.message);
+      console.error("[ML Predictions] Supabase fetch error:", error.message);
       return;
     }
+
+    console.debug(`[ML Predictions] Loaded ${data?.length || 0} rows from Supabase`);
 
     // Take the most recent row for each target date
     // Use ml_f if populated, otherwise fall back to prediction_value
@@ -6855,6 +6857,7 @@ async function loadMLPredictions() {
         window.mlPredictions.todayMLFCanonical = row.ml_f_canonical != null ? Number(row.ml_f_canonical) : null;
         // Parse atm_snapshot for the live data sources panel
         window.mlPredictions.todayAtmSnapshot = _parseAtmSnapshot(row.atm_snapshot);
+        console.debug(`[ML Predictions] Today's atm_snapshot:`, window.mlPredictions.todayAtmSnapshot);
         window.mlPredictions.todayNwsD0 = row.nws_d0 != null ? Number(row.nws_d0) : null;
         window.mlPredictions.todayAccuWeather = row.accuweather != null ? Number(row.accuweather) : null;
         gotToday = true;
