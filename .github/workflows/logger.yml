@@ -81,6 +81,9 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
           FORCE_RECOMPUTE_DATES: ${{ github.event.inputs.force_recompute_dates || '' }}
+          SYNOPTIC_TOKEN: ${{ secrets.SYNOPTIC_TOKEN }}
+          WU_API_KEY: ${{ secrets.WU_API_KEY }}
+          WU_STATION_IDS: ${{ secrets.WU_STATION_IDS }}
           TZ: America/New_York
         run: python prediction_writer.py both
 
@@ -101,6 +104,8 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
           FORCE_RECOMPUTE_DATES: ${{ github.event.inputs.force_recompute_dates || '' }}
+          SYNOPTIC_TOKEN: ${{ secrets.SYNOPTIC_TOKEN }}
+          TZ: America/New_York
         run: python prediction_writer.py --city lax both
 
       - name: Remove empty/blank lines
