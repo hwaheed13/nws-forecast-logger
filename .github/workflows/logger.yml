@@ -1,24 +1,19 @@
 name: NWS Auto Logger
+
 on:
   schedule:
-    # Midnight-4am ET - NWS collection continues (AccuWeather will skip via Python check)
-    - cron: "0 5 * * *"   # 1am EDT / midnight EST
-    - cron: "0 6 * * *"   # 2am EDT / 1am EST  
-    - cron: "0 7 * * *"   # 3am EDT / 2am EST
-    
     # Today's forecast — 7am, 9am, 11am, 2pm ET
-    - cron: "0 11 * * *"  # 7am EDT / 6am EST
-    - cron: "0 13 * * *"  # 9am EDT / 8am EST
-    - cron: "0 15 * * *"  # 11am EDT / 10am EST
-    - cron: "0 18 * * *"  # 2pm EDT / 1pm EST
-    
-    # Tomorrow's forecast — 10am ET only (Kalshi market opens at 10am ET)
-    - cron: "0 14 * * *"  # 10am EDT / 9am EST — Kalshi market opens
-    
+    - cron: "0 11 * * *"
+    - cron: "0 13 * * *"
+    - cron: "0 15 * * *"
+    - cron: "0 18 * * *"
+    # Tomorrow's forecast — 10am & 8pm ET
+    - cron: "0 14 * * *"
+    - cron: "0 0 * * *"
     # Actuals
-    - cron: "0 22 * * *"  # 6pm EDT / 5pm EST - provisional TODAY
-    - cron: "0 9 * * *"   # 5am EDT / 4am EST - finalize YESTERDAY
-    
+    - cron: "0 22 * * *"   # 6pm ET provisional TODAY
+    - cron: "0 8 * * *"    # 4am ET finalize YESTERDAY
+
   workflow_dispatch:
     inputs:
       task:
@@ -32,18 +27,9 @@ on:
           - forecast_tomorrow
           - actual_provisional
           - actual_finalize
-      force_recompute_dates:
-        description: "Force-recompute ML predictions for these dates (comma-separated YYYY-MM-DD)"
-        type: string
-        required: false
-        default: ""
 
 permissions:
   contents: write
-
-concurrency:
-  group: nws-logger
-  cancel-in-progress: true
 
 jobs:
   run-logger:
@@ -52,72 +38,46 @@ jobs:
       TZ: America/New_York
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests beautifulsoup4 pytz numpy==1.24.3 pandas==2.2.3 scikit-learn==1.3.0
-          
+          pip install requests beautifulsoup4 pytz
+
       - name: Run (scheduled or manual)
         env:
           TASK: ${{ github.event.inputs.task || 'smart_all' }}
         run: python run_smart.py
-        
+
       - name: Run AccuWeather logger (today & tomorrow)
         env:
           ACCU_API_KEY: ${{ secrets.ACCU_API_KEY }}
           ACCU_LOCATION_KEY: ${{ secrets.ACCU_LOCATION_KEY }}
           TZ: America/New_York
         run: python accuweather_logger.py
-        
-      # Write predictions to Supabase (reads CSVs, does NOT modify repo)
+
+      # NEW: write predictions to Supabase (reads CSVs, does NOT modify repo)
       - name: Write Supabase predictions (today_for_today + today_for_tomorrow)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
-          FORCE_RECOMPUTE_DATES: ${{ github.event.inputs.force_recompute_dates || '' }}
           TZ: America/New_York
         run: python prediction_writer.py both
 
-      # ----- LA data collection -----
-      - name: Run NWS logger (LA)
-        env:
-          TASK: ${{ github.event.inputs.task || 'smart_all' }}
-        run: python run_smart.py --city lax
-
-      - name: Run AccuWeather logger (LA)
-        env:
-          ACCU_API_KEY: ${{ secrets.ACCU_API_KEY }}
-          ACCU_LOCATION_KEY_LAX: ${{ secrets.ACCU_LOCATION_KEY_LAX }}
-        run: python accuweather_logger.py --city lax
-
-      - name: Write Supabase predictions - LA
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
-          FORCE_RECOMPUTE_DATES: ${{ github.event.inputs.force_recompute_dates || '' }}
-        run: python prediction_writer.py --city lax both
-
       - name: Remove empty/blank lines
         run: |
-          for f in nws_forecast_log.csv accuweather_log.csv lax_nws_forecast_log.csv lax_accuweather_log.csv; do
-            if [ -f "$f" ]; then
-              grep -Ev '^[[:space:]]*(,?[[:space:]]*)*$' "$f" > /tmp/clean.csv || true
-              if [ -s /tmp/clean.csv ]; then mv /tmp/clean.csv "$f"; fi
-            fi
-          done
+          grep -Ev '^[[:space:]]*(,?[[:space:]]*)*$' nws_forecast_log.csv > /tmp/clean.csv || true
+          mv /tmp/clean.csv nws_forecast_log.csv
 
       - name: Commit and push CSV
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add nws_forecast_log.csv accuweather_log.csv lax_nws_forecast_log.csv lax_accuweather_log.csv || true
+          git add nws_forecast_log.csv accuweather_log.csv
           git commit -m "Update forecast log [skip ci]" || echo "No changes to commit"
-          git fetch origin main
-          git rebase origin/main || { echo "Rebase failed; aborting"; git rebase --abort || true; exit 0; }
-          git push origin HEAD:main || true
+          git push origin main
