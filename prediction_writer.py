@@ -5950,12 +5950,40 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             if fallback_obs:
                 _add_obs_to_snap(fallback_snap, fallback_obs, fallback_atm)
 
-            if fallback_snap and any(
+            # Fill missing values from cached snapshot (handles partial API failures —
+            # e.g. Open-Meteo OK, Synoptic down, or vice versa).
+            try:
+                fallback_snap = fill_missing_from_cache(_CITY_KEY, fallback_snap) or fallback_snap
+            except Exception as _fill_e:
+                print(f"  ⚠️  fill_missing_from_cache failed: {_fill_e}")
+
+            has_any_value = fallback_snap and any(
                 v is not None and not (isinstance(v, float) and math.isnan(v))
                 for v in fallback_snap.values()
-            ):
-                # Cache for future fallback
-                cache_snapshot(_CITY_KEY, fallback_snap)
+            )
+
+            # If BOTH live fetch and partial-merge produced nothing usable, use the
+            # cached snapshot outright. Better to serve slightly stale data than
+            # leave the dashboard panel blank for hours.
+            if not has_any_value:
+                try:
+                    cached = get_cached_snapshot(_CITY_KEY)
+                    if cached and any(
+                        v is not None and not (isinstance(v, float) and math.isnan(v))
+                        for v in cached.values()
+                    ):
+                        fallback_snap = cached
+                        has_any_value = True
+                        print(f"  🔄 Live fetch empty — using cached atm_snapshot ({len(cached)} keys)")
+                except Exception as _cache_e:
+                    print(f"  ⚠️  Cached snapshot fallback failed: {_cache_e}")
+
+            if has_any_value:
+                # Cache for future fallback (only if this was a fresh fetch, not cache reuse)
+                try:
+                    cache_snapshot(_CITY_KEY, fallback_snap)
+                except Exception:
+                    pass
                 payload["atm_snapshot"] = json.dumps(fallback_snap)
                 atm_keys = sum(1 for k in fallback_snap.keys() if k.startswith("atm_") or k.startswith("mm_"))
                 obs_keys = sum(1 for k in fallback_snap.keys() if k.startswith("obs_snap_"))
@@ -5963,10 +5991,23 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 print(f"📸 Fallback atm_snapshot written: {len(fallback_snap)} total keys "
                       f"({atm_keys} atm/mm, {obs_keys} obs_snap, {valid_keys} non-null)")
             else:
-                # No data available yet — don't write empty snapshot
-                print(f"⚠️ Fallback atm_snapshot: no atmospheric/observational data available yet")
+                # No data available anywhere (live fetch + cache both empty)
+                print(f"⚠️ Fallback atm_snapshot: no atmospheric/observational data available yet (and no cache)")
         except Exception as _fb_e:
             print(f"⚠️ Fallback atm_snapshot fetch failed: {_fb_e}")
+            import traceback
+            traceback.print_exc()
+            # Last-ditch: try cache even though fetch blew up
+            try:
+                cached = get_cached_snapshot(_CITY_KEY)
+                if cached and any(
+                    v is not None and not (isinstance(v, float) and math.isnan(v))
+                    for v in cached.values()
+                ):
+                    payload["atm_snapshot"] = json.dumps(cached)
+                    print(f"  🔄 Fetch exception — using cached atm_snapshot ({len(cached)} keys)")
+            except Exception:
+                pass
 
     supabase_upsert(payload)
     # Log the 3-hourly snapshot archive
