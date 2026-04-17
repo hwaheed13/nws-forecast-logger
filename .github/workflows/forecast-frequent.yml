@@ -2,12 +2,13 @@ name: Frequent Forecast Updates
 
 on:
   schedule:
-    # Run every 10 minutes from 4 AM to midnight EST, avoiding midnight-4AM EST date cutover.
+    # Run every 10 minutes from 4 AM to midnight EST, plus a run at midnight (12:00 AM EST).
     # 10 min = 6x/hour: fast enough that the 2-run flip confirmation gate fires in ~20 min
     # (vs 60 min at 30-min cadence), while staying reliable on GitHub Actions runners.
     - cron: "*/10 9-23 * * *"  # 9:00-23:50 UTC = 4:00 AM EST - 6:50 PM EST
-    - cron: "*/10 0-3 * * *"   # 0:00-3:50 UTC = 7:00 PM EST - 10:50 PM EST (previous day)
-    # Skips UTC 4:00-8:59 (midnight-4AM EST) where AccuWeather returns stale data
+    - cron: "0 5 * * *"        # 5:00 UTC = 12:00 AM EST — midnight snapshot update
+    - cron: "*/10 0-4 * * *"   # 0:00-4:50 UTC = 7:00 PM EST - 11:50 PM EST (previous day)
+    # Ensures fresh snapshot at midnight for next day's data
   workflow_dispatch: {}
 
 permissions:
