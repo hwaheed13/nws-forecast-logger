@@ -545,7 +545,7 @@ FEATURE_COLS_V12 = list(FEATURE_COLS_V11) + DEEP_INLAND_STATION_COLS
 #   inland_strength = mean(obs_kteb_temp, obs_kcdw_temp, obs_ksmq_temp) - mm_mean
 #     → Inland actual vs forecast consensus; positive = inland beating forecast
 #
-# Total: v12(157) + BL_safeguard(3) = 160 features
+# Total: v12(168) + BL_safeguard(3) = 171 features
 BL_SAFEGUARD_COLS = [
     "entrainment_temp_diff",    # 925mb - obs: is aloft air actively cooling surface?
     "marine_containment",        # JFK_vs_KNYC / BL_max: is ocean penetrating inland?
