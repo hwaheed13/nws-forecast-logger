@@ -4232,6 +4232,13 @@ function renderAtmSignals() {
     ? (solar > 700 ? 'Strong heating' : solar > 400 ? 'Moderate' : 'Weak — suppressed') + solarNowStr
     : '';
 
+  // Plume monitoring — Cirrostratus cloud detection (non-model, for data collection)
+  // Tracked: atm_plume_monitoring (1=plume detected, 0=clear, null=unknown)
+  const _plumeFlag = _snapForAtm.atm_plume_monitoring;
+  const plumeDetected = _plumeFlag === 1;
+  const plumeColor = plumeDetected ? '#dc2626' : 'var(--text-primary)';
+  const plumeLabel = plumeDetected ? '☁️  Cirrostratus plume — solar suppressed' : 'Clear skies';
+
   // ── Pull intraday obs signals from atm_snapshot for consensus ─────────────
   // These live in the snap (updated every cycle) and give real-time context
   // the atmospheric forecast models cannot see.
@@ -4333,6 +4340,7 @@ function renderAtmSignals() {
     sig('Mixing Layer', fmt(blM),   'm peak',  blLabel, blColor),
     sig('Cloud Cover',  fmt(cloudDisplay), '%', cloudDispLabel, cloudColor),
     sig('Solar Peak',   fmt(solar), 'W/m²',    solarLabel, solarColor),
+    sig('Plume Monitor', plumeDetected ? '⚠️' : '✓', '', plumeLabel, plumeColor),
     sig('850mb Temp',   fmt(t850, 1), '°F',    advTip, advColor),
     sig('925mb Temp',   fmt(t925, 1), '°F',    adv925Tip, adv925Color),
     sig('Surface Wind', windMph != null ? fmt(windMph, 0) : '–', 'mph', windTip, windColor),
@@ -4477,10 +4485,17 @@ function renderLiveSourcesPanel() {
 
   // ── Synoptic Data (MesoWest) — from model snapshot
   const syn_mean   = s.obs_snap_syn_mean;
+  const syn_min    = s.obs_snap_syn_min;
+  const syn_max    = s.obs_snap_syn_max;
   const syn_spread = s.obs_snap_syn_spread;
   const syn_vs     = s.obs_snap_syn_vs_nws;
   const syn_count  = s.obs_snap_syn_count;
+  // Build distribution display: mean · range (min-max) · spread · vs NWS · count
+  const syn_range = (syn_min != null && syn_max != null)
+    ? `Range: ${f0(syn_min)}–${f0(syn_max)}°F`
+    : "";
   const syn_sub = [
+    syn_range,
     syn_spread != null ? `Spread: ${Number(syn_spread).toFixed(1)}°F` : "",
     syn_vs     != null ? `vs NWS: ${fSign(syn_vs)}` : "",
     syn_count  != null ? `${syn_count} stations` : "",
