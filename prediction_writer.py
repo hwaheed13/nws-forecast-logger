@@ -5970,8 +5970,10 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
         trigger = "first_write" if existing is _LOCK_NOT_FOUND else "intraday_refresh"
         _log_ml_revision(tomorrow_iso, "today_for_tomorrow", ml, trigger)
 
-    if bcp_tm is None and ml is None:
-        print("⏭️ today_for_tomorrow: no BCP data and no ML prediction available."); return
+    # Only skip if we have NOTHING to write (no NWS, no ML, no atm snapshot)
+    # At midnight NWS data may not be available yet, but we should still write the atmospheric snapshot
+    if bcp_tm is None and ml is None and not live_atm_tm:
+        print("⏭️ today_for_tomorrow: no forecasts and no atmospheric data available."); return
 
     # Canonical for D1 = first ML prediction made AFTER the Kalshi market opens.
     # Requiring market_probs ensures the bucket is mapped to real Kalshi structure,
