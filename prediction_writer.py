@@ -729,29 +729,30 @@ def _detect_high_locked(target_date_iso: str,
 
         now_hour = now_nyc().hour
 
-        # ── Regime 1: Overnight / pre-dawn high ──────────────────────────
-        if max_hour < 9 and gap >= 2.0 and now_hour >= 8:
-            # Suppress if NWS is still forecasting substantially above the overnight
-            # high — the real daytime high hasn't arrived yet.
-            # Example: overnight spike 59°F, NWS says 62°F → 3°F margin → don't lock.
-            if nws_forecast is not None and nws_forecast >= max_f + 2.0:
-                print(
-                    f"🌡️ Overnight lock suppressed: NWS forecasting {nws_forecast:.0f}°F, "
-                    f"{nws_forecast - max_f:.1f}°F above overnight peak "
-                    f"({max_f}°F at {max_hour:02d}:00) — daytime high not yet set"
-                )
-                # Fall through to NOT locked
-            else:
-                result["locked"] = True
-                result["reason"] = (
-                    f"Overnight high: {max_f}°F at {max_hour:02d}:00, "
-                    f"currently {current_f}°F ({gap:.1f}°F below peak)"
-                )
-                print(f"🌙 {result['reason']}")
-                return result
+        # ── Regime 1 REMOVED: Overnight / pre-dawn high ──────────────────
+        # This used to lock the ML prediction whenever the observed max of
+        # today occurred before 9am and current temp had dropped 2°F+ below.
+        # The intent was to prevent thermometer-chasing when a true overnight
+        # high had already set the day.  In practice it fired on *spillover*
+        # days — e.g. today: peak 78°F at 00:51 (yesterday's heat bleeding
+        # into the first hour of today), cooled 10°F by 5am → diurnal was
+        # normal, daytime high hasn't happened yet.  Lock froze the model at
+        # the morning prediction and killed the ability to update as fresh
+        # HRRR / 925mb / mixing-layer data streamed in.
+        #
+        # Design north star: stay AHEAD of Kalshi users by using live
+        # atmospheric signals to estimate the winning bucket before the
+        # thermometer catches up.  Locks early in the day destroy that edge.
+        # If a true stuck-warm overnight happens (small diurnal, no cooling),
+        # Regime 2 below still catches it once the current hour is past noon
+        # and the cooling trend is clearly established.
 
         # ── Regime 2: Late high clearly past its peak ────────────────────
-        # Require: at least noon, 3°F gap, 2 consecutive falling hours
+        # Require: at least noon, 3°F gap, 2 consecutive falling hours.
+        # This is the legitimate anti-thermometer-chase guard: after noon,
+        # if we've clearly peaked and been cooling for hours, freeze so the
+        # model doesn't chase the evening decline down to 70°F and publish
+        # that as "today's high".
         if now_hour >= 12 and gap >= 3.0 and falling >= 2:
             result["locked"] = True
             result["reason"] = (
@@ -2893,6 +2894,35 @@ def _fetch_observation_features(
             # forecasts 3+ °F above the overnight max, the day's actual high
             # hasn't been set yet — don't lock the prediction prematurely.
             if peak_hour is not None and peak_hour < 9:
+                # ── Diurnal-range guard (Option B) ──────────────────────
+                # A peak at 00:30 that cools 10°F by 5am is NOT a stuck-warm
+                # airmass — it's yesterday's residual heat dissipating
+                # normally.  Compute the min temp in the 2-6 AM window and
+                # require the peak-to-min drop to be LESS than the normal
+                # diurnal range for the forecast to count as overnight-high.
+                # If peak-to-overnight-min gap >= 6°F, airmass cooled normally
+                # → not a stuck-warm signal → suppress flag.
+                _overnight_min = None
+                try:
+                    for r in valid_obs:
+                        try:
+                            _dt = datetime.fromisoformat(
+                                r["observed_at"].replace("Z", "+00:00")
+                            )
+                            _hr = _dt.astimezone(tz).hour
+                        except Exception:
+                            continue
+                        if 2 <= _hr <= 6:
+                            _t = r["temp_f"]
+                            if _overnight_min is None or _t < _overnight_min:
+                                _overnight_min = _t
+                except Exception:
+                    _overnight_min = None
+
+                _diurnal_drop = None
+                if _overnight_min is not None:
+                    _diurnal_drop = float(max_val) - float(_overnight_min)
+
                 nws_last_val = features.get("nws_last")
                 nws_ok = (nws_last_val is not None
                           and not (isinstance(nws_last_val, float) and np.isnan(nws_last_val)))
@@ -2901,8 +2931,20 @@ def _fetch_observation_features(
                     features["obs_is_overnight_high"] = 0.0
                     print(f"  ℹ️  Overnight peak {max_val:.1f}°F @{peak_hour}h suppressed "
                           f"(NWS still forecasts {nws_last_val:.0f}°F → daytime high not yet set)")
+                elif _diurnal_drop is not None and _diurnal_drop >= 6.0:
+                    # Normal overnight cooling after a post-midnight spillover peak —
+                    # NOT a stuck-warm airmass.  E.g. peak 78°F at 00:30 → 68°F at
+                    # 5:30 (10°F drop) is normal dissipation of yesterday's heat.
+                    features["obs_is_overnight_high"] = 0.0
+                    print(f"  ℹ️  Overnight peak {max_val:.1f}°F @{peak_hour}h suppressed "
+                          f"(cooled to {_overnight_min:.1f}°F by 2-6am — {_diurnal_drop:.1f}°F drop, "
+                          f"airmass NOT stuck warm → yesterday's spillover)")
                 else:
                     features["obs_is_overnight_high"] = 1.0
+                    if _diurnal_drop is not None:
+                        print(f"  🌙 Overnight high confirmed: peak {max_val:.1f}°F @{peak_hour}h, "
+                              f"min {_overnight_min:.1f}°F 2-6am (only {_diurnal_drop:.1f}°F drop — "
+                              f"airmass stuck warm)")
             else:
                 features["obs_is_overnight_high"] = 0.0
             # Consecutive falling hours from the peak
