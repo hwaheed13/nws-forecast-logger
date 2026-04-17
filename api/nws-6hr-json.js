@@ -71,7 +71,9 @@ export default async function handler(req, res) {
       if (dt < cutoff || dt > now) return;
 
       // Include the ISO date so frontend can filter to today's data only
-      const isoDate = dt.toLocaleDateString('en-CA');  // YYYY-MM-DD
+      // Compute date in NY/ET timezone (where observations are recorded) to match frontend's nycISODate(0)
+      const etNow = new Date(dt.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      const isoDate = etNow.toISOString().split('T')[0];  // YYYY-MM-DD in ET
       rows.push({
         dt,
         date: isoDate,
