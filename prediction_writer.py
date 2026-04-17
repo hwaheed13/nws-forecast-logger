@@ -79,6 +79,39 @@ def _snap_loads(raw) -> dict:
             return {}
 
 
+def _is_in_climo_day(obs_local, target_date_iso: str) -> bool:
+    """Check if a local-tz observation falls within NWS's climo day for target.
+
+    NWS defines the climo day for daily high/low records as 1:00 AM local
+    → 1:00 AM next day (per CF6/CLI product definitions — this is the
+    window Kalshi uses to resolve KXHIGHNY markets).  Calendar-day filtering
+    (00:00-23:59) incorrectly pulls in the first hour of target_date, which
+    actually belongs to the PREVIOUS day's climo record — readings there
+    reflect yesterday's warm airmass bleeding off, not today's conditions.
+
+    For target_date_iso='2026-04-17':
+      - 2026-04-17 12:51 AM EDT → False (previous climo day)
+      - 2026-04-17 01:00 AM EDT → True  (start of climo day)
+      - 2026-04-17 11:51 PM EDT → True
+      - 2026-04-18 12:30 AM EDT → True  (tail of climo day, before 1 AM)
+      - 2026-04-18 01:00 AM EDT → False (next climo day)
+    """
+    try:
+        target_y, target_m, target_d = (int(x) for x in target_date_iso.split("-"))
+        from datetime import date as _date
+        target = _date(target_y, target_m, target_d)
+        obs_date = obs_local.date()
+        obs_hour = obs_local.hour
+
+        if obs_date == target and obs_hour >= 1:
+            return True
+        if obs_date == (target + timedelta(days=1)) and obs_hour < 1:
+            return True
+        return False
+    except Exception:
+        return obs_local.strftime("%Y-%m-%d") == target_date_iso
+
+
 def _ts_hour(ts_str: str) -> int | None:
     """Extract local hour (0-23) from a CSV timestamp string.
 
@@ -688,7 +721,11 @@ def _detect_high_locked(target_date_iso: str,
                 continue
             obs_dt    = datetime.fromisoformat(ts.replace("Z", "+00:00"))
             obs_local = obs_dt.astimezone(tz)
-            if obs_local.strftime("%Y-%m-%d") != target_date_iso:
+            # NWS climo-day window (1 AM local → 1 AM next day) — matches
+            # Kalshi resolution window.  Previous version used calendar-day
+            # (00:00-23:59) which incorrectly pulled pre-1am spillover into
+            # today's high detection.
+            if not _is_in_climo_day(obs_local, target_date_iso):
                 continue
             temp_c = props.get("temperature", {}).get("value")
             if temp_c is None:
@@ -819,7 +856,8 @@ def _fetch_observed_high_so_far(target_date_iso: str) -> tuple:
                 continue
             obs_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
             obs_local = obs_dt.astimezone(tz)
-            if obs_local.strftime("%Y-%m-%d") != target_date_iso:
+            # Use climo-day window (1 AM → 1 AM) to match Kalshi resolution.
+            if not _is_in_climo_day(obs_local, target_date_iso):
                 continue
             temp_c = props.get("temperature", {}).get("value")
             if temp_c is None:
