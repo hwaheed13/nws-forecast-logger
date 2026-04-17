@@ -5536,8 +5536,11 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 cache_snapshot(_CITY_KEY, _ex_snap)
 
                 payload["atm_snapshot"] = json.dumps(_ex_snap)
+                atm_keys = sum(1 for k in _ex_snap.keys() if k.startswith("atm_") or k.startswith("mm_") or k.startswith("ens_"))
+                obs_keys = sum(1 for k in _ex_snap.keys() if k.startswith("obs_snap_"))
+                valid_keys = sum(1 for v in _ex_snap.values() if v is not None and not (isinstance(v, float) and math.isnan(v)))
                 print(f"📸 Obs panel refreshed in stable snapshot "
-                      f"({len(_ex_snap)} keys, ml_recomputed=False)")
+                      f"({len(_ex_snap)} total keys, {atm_keys} atm/mm/ens, {obs_keys} obs_snap, {valid_keys} valid values)")
         except Exception as _e:
             print(f"⚠️  Obs panel refresh skipped: {_e}")
 
@@ -5562,13 +5565,17 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             # Store morning atmospheric + obs baseline on canonical write.
             # On subsequent runs, live_atm and live_obs are compared against this
             # snapshot to detect intraday shifts BEFORE agencies update forecasts.
-            # Only store if we have valid atmospheric data.
+            # CRITICAL: Always write snapshot, even if live_atm fetch failed.
+            # An empty snapshot (just obs_snap_* keys) is better than NULL which
+            # breaks dashboard rendering and stable-cycle recovery.
+            snap = {}
             if live_atm and any(
                 v is not None and not (isinstance(v, float) and math.isnan(v))
                 for v in live_atm.values()
             ):
+                # Populate atm_* / mm_* / ens_* / nws_* keys from live_atm
                 snap = {k: live_atm[k] for k in _ATM_SNAPSHOT_KEYS if k in live_atm}
-                if snap:
+            if snap or live_obs:  # Always run if we have ANY data (obs or atm)
                     # Inject NWS sequence features — computed inside _compute_ml_prediction()
                     # but not returned via live_atm (which is Open-Meteo only).
                     _inject_nws_sequence_to_snap(snap, nws_latest, target_date_iso, rows)
@@ -5625,7 +5632,10 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                         1 for v in (live_obs or {}).values()
                         if v is not None and not (isinstance(v, float) and math.isnan(v))
                     )
-                    print(f"📸 Baseline stored: {len(snap)} atm keys, "
+                    atm_keys = sum(1 for k in snap.keys() if k.startswith("atm_") or k.startswith("mm_") or k.startswith("ens_"))
+                    obs_keys = sum(1 for k in snap.keys() if k.startswith("obs_snap_"))
+                    print(f"📸 Baseline stored: {len(snap)} total keys ({atm_keys} atm/mm/ens, {obs_keys} obs_snap), "
+                          f"live_atm_had_data={bool(live_atm and any(v is not None and not (isinstance(v, float) and math.isnan(v)) for v in live_atm.values()))}, "
                           f"obs_hour={snap.get('obs_snap_hour')}, "
                           f"obs_temp={snap.get('obs_snap_temp')}, "
                           f"obs_populated={obs_populated}")
