@@ -1,41 +1,41 @@
 {
-  "trained_on": "2026-04-16T11:29:04.514108",
+  "trained_on": "2026-04-17T03:48:14.127236",
   "version": "v3_unified_regression",
-  "num_days": 1565,
-  "num_forecast_days": 270,
+  "num_days": 1566,
+  "num_forecast_days": 271,
   "num_multiyear_days": 1295,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-04-15"
+    "end": "2026-04-16"
   },
   "performance": {
     "cv_mae": 0.77,
-    "cv_bucket_accuracy_1f": 0.1124,
+    "cv_bucket_accuracy_1f": 0.1536,
     "residual_std": 2.66,
     "per_fold_mae": [
-      0.57,
-      0.36,
-      0.33,
-      0.57,
+      0.55,
+      0.38,
+      0.34,
+      0.58,
       2.0
     ],
     "per_fold_bucket_acc": [
-      0.0,
-      0.2248
+      0.0833,
+      0.2239
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 1.489
+      "importance": 1.5169
     },
     {
       "name": "intra_temp_5pm",
-      "importance": 0.0052
+      "importance": 0.0058
     },
     {
       "name": "intra_temp_noon",
-      "importance": 0.0024
+      "importance": 0.0029
     },
     {
       "name": "accu_last",
@@ -43,11 +43,11 @@
     },
     {
       "name": "intra_temp_3pm",
-      "importance": 0.0016
+      "importance": 0.0013
     },
     {
       "name": "atm_dewpoint_mean",
-      "importance": 0.0005
+      "importance": 0.0004
     },
     {
       "name": "atm_vs_forecast_diff",
@@ -55,6 +55,10 @@
     },
     {
       "name": "intra_high_vs_noon",
+      "importance": 0.0002
+    },
+    {
+      "name": "prev_day_high",
       "importance": 0.0002
     },
     {
@@ -66,10 +70,6 @@
       "importance": 0.0002
     },
     {
-      "name": "accu_max",
-      "importance": 0.0002
-    },
-    {
       "name": "accu_post_9am_delta",
       "importance": 0.0001
     },
@@ -78,11 +78,11 @@
       "importance": 0.0001
     },
     {
-      "name": "intra_temp_9am",
+      "name": "accu_max",
       "importance": 0.0001
     },
     {
-      "name": "prev_day_high",
+      "name": "intra_temp_9am",
       "importance": 0.0001
     }
   ],
