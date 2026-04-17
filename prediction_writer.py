@@ -5555,12 +5555,23 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         if ml.get("ml_direct_bucket"):
             payload["ml_direct_bucket"] = ml["ml_direct_bucket"]
         # Canonical fields — written once on first non-null ML prediction.
-        # Subsequent upserts omit these fields so merge-duplicates preserves them.
         payload["is_canonical"] = is_canonical_write
         if is_canonical_write:
             payload["ml_bucket_canonical"] = ml["ml_bucket"]
             payload["ml_f_canonical"] = ml["ml_f"]
             print(f"🏛️ Canonical prediction set: {ml['ml_f']}°F → {ml['ml_bucket']}")
+        else:
+            # ── CRITICAL: Preserve canonical fields on intraday writes ──
+            # Supabase merge-duplicates does wholesale row replacement.
+            # If we don't include ml_f_canonical / ml_bucket_canonical in this upsert,
+            # they'll be overwritten with NULL even though they were set on the
+            # first (canonical) write. Carry them forward to prevent data loss.
+            # (Only on intraday refresh, when is_canonical_write=False)
+            if isinstance(existing, dict):
+                if existing.get("ml_f_canonical") is not None:
+                    payload["ml_f_canonical"] = existing["ml_f_canonical"]
+                if existing.get("ml_bucket_canonical") is not None:
+                    payload["ml_bucket_canonical"] = existing["ml_bucket_canonical"]
             _log_ml_revision(target_date_iso, "today_for_today", ml, "first_write")
             # Store morning atmospheric + obs baseline on canonical write.
             # On subsequent runs, live_atm and live_obs are compared against this
@@ -5957,6 +5968,18 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
             payload["ml_bucket_canonical"] = ml["ml_bucket"]
             payload["ml_f_canonical"] = ml["ml_f"]
             print(f"🏛️ Canonical D1 prediction set: {ml['ml_f']}°F → {ml['ml_bucket']}")
+        else:
+            # ── CRITICAL: Preserve canonical fields on intraday writes ──
+            # Supabase merge-duplicates does wholesale row replacement.
+            # If we don't include ml_f_canonical / ml_bucket_canonical in this upsert,
+            # they'll be overwritten with NULL even though they were set on the
+            # first (canonical) write. Carry them forward to prevent data loss.
+            # (Only on intraday_refresh, when is_canonical_write=False)
+            if isinstance(existing, dict):
+                if existing.get("ml_f_canonical") is not None:
+                    payload["ml_f_canonical"] = existing["ml_f_canonical"]
+                if existing.get("ml_bucket_canonical") is not None:
+                    payload["ml_bucket_canonical"] = existing["ml_bucket_canonical"]
 
     # Use already-fetched Kalshi market odds (from lock check above)
     market_probs = tomorrow_market_probs
