@@ -1023,7 +1023,9 @@ def _fetch_atmospheric_features(target_date_iso: str) -> dict:
         lat = cfg.get("open_meteo_lat", 40.7834)
         lon = cfg.get("open_meteo_lon", -73.965)
         tz = cfg.get("timezone", "America/New_York")
+        print(f"  🔍 Fetching atmospheric features for {target_date_iso} at ({lat}, {lon})")
         features = get_atmospheric_features_live(lat, lon, target_date_iso, tz)
+        print(f"  ✅ Open-Meteo returned {len(features)} keys")
 
         # v6: fetch OKX radiosonde upper-air sounding (observed 925mb/850mb temps)
         # OKX station for NYC; other cities use their nearest upper-air station
@@ -1050,7 +1052,9 @@ def _fetch_atmospheric_features(target_date_iso: str) -> dict:
         print(f"🌤️ Atmospheric features: {n_valid} valid values for {target_date_iso}")
         return features
     except Exception as e:
-        print(f"⚠️ Atmospheric features fetch failed: {e}")
+        print(f"⚠️ Atmospheric features fetch FAILED: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
         return {}
 
 
@@ -1936,18 +1940,24 @@ def _compute_ml_prediction(
                 from synoptic_client import get_synoptic_obs_features
                 import nws_auto_logger as _nal_syn
                 _syn_cfg = _nal_syn._CITY_CFG
+                _syn_lat = _syn_cfg.get("synoptic_lat", _syn_cfg.get("open_meteo_lat", 40.7834))
+                _syn_lon = _syn_cfg.get("synoptic_lon", _syn_cfg.get("open_meteo_lon", -73.965))
+                _syn_rad = _syn_cfg.get("synoptic_radius_miles", 5.0)
+                print(f"  🔍 Fetching Synoptic data at ({_syn_lat}, {_syn_lon}), radius={_syn_rad}mi")
                 syn_feats = get_synoptic_obs_features(
-                    lat=_syn_cfg.get("synoptic_lat", _syn_cfg.get("open_meteo_lat", 40.7834)),
-                    lon=_syn_cfg.get("synoptic_lon", _syn_cfg.get("open_meteo_lon", -73.965)),
+                    lat=_syn_lat,
+                    lon=_syn_lon,
                     nws_last=features.get("nws_last"),
-                    radius_miles=_syn_cfg.get("synoptic_radius_miles", 5.0),
+                    radius_miles=_syn_rad,
                     city=_CITY_KEY,
                 )
                 v2_features.update(syn_feats)
                 syn_pop = sum(1 for v in syn_feats.values()
                               if v is not None and not (isinstance(v, float) and np.isnan(v)))
                 if syn_pop > 0:
-                    print(f"📡 Synoptic features: {syn_pop}/{len(syn_feats)} populated")
+                    print(f"  ✅ Synoptic features: {syn_pop}/{len(syn_feats)} populated")
+                else:
+                    print(f"  ⚠️ Synoptic returned {len(syn_feats)} keys but all are NaN/None")
                 # Write-back to prefetched_atm so the caller can store them in atm_snapshot.
                 # Include ALL obs_* keys from syn_feats — aggregate AND named station features.
                 if prefetched_atm is not None and syn_pop > 0:
@@ -1955,7 +1965,9 @@ def _compute_ml_prediction(
                         if _sk.startswith("obs_"):
                             prefetched_atm[_sk] = _sv
             except Exception as _syn_e:
-                print(f"  ⚠️ Synoptic features skipped: {_syn_e}")
+                print(f"  ⚠️ Synoptic features FAILED: {type(_syn_e).__name__}: {_syn_e}")
+                import traceback
+                traceback.print_exc()
                 for col in SYNOPTIC_OBS_COLS:
                     v2_features.setdefault(col, np.nan)
 
