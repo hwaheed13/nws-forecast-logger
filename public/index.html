@@ -4394,6 +4394,12 @@ function renderLiveSourcesPanel() {
   const snap = ml.todayAtmSnapshot;
   const s = snap || {};
 
+  // Debug: log what snapshot we have
+  console.log('[Live Sources Panel] snap:', snap);
+  if (snap) {
+    console.log('[Live Sources Panel] snap keys:', Object.keys(snap).slice(0, 10));
+  }
+
   // After today's high is confirmed, model-driven cards (Multi-Model Spread,
   // NWS Overnight Jump) should show tomorrow's snapshot — today's data is stale.
   // Live station cards (KNYC, JFK/LGA, Synoptic) always show current conditions.
