@@ -3470,11 +3470,18 @@ function _mlGetTop2(bucketProbsRaw, marketSnapshot) {
           if (sum > 0.001) aggregated[label] = sum;
         }
       } catch {
-        aggregated = probs;
+        // Snapshot present but unparseable — refuse to fall back to raw ML
+        // labels.  Raw ML 1°F-wide buckets ("77-78" = "high=77") do NOT
+        // match Kalshi's 2°F-range bucket schema ("77° to 78°" = covers
+        // 77 AND 78).  Rendering raw ML labels on the bet card has been
+        // a user-facing source of confusion.
+        return null;
       }
     } else {
-      // No market data — use raw ML buckets
-      aggregated = probs;
+      // No market snapshot — refuse to render raw ML buckets as if they
+      // were Kalshi buckets.  Caller should treat null as "await market
+      // data" and render an appropriate pending state.
+      return null;
     }
     const sorted = Object.entries(aggregated).sort((a, b) => b[1] - a[1]);
     if (sorted.length < 1) return null;
@@ -6862,7 +6869,6 @@ function _parseAtmSnapshot(raw) {
   if (!raw) return null;
   try {
     if (typeof raw !== 'string') return raw;
-    // Replace bare NaN / Infinity / -Infinity values (not inside strings) with null.
     const cleaned = raw
       .replace(/:\s*NaN\b/g, ': null')
       .replace(/:\s*-?Infinity\b/g, ': null');
@@ -6871,6 +6877,45 @@ function _parseAtmSnapshot(raw) {
     console.warn('[_parseAtmSnapshot] parse failed:', e.message);
     return null;
   }
+}
+
+
+/**
+ * Convert the `/api/kalshi-live` proxy response into the backend's
+ * kalshi_market_snapshot shape that `_mlGetTop2` expects.
+ * Proxy: { ranges: [{ label: '77° to 78°', min: 77, max: 78, prob: 0.41 }, ...] }
+ * Backend: { "77-78": 0.41, "<=76": 0.11, ">=85": 0.01, ... }
+ */
+function _kalshiLiveToBackendSnapshot(liveResp) {
+  if (!liveResp || !Array.isArray(liveResp.ranges)) return null;
+  const out = {};
+  for (const r of liveResp.ranges) {
+    if (!r || !Number.isFinite(Number(r.prob))) continue;
+    let key = null;
+    if (r.min != null && r.max != null) key = `${r.min}-${r.max}`;
+    else if (r.min == null && r.max != null) key = `<=${r.max}`;
+    else if (r.min != null && r.max == null) key = `>=${r.min}`;
+    if (key) out[key] = Number(r.prob);
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+const _kalshiSnapshotCache = new Map();
+async function fetchLiveKalshiSnapshot(dateISO) {
+  const key = `${dateISO}:${CC().kalshiSeries}`;
+  const cached = _kalshiSnapshotCache.get(key);
+  if (cached && (Date.now() - cached.ts) < 60_000) return cached.snap;
+  try {
+    const live = await fetchKalshiLiveLeader(dateISO);
+    const snap = _kalshiLiveToBackendSnapshot(live);
+    if (snap) {
+      _kalshiSnapshotCache.set(key, { snap, ts: Date.now() });
+      return snap;
+    }
+  } catch (e) {
+    console.warn('[fetchLiveKalshiSnapshot] failed:', e?.message || e);
+  }
+  return null;
 }
 
 async function loadMLPredictions() {
@@ -6963,6 +7008,45 @@ async function loadMLPredictions() {
   } catch (e) {
     console.debug("loadMLPredictions: not available yet", e?.message);
   }
+
+  // ── Live Kalshi snapshot override ─────────────────────────────────────
+  // Backend's kalshi_market_snapshot can be null (new row, backfill race,
+  // canonical write when Kalshi returned empty).  Fetch live Kalshi from
+  // our proxy and use it if backend's is missing.  Guarantees bet card
+  // never renders fake "80-81"-style labels that aren't Kalshi buckets.
+  try {
+    const today    = window.nycISODate(0);
+    const tomorrow = window.nycISODate(1);
+    const [liveToday, liveTomorrow] = await Promise.all([
+      fetchLiveKalshiSnapshot(today),
+      fetchLiveKalshiSnapshot(tomorrow),
+    ]);
+    if (liveToday) {
+      const backend = window.mlPredictions.todayMarketSnapshot;
+      const backendParsed = (() => {
+        try { return typeof backend === 'string' ? JSON.parse(backend) : backend; } catch { return null; }
+      })();
+      const backendKeys = backendParsed ? Object.keys(backendParsed).length : 0;
+      if (backendKeys === 0) {
+        window.mlPredictions.todayMarketSnapshot = liveToday;
+        console.log('[Kalshi] Using live proxy snapshot for today (backend null/empty)');
+      }
+    }
+    if (liveTomorrow) {
+      const backend = window.mlPredictions.tomorrowMarketSnapshot;
+      const backendParsed = (() => {
+        try { return typeof backend === 'string' ? JSON.parse(backend) : backend; } catch { return null; }
+      })();
+      const backendKeys = backendParsed ? Object.keys(backendParsed).length : 0;
+      if (backendKeys === 0) {
+        window.mlPredictions.tomorrowMarketSnapshot = liveTomorrow;
+        console.log('[Kalshi] Using live proxy snapshot for tomorrow (backend null/empty)');
+      }
+    }
+  } catch (e) {
+    console.debug('[Kalshi live override] skipped:', e?.message);
+  }
+
   // Always render ML cards after query completes — even when no new data
   // was found, cached data from switchCity restore needs to be displayed.
   // Previously only rendered inside the if(gotToday||gotTomorrow) block,
