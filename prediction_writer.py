@@ -6083,8 +6083,37 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     payload["nws_d0"] = nws_latest_tm
 
     # Build and write atm_snapshot for tomorrow's row so the Live Sources panel
-    # can show Multi-Model Spread, NWS Jump, and atmospheric cards in D+1 mode.
+    # can show Multi-Model Spread, NWS Jump, and observation sources in D+1 mode.
+    # CRITICAL: Must include obs_snap_* keys so dashboard cards (Synoptic, MANH, regions) don't go blank.
     _ATM_SNAP_KEYS = (
+        # ── Live observation sources (for Live Sources panel in D+1 mode) ─────
+        # KNYC (Central Park) observations
+        "obs_snap_knyc_temp", "obs_snap_knyc_max", "obs_snap_knyc_vs_nws",
+        "obs_snap_knyc_obs_at", "obs_snap_knyc_rate", "obs_snap_knyc_rate_delta",
+        # Regional stations (JFK/LGA for NYC)
+        "obs_snap_kjfk_temp", "obs_snap_kjfk_vs_knyc", "obs_snap_kjfk_obs_at",
+        "obs_snap_klga_temp", "obs_snap_klga_vs_knyc", "obs_snap_klga_obs_at",
+        # Inland stations (EWR/TEB/CDW/SMQ for NYC)
+        "obs_snap_kewr_temp", "obs_snap_kewr_vs_knyc", "obs_snap_kewr_obs_at",
+        "obs_snap_kteb_temp", "obs_snap_kteb_vs_knyc", "obs_snap_kteb_obs_at",
+        "obs_snap_kteb_delta",
+        "obs_snap_kcdw_temp", "obs_snap_kcdw_obs_at", "obs_snap_kcdw_delta",
+        "obs_snap_ksmq_temp", "obs_snap_ksmq_obs_at", "obs_snap_ksmq_delta",
+        # Manhattan Mesonet (5-min fill-in for NYC)
+        "obs_snap_manh_temp", "obs_snap_manh_vs_knyc", "obs_snap_manh_obs_at",
+        # Synoptic network (5mi radius) — KEY for Synoptic distribution card
+        "obs_snap_syn_mean", "obs_snap_syn_min", "obs_snap_syn_max",
+        "obs_snap_syn_spread", "obs_snap_syn_vs_nws", "obs_snap_syn_count",
+        # WU PWS (citizen weather stations)
+        "obs_snap_wu_mean", "obs_snap_wu_vs_nws", "obs_snap_wu_spread", "obs_snap_wu_count",
+        # Regional and gradient indicators
+        "obs_snap_regional_spread", "obs_snap_regional_vs_nws",
+        "obs_snap_coastal_vs_inland", "obs_snap_airport_spread",
+        "obs_snap_inland_gradient", "obs_snap_inland_warming_rate",
+        # Derived nowcast signals
+        "obs_snap_morning_cloud", "obs_snap_stratus_clearing",
+        "obs_snap_warming_accel",
+        # ── Model and atmospheric features ────────────────────────────────────
         "mm_spread", "mm_std", "mm_mean",
         "mm_hrrr_ecmwf_diff", "mm_hrrr_gfs_diff", "mm_ecmwf_gfs_diff",
         "mm_hrrr_max", "mm_ecmwf_max", "mm_icon_max", "mm_gem_max",
@@ -6102,6 +6131,8 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
         "atm_rh_850", "atm_temp_850", "atm_temp_925",
         "atm_wind_speed", "atm_wind_dir",
         "ens_spread", "ens_mean",
+        # Plume monitoring
+        "atm_plume_monitoring",
     )
     if live_atm_tm:
         # Filter both None AND NaN — json.dumps emits bare 'NaN' for np.nan which is
