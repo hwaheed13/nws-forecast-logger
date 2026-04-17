@@ -1134,7 +1134,7 @@ window._dsmHighTime    = window._dsmHighTime ?? null;
 // --- Detect if overnight high exceeded forecast (full hourly scan) ---
 async function checkEarlyMorningExceedance() {
   const todayISO = nycISODate(0);
-  const OVERNIGHT_CUTOFF_HOUR = 10; // treat 0–9 ET as “overnight”
+  const OVERNIGHT_CUTOFF_HOUR = 10; // treat 0–9 ET as "overnight"
 
   // Prefer D0; fallback to D1 if D0 isn't issued/ingested yet
   let latestForecast = latestPreHighValue(getForecastRowsFor(todayISO, "D0"), "");
@@ -1143,63 +1143,80 @@ async function checkEarlyMorningExceedance() {
   }
   if (!Number.isFinite(latestForecast) || latestForecast <= 0) return null;
 
-  let overnightHigh = Number(window._overnightHighSoFar);
-  let overnightTime = window._overnightHighTime || null;
-
-  const etHourNow = Number(new Intl.DateTimeFormat("en-US", {
-    timeZone: CC().timezone,
-    hour: "numeric",
-    hour12: false
-  }).format(new Date()));
-
-  // Use 6-hr max only in the morning window
-  if (!Number.isFinite(overnightHigh) &&
-      Number.isFinite(Number(window._sixHourMaxF)) &&
-      etHourNow < OVERNIGHT_CUTOFF_HOUR) {
-    overnightHigh = Number(window._sixHourMaxF);
-    overnightTime = null;
-  }
-
-  // Fallback: ask server for today's high-so-far
-  if (!Number.isFinite(overnightHigh)) {
-    try {
-      const r = await fetch(`${API_BASE}/nws-high-so-far?station=${CC().station}&tz=${encodeURIComponent(CC().timezone)}`, { cache: "no-store" });
-      if (r.ok) {
-        const j = await r.json();
-        const f = Number(j?.highF);
-        const iso = j?.atISO || null;
-        if (Number.isFinite(f)) {
-          overnightHigh = f;
-          overnightTime = iso;
-          window._overnightHighSoFar = f;
-          window._overnightHighTime  = iso;
-        }
+  // ── Option B: airmass-warmth signal uses overnight MIN, not MAX ─────
+  // The old logic flagged any overnight reading above forecast — which fired
+  // on readings taken 30-60 min after midnight that were really yesterday's
+  // heat bleeding off.  By 4-5 AM those had cooled normally.  The real signal
+  // of an anomalously warm airmass is: what's the COLDEST point of the
+  // pre-dawn hours?  If the min between 2-6 AM ET is still close to the
+  // forecast high, the airmass is genuinely stuck warm and today will
+  // probably overshoot.
+  let overnightMin = null, overnightMinTime = null;
+  let overnightHigh = null, overnightTime = null;
+  try {
+    const r = await fetch(`${API_BASE}/nws-high-so-far?station=${CC().station}&tz=${encodeURIComponent(CC().timezone)}`, { cache: "no-store" });
+    if (r.ok) {
+      const j = await r.json();
+      if (Number.isFinite(Number(j?.overnightMinF))) {
+        overnightMin = Number(j.overnightMinF);
+        overnightMinTime = j.overnightMinAt || null;
       }
-    } catch {}
+      if (Number.isFinite(Number(j?.overnightMaxF))) {
+        overnightHigh = Number(j.overnightMaxF);
+        overnightTime = j.overnightMaxAt || null;
+      } else if (Number.isFinite(Number(j?.highF))) {
+        overnightHigh = Number(j.highF);
+        overnightTime = j.atISO || null;
+      }
+    }
+  } catch {}
+
+  // Primary signal: if overnight MIN is within 5°F of forecast high, airmass
+  // is stuck warm → blow-past likely.
+  const OVERNIGHT_MIN_PROXIMITY_F = 5.0;
+  if (overnightMin != null &&
+      Number.isFinite(latestForecast) &&
+      (latestForecast - overnightMin) < OVERNIGHT_MIN_PROXIMITY_F) {
+    return {
+      currentHigh: overnightMin,
+      overnightMin,
+      overnightHigh,
+      forecast: latestForecast,
+      time: overnightMinTime,
+      exceedance: +(overnightMin + OVERNIGHT_MIN_PROXIMITY_F - latestForecast).toFixed(1),
+      occurredOvernight: true,
+      signalKind: "overnight_min_proximity",
+    };
   }
 
+  // Fallback: legacy overnight-high path but with stricter conditions
+  if (!Number.isFinite(overnightHigh)) {
+    const fallbackHigh = Number(window._overnightHighSoFar);
+    if (Number.isFinite(fallbackHigh)) {
+      overnightHigh = fallbackHigh;
+      overnightTime = window._overnightHighTime || null;
+    }
+  }
   if (!Number.isFinite(overnightHigh)) return null;
 
-  // If we know the time of the high, require that it actually happened before 10 ET
   if (overnightTime) {
     const etDate = new Date(
       new Date(overnightTime).toLocaleString("en-US", { timeZone: CC().timezone })
     );
     const hour = etDate.getHours();
-    if (hour >= OVERNIGHT_CUTOFF_HOUR) {
-      // daytime spike – do not label as “overnight exceeded”
-      return null;
-    }
+    if (hour >= OVERNIGHT_CUTOFF_HOUR) return null;
+    if (hour < 2) return null;   // skip 0-2am spillover spikes
   }
 
-  if (overnightHigh > latestForecast + 0.3) {
+  if (overnightHigh > latestForecast + 2.0) {   // was +0.3; raised to avoid false fires
     return {
       currentHigh: overnightHigh,
       overnightHigh,
       forecast: latestForecast,
       time: overnightTime,
       exceedance: +(overnightHigh - latestForecast).toFixed(1),
-      occurredOvernight: true
+      occurredOvernight: true,
+      signalKind: "overnight_max_exceeded",
     };
   }
   return null;
@@ -1275,7 +1292,11 @@ if (!saved) window._overnightExceeded = null;
     const div = document.createElement("div");
     div.className = "overnight-note";
     div.style.cssText = "margin-top:6px;font-size:12px;color:#b91c1c;font-weight:600;";
-    div.textContent = `Overnight high of ${res.currentHigh.toFixed(1)}°F (${timeLabel}) already exceeded today's forecast (${res.forecast.toFixed(1)}°F).`;
+    if (res.signalKind === "overnight_min_proximity") {
+      div.textContent = `Pre-dawn temp only dropped to ${res.overnightMin.toFixed(1)}°F (${timeLabel}) — within 5°F of today's ${res.forecast.toFixed(1)}°F forecast; airmass stuck warm, blow-past risk elevated.`;
+    } else {
+      div.textContent = `Overnight high of ${res.currentHigh.toFixed(1)}°F (${timeLabel}) already exceeded today's forecast (${res.forecast.toFixed(1)}°F).`;
+    }
     box.appendChild(div);
     hidePredictionAndBoundary(box);
     return;
