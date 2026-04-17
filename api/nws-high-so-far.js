@@ -33,6 +33,37 @@ export default async function handler(req, res) {
     return `${get("year")}-${get("month")}-${get("day")}`;
   };
 
+  // NWS climo-day window: 1 AM local → 1 AM next day.  This matches
+  // Kalshi's resolution window for KXHIGHNY.  Returns true if the given
+  // ISO timestamp falls within the climo day matching `todayNY`.
+  const toNYHour = (d) => {
+    const s = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz, hour: "numeric", hour12: false
+    }).format(d);
+    const n = Number(s);
+    return Number.isFinite(n) ? n : null;
+  };
+  const toNYDateStr = (d) => toNYDate(d);
+  const isInClimoDay = (iso, targetNYDate) => {
+    try {
+      const d = new Date(iso);
+      const dateStr = toNYDateStr(d);
+      const hour = toNYHour(d);
+      if (hour == null) return false;
+      // Same calendar day, hour >= 1  → within climo day
+      if (dateStr === targetNYDate && hour >= 1) return true;
+      // Next calendar day, hour < 1  → still within climo day (tail before 1 AM)
+      // Compute next day's date string
+      const target = new Date(`${targetNYDate}T12:00:00Z`);
+      const next = new Date(target.getTime() + 24 * 60 * 60 * 1000);
+      const nextStr = toNYDateStr(next);
+      if (dateStr === nextStr && hour < 1) return true;
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
   const isTopOfHourish = (iso) => {
     const d = new Date(iso);
     const ny = new Date(d.toLocaleString("en-US", { timeZone: tz }));
@@ -48,7 +79,6 @@ export default async function handler(req, res) {
         "User-Agent": "dailydewpoint (contact: you@example.com)",
         "Cache-Control": "no-cache",
         Pragma: "no-cache",
-        // token: process.env.NWS_API_KEY
       }
     });
     if (!r.ok) return res.status(502).json({ error: "NWS upstream error", status: r.status });
@@ -64,7 +94,7 @@ export default async function handler(req, res) {
     for (const f of feats) {
       const ts = f?.properties?.timestamp;
       if (!ts) continue;
-      if (toNYDate(new Date(ts)) !== todayNY) continue;
+      if (!isInClimoDay(ts, todayNY)) continue;   // was calendar-day; now climo-day
       if (!isTopOfHourish(ts)) continue;
 
       const c = f?.properties?.temperature?.value;
@@ -78,7 +108,7 @@ export default async function handler(req, res) {
       for (const f of feats) {
         const ts = f?.properties?.timestamp;
         if (!ts) continue;
-        if (toNYDate(new Date(ts)) !== todayNY) continue;
+        if (!isInClimoDay(ts, todayNY)) continue;
         const c = f?.properties?.temperature?.value;
         if (c == null || !Number.isFinite(c)) continue;
         const F = c * 9/5 + 32;
@@ -99,7 +129,7 @@ export default async function handler(req, res) {
       const ts = f?.properties?.timestamp;
       if (!ts) continue;
       const d = new Date(ts);
-      if (toNYDate(d) !== todayNY) continue;
+      if (!isInClimoDay(ts, todayNY)) continue;
       const nyHourStr = new Intl.DateTimeFormat("en-US", {
         timeZone: tz, hour: "numeric", hour12: false
       }).format(d);
