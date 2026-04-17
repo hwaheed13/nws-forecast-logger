@@ -5917,8 +5917,18 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     live_atm_tm: dict = {}
     try:
         live_atm_tm = _fetch_atmospheric_features(tomorrow_iso)
+        # Cache fallback: Fill missing values from cached snapshot if API partial failure
+        live_atm_tm = fill_missing_from_cache(_CITY_KEY, live_atm_tm)
     except Exception as _atm_e:
         print(f"⚠️ write_today_for_tomorrow: _fetch_atmospheric_features failed: {_atm_e}")
+        # Try cache as last resort if fetch completely fails
+        try:
+            cached = get_cached_snapshot(_CITY_KEY)
+            if cached:
+                live_atm_tm = cached
+                print(f"  🔄 Using cached atmospheric snapshot for D+1 ({len(cached)} keys)")
+        except Exception as _cache_e:
+            print(f"  ⚠️  Cache fallback also failed: {_cache_e}")
 
     # ── Carry-forward: seed live_atm_tm with previous D+1 snapshot's mm_* values
     # if the fresh fetch missed them (same partial-fetch issue as write_today_for_today).
