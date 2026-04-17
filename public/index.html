@@ -6832,12 +6832,24 @@ async function loadTodaysPredictionHistory() {
 // ---------------------------------------------------------------------------
 window.mlPredictions = { today: null, tomorrow: null };
 
-/** Parse atm_snapshot JSON column → plain object (handles string or object). */
+/** Parse atm_snapshot JSON column → plain object (handles string or object).
+ *  The Python backend occasionally emits bare `NaN` / `Infinity` tokens in the
+ *  JSON string (Python's `json.dumps` with `allow_nan=True` default), which
+ *  standard `JSON.parse` rejects.  Sanitize those to `null` before parsing so
+ *  cards don't silently blank out when one stray NaN is present. */
 function _parseAtmSnapshot(raw) {
   if (!raw) return null;
   try {
-    return typeof raw === 'string' ? JSON.parse(raw) : raw;
-  } catch { return null; }
+    if (typeof raw !== 'string') return raw;
+    // Replace bare NaN / Infinity / -Infinity values (not inside strings) with null.
+    const cleaned = raw
+      .replace(/:\s*NaN\b/g, ': null')
+      .replace(/:\s*-?Infinity\b/g, ': null');
+    return JSON.parse(cleaned);
+  } catch (e) {
+    console.warn('[_parseAtmSnapshot] parse failed:', e.message);
+    return null;
+  }
 }
 
 async function loadMLPredictions() {
