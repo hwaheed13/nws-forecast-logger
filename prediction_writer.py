@@ -136,6 +136,167 @@ def _ts_hour(ts_str: str) -> int | None:
     except (ValueError, IndexError, TypeError):
         return None
 
+
+# Warm wind cardinals for NYC (SW, S, SSW, WSW) — used for blow-past scoring.
+# Keep in sync with api/flip-risk.js COLD_DIRS.nyc negation.
+_WARM_WIND_DEGS_NYC = (180.0, 202.5, 225.0, 247.5)
+
+
+def _wind_dir_is_warm(sin_v, cos_v, warm_degs=_WARM_WIND_DEGS_NYC, tolerance_deg=22.5) -> bool:
+    """Decode atm_wind_dir_sin/cos (circular encoding) back to cardinal
+    direction and check whether it falls in a "warm" advection sector."""
+    try:
+        if sin_v is None or cos_v is None:
+            return False
+        s = float(sin_v); c = float(cos_v)
+        if math.isnan(s) or math.isnan(c):
+            return False
+        deg = math.degrees(math.atan2(s, c)) % 360.0
+        for wd in warm_degs:
+            if abs(((deg - wd + 180) % 360) - 180) <= tolerance_deg:
+                return True
+        return False
+    except Exception:
+        return False
+
+
+def _compute_live_blow_past_level(*, ml_f, nws_f, obs_t, canon_hour,
+                                  t925_c, wd_sin, wd_cos,
+                                  syn_vs_nws, jfk_vs_nws,
+                                  coastal_vs_inland, kjfk_vs_knyc,
+                                  hrrr_vs_nws,
+                                  hrrr_cloud_bias_risk=False):
+    """Port of the blow-past scoring logic from api/flip-risk.js.
+
+    Takes LIVE values (not canonical-snapshot values) and returns:
+      (level: "NONE"|"MEDIUM"|"HIGH", blow_pts: int, cap_pts: int)
+
+    Run this on every Frequent cycle to capture the warning level the
+    dashboard would have shown the user at that time.  Persist peak
+    across cycles so at scoring time we know the strongest warning ever
+    issued for the day.
+
+    Keyword args are named + typed so callers can't mix up positional
+    order — these must all be Python floats or None, with units as
+    documented below.
+
+    Args:
+      ml_f:              ML prediction (°F).  None → signal skipped.
+      nws_f:             Current NWS forecast (°F).
+      obs_t:             Live observed KNYC temp (°F).
+      canon_hour:        Hour-of-day local (0-23) for the prediction.
+      t925_c:            925mb temp from HRRR (°C).  Note: Open-Meteo
+                         returns °C; flip-risk.js uses °F so we convert
+                         the threshold (55°F → 12.78°C) rather than data.
+      wd_sin, wd_cos:    Circular-encoded wind direction (unit vectors).
+      syn_vs_nws:        Synoptic station-network mean vs NWS (°F).
+                         Negative = network below NWS = cap signal.
+      jfk_vs_nws:        JFK observed vs NWS (°F).  Negative = coastal cap.
+      coastal_vs_inland: mean(JFK,LGA) - mean(EWR,TEB) (°F).  Negative =
+                         marine boundary active.
+      kjfk_vs_knyc:      JFK vs KNYC (°F).  Negative = sea breeze inland.
+      hrrr_vs_nws:       HRRR forecast high - NWS forecast (°F).  Negative
+                         = HRRR sensing cap NWS is missing.
+      hrrr_cloud_bias_risk: True if HRRR cloud forecast is suspiciously
+                         lower than observed cloud cover (HRRR warm bias).
+                         Suppresses blow-past when true (reality check).
+    """
+    blow = 0
+    cap = 0
+
+    # ── Blow-past signals (mirror flip-risk.js sections C, D, E, F) ──
+    # C) obs near predicted high (post-10am, <2°F gap)
+    if (obs_t is not None and ml_f is not None and canon_hour is not None
+            and canon_hour >= 10 and (ml_f - obs_t) < 2.0):
+        blow += 2
+
+    # D) warm 925mb (> 12.78°C ≡ 55°F)
+    if t925_c is not None and t925_c > 12.78:
+        blow += 2
+
+    # E) warm wind direction (SW/S/SSW/WSW)
+    if _wind_dir_is_warm(wd_sin, wd_cos):
+        blow += 2
+
+    # F) ML well above NWS (>3°F)
+    if ml_f is not None and nws_f is not None and (ml_f - nws_f) > 3.0:
+        blow += 1
+
+    # ── Cap-hold suppression signals (mirror flip-risk.js G1-G6) ──
+    if syn_vs_nws is not None:
+        if syn_vs_nws <= -6: cap += 4
+        elif syn_vs_nws <= -4: cap += 3
+        elif syn_vs_nws <= -2: cap += 1
+    if jfk_vs_nws is not None:
+        if jfk_vs_nws <= -10: cap += 4
+        elif jfk_vs_nws <= -7: cap += 3
+        elif jfk_vs_nws <= -4: cap += 1
+    if coastal_vs_inland is not None:
+        if coastal_vs_inland <= -4: cap += 3
+        elif coastal_vs_inland <= -2: cap += 1
+    if kjfk_vs_knyc is not None and kjfk_vs_knyc <= -2:
+        cap += 1
+    if hrrr_vs_nws is not None:
+        if hrrr_vs_nws <= -3: cap += 2
+        elif hrrr_vs_nws <= -1.5: cap += 1
+
+    # HRRR cloud bias: trusted Kalshi community signal — when HRRR's cloud
+    # forecast is low but observed cloud cover is high (cumulus/stratus
+    # buildup HRRR missed), HRRR tends to run 1-3°F too warm in the
+    # boundary layer.  Suppress blow-past by 1 point in that case (not a
+    # full cap, but a confidence penalty).
+    if hrrr_cloud_bias_risk and blow > 0:
+        blow = max(0, blow - 1)
+
+    # Strong cap (>=4) zeroes blow-past — matches flip-risk.js line 357
+    if cap >= 4:
+        blow = 0
+
+    # Thresholds match flip-risk.js: >=3=HIGH, >=2=MEDIUM, else NONE
+    if blow >= 3: level = "HIGH"
+    elif blow >= 2: level = "MEDIUM"
+    else: level = "NONE"
+
+    return level, blow, cap
+
+
+def _blow_past_level_rank(level: str) -> int:
+    """Rank for comparing peaks across the day.  NONE<MEDIUM<HIGH."""
+    return {"HIGH": 3, "MEDIUM": 2, "LOW": 1, "NONE": 0}.get(level, 0)
+
+
+def _compute_hrrr_cloud_bias_risk(live_atm: dict, live_obs: dict) -> bool:
+    """Detect HRRR's known warm-bias-under-cumulus condition.
+
+    Kalshi-community-verified signal: when HRRR forecasts low cloud cover
+    but obs show elevated cloud cover, HRRR's boundary-layer temps tend
+    to run 1-3°F warm vs reality.  Returns True when:
+
+      (a) HRRR forecast peak cloud cover (atm_cloud_cover_mean or
+          equivalent) is below 30%, AND
+      (b) Current observed cloud cover (obs_cloud_cover) is above 50%.
+
+    That's a 20pt gap in the direction HRRR predictably errs.  Thresholds
+    tuned to catch clear cases without firing on minor noise.
+    """
+    try:
+        # HRRR cloud forecast for the day's peak heating window
+        hrrr_cc = live_atm.get("atm_cloud_cover_mean")
+        if hrrr_cc is None: hrrr_cc = live_atm.get("atm_cloud_cover_max")
+        # Observed cloud cover right now
+        obs_cc = live_obs.get("obs_cloud_cover")
+
+        if hrrr_cc is None or obs_cc is None:
+            return False
+        hrrr_cc = float(hrrr_cc); obs_cc = float(obs_cc)
+        if math.isnan(hrrr_cc) or math.isnan(obs_cc):
+            return False
+        # Both are 0-100 scale
+        return hrrr_cc < 30.0 and obs_cc > 50.0
+    except (TypeError, ValueError):
+        return False
+
+
 # Kalshi API base URL (public, no auth needed)
 KALSHI_API_BASE = "https://api.elections.kalshi.com/trade-api/v2"
 
@@ -4703,61 +4864,69 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
         _intraday_flip_count = int(_atm_snap.get("ml_flip_count") or 0)
         _flip_history        = _atm_snap.get("ml_flip_history") or []
 
-        # ── Retrospective blow-past warning level ─────────────────────────
-        # Mirrors the scoring in api/flip-risk.js so we can track warning
-        # calibration over time: "when we WARNED blow-past HIGH, how often
-        # did blow-past actually occur?"  All inputs come from atm_snapshot
-        # which captures the state at canonical-write time.  Computes
-        # blowPoints from the same signals flip-risk.js uses, then buckets
-        # into NONE / MEDIUM / HIGH using the same thresholds (>=3=HIGH,
-        # >=2=MEDIUM, else NONE).
-        _blow_pts = 0
-        _ml_f_canon = _atm_snap.get("ml_f_canonical") or pred.get("ml_f_canonical") or pred.get("ml_f")
-        _obs_t      = _atm_snap.get("obs_snap_temp_live") or _atm_snap.get("obs_snap_knyc_temp")
-        _t925       = _atm_snap.get("obs_snap_t925_live") or _atm_snap.get("obs_snap_t925_hrrr")
-        _wind_dir   = _atm_snap.get("obs_snap_wind_dir_card") or _atm_snap.get("obs_snap_wind_dir")
-        _nws_last   = _atm_snap.get("nws_last") or pred.get("nws_d0")
-        _canon_hour = _atm_snap.get("canonical_hour")
+        # ── Blow-past warning levels (three independent measurements) ────
+        # 1. live_peak   — highest warning level the DASHBOARD ever showed
+        #                  during the day (logged on each Frequent run via
+        #                  _live_bp_payload).  This is the "did we warn the
+        #                  user" signal.  Primary calibration metric.
+        # 2. from_snap   — what the warning WOULD have been using the
+        #                  morning canonical snapshot's inputs.  Useful as
+        #                  a "did our morning model see the risk?" signal.
+        # 3. occurred    — did actual high exceed predicted bucket ceiling?
+        #                  Ground truth for calibration.
+        #
+        # Calibration query over time:
+        #   "When live_peak=HIGH, how often did occurred=true?" → if >60%,
+        #   HIGH warnings carry real signal.  If ~25% (base rate), noise.
+        # -------------------------------------------------------------------
+        def _fnum(v):
+            try:
+                if v is None: return None
+                f = float(v)
+                return None if (math.isnan(f) or math.isinf(f)) else f
+            except (TypeError, ValueError): return None
 
-        # Signal A: obs already near predicted high (post-10am, <2°F gap)
-        try:
-            if (_obs_t is not None and _ml_f_canon is not None and _canon_hour is not None
-                    and (float(_ml_f_canon) - float(_obs_t)) < 2.0
-                    and float(_canon_hour) >= 10):
-                _blow_pts += 2
-        except (TypeError, ValueError): pass
+        # Peak from live tracking — the real user-facing metric
+        _live_peak = _atm_snap.get("live_blow_past_peak") or "NONE"
 
-        # Signal B: warm 925mb (> 55°F)
-        try:
-            if _t925 is not None and float(_t925) > 55.0:
-                _blow_pts += 2
-        except (TypeError, ValueError): pass
+        # From-snap retrospective — reuse the SAME scoring function the
+        # live path uses, fed with canonical-snapshot values.  Correct key
+        # names + units (atm_925mb_hrrr_mean is °C, wind as sin/cos, etc.)
+        _ml_f_canon = _fnum(pred.get("ml_f_canonical")) or _fnum(_atm_snap.get("ml_f_canonical")) or _fnum(pred.get("ml_f"))
+        _nws_f      = _fnum(pred.get("nws_d0")) or _fnum(_atm_snap.get("nws_last"))
+        _kjfk       = _fnum(_atm_snap.get("obs_snap_kjfk")) or _fnum(_atm_snap.get("obs_kjfk_temp"))
+        _jfk_vs_nws = (_kjfk - _nws_f) if (_kjfk is not None and _nws_f is not None) else None
+        _hrrr_max   = _fnum(_atm_snap.get("mm_hrrr_max"))
+        _hrrr_vs_nws = (_hrrr_max - _nws_f) if (_hrrr_max is not None and _nws_f is not None) else None
 
-        # Signal C: warm wind direction (SW, S, SSW, WSW)
-        if isinstance(_wind_dir, str) and _wind_dir in ("SW", "S", "SSW", "WSW"):
-            _blow_pts += 2
+        _snap_level, _snap_blow_pts, _snap_cap_pts = _compute_live_blow_past_level(
+            ml_f              = _ml_f_canon,
+            nws_f             = _nws_f,
+            obs_t             = _fnum(_atm_snap.get("obs_snap_temp")),
+            canon_hour        = _fnum(_atm_snap.get("obs_snap_hour")),
+            t925_c            = _fnum(_atm_snap.get("atm_925mb_hrrr_mean"))
+                                or _fnum(_atm_snap.get("atm_925mb_temp_mean")),
+            wd_sin            = _fnum(_atm_snap.get("atm_wind_dir_sin")),
+            wd_cos            = _fnum(_atm_snap.get("atm_wind_dir_cos")),
+            syn_vs_nws        = _fnum(_atm_snap.get("obs_synoptic_vs_nws"))
+                                or _fnum(_atm_snap.get("obs_snap_syn_vs_nws")),
+            jfk_vs_nws        = _jfk_vs_nws,
+            coastal_vs_inland = _fnum(_atm_snap.get("obs_snap_coastal_vs_inland"))
+                                or _fnum(_atm_snap.get("obs_coastal_vs_inland")),
+            kjfk_vs_knyc      = _fnum(_atm_snap.get("obs_snap_kjfk_vs_knyc"))
+                                or _fnum(_atm_snap.get("obs_kjfk_vs_knyc")),
+            hrrr_vs_nws       = _hrrr_vs_nws,
+            hrrr_cloud_bias_risk = bool(_atm_snap.get("live_hrrr_cloud_bias_risk")),
+        )
 
-        # Signal D: ML well above NWS (>3°F)
-        try:
-            if (_ml_f_canon is not None and _nws_last is not None
-                    and (float(_ml_f_canon) - float(_nws_last)) > 3.0):
-                _blow_pts += 1
-        except (TypeError, ValueError): pass
-
-        # Thresholds match flip-risk.js
-        if _blow_pts >= 3:
-            _blow_past_warned = "HIGH"
-        elif _blow_pts >= 2:
-            _blow_past_warned = "MEDIUM"
-        else:
-            _blow_past_warned = "NONE"
-
-        # Persist scored features back into atm_snapshot so the training pipeline
-        # can use them as ground-truth labels / contextual features next season.
-        _atm_snap["scored_blow_past_occurred"]  = _blow_past_occurred
-        _atm_snap["scored_blow_past_warned"]    = _blow_past_warned
-        _atm_snap["scored_blow_past_warn_pts"]  = _blow_pts
-        _atm_snap["scored_intraday_flip_count"] = _intraday_flip_count
+        # Persist scored features back into atm_snapshot so the training
+        # pipeline can use them as ground-truth labels / contextual features.
+        _atm_snap["scored_blow_past_occurred"]           = _blow_past_occurred
+        _atm_snap["scored_blow_past_warned_live_peak"]   = _live_peak
+        _atm_snap["scored_blow_past_warned_from_snap"]   = _snap_level
+        _atm_snap["scored_blow_past_warn_pts_from_snap"] = _snap_blow_pts
+        _atm_snap["scored_blow_past_cap_pts_from_snap"]  = _snap_cap_pts
+        _atm_snap["scored_intraday_flip_count"]          = _intraday_flip_count
         if _actual_vs_ceiling is not None:
             _atm_snap["scored_actual_vs_ceiling"] = _actual_vs_ceiling
         if isinstance(_flip_history, list) and _flip_history:
@@ -4770,7 +4939,8 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
                      if _actual_vs_ceiling is not None else "no ceiling (≥ bucket)")
         print(f"  📈 Scored ML features: blow_past={_blow_past_occurred} "
               f"(actual={actual_high}°F vs {_ceil_str}), "
-              f"warned={_blow_past_warned}(pts={_blow_pts}), "
+              f"live_peak={_live_peak}, from_snap={_snap_level}"
+              f" (blow={_snap_blow_pts}, cap={_snap_cap_pts}), "
               f"flip_count={_intraday_flip_count}")
         # ────────────────────────────────────────────────────────────────────────
 
@@ -5203,6 +5373,95 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         except Exception as _obs_e:
             print(f"⚠️ Live obs fetch failed: {_obs_e}")
 
+        # ── LIVE BLOW-PAST WARNING LEVEL ────────────────────────────────────
+        # Compute the blow-past level the user WOULD see on the dashboard
+        # right now (flip-risk.js runs this same scoring on demand at render
+        # time).  Track the peak level across the day so at scoring time we
+        # know the strongest warning ever shown.  This gives us a true
+        # calibration metric: "when live-peak warning = HIGH, did blow-past
+        # actually happen?" — as opposed to morning-canonical-only signals.
+        #
+        # HRRR cloud bias: Kalshi community observation that HRRR runs 1-3°F
+        # warm in BL under cumulus/stratus buildup that it misses.  When
+        # HRRR forecast cloud < 30% but obs cloud > 50%, flag + penalize
+        # blow-past signal (HRRR is probably too warm → bet slightly toward
+        # lower buckets).
+        _hrrr_cloud_bias = _compute_hrrr_cloud_bias_risk(live_atm or {}, live_obs or {})
+
+        def _f(v):
+            try:
+                if v is None: return None
+                f = float(v)
+                return None if (math.isnan(f) or math.isinf(f)) else f
+            except (TypeError, ValueError): return None
+
+        # Use ml_f from existing row (canonical or latest) — at this point ml
+        # recompute hasn't run yet, so we need the prior prediction as the
+        # reference.  Below, after ml_recomputed, we'll recompute the live
+        # level using the fresh ml_f.
+        _ml_f_for_live = (
+            _f(existing.get("ml_f")) if isinstance(existing, dict) else None
+        ) or (
+            _f(existing.get("ml_f_canonical")) if isinstance(existing, dict) else None
+        )
+
+        # At this point we have live_atm/live_obs.  Build the signal inputs
+        # from them directly, mirroring what flip-risk.js computes from its
+        # query parameters sent by the frontend.
+        live_blow_inputs = {
+            "ml_f":              _ml_f_for_live,
+            "nws_f":             _f(nws_latest),
+            "obs_t":             _f((live_obs or {}).get("obs_latest_temp")),
+            "canon_hour":        _f((live_obs or {}).get("obs_latest_hour")),
+            "t925_c":            _f((live_atm or {}).get("atm_925mb_hrrr_mean"))
+                                 or _f((live_atm or {}).get("atm_925mb_temp_mean")),
+            "wd_sin":            _f((live_atm or {}).get("atm_wind_dir_sin")),
+            "wd_cos":            _f((live_atm or {}).get("atm_wind_dir_cos")),
+            "syn_vs_nws":        _f((live_obs or {}).get("obs_synoptic_vs_nws")),
+            "jfk_vs_nws":        (
+                lambda j, n: (j - n) if (j is not None and n is not None) else None
+            )(_f((live_obs or {}).get("obs_kjfk_temp")), _f(nws_latest)),
+            "coastal_vs_inland": _f((live_obs or {}).get("obs_coastal_vs_inland")),
+            "kjfk_vs_knyc":      _f((live_obs or {}).get("obs_kjfk_vs_knyc")),
+            "hrrr_vs_nws":       (
+                lambda h, n: (h - n) if (h is not None and n is not None) else None
+            )(_f((live_atm or {}).get("mm_hrrr_max")), _f(nws_latest)),
+            "hrrr_cloud_bias_risk": _hrrr_cloud_bias,
+        }
+
+        _live_bp_level, _live_blow_pts, _live_cap_pts = _compute_live_blow_past_level(**live_blow_inputs)
+
+        # Peak level: compare against existing snapshot's prior peak.
+        # New peak if current level outranks prior peak.
+        _prior_peak = None
+        if isinstance(existing, dict):
+            _prior_snap = _snap_loads(existing.get("atm_snapshot"))
+            if isinstance(_prior_snap, dict):
+                _prior_peak = _prior_snap.get("live_blow_past_peak")
+        _new_peak = _live_bp_level
+        if _prior_peak is not None:
+            if _blow_past_level_rank(_prior_peak) >= _blow_past_level_rank(_live_bp_level):
+                _new_peak = _prior_peak
+
+        _bp_changed = "↗" if (_prior_peak is not None
+                              and _blow_past_level_rank(_live_bp_level) > _blow_past_level_rank(_prior_peak)) else ""
+        print(f"  🎯 Live blow-past: now={_live_bp_level} "
+              f"(blow={_live_blow_pts}, cap={_live_cap_pts}), "
+              f"peak={_new_peak}{_bp_changed}"
+              f"{', HRRR warm-bias flag' if _hrrr_cloud_bias else ''}")
+
+        # These need to be attached to the snapshot on every write path.  Use
+        # module-level variables below; the snapshot-writing code sections
+        # inject them right before `_snap_dumps(snap)` calls.  Storing on a
+        # dict that the writer functions will merge into snap.
+        _live_bp_payload = {
+            "live_blow_past_level":       _live_bp_level,
+            "live_blow_past_peak":        _new_peak,
+            "live_blow_past_blow_pts":    _live_blow_pts,
+            "live_blow_past_cap_pts":     _live_cap_pts,
+            "live_hrrr_cloud_bias_risk":  bool(_hrrr_cloud_bias),
+        }
+
         atm_triggered, atm_reasons = _check_atmospheric_shift(live_atm, stored_atm_snapshot)
         obs_triggered, obs_reasons = (
             _check_obs_trigger(live_obs, stored_snapshot_dict)
@@ -5476,8 +5735,23 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 if isinstance(existing, dict):
                     _carry_flip_fields(snap, existing)
 
+                # ── Live blow-past warning level + running peak ──
+                # Logs what flip-risk.js would show the user on the dashboard
+                # at this moment, so we can track "warning actually shown" vs
+                # "actual blow-past occurred" calibration over time.
+                _prev_snap_for_bp = _snap_loads(existing.get("atm_snapshot")) if isinstance(existing, dict) else None
+                _update_snap_with_live_blow_past(
+                    snap,
+                    _prev_snap_for_bp,
+                    pred_ml_f=(ml or {}).get("ml_f"),
+                    pred_nws_f=nws_latest,
+                )
+
                 # ── Cache complete snapshot for fallback on next API failures ──
                 cache_snapshot(_CITY_KEY, snap)
+
+                # Live blow-past warning calibration
+                snap.update(_live_bp_payload)
 
                 payload["atm_snapshot"] = _snap_dumps(snap)
                 print(f"📸 Atmospheric baseline advanced after recompute ({len(snap)} keys)")
@@ -5982,6 +6256,9 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 # ── Cache complete snapshot for fallback on next API failures ──
                 cache_snapshot(_CITY_KEY, _ex_snap)
 
+                # Live blow-past warning calibration
+                _ex_snap.update(_live_bp_payload)
+
                 payload["atm_snapshot"] = _snap_dumps(_ex_snap)
                 atm_keys = sum(1 for k in _ex_snap.keys() if k.startswith("atm_") or k.startswith("mm_") or k.startswith("ens_"))
                 obs_keys = sum(1 for k in _ex_snap.keys() if k.startswith("obs_snap_"))
@@ -6092,6 +6369,9 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
 
                     # ── Cache complete snapshot for fallback on next API failures ──
                     cache_snapshot(_CITY_KEY, snap)
+
+                    # Live blow-past warning calibration (canonical write)
+                    snap.update(_live_bp_payload)
 
                     payload["atm_snapshot"] = _snap_dumps(snap)
                     obs_populated = sum(
@@ -6309,6 +6589,8 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                     print(f"  🗑️  Pending flip ({_prev_pending}) discarded — "
                           f"returned to canonical before confirmation, nothing shown")
             if _fs:
+                # Live blow-past warning calibration
+                _fs.update(_live_bp_payload)
                 payload["atm_snapshot"] = _snap_dumps(_fs)
 
     # ── Fallback: ensure atm_snapshot is always written ──────────────────────
@@ -6335,6 +6617,8 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             ):
                 # Cache for future fallback
                 cache_snapshot(_CITY_KEY, fallback_snap)
+                # Live blow-past warning calibration
+                fallback_snap.update(_live_bp_payload)
                 payload["atm_snapshot"] = _snap_dumps(fallback_snap)
                 atm_keys = sum(1 for k in fallback_snap.keys() if k.startswith("atm_") or k.startswith("mm_"))
                 obs_keys = sum(1 for k in fallback_snap.keys() if k.startswith("obs_snap_"))
