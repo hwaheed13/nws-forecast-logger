@@ -4297,12 +4297,22 @@ function renderAtmSignals() {
   const _snapInlandRate      = _snapForAtm.obs_snap_inland_warming_rate ?? null;
   const _snapMorningCloud    = _snapForAtm.obs_snap_morning_cloud ?? null;
 
-  // Plume monitoring — Cirrostratus cloud detection (non-model, for data collection)
-  // Tracked: atm_plume_monitoring (1=plume detected, 0=clear, null=unknown)
-  const _plumeFlag = _snapForAtm.atm_plume_monitoring;
-  const plumeDetected = _plumeFlag === 1;
+  // Plume monitoring — Cirrostratus cloud detection.  Recomputed LIVE from
+  // current Open-Meteo values (not the stored snapshot, which could be hours
+  // stale).  Heuristic matches backend: daytime window (50 ≤ solar < 400)
+  // with cloud cover > 60% = cirrostratus plume likely overhead.
+  const _solNowForPlume  = cur.solar_now_wm2;
+  const _cloudNowForPlume = cur.cloud_cover_now;
+  let plumeDetected = false;
+  if (_solNowForPlume != null && _cloudNowForPlume != null) {
+    plumeDetected = (_solNowForPlume >= 50 && _solNowForPlume < 400 && _cloudNowForPlume > 60);
+  }
   const plumeColor = plumeDetected ? '#dc2626' : 'var(--text-primary)';
-  const plumeLabel = plumeDetected ? '☁️  Cirrostratus plume — solar suppressed' : 'Clear skies';
+  const plumeLabel = plumeDetected
+    ? `☁️ Possible cirrostratus — solar ${_solNowForPlume} W/m² under ${_cloudNowForPlume}% cloud`
+    : (_solNowForPlume != null && _cloudNowForPlume != null
+        ? `Solar ${_solNowForPlume} W/m² · cloud ${_cloudNowForPlume}%`
+        : 'Clear skies');
   // Live inland gradient from the 4-station NNJ live fetch (updated every 5 min)
   const _lroForAtm    = window._liveRegionalObs || {};
   const _lroAtmValid  = !_lroForAtm.city || _lroForAtm.city === currentCity;
@@ -4400,7 +4410,126 @@ function renderAtmSignals() {
     sig('850mb Temp',   fmt(t850, 1), '°F',    advTip, advColor),
     sig('925mb Temp',   fmt(t925, 1), '°F',    adv925Tip, adv925Color),
     sig('Surface Wind', windMph != null ? fmt(windMph, 0) : '–', 'mph', windTip, windColor),
+    // ── Dewpoint — moist air reduces solar heating efficiency ────────
+    (() => {
+      const dewNow = cur.dewpoint_now;
+      const dewPeak = pk.dewpoint_mean;
+      const tempNow = cur.temp;
+      // Dewpoint spread (temp - dewpoint).  Small spread = moist = lower peaks.
+      const spreadNow = (tempNow != null && dewNow != null)
+        ? (tempNow - dewNow) : null;
+      let dewTip = dewNow != null ? `Now ${dewNow.toFixed(1)}°F` : '';
+      let dewColor = 'var(--text-primary)';
+      if (spreadNow != null) {
+        if (spreadNow < 10) { dewTip += ' · moist (caps heating)'; dewColor = '#0369a1'; }
+        else if (spreadNow > 25) { dewTip += ' · very dry (accelerates heating)'; dewColor = '#b45309'; }
+        else { dewTip += ` · spread ${spreadNow.toFixed(0)}°F`; }
+      }
+      return sig('Dewpoint', dewNow != null ? fmt(dewNow, 1) : '–', '°F', dewTip, dewColor);
+    })(),
+    // ── Precipitation — rain approaching can create solar-window spikes ──
+    (() => {
+      const pf = d.precip_forecast || {};
+      const remaining = pf.remaining_today_in;
+      const probMax   = pf.max_prob_rest_pct;
+      const firstHr   = pf.first_hour_ahead;
+      const precipNow = cur.precip_now_in;
+      let pLabel, pValue, pUnit, pTip, pColor;
+      if (precipNow != null && precipNow > 0.01) {
+        pValue = precipNow.toFixed(2); pUnit = 'in now';
+        pTip = 'Raining now'; pColor = '#2563eb';
+      } else if (remaining != null && remaining > 0.05) {
+        pValue = remaining.toFixed(2); pUnit = 'in ahead';
+        const probStr = probMax != null ? `${probMax}% max` : '';
+        const hrStr = firstHr != null ? ` · rain ~${firstHr}:00` : '';
+        pTip = `${probStr}${hrStr}`.trim() || 'Rain expected';
+        pColor = remaining > 0.25 ? '#b45309' : 'var(--text-primary)';
+      } else if (probMax != null && probMax >= 30) {
+        pValue = `${probMax}%`; pUnit = 'chance';
+        pTip = 'Rain possible'; pColor = 'var(--text-primary)';
+      } else {
+        pValue = '0.00'; pUnit = 'in';
+        pTip = 'Dry'; pColor = 'var(--text-muted)';
+      }
+      return sig('Precipitation', pValue, pUnit, pTip, pColor);
+    })(),
   ].join('') + _consensusHTML + _nowcastLines;
+
+  // ── Community Signals (backend fields from atm_snapshot) ─────────────
+  // Surfaces signals inspired by Kalshi community observations — each is
+  // independently logged to Supabase and becomes a training feature at
+  // nightly retrain.  Rendered from _snapForAtm (todayAtmSnapshot) which
+  // is populated by the backend on each Frequent run.
+  const _bpPeak       = _snapForAtm.live_blow_past_peak;
+  const _bpLevel      = _snapForAtm.live_blow_past_level;
+  const _hrrrBias     = _snapForAtm.live_hrrr_cloud_bias_risk === true;
+  const _nwConvRisk   = _snapForAtm.live_nw_convection_risk === true;
+  const _nwConvPts    = _snapForAtm.live_nw_convection_pts;
+  const _nwConvReason = _snapForAtm.live_nw_convection_reason || '';
+  const _solWinThreat = _snapForAtm.live_solar_window_threat === true;
+  const _solWinReason = _snapForAtm.live_solar_window_reason || '';
+
+  // Only render the community-signals row if at least one signal is
+  // populated (means the backend has written the new fields).  Absence
+  // just means the backend hasn't been pushed yet or this is an old row.
+  const _hasAnyCommunitySignal =
+    _bpPeak !== undefined || _bpLevel !== undefined ||
+    _hrrrBias || _nwConvRisk || _solWinThreat ||
+    (_nwConvPts != null && _nwConvPts > 0);
+
+  // Remove any prior community-signals block first — renderAtmSignals may
+  // be called repeatedly on the same page (polling, etc.), and
+  // insertAdjacentHTML would otherwise stack duplicates.
+  const _existingCs = document.getElementById('community-signals-row');
+  if (_existingCs) _existingCs.remove();
+
+  if (_hasAnyCommunitySignal) {
+    const pill = (label, active, color, tip) => {
+      const bg    = active ? color : 'var(--bg-secondary)';
+      const fg    = active ? '#fff' : 'var(--text-muted)';
+      const border= active ? color : 'var(--border-subtle)';
+      return `<div title="${tip || ''}" style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:999px;background:${bg};color:${fg};border:1px solid ${border};font-size:11px;font-weight:600;">
+        ${label}
+      </div>`;
+    };
+
+    // Blow-past pill — use peak (strongest level seen today) as primary,
+    // current level if peak not set yet.
+    const _bpShow = _bpPeak || _bpLevel || 'NONE';
+    const _bpColor = _bpShow === 'HIGH' ? '#dc2626'
+                   : _bpShow === 'MEDIUM' ? '#d97706'
+                   : '#6b7280';
+    const _bpActive = _bpShow !== 'NONE';
+    const _bpTip = _bpShow === 'NONE'
+      ? 'No blow-past signal triggered today'
+      : `Dashboard-peak blow-past warning: ${_bpShow}`;
+
+    const signalsRow = `
+      <div id="community-signals-row" style="margin-top:12px;padding:10px 12px;background:var(--bg-secondary);
+                  border:1px solid var(--border-subtle);border-radius:10px;">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;
+                    letter-spacing:.05em;color:var(--text-muted);margin-bottom:8px;">
+          Community Signals
+          <span style="font-weight:400;text-transform:none;letter-spacing:0;">
+            — experimental, logged for calibration &amp; model training
+          </span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${pill(`Blow-past: ${_bpShow}`, _bpActive, _bpColor, _bpTip)}
+          ${pill('HRRR warm bias', _hrrrBias, '#b45309',
+              _hrrrBias ? 'HRRR forecast cloud <30% but observed cloud >50% — HRRR probably 1-3°F warm'
+                       : 'HRRR cloud forecast aligns with observation')}
+          ${pill(`NW convection${_nwConvRisk ? ` (+${_nwConvPts})` : ''}`,
+                 _nwConvRisk, '#2563eb',
+                 _nwConvRisk ? `Upstream cooling detected: ${_nwConvReason}`
+                             : 'No upstream convection signal')}
+          ${pill('Solar window', _solWinThreat, '#eab308',
+                 _solWinThreat ? `Solar window before rain: ${_solWinReason}`
+                               : 'No solar-before-rain pattern')}
+        </div>
+      </div>`;
+    grid.insertAdjacentHTML('afterend', signalsRow);
+  }
 
   if (ts && d.fetchedAt) {
     const t = new Date(d.fetchedAt).toLocaleTimeString('en-US', { timeZone: dispTZ, hour: 'numeric', minute: '2-digit' });
