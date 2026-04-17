@@ -5640,6 +5640,9 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             ):
                 # Populate atm_* / mm_* / ens_* / nws_* keys from live_atm
                 snap = {k: live_atm[k] for k in _ATM_SNAPSHOT_KEYS if k in live_atm}
+            # Fill any missing atm_* / mm_* keys from cache to ensure Multi-Model Spread / HRRR vs NWS
+            # cards always have data even if Open-Meteo ensemble or Synoptic fetch failed.
+            snap = fill_missing_from_cache(_CITY_KEY, snap)
             # Always write snapshot on canonical (first-write) path, even if empty.
             # An empty snapshot dict still allows _add_obs_to_snap to populate obs_snap_*
             # display keys, which is essential for the "Live Observation Sources" panel.
