@@ -1086,6 +1086,10 @@ def _fetch_kalshi_market_probs(target_date_iso: str) -> dict:
 
         markets = data.get("markets", [])
         if not markets:
+            # Visible diagnostic so we notice when Kalshi returns nothing
+            # (e.g. markets not yet listed at early-AM canonical write time).
+            print(f"⚠️ Kalshi {event_ticker}: no markets in response "
+                  f"(response keys: {list(data.keys())[:5]})")
             return {}
 
         # Filter for open/trading markets
@@ -4177,7 +4181,12 @@ def _inject_nws_sequence_to_snap(
             d1f = _get_nws_d1_final(target_date_iso)
             if d1f is not None:
                 snap.setdefault("nws_d1_final", float(d1f))
-                # First D0 forecast = earliest NWS row for today
+                # First D0 forecast = earliest NWS row ACTUALLY ISSUED on the target date
+                # (not D-1 rows with target_date == today — those are yesterday's forecasts
+                # for today, not today's own D0 cycle).  Without this filter, d0_fc[0]
+                # grabs the 1-3 AM D-1 row (e.g. 2026-04-16 01:33 predicting 79°F for
+                # 2026-04-17) and computes jump = 79 - 78 = +1.0°F when in reality the
+                # actual D0 morning run (2026-04-17 07:43) was 78°F → true jump = 0.
                 d0_fc = sorted(
                     [
                         (str(r.get("timestamp", "") or r.get("forecast_time", "")),
@@ -4187,6 +4196,9 @@ def _inject_nws_sequence_to_snap(
                         and str(r.get("target_date", "")) == target_date_iso
                         and r.get("predicted_high") is not None
                         and (r.get("source") or "").lower() != "accuweather"
+                        # Only rows ISSUED on the target date — strips D-1 leftovers
+                        and str(r.get("timestamp", "") or r.get("forecast_time", ""))[:10]
+                            == target_date_iso
                     ],
                     key=lambda x: x[0],
                 )
@@ -5296,6 +5308,9 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                     _d1f = _get_nws_d1_final(target_date_iso)
                     if _d1f is not None:
                         _ex_snap["nws_d1_final"] = float(_d1f)
+                        # Only rows ISSUED on the target date — filter out D-1 rows whose
+                        # target_date happens to be today (they're yesterday's forecasts,
+                        # not today's D0 cycle).  Same fix as _inject_nws_sequence_to_snap.
                         _d0_fc = sorted([
                             (str(r.get("timestamp", "")), float(r["predicted_high"]))
                             for r in rows
@@ -5303,6 +5318,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                             and str(r.get("target_date", "")) == target_date_iso
                             and r.get("predicted_high") is not None
                             and (r.get("source") or "").lower() != "accuweather"
+                            and str(r.get("timestamp", ""))[:10] == target_date_iso
                         ], key=lambda x: x[0])
                         if _d0_fc:
                             _ex_snap["nws_overnight_jump"] = round(
@@ -5777,13 +5793,26 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
 
     # Fetch Kalshi market odds + compute bet signal
     market_probs = _fetch_kalshi_market_probs(target_date_iso)
-    # IMPORTANT: Only save the snapshot at canonical (first) write time.
-    # Subsequent 30-min upserts must NOT overwrite it — by end-of-day Kalshi
-    # shows settled prices (winner=0.995, losers=0.005) which completely inverts
-    # the edge calculation. The canonical snapshot captures live pre-settlement
-    # market prices, which is what the bet_signal and ml_edge should reflect.
-    if market_probs and is_canonical_write:
+    # Save the Kalshi snapshot the FIRST time we have market data — not just on
+    # canonical write.  Kalshi sometimes doesn't have today's markets listed at the
+    # moment the canonical write fires (early morning), which previously left the
+    # snapshot null for the entire day and caused the dashboard to fall through to
+    # raw ML bucket labels (e.g. "78-79"/"79-80" which look like overlapping Kalshi
+    # buckets but are actually 1°F ML bins).
+    #
+    # Guard: never overwrite an existing snapshot.  By end-of-day Kalshi shows
+    # settled prices (winner=0.995, losers=0.005) which would invert bet_signal
+    # and ml_edge — the first snapshot captures live pre-settlement prices, which
+    # is the baseline we want to preserve.
+    _has_existing_snapshot = (
+        isinstance(existing, dict)
+        and existing.get("kalshi_market_snapshot") is not None
+    )
+    if market_probs and not _has_existing_snapshot:
         payload["kalshi_market_snapshot"] = json.dumps(market_probs)
+        if not is_canonical_write:
+            print(f"📊 Kalshi snapshot backfilled (canonical run had no market data): "
+                  f"{len(market_probs)} buckets")
 
     # Detect intraday bucket shift for stability downgrade.
     # If the stored bucket differs from what we're about to write, the model just
@@ -6163,10 +6192,18 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
 
     # Use already-fetched Kalshi market odds (from lock check above)
     market_probs = tomorrow_market_probs
-    # Only save snapshot at canonical (first) write — same reason as write_today_for_today:
-    # settled end-of-day prices (0.995/0.005) overwrite live prices and invert bet_signal.
-    if market_probs and is_canonical_write:
+    # Save the Kalshi snapshot the FIRST time we have market data — same logic as
+    # write_today_for_today.  Guard: never overwrite once set to avoid end-of-day
+    # settled prices (0.995/0.005) corrupting the baseline.
+    _has_existing_snapshot_d1 = (
+        isinstance(existing, dict)
+        and existing.get("kalshi_market_snapshot") is not None
+    )
+    if market_probs and not _has_existing_snapshot_d1:
         payload["kalshi_market_snapshot"] = json.dumps(market_probs)
+        if not is_canonical_write:
+            print(f"📊 D+1 Kalshi snapshot backfilled (canonical run had no market data): "
+                  f"{len(market_probs)} buckets")
 
     # Map ML prediction → Kalshi's actual bucket structure for tomorrow
     # Always re-map with fresh prediction (no lock — intraday re-prediction enabled)
