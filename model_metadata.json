@@ -1,9 +1,17 @@
 {
+<<<<<<< Updated upstream
   "trained_on": "2026-04-16T11:28:40.490064",
   "num_days": 270,
   "date_range": {
     "start": "2025-07-03",
     "end": "2026-04-15"
+=======
+  "trained_on": "2025-09-29T21:48:04.656681",
+  "num_days": 72,
+  "date_range": {
+    "start": "2025-07-03",
+    "end": "2025-09-29"
+>>>>>>> Stashed changes
   },
   "feature_columns": [
     "nws_first",
@@ -17,21 +25,11 @@
     "nws_count",
     "forecast_velocity",
     "forecast_acceleration",
-    "accu_first",
     "accu_last",
-    "accu_max",
-    "accu_min",
-    "accu_mean",
-    "accu_spread",
-    "accu_std",
-    "accu_trend",
-    "accu_count",
     "nws_accu_spread",
-    "nws_accu_mean_diff",
-    "day_of_year_sin",
-    "day_of_year_cos",
     "month",
     "is_summer",
+<<<<<<< Updated upstream
     "is_winter",
     "rolling_bias_7d",
     "rolling_bias_21d",
@@ -117,5 +115,12 @@
     "l2_regularization": 1.0,
     "max_leaf_nodes": 15,
     "cv_splits": 5
+=======
+    "is_winter"
+  ],
+  "model_performance": {
+    "temperature_mae": 0.3411811662331685,
+    "bucket_accuracy": 0.9166666666666666
+>>>>>>> Stashed changes
   }
 }
