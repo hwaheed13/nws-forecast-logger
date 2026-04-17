@@ -3947,6 +3947,47 @@ def _add_obs_to_snap(snap: dict, live_obs: dict, live_atm: dict = None, city_key
     ]:
         _ts = _atm_fallback(_atm_key, _atm_key)
         snap[_snap_key] = _ts if isinstance(_ts, str) else None
+
+    # Last-resort: if station has a temperature value but no obs_at timestamp,
+    # do a targeted Synoptic direct-STID fetch to fill in the missing timestamps.
+    # This covers the case where live_atm was not augmented by _compute_ml_prediction
+    # (e.g. fallback path) or the earlier fetch returned temps without date_time.
+    # Dashboard needs these to show "(N min ago)" staleness on each station card.
+    if city_key != "lax":  # NYC-only; LAX has its own set handled elsewhere
+        _missing_ts_stids = []
+        for _stid, _snap_key, _temp_key in [
+            ("KNYC", "obs_snap_knyc_obs_at", "obs_snap_knyc_syn"),
+            ("KJFK", "obs_snap_kjfk_obs_at", "obs_snap_kjfk"),
+            ("KLGA", "obs_snap_klga_obs_at", "obs_snap_klga"),
+            ("KEWR", "obs_snap_kewr_obs_at", "obs_snap_kewr"),
+            ("KTEB", "obs_snap_kteb_obs_at", "obs_snap_kteb"),
+            ("MANH", "obs_snap_manh_obs_at", "obs_snap_manh_temp"),
+        ]:
+            # If we have the temp but not the timestamp, mark for fetch
+            if snap.get(_temp_key) is not None and snap.get(_snap_key) is None:
+                _missing_ts_stids.append((_stid, _snap_key))
+        if _missing_ts_stids:
+            try:
+                from synoptic_client import _fetch_stids_direct
+                _stids_to_fetch = [s for s, _ in _missing_ts_stids]
+                _direct = _fetch_stids_direct(_stids_to_fetch)
+                _filled = 0
+                for _stn in _direct:
+                    _sid = (_stn.get("STID") or "").upper()
+                    _obs = _stn.get("OBSERVATIONS", {})
+                    _temp_val = _obs.get("air_temp_value_1", {})
+                    if isinstance(_temp_val, dict):
+                        _dt = _temp_val.get("date_time")
+                        if isinstance(_dt, str):
+                            for _sid2, _sk in _missing_ts_stids:
+                                if _sid == _sid2:
+                                    snap[_sk] = _dt
+                                    _filled += 1
+                                    break
+                if _filled > 0:
+                    print(f"  🕒 Filled {_filled} missing obs_at timestamps via direct Synoptic fetch")
+            except Exception as _ts_e:
+                print(f"  ⚠️  obs_at timestamp fill skipped: {_ts_e}")
     # NY State Mesonet (borough stations) — same pattern as Synoptic
     snap["obs_snap_nysm_mean"]   = _safe(_atm_fallback("obs_nysm_mean",   "obs_nysm_mean"))
     snap["obs_snap_nysm_min"]    = _safe(_atm_fallback("obs_nysm_min",    "obs_nysm_min"))
