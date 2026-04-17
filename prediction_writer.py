@@ -3831,7 +3831,7 @@ def _check_atmospheric_shift(
     return triggered, reasons
 
 
-def _add_obs_to_snap(snap: dict, live_obs: dict, live_atm: dict = None) -> None:
+def _add_obs_to_snap(snap: dict, live_obs: dict, live_atm: dict = None, city_key: str = None) -> None:
     """
     Add observation snapshot keys to an existing atm_snapshot dict in-place.
     These keys are prefixed obs_snap_* to avoid collision with model feature names.
@@ -3840,11 +3840,20 @@ def _add_obs_to_snap(snap: dict, live_obs: dict, live_atm: dict = None) -> None:
     live_atm (optional): atmospheric dict that may carry Synoptic/NYSM keys written
         back by _compute_ml_prediction() via prefetched_atm. Used as fallback when
         live_obs doesn't have them (since _fetch_observation_features() skips them).
+    city_key (optional): city for cache fallback when live Synoptic fetch fails.
     """
     if not live_obs and not live_atm:
-        return
-
-    obs = live_obs or {}
+        # Try to load cached observations if live data is empty
+        if city_key:
+            cached = get_cached_snapshot(city_key)
+            if cached:
+                obs = cached
+            else:
+                return
+        else:
+            return
+    else:
+        obs = live_obs or {}
 
     def _safe(v):
         """Return v if valid float, else None (JSON serializable)."""
@@ -5034,7 +5043,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 # Also advance obs snapshot keys so triggers don't re-fire on same reading
                 # Pass live_atm so Synoptic/NYSM keys written back by _compute_ml_prediction
                 # via prefetched_atm are also included (they're not in live_obs).
-                _add_obs_to_snap(snap, live_obs, live_atm)
+                _add_obs_to_snap(snap, live_obs, live_atm, city_key=_CITY_KEY)
                 # Restore display keys from the previous snapshot that the fresh write
                 # left as None — covers two cases:
                 #   obs_snap_*: Synoptic/NYSM data absent on AccuWeather-only advance path
@@ -5654,7 +5663,8 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                     # Add obs snapshot keys — critical for cold-start trigger detection
                     # Pass live_atm so Synoptic/NYSM written back by _compute_ml_prediction
                     # via prefetched_atm are included (they're not in live_obs).
-                    _add_obs_to_snap(snap, live_obs, live_atm)
+                    # Pass city_key so if live_obs is empty, cached obs are used as fallback.
+                    _add_obs_to_snap(snap, live_obs, live_atm, city_key=_CITY_KEY)
                     # ── obs_snap_morning_cloud anchor ────────────────────────────────
                     # Freeze cloud cover at canonical (first-of-day) write so that
                     # intraday stratus clearing can be detected: if morning cloud ≥50%
