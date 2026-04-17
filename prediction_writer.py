@@ -5955,22 +5955,12 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 if isinstance(existing, dict):
                     _carry_flip_fields(snap, existing)
 
-                # ── Live blow-past warning level + running peak ──
-                # Logs what flip-risk.js would show the user on the dashboard
-                # at this moment, so we can track "warning actually shown" vs
-                # "actual blow-past occurred" calibration over time.
-                _prev_snap_for_bp = _snap_loads(existing.get("atm_snapshot")) if isinstance(existing, dict) else None
-                _update_snap_with_live_blow_past(
-                    snap,
-                    _prev_snap_for_bp,
-                    pred_ml_f=(ml or {}).get("ml_f"),
-                    pred_nws_f=nws_latest,
-                )
-
                 # ── Cache complete snapshot for fallback on next API failures ──
                 cache_snapshot(_CITY_KEY, snap)
 
-                # Live blow-past warning calibration
+                # Live blow-past warning calibration — _live_bp_payload built
+                # earlier in the function scope.  Empty dict in freeze paths,
+                # populated in normal path.  Either way, this update is safe.
                 snap.update(_live_bp_payload)
 
                 payload["atm_snapshot"] = _snap_dumps(snap)
