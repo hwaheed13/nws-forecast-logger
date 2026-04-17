@@ -23,6 +23,11 @@ CITIES = {
         # Regional supplemental NWS stations — fetched alongside primary KNYC
         # JFK often 3-5°F colder on sea-breeze days; LGA captures Queens/Bronx air mass
         "regional_obs_stations": ["KJFK", "KLGA"],
+        # Synoptic radius for NYC — expanded from default 10mi to 15mi so the
+        # sweep reliably captures MANH (Manhattan Mesonet at Columbia/125th,
+        # ~2.5mi from Central Park) even when it drops off the radius list due
+        # to Synoptic API quirks.  Direct STID fallback also exists as backup.
+        "synoptic_radius_miles": 15.0,
     },
     "lax": {
         "label": "Los Angeles",
