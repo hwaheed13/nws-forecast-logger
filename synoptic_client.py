@@ -351,6 +351,30 @@ def get_synoptic_obs_features(
     if not temps and not named_temps:
         return nan_result
 
+    # ── Outlier filter ────────────────────────────────────────────────
+    # Synoptic occasionally returns single-station readings that are wildly
+    # out of family — verified by live Supabase data on 2026-04-17:
+    #   09:12 run: syn_min=64°F while most stations at 71-73°F (stuck sensor)
+    #   15:46 run: syn_min=42°F while most stations at 76-79°F (stuck sensor)
+    # A single 42°F reading among 20 stations pulled the network mean from
+    # ~77°F down to 72.4°F and created a fake "-5.6°F cold vs NWS" signal
+    # that the ML model then weighted into a divergent prediction.  Filter
+    # any station more than 15°F from the median (median is robust to
+    # outliers even when several exist).  Require at least 3 stations — on
+    # tiny samples the median itself is unreliable.
+    _n_raw = len(temps)
+    if _n_raw >= 3:
+        _sorted = sorted(temps)
+        _median = (_sorted[_n_raw // 2] if _n_raw % 2
+                   else (_sorted[_n_raw // 2 - 1] + _sorted[_n_raw // 2]) / 2.0)
+        _OUTLIER_F = 15.0
+        _filtered = [t for t in temps if abs(t - _median) <= _OUTLIER_F]
+        if len(_filtered) < len(temps):
+            _dropped = sorted([round(t, 1) for t in temps if abs(t - _median) > _OUTLIER_F])
+            print(f"  🚫 Synoptic outlier filter: dropped {len(_dropped)} station(s) "
+                  f">{_OUTLIER_F}°F from median {_median:.1f}°F → {_dropped}")
+            temps = _filtered
+
     # ── Network aggregate ─────────────────────────────────────────────
     # obs_synoptic_mean is only populated when the radius sweep found stations.
     # On zero-radius days (e.g. LAX urban mesonet stale) it stays NaN — but
