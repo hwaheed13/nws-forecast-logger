@@ -4963,13 +4963,19 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         print("⏭️ today_for_today: no BCP data and no ML prediction available."); return
 
     ts = now_nyc().isoformat()
-    idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{target_date_iso}"
+    now_hour = int(now_nyc().strftime("%H"))
+    # Archive snapshots every 3 hours (9, 12, 15, 18 EST = 1, 4, 7, 10 PM + 12, 3, 6 AM for overnight)
+    # Map any hour to its 3-hour bucket: 0-2→0, 3-5→3, 6-8→6, 9-11→9, 12-14→12, 15-17→15, 18-20→18, 21-23→21
+    snapshot_hour = (now_hour // 3) * 3
+    # Use hourly idempotency key for snapshot archival so each 3-hour bucket creates a new row
+    idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{target_date_iso}:{snapshot_hour:02d}"
 
     payload = {
         "idempotency_key": idem_key,
         "timestamp": ts,
         "timestamp_et": ts,
         "target_date": target_date_iso,
+        "snapshot_hour": snapshot_hour,  # Archive this snapshot's 3-hour bucket
         "lead_used": "today_for_today",
         "model_name": MODEL_VERSION,
         "prediction_value": float(f"{bcp:.1f}") if bcp is not None else (ml["ml_f"] if ml else 0.0),
@@ -5924,6 +5930,10 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             print(f"⚠️ Fallback atm_snapshot fetch failed: {_fb_e}")
 
     supabase_upsert(payload)
+    # Log the 3-hourly snapshot archive
+    atm_keys_archived = sum(1 for k in payload.get("atm_snapshot", "{}").count(":") if k) if isinstance(payload.get("atm_snapshot"), str) else 0
+    print(f"📦 3-hourly snapshot archived for hour {snapshot_hour:02d}:00 EST "
+          f"(prediction={payload.get('prediction_value', 'N/A')}°F)")
 
 def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     # default to local tomorrow if not provided
@@ -6019,13 +6029,17 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     is_canonical_write = (existing is _LOCK_NOT_FOUND or not existing_has_canonical_d1) and ml is not None and bool(tomorrow_market_probs)
 
     ts = now_nyc().isoformat()
-    idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{tomorrow_iso}"
+    now_hour = int(now_nyc().strftime("%H"))
+    snapshot_hour = (now_hour // 3) * 3
+    # D+1 also gets hourly snapshots for training progression
+    idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{tomorrow_iso}:{snapshot_hour:02d}"
 
     payload = {
         "idempotency_key": idem_key,
         "timestamp": ts,
         "timestamp_et": ts,
         "target_date": tomorrow_iso,
+        "snapshot_hour": snapshot_hour,  # Archive D+1 snapshots at 3-hour intervals
         "lead_used": "today_for_tomorrow",
         "model_name": MODEL_VERSION,
         "prediction_value": bcp_tm if bcp_tm is not None else (ml["ml_f"] if ml else None),
@@ -6305,6 +6319,9 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
             print(f"⚠️ D+1 fallback atm_snapshot fetch failed: {_fb_e}")
 
     supabase_upsert(payload)
+    # Log the 3-hourly D+1 snapshot archive
+    print(f"📦 D+1 3-hourly snapshot archived for hour {snapshot_hour:02d}:00 EST "
+          f"(prediction={payload.get('prediction_value', 'N/A')}°F)")
 
 def write_both_snapshots() -> None:
     rows, _ = _read_all_rows()
