@@ -4394,10 +4394,29 @@ function renderLiveSourcesPanel() {
   const snap = ml.todayAtmSnapshot;
   const s = snap || {};
 
-  // Debug: log what snapshot we have
+// Debug: log what snapshot we have
   console.log('[Live Sources Panel] snap:', snap);
   if (snap) {
     console.log('[Live Sources Panel] snap keys:', Object.keys(snap).slice(0, 10));
+  }
+
+  // Auto-recovery: if snapshot is null but ML predictions have loaded,
+  // loadMLPredictions probably ran before the backend finished writing
+  // atm_snapshot. Trigger a one-shot retry so the panel fills without
+  // requiring a hard refresh. Debounced to once per minute to avoid loops.
+  if (snap == null && ml.today != null && typeof loadMLPredictions === 'function') {
+    const _now = Date.now();
+    if (_now - (window._liveSourcesRetryAt || 0) > 60000) {
+      window._liveSourcesRetryAt = _now;
+      console.log('[Live Sources Panel] snap null but ml loaded — retrying loadMLPredictions()');
+      loadMLPredictions().then(() => {
+        const newSnap = (window.mlPredictions || {}).todayAtmSnapshot;
+        if (newSnap != null) {
+          console.log('[Live Sources Panel] retry succeeded, re-rendering with', Object.keys(newSnap).length, 'keys');
+          renderLiveSourcesPanel();
+        }
+      }).catch(e => console.warn('[Live Sources Panel] retry failed:', e));
+    }
   }
 
   // After today's high is confirmed, model-driven cards (Multi-Model Spread,
