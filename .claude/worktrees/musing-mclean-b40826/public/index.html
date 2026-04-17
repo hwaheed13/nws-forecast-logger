@@ -4079,7 +4079,7 @@ function renderFlipRisk() {
       <div style="background:${blowBg}; border:1px solid ${blowColor}; border-radius:8px; padding:6px 12px; display:inline-flex; flex-direction:column; min-width:110px;">
         <span style="font-size:10px; font-weight:700; text-transform:uppercase; color:${blowColor}; letter-spacing:.05em;">Blow Past</span>
         <span style="font-size:18px; font-weight:800; color:${blowColor};">${blow.level}</span>
-        <span style="font-size:10px; color:var(--text-muted);">${blow.level === 'HIGH' ? 'actual may exceed ALL model forecasts' : 'elevated risk of exceeding predicted range'}</span>
+        <span style="font-size:10px; color:var(--text-muted);">${blow.level === 'HIGH' ? 'actual may exceed top of range' : 'elevated risk of exceeding range'}</span>
       </div>` : ''}
       <div style="flex:1; min-width:180px;">
         ${sigLines}
@@ -4240,13 +4240,6 @@ function renderAtmSignals() {
   const _snapWarmingAccel    = !!_snapForAtm.obs_snap_warming_accel;
   const _snapInlandRate      = _snapForAtm.obs_snap_inland_warming_rate ?? null;
   const _snapMorningCloud    = _snapForAtm.obs_snap_morning_cloud ?? null;
-
-  // Plume monitoring — Cirrostratus cloud detection (non-model, for data collection)
-  // Tracked: atm_plume_monitoring (1=plume detected, 0=clear, null=unknown)
-  const _plumeFlag = _snapForAtm.atm_plume_monitoring;
-  const plumeDetected = _plumeFlag === 1;
-  const plumeColor = plumeDetected ? '#dc2626' : 'var(--text-primary)';
-  const plumeLabel = plumeDetected ? '☁️  Cirrostratus plume — solar suppressed' : 'Clear skies';
   // Live inland gradient from the 4-station NNJ live fetch (updated every 5 min)
   const _lroForAtm    = window._liveRegionalObs || {};
   const _lroAtmValid  = !_lroForAtm.city || _lroForAtm.city === currentCity;
@@ -4340,7 +4333,6 @@ function renderAtmSignals() {
     sig('Mixing Layer', fmt(blM),   'm peak',  blLabel, blColor),
     sig('Cloud Cover',  fmt(cloudDisplay), '%', cloudDispLabel, cloudColor),
     sig('Solar Peak',   fmt(solar), 'W/m²',    solarLabel, solarColor),
-    sig('Plume Monitor', plumeDetected ? '⚠️' : '✓', '', plumeLabel, plumeColor),
     sig('850mb Temp',   fmt(t850, 1), '°F',    advTip, advColor),
     sig('925mb Temp',   fmt(t925, 1), '°F',    adv925Tip, adv925Color),
     sig('Surface Wind', windMph != null ? fmt(windMph, 0) : '–', 'mph', windTip, windColor),
@@ -4485,17 +4477,10 @@ function renderLiveSourcesPanel() {
 
   // ── Synoptic Data (MesoWest) — from model snapshot
   const syn_mean   = s.obs_snap_syn_mean;
-  const syn_min    = s.obs_snap_syn_min;
-  const syn_max    = s.obs_snap_syn_max;
   const syn_spread = s.obs_snap_syn_spread;
   const syn_vs     = s.obs_snap_syn_vs_nws;
   const syn_count  = s.obs_snap_syn_count;
-  // Build distribution display: mean · range (min-max) · spread · vs NWS · count
-  const syn_range = (syn_min != null && syn_max != null)
-    ? `Range: ${f0(syn_min)}–${f0(syn_max)}°F`
-    : "";
   const syn_sub = [
-    syn_range,
     syn_spread != null ? `Spread: ${Number(syn_spread).toFixed(1)}°F` : "",
     syn_vs     != null ? `vs NWS: ${fSign(syn_vs)}` : "",
     syn_count  != null ? `${syn_count} stations` : "",

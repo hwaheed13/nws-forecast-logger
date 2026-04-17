@@ -1,0 +1,1867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Daily Dew Point</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f7f5f0;
+      --surface: #ffffff;
+      --text: #1c1917;
+      --text-mid: #57534e;
+      --text-muted: #78716c;
+      --text-light: #a8a29e;
+      --border: #e7e5e4;
+      --border-light: #f0eeeb;
+      --accent: #0d9488;
+      --accent-soft: #f0fdfa;
+      --green: #15803d;
+      --green-bg: #f0fdf4;
+      --red: #b91c1c;
+      --red-bg: #fef2f2;
+      --amber: #b45309;
+      --amber-bg: #fffbeb;
+      --blue: #1d4ed8;
+      --blue-bg: #eff6ff;
+      --serif: 'DM Serif Display', Georgia, serif;
+      --sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --radius: 20px;
+      --radius-sm: 12px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
+      --shadow-lg: 0 8px 40px rgba(0,0,0,0.06);
+    }
+
+    [data-theme="dark"] {
+      --bg: #0c0a09;
+      --surface: #1c1917;
+      --text: #fafaf9;
+      --text-mid: #a8a29e;
+      --text-muted: #78716c;
+      --text-light: #57534e;
+      --border: #292524;
+      --border-light: #1c1917;
+      --accent: #2dd4bf;
+      --accent-soft: #042f2e;
+      --green-bg: #052e16; --green: #4ade80;
+      --red-bg: #450a0a; --red: #fca5a5;
+      --amber-bg: #451a03; --amber: #fcd34d;
+      --blue-bg: #172554; --blue: #93c5fd;
+      --shadow: 0 1px 3px rgba(0,0,0,0.2);
+      --shadow-lg: 0 8px 40px rgba(0,0,0,0.3);
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    body {
+      background: var(--bg); color: var(--text); font-family: var(--sans);
+      -webkit-font-smoothing: antialiased; line-height: 1.5; transition: background 0.3s, color 0.3s;
+    }
+
+    .container { max-width: 1280px; margin: 0 auto; padding: 0 32px; }
+    @media (max-width: 640px) { .container { padding: 0 16px; } }
+
+    nav {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 0; border-bottom: 1px solid var(--border); margin-bottom: 48px;
+    }
+    .nav-left { display: flex; align-items: center; gap: 24px; }
+    .nav-brand { font-family: var(--serif); font-size: 22px; color: var(--text); text-decoration: none; }
+    .city-toggle { display: flex; background: var(--border); border-radius: 100px; padding: 3px; }
+    .city-btn {
+      padding: 6px 20px; border-radius: 100px; font-size: 13px; font-weight: 600;
+      border: none; cursor: pointer; background: transparent; color: var(--text-muted); transition: all 0.2s;
+    }
+    .city-btn.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+    .nav-right { display: flex; align-items: center; gap: 24px; }
+    .nav-right a { font-size: 13px; color: var(--text-muted); text-decoration: none; font-weight: 500; }
+    .nav-right a:hover { color: var(--text); }
+    .theme-btn {
+      width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--surface); cursor: pointer; display: flex; align-items: center; justify-content: center;
+      font-size: 14px; transition: all 0.2s;
+    }
+    .theme-btn:hover { border-color: var(--text-light); }
+    @media (max-width: 768px) { nav { flex-wrap: wrap; gap: 12px; } .nav-right a { font-size: 12px; } }
+
+    .hero { text-align: center; margin-bottom: 56px; }
+    .hero h1 { font-family: var(--serif); font-size: clamp(32px, 5vw, 52px); letter-spacing: -1px; line-height: 1.15; margin-bottom: 16px; }
+    .hero h1 em { font-style: italic; color: var(--accent); }
+    .hero-sub { font-size: 16px; color: var(--text-muted); max-width: 560px; margin: 0 auto 20px; line-height: 1.6; }
+    .hero-meta { display: flex; align-items: center; justify-content: center; gap: 16px; font-size: 13px; color: var(--text-light); }
+    .live-indicator { display: inline-flex; align-items: center; gap: 5px; color: var(--green); font-weight: 600; }
+    .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 2s ease-in-out infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); transition: box-shadow 0.3s, background 0.3s, border-color 0.3s;
+    }
+    .card:hover { box-shadow: var(--shadow-lg); }
+
+    .source-agree { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 100px; font-size: 12px; font-weight: 600; margin-bottom: 20px; }
+    .agree-strong { background: var(--green-bg); color: var(--green); }
+    .agree-mixed { background: var(--amber-bg); color: var(--amber); }
+    .agree-disagree { background: var(--red-bg); color: var(--red); }
+
+    .predictions { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 40px; align-items: start; }
+    @media (max-width: 768px) { .predictions { grid-template-columns: 1fr; } }
+    .pred-card { padding: 28px 28px 24px; position: relative; }
+    .card-section { margin-bottom: 4px; }
+    .pred-section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--accent); margin-bottom: 4px; }
+    .pred-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+    .pred-label { font-family: var(--serif); font-size: 20px; color: var(--text); font-weight: 400; }
+    .pred-date { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; }
+    .signal-badge { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.2px; padding: 6px 16px; border-radius: 100px; box-shadow: var(--shadow); }
+    .signal-strong { background: var(--green-bg); color: var(--green); }
+    .signal-lean { background: var(--blue-bg); color: var(--blue); }
+    .signal-skip { background: var(--border); color: var(--text-light); }
+
+    .ml-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--accent); margin-bottom: 6px; }
+    .pred-bucket { font-family: var(--serif); font-size: clamp(38px, 4.5vw, 50px); letter-spacing: -1.5px; line-height: 1; margin-bottom: 12px; color: var(--text); }
+    .pred-conf { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .conf-pct { font-size: 18px; font-weight: 800; color: var(--accent); min-width: 44px; }
+    .conf-track { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+    .conf-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--accent), #2dd4bf); transition: width 0.6s ease; }
+    .pred-runner { font-size: 13px; font-weight: 600; color: var(--text-mid); margin-bottom: 4px; }
+    .pred-runner .top2-pct { color: var(--accent); font-weight: 800; }
+    .pred-result { margin-bottom: 16px; }
+    .result-tag { display: inline-flex; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; padding: 3px 10px; border-radius: 100px; }
+    .result-win { background: var(--green-bg); color: var(--green); }
+    .result-miss { background: var(--red-bg); color: var(--red); }
+
+    .ensemble-inline { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; padding: 8px 12px; background: var(--border-light); border-radius: 8px; }
+    .ensemble-inline strong { color: var(--text); font-weight: 700; }
+
+    /* Reference data as mini grid */
+    .ref-data {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px;
+      background: var(--border); border-radius: 10px; overflow: hidden;
+      margin: 12px 0;
+    }
+    .ref-item {
+      background: var(--surface); padding: 12px 12px; text-align: center; min-height: 56px; display: flex; flex-direction: column; justify-content: center;
+    }
+    .ref-label { display: block; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-light); margin-bottom: 2px; }
+    .ref-value { display: block; font-size: 14px; font-weight: 700; color: var(--text); }
+    .ref-value a { color: var(--accent); text-decoration: none; font-weight: 700; }
+
+    /* Forecast trail */
+    .forecast-trail-header { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text); margin-top: 20px; margin-bottom: 10px; border-top: 1px solid var(--border); padding-top: 16px; }
+    .forecast-trail { display: flex; flex-wrap: wrap; gap: 6px; }
+    .trail-chip { font-size: 13px; padding: 6px 14px; border-radius: 8px; background: var(--surface); color: var(--text-mid); font-weight: 500; border: 1px solid var(--border); transition: all 0.15s; }
+    .trail-chip.latest { background: var(--surface); color: var(--text); font-weight: 700; border-color: var(--text-mid); border-width: 2px; }
+    .trail-time { opacity: 0.6; margin-right: 4px; font-size: 11px; }
+    .trail-chip .trail-temp { font-weight: 700; font-size: 14px; }
+
+    /* Warnings */
+    .warn-bar { margin-top: 12px; padding: 8px 12px; border-radius: 8px; font-size: 11px; line-height: 1.4; }
+    .warn-overnight { background: var(--amber-bg); color: var(--amber); }
+    .warn-boundary { background: var(--blue-bg); color: var(--blue); }
+
+    .live-section { margin-bottom: 48px; }
+    .live-title { font-family: var(--serif); font-size: 22px; letter-spacing: -0.3px; margin-bottom: 16px; color: var(--text); }
+    .live-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1px; background: var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+    @media (max-width: 640px) { .live-strip { grid-template-columns: repeat(3, 1fr); } }
+    .strip-cell { background: var(--surface); padding: 20px 16px; text-align: center; }
+    .strip-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-muted); margin-bottom: 6px; }
+    .strip-value { font-family: var(--serif); font-size: 30px; color: var(--text); }
+    .strip-sub { font-size: 11px; color: var(--text-light); margin-top: 4px; }
+
+    .stats-section { margin-bottom: 48px; }
+    .section-title { font-family: var(--serif); font-size: 26px; letter-spacing: -0.5px; margin-bottom: 20px; }
+    .stats-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
+    @media (max-width: 900px) { .stats-grid { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 640px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
+    .stat-card { padding: 24px 20px; text-align: center; }
+    .stat-number { font-family: var(--serif); font-size: 32px; line-height: 1; margin-bottom: 4px; }
+    .stat-label { font-size: 12px; color: var(--text-muted); font-weight: 500; }
+    .stat-streak { font-size: 11px; color: var(--accent); font-weight: 600; margin-top: 4px; }
+
+    .chart-section { padding: 28px 32px; margin-bottom: 48px; }
+    .chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .chart-title { font-family: var(--serif); font-size: 20px; }
+    .chart-filters { display: flex; gap: 4px; background: var(--border-light); border-radius: 100px; padding: 3px; }
+    .chart-filter-btn { padding: 5px 16px; border-radius: 100px; font-size: 12px; font-weight: 600; border: none; cursor: pointer; background: transparent; color: var(--text-muted); transition: all 0.2s; }
+    .chart-filter-btn.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+    .chart-container { position: relative; height: 400px; width: 100%; overflow: hidden; }
+
+    .history-section { margin-bottom: 48px; }
+    .history-table { overflow: hidden; }
+    .history-table table { width: 100%; border-collapse: collapse; }
+    .history-table th { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--text-light); padding: 14px 24px; text-align: left; border-bottom: 1px solid var(--border); }
+    .history-table td { font-size: 14px; padding: 16px 24px; border-bottom: 1px solid var(--border); color: var(--text); }
+    .history-table tr:last-child td { border-bottom: none; }
+    .history-table tbody tr { transition: background 0.15s; }
+    .history-table tbody tr:hover { background: var(--border-light); }
+    .td-bold { font-weight: 700; }
+    .td-serif { font-family: var(--serif); font-size: 16px; }
+
+    footer { border-top: 1px solid var(--border); padding: 32px 0; text-align: center; }
+    .footer-links { display: flex; justify-content: center; gap: 24px; margin-bottom: 12px; }
+    .footer-links a { font-size: 13px; color: var(--text-muted); text-decoration: none; font-weight: 500; }
+    .footer-links a:hover { color: var(--text); }
+    .footer-legal { font-size: 11px; color: var(--text-light); max-width: 480px; margin: 0 auto; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <!-- AUTH GATE -->
+  <div id="gate" style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--bg);font-family:var(--sans);padding:24px;text-align:center;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:32px;max-width:420px;width:100%;">
+      <div style="font-family:var(--serif);font-size:22px;margin-bottom:8px;">Checking access...</div>
+      <div class="gate-sub" style="font-size:14px;color:var(--text-muted);margin-bottom:16px;">Loading the dashboard.</div>
+      <div style="width:28px;height:28px;border-radius:50%;border:3px solid var(--border);border-top-color:var(--accent);margin:16px auto 12px;animation:spin 1s linear infinite;"></div>
+      <div style="font-size:12px;color:var(--text-light);">This will update automatically.</div>
+    </div>
+  </div>
+
+  <!-- APP (hidden until auth passes) -->
+  <div id="app" style="display:none">
+  <div class="container">
+
+    <!-- NAV -->
+    <nav>
+      <div class="nav-left">
+        <a href="/" class="nav-brand">Daily Dew Point</a>
+        <div class="city-toggle" id="cityToggle">
+          <button class="city-btn active" data-city="nyc">New York</button>
+          <button class="city-btn" data-city="lax">Los Angeles</button>
+        </div>
+      </div>
+      <div class="nav-right">
+        <a href="/about.html">About</a>
+        <a href="/changelog.html">Updates</a>
+        <button class="theme-btn" id="themeBtn" title="Toggle dark mode"></button>
+      </div>
+    </nav>
+
+    <!-- HERO -->
+    <div class="hero">
+      <h1>Know the high<br>before <em>the market</em></h1>
+      <p class="hero-sub" id="heroSub">ML-powered predictions for Kalshi daily high temperature markets. Trained on <strong id="heroTrainDays">--</strong> days of forecast data and <strong id="heroAtmoDays">--</strong> days of atmospheric history. Updated daily.</p>
+      <div class="hero-meta">
+        <span class="live-indicator"><span class="live-dot"></span> Live</span>
+        <span id="heroStation">KNYC &middot; Eastern Time</span>
+        <span id="heroDate">--</span>
+      </div>
+    </div>
+
+    <!-- ===== PREDICTION CARDS ===== -->
+    <div class="predictions">
+
+      <!-- TODAY -->
+      <div class="card pred-card" id="predCardToday">
+        <div class="pred-header">
+          <div class="pred-label">Today</div>
+          <span class="signal-badge signal-lean" id="todaySignalBadge">--</span>
+        </div>
+        <div class="pred-date" id="todayPredDate">--</div>
+
+        <div class="card-section" style="min-height:28px;">
+          <div class="source-agree agree-strong" id="todaySourceAgree" style="display:none"></div>
+        </div>
+
+        <div class="card-section">
+          <div class="pred-section-label">ML Prediction</div>
+          <div class="pred-bucket" id="todayBucket">--</div>
+          <div class="pred-conf">
+            <span class="conf-pct" id="todayConfPct" title="Model confidence">--%</span>
+            <div class="conf-track"><div class="conf-fill" id="todayConfFill" style="width:0%"></div></div>
+          </div>
+        </div>
+
+        <div class="card-section" style="min-height:48px;">
+          <div class="pred-runner" id="todayRunner"></div>
+          <div id="todayResultTag"></div>
+        </div>
+
+        <div class="card-section">
+          <div class="ensemble-inline" id="todayEnsemble">Ensemble: <strong>--</strong></div>
+        </div>
+
+        <div class="card-section">
+          <div class="ref-data" id="todayRefData"></div>
+        </div>
+
+        <div class="card-section">
+          <div class="forecast-trail-header">NWS Forecast Changes</div>
+          <div class="forecast-trail" id="todayForecastTrail"></div>
+        </div>
+
+        <div id="todayWarnings"></div>
+      </div>
+
+      <!-- TOMORROW -->
+      <div class="card pred-card" id="predCardTomorrow">
+        <div class="pred-header">
+          <div class="pred-label">Tomorrow</div>
+          <span class="signal-badge signal-strong" id="tomorrowSignalBadge">--</span>
+        </div>
+        <div class="pred-date" id="tomorrowPredDate">--</div>
+
+        <div class="card-section" style="min-height:28px;">
+          <div class="source-agree agree-strong" id="tomorrowSourceAgree" style="display:none"></div>
+        </div>
+
+        <div class="card-section">
+          <div class="pred-section-label">ML Prediction</div>
+          <div class="pred-bucket" id="tomorrowBucket">--</div>
+          <div class="pred-conf">
+            <span class="conf-pct" id="tomorrowConfPct" title="Model confidence">--%</span>
+            <div class="conf-track"><div class="conf-fill" id="tomorrowConfFill" style="width:0%"></div></div>
+          </div>
+        </div>
+
+        <div class="card-section" style="min-height:48px;">
+          <div class="pred-runner" id="tomorrowRunner"></div>
+        </div>
+
+        <div class="card-section">
+          <div class="ensemble-inline" id="tomorrowEnsemble">Ensemble: <strong>--</strong></div>
+        </div>
+
+        <div class="card-section">
+          <div class="ref-data" id="tomorrowRefData"></div>
+        </div>
+
+        <div class="card-section">
+          <div class="forecast-trail-header">NWS Forecast Changes</div>
+          <div class="forecast-trail" id="tomorrowForecastTrail"></div>
+        </div>
+
+        <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text-light);margin-top:12px;margin-bottom:6px">NWS Forecast Changes</div>
+        <div class="forecast-trail" id="tomorrowForecastTrail"></div>
+
+        <div id="tomorrowWarnings"></div>
+      </div>
+    </div>
+
+    <!-- ===== LIVE DATA ===== -->
+    <div class="live-section">
+      <div class="live-title">Live Conditions &amp; Daily High</div>
+      <div class="live-strip">
+        <div class="strip-cell">
+          <div class="strip-label">Current</div>
+          <div class="strip-value" id="liveCurrent">--</div>
+          <div class="strip-sub" id="liveCurrentSub"></div>
+        </div>
+        <div class="strip-cell">
+          <div class="strip-label">6hr High</div>
+          <div class="strip-value" id="live6hr">--</div>
+          <div class="strip-sub" id="live6hrSub"></div>
+        </div>
+        <div class="strip-cell">
+          <div class="strip-label">DSM (Early)</div>
+          <div class="strip-value" id="liveDSM">--</div>
+          <div class="strip-sub" id="liveDSMSub">NWS daily summary</div>
+        </div>
+        <div class="strip-cell">
+          <div class="strip-label">CLI (Final)</div>
+          <div class="strip-value" id="liveCLI">--</div>
+          <div class="strip-sub" id="liveCLISub">pending</div>
+        </div>
+        <div class="strip-cell">
+          <div class="strip-label">Yesterday</div>
+          <div class="strip-value" id="liveYesterday">--</div>
+          <div class="strip-sub" id="liveYesterdaySub"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== MODEL PERFORMANCE ===== -->
+    <div class="stats-section">
+      <h2 class="section-title">Model performance</h2>
+      <div class="stats-grid" id="statsGrid" style="grid-template-columns: repeat(6, 1fr);">
+        <div class="card stat-card"><div class="stat-number" id="statWins" style="color:var(--green)">--</div><div class="stat-label">Wins</div></div>
+        <div class="card stat-card"><div class="stat-number" id="statMisses" style="color:var(--red)">--</div><div class="stat-label">Misses</div></div>
+        <div class="card stat-card"><div class="stat-number" id="statAccuracy">--%</div><div class="stat-label">Bucket Hit Rate</div><div class="stat-streak" id="statStreak"></div></div>
+        <div class="card stat-card"><div class="stat-number" id="statMAE">--</div><div class="stat-label">Forecast MAE</div></div>
+        <div class="card stat-card"><div class="stat-number" id="statWithin1">--%</div><div class="stat-label">Within ±1°F</div></div>
+        <div class="card stat-card"><div class="stat-number" id="statDaysTracked" style="color:var(--accent)">--</div><div class="stat-label">Days Tracked</div></div>
+      </div>
+    </div>
+
+    <!-- ===== CHART ===== -->
+    <div class="card chart-section">
+      <div class="chart-header">
+        <span class="chart-title">Temperature trends</span>
+        <div class="chart-filters" id="chartFilters">
+          <button class="chart-filter-btn" data-days="7">7D</button>
+          <button class="chart-filter-btn" data-days="30">30D</button>
+          <button class="chart-filter-btn active" data-days="0">All</button>
+        </div>
+      </div>
+      <div class="chart-container">
+        <div id="trendChart" style="width:100%;height:100%;"></div>
+      </div>
+    </div>
+
+    <!-- ===== RECENT PREDICTIONS ===== -->
+    <div class="history-section">
+      <h2 class="section-title">Recent predictions</h2>
+      <div class="card history-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>NWS</th>
+              <th>AccuWeather</th>
+              <th>ML Pick</th>
+              <th>Actual</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ===== DETAILED FORECAST LOG (expandable) ===== -->
+    <div class="history-section">
+      <details class="card" style="cursor:pointer;">
+        <summary style="padding:20px 24px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);">
+          <div>
+            <div style="font-family:var(--serif);font-size:20px;">Detailed Forecast Log</div>
+            <div style="font-size:12px;color:var(--text-light);margin-top:2px;">Every NWS forecast update with error analysis</div>
+          </div>
+          <span style="font-size:20px;color:var(--text-light);transition:transform 0.2s;">&#9662;</span>
+        </summary>
+        <div style="overflow-x:auto;max-height:500px;overflow-y:auto;">
+          <table style="width:100%;border-collapse:collapse;">
+            <thead style="position:sticky;top:0;z-index:1;background:var(--border-light);">
+              <tr>
+                <th style="padding:12px 20px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-light);border-bottom:1px solid var(--border);width:20%;">For Date</th>
+                <th style="padding:12px 20px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-light);border-bottom:1px solid var(--border);width:20%;">Issued</th>
+                <th style="padding:12px 20px;text-align:center;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-light);border-bottom:1px solid var(--border);width:20%;">Forecast</th>
+                <th style="padding:12px 20px;text-align:center;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-light);border-bottom:1px solid var(--border);width:20%;">Actual</th>
+                <th style="padding:12px 20px;text-align:center;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-light);border-bottom:1px solid var(--border);width:20%;">Error</th>
+              </tr>
+            </thead>
+            <tbody id="detailedLogBody"></tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+
+    <!-- FOOTER -->
+    <footer>
+      <div class="footer-links">
+        <a href="/about.html">About</a>
+        <a href="/changelog.html">Release Notes</a>
+        <a href="/terms.html">Terms</a>
+        <a href="/privacy.html">Privacy</a>
+      </div>
+      <p class="footer-legal">&copy; 2025 Daily Dew Point. Informational only, not financial advice. Do your own due diligence before placing any bets or making financial decisions.</p>
+    </footer>
+
+  </div>
+  </div><!-- end #app -->
+
+  <!-- Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+
+  <script>
+  /* =======================================================================
+     REDESIGN — full data wiring
+     All data-fetching & computation logic from index.html,
+     rendering into the redesign DOM.
+     ======================================================================= */
+
+  // ── Supabase client ──────────────────────────────────────────────────
+  window.supabase = window.supabase.createClient(
+    "https://ztjtuhkjkqchsiuuvmzs.supabase.co",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0anR1aGtqa3FjaHNpdXV2bXpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYzMTUwODIsImV4cCI6MjA3MTg5MTA4Mn0.g7Zq-YbHxBzw732PhVfTf7XGiR080gRndsrzc0YPHfw"
+  );
+
+  // ── City config ──────────────────────────────────────────────────────
+  const CITY_CONFIG = {
+    nyc: {
+      label: "New York City", short: "NYC",
+      timezone: "America/New_York", tzAbbr: "ET", tzLong: "Eastern Time",
+      station: "KNYC", lat: 40.7834, lon: -73.965,
+      csvFile: "nws_forecast_log.csv", accuCsvFile: "accuweather_log.csv",
+      kalshiSeries: "KXHIGHNY",
+      kalshiUrl: "https://kalshi.com/markets/kxhighny/highest-temperature-in-nyc",
+      dsmIssuedby: "NYC", dsmSite: "NWS", dsmProduct: "DSM",
+      hasDsm: true, description: "Central Park", hasMLModel: true,
+      accuLocationKey: "2627448",
+    },
+    lax: {
+      label: "Los Angeles", short: "LAX",
+      timezone: "America/Los_Angeles", tzAbbr: "PT", tzLong: "Pacific Time",
+      station: "KLAX", lat: 33.9425, lon: -118.408,
+      csvFile: "lax_nws_forecast_log.csv", accuCsvFile: "lax_accuweather_log.csv",
+      kalshiSeries: "KXHIGHLAX",
+      kalshiUrl: "https://kalshi.com/markets/kxhighlax/highest-temperature-in-los-angeles",
+      dsmIssuedby: "LAX", dsmSite: "LOX", dsmProduct: "CLI",
+      hasDsm: true, description: "LAX area", hasMLModel: true,
+      accuLocationKey: "347625",
+    },
+  };
+  let currentCity = localStorage.getItem("selectedCity") || "nyc";
+  function CC() { return CITY_CONFIG[currentCity]; }
+
+  // ── Network constants ────────────────────────────────────────────────
+  const GITHUB_RAW = "https://raw.githubusercontent.com/hwaheed13/nws-forecast-logger/main";
+  let CSV_URL  = `${GITHUB_RAW}/${CC().csvFile}`;
+  let ACCU_URL = `${GITHUB_RAW}/${CC().accuCsvFile}`;
+  let KALSHI_BASE_URL = CC().kalshiUrl;
+  const API_BASE = "/api";
+  let NWS_DSM_URLS = [
+    `${API_BASE}/nws-dsm?issuedby=${CC().dsmIssuedby}&site=${CC().dsmSite}&product=${CC().dsmProduct || "DSM"}`,
+  ];
+
+  // ── Global state ─────────────────────────────────────────────────────
+  let allRows = [], filteredRows = [], accuRows = [], chartInstance = null;
+  let systemFullyLoaded = false;
+  let _citySwitching = false;
+  const _cityDataCache = {};
+  window.accuWeatherData = { today: null, tomorrow: null };
+  window.mlPredictions = { today: null, tomorrow: null };
+  window.mlBucketStats = { wins: 0, total: 0, rate: null };
+  window._recentObservedF = null;
+  window._sixHourMaxF = null;
+  let PREDICTION_LOGGING_ENABLED = true;
+  let lastLoggedPredictions = { today: null, tomorrow: null };
+
+  // ── Date helpers ─────────────────────────────────────────────────────
+  function nycISODate(offsetDays = 0) {
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: CC().timezone, year: 'numeric', month: '2-digit', day: '2-digit'
+    });
+    const parts = fmt.formatToParts(new Date(Date.now() + offsetDays * 86400000));
+    const g = k => parts.find(p => p.type === k).value;
+    return `${g('year')}-${g('month')}-${g('day')}`;
+  }
+  window.nycISODate = nycISODate;
+
+  function prevISO(iso) {
+    if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+    const d = new Date(iso + "T12:00:00");
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().slice(0,10);
+  }
+  function etDateISOFromTS(ts) {
+    const s = (ts || "").replace(" ", "T"); const d = new Date(s);
+    if (!Number.isFinite(d.getTime())) return "";
+    return new Intl.DateTimeFormat("en-CA", { timeZone: CC().timezone, year:"numeric", month:"2-digit", day:"2-digit" }).format(d);
+  }
+  function monthNum(iso){ return Number((iso||"").split("-")[1]||"0"); }
+  function isWarmSeason(iso){ const m=monthNum(iso); return m>=5 && m<=9; }
+  function daysBetween(iso1, iso2){
+    if(!iso1 || !iso2) return 0;
+    return Math.round((new Date(iso2+"T00:00:00")-new Date(iso1+"T00:00:00"))/86400000);
+  }
+  function clamp(x, lo, hi){ return Math.max(lo, Math.min(hi, x)); }
+
+  function safeParseTimestamp(ts) {
+    const s = (ts || "").trim(); if (!s) return null;
+    const d = new Date(s.includes("T") ? s : s.replace(" ", "T"));
+    return Number.isFinite(d.getTime()) ? d : null;
+  }
+  function fmtTimeET(d) {
+    return new Intl.DateTimeFormat("en-US", { timeZone: CC().timezone, hour: "numeric", minute: "2-digit" }).format(d);
+  }
+
+  // ── CSV parsing ──────────────────────────────────────────────────────
+  function csvToRows(text) {
+    const rows = []; let row = [], field = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i], n = text[i + 1];
+      if (c === '"') { if (q && n === '"') { field += '"'; i++; } else q = !q; }
+      else if (c === ',' && !q) { row.push(field); field = ''; }
+      else if ((c === '\n' || c === '\r') && !q) {
+        if (c === '\r' && n === '\n') i++;
+        row.push(field); field = '';
+        if (row.length && row.some(x => x !== '')) rows.push(row); row = [];
+      } else field += c;
+    }
+    if (field !== '' || row.length) { row.push(field); if (row.length && row.some(x => x !== '')) rows.push(row); }
+    return rows;
+  }
+  function parseCSV(text) {
+    const rows = csvToRows(text); if (!rows.length) return;
+    const header = rows[0].map(h => h.trim()); allRows = [];
+    for (let i = 1; i < rows.length; i++) {
+      const vals = rows[i], rec = {};
+      for (let j = 0; j < header.length; j++) {
+        let v = (vals[j] ?? '').trim();
+        if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1).replace(/""/g, '"');
+        rec[header[j]] = v;
+      }
+      allRows.push(rec);
+    }
+  }
+  function parseAccuCSV(text) {
+    accuRows = [];
+    if (!text || !text.trim()) return;
+    const rows = csvToRows(text);
+    const header = rows[0].map(h => h.trim());
+    for (let i = 1; i < rows.length; i++) {
+      const vals = rows[i], rec = {};
+      for (let j = 0; j < header.length; j++) {
+        let v = (vals[j] ?? "").trim();
+        if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1).replace(/""/g, '"');
+        rec[header[j]] = v;
+      }
+      accuRows.push(rec);
+    }
+  }
+
+  // ── Network helpers ──────────────────────────────────────────────────
+  async function fetchJSON(urls, qs) {
+    for (const base of (Array.isArray(urls) ? urls : [urls])) {
+      try {
+        const u = new URL(base, location.origin);
+        if (qs) for (const [k, v] of Object.entries(qs)) u.searchParams.set(k, v);
+        const r = await fetch(u.toString(), { cache: "no-cache", mode: "cors", headers: { Accept: "application/json" } });
+        if (r.ok) return await r.json();
+      } catch (_) {}
+    }
+    return null;
+  }
+  async function fetchTEXT(urls, qs) {
+    for (const base of (Array.isArray(urls) ? urls : [urls])) {
+      try {
+        const u = new URL(base, location.origin);
+        if (qs) for (const [k, v] of Object.entries(qs)) u.searchParams.set(k, v);
+        const r = await fetch(u.toString(), { cache: "no-cache", mode: "cors" });
+        if (r.ok) return await r.text();
+      } catch (_) {}
+    }
+    return null;
+  }
+  async function fetchKalshiWinningRange(dateISO) { return fetchJSON([`${API_BASE}/kalshi`], { date: dateISO, series: CC().kalshiSeries }); }
+  async function fetchKalshiLiveLeader(dateISO)   { return fetchJSON([`${API_BASE}/kalshi-live`], { date: dateISO, series: CC().kalshiSeries, cb: Date.now() }); }
+
+  function cleanKalshiLabel(s) {
+    if (typeof s !== 'string') return s;
+    let cleaned = s.replace(/\*\*/g, '');
+    const questionRange = cleaned.match(/be\s+(\d+)\s*[-–]\s*(\d+)°/i);
+    if (questionRange) return `${questionRange[1]}° to ${questionRange[2]}°`;
+    const ltQuestion = cleaned.match(/be\s+<\s*(\d+)°/i);
+    if (ltQuestion) return `Under ${ltQuestion[1]}°`;
+    const gtQuestion = cleaned.match(/be\s+>\s*(\d+)°/i);
+    if (gtQuestion) return `Over ${gtQuestion[1]}°`;
+    const internalRange = cleaned.match(/^(\d+)-(\d+)$/);
+    if (internalRange) return `${internalRange[1]}° to ${internalRange[2]}°`;
+    if (cleaned.match(/^<=(\d+)$/)) return `${cleaned.slice(2)}° or less`;
+    if (cleaned.match(/^>=(\d+)$/)) return `${cleaned.slice(2)}° or more`;
+    return cleaned;
+  }
+
+  // ── Row selectors & series helpers ───────────────────────────────────
+  function toDateObj(t) {
+    if (!t) return null;
+    const clean = String(t).trim().replace(/:(\d{2})(?=\s*[AP]M)/i, '');
+    if (/[AP]M/i.test(clean)) {
+      const m = clean.match(/(\d{1,2}):(\d{2})\s*([AP]M)/i);
+      if (!m) return null;
+      const [, h, mn, amp] = m;
+      const hour = (Number(h) % 12) + (amp.toUpperCase() === "PM" ? 12 : 0);
+      return new Date(2020, 1, 1, hour, Number(mn));
+    }
+    if (/^\d{2}:\d{2}$/.test(clean)) {
+      const [h, mn] = clean.split(":");
+      return new Date(2020, 1, 1, Number(h), Number(mn));
+    }
+    return null;
+  }
+  function compareTimes(t1, t2) { const d1=toDateObj(t1), d2=toDateObj(t2); return (d1&&d2)? d1-d2 : 0; }
+  function quantize05(x){ const n = Number(x); if (!Number.isFinite(n)) return null; return Math.round(n * 2) / 2; }
+  function collapseConsecutiveDuplicates(sortedRows){
+    const out = []; let lastBin = null;
+    for (const r of sortedRows){
+      const v = Number(r.predicted_high); if (!Number.isFinite(v)) continue;
+      const bin = quantize05(v);
+      if (lastBin === null || bin !== lastBin){ out.push(r); lastBin = bin; }
+    }
+    return out;
+  }
+  function getForecastRowsFor(targetISO, kind, source){
+    const rows = (String(source||"") === "AccuWeather") ? accuRows : allRows;
+    const dayPrev = prevISO(targetISO);
+    return rows.filter(r => {
+      if ((r.forecast_or_actual||"") !== "forecast") return false;
+      if ((r.target_date||"") !== targetISO) return false;
+      const issueISO = etDateISOFromTS(r.timestamp || r.forecast_time || "");
+      if (kind === "D0") return issueISO === targetISO;
+      if (kind === "D1") return issueISO === dayPrev;
+      return false;
+    });
+  }
+  function getAccuRowsFor(targetISO, kind){
+    const dayPrev = prevISO(targetISO);
+    return accuRows.filter(r=>{
+      if ((r.forecast_or_actual||"") !== "forecast") return false;
+      if ((r.target_date||"") !== targetISO) return false;
+      const issueISO = etDateISOFromTS(r.timestamp || r.forecast_time || "");
+      if (kind === "D0") return issueISO === targetISO;
+      if (kind === "D1") return issueISO === dayPrev;
+      return false;
+    });
+  }
+  function latestPreHighRow(rows, highTime){
+    const pre = rows.filter(r => r.predicted_high != null && r.predicted_high !== "")
+      .filter(r => { if (!highTime) return true; const fcHH = (r.forecast_time || "").substr(11,5); return !(fcHH && compareTimes(fcHH, highTime) > 0); })
+      .sort((a,b)=>((a.timestamp||a.forecast_time||"")).localeCompare(b.timestamp||b.forecast_time||""));
+    if (!pre.length) return null;
+    return collapseConsecutiveDuplicates(pre).pop() || null;
+  }
+  function latestPreHighValue(rows, highTime){ const row=latestPreHighRow(rows, highTime); const v=Number(row?.predicted_high); return Number.isFinite(v)?v:null; }
+  function mean(a){ return a.length? a.reduce((x,y)=>x+y,0)/a.length : null; }
+  function repFromSeries(rowsChrono, alpha = 0.85){
+    if (!rowsChrono || !rowsChrono.length) return null;
+    let vsum = 0, wsum = 0, w = 1;
+    for (let i = rowsChrono.length - 1; i >= 0; i--) {
+      const v = Number(rowsChrono[i].predicted_high); if (!Number.isFinite(v)) continue;
+      vsum += w * v; wsum += w; w *= alpha;
+    }
+    return wsum > 0 ? (vsum / wsum) : null;
+  }
+  function combineSeries(seriesD1, seriesD0){
+    const A = Array.isArray(seriesD1) ? seriesD1 : [];
+    const B = Array.isArray(seriesD0) ? seriesD0 : [];
+    return collapseConsecutiveDuplicates([...A, ...B].sort((x,y)=>
+      ((x.timestamp||x.forecast_time||"").localeCompare(y.timestamp||y.forecast_time||""))
+    ));
+  }
+  function d0CandidatesFor(dayISO, highTime) {
+    const d0 = getForecastRowsFor(dayISO, "D0").filter(r => r.predicted_high != null && r.predicted_high !== "");
+    const sorted = d0.filter(r => { if (!highTime) return true; const fcHH = (r.forecast_time || "").substr(11,5); return !(fcHH && compareTimes(fcHH, highTime) > 0); })
+      .sort((a,b)=>((a.timestamp||a.forecast_time||"")).localeCompare(b.timestamp||b.forecast_time||""));
+    const series = collapseConsecutiveDuplicates(sorted);
+    const latest  = series.length ? Number(series[series.length-1].predicted_high) : null;
+    const trimmed = (() => {
+      const vals = series.map(r=>Number(r.predicted_high)).filter(Number.isFinite).sort((a,b)=>a-b);
+      if (!vals.length) return null;
+      const k = Math.max(1, Math.floor(vals.length*0.1));
+      const core = vals.slice(k, vals.length-k);
+      return mean(core.length ? core : vals);
+    })();
+    const d1Carry = latestPreHighValue(getForecastRowsFor(dayISO, "D1"), "");
+    return { first: series.length ? Number(series[0].predicted_high) : null, latest, trimmed, carry: d1Carry, series, _hasD0: series.length>0 };
+  }
+  function d1CandidatesFor(tomorrowISO) {
+    const d1 = getForecastRowsFor(tomorrowISO, "D1").filter(r => r.predicted_high != null && r.predicted_high !== "");
+    const series = collapseConsecutiveDuplicates(
+      d1.sort((a,b)=>((a.timestamp||a.forecast_time||"")).localeCompare(b.timestamp||b.forecast_time||""))
+    );
+    const latest  = series.length ? Number(series[series.length-1].predicted_high) : null;
+    const trimmed = (() => {
+      const vals = series.map(r=>Number(r.predicted_high)).filter(Number.isFinite).sort((a,b)=>a-b);
+      if (!vals.length) return null;
+      const k = Math.max(1, Math.floor(vals.length*0.1));
+      const core = vals.slice(k, vals.length-k);
+      return mean(core.length ? core : vals);
+    })();
+    return { first: series.length ? Number(series[0].predicted_high) : null, latest, trimmed, series };
+  }
+  function hasActualFor(dateISO) {
+    return allRows.some(r => r.forecast_or_actual === "actual" && r.cli_date === dateISO && r.actual_high && String(r.actual_high).trim() !== "");
+  }
+
+  // ── Hedge ensemble (online learner) ──────────────────────────────────
+  const ENS_KEY = "hedge_v5";
+  const CLIENT_LEARNING = false;
+  const ETA = 0.25, MIX_GAMMA = 0.02, DECAY_PER_DAY = 0.997;
+  const BIAS_HALFLIFE_DAYS = 21, RMSE_HALFLIFE_DAYS = 21;
+
+  async function loadState(key){
+    const fullKey = `${currentCity}:${ENS_KEY}:${key}`;
+    const raw = localStorage.getItem(fullKey) || localStorage.getItem(`${ENS_KEY}:${key}`);
+    if (raw) return JSON.parse(raw);
+    try {
+      const { data } = await supabase.from('model_states').select('state').eq('key', fullKey).maybeSingle();
+      if (data?.state) { localStorage.setItem(fullKey, JSON.stringify(data.state)); return data.state; }
+    } catch {}
+    return null;
+  }
+  function saveState(key, obj){
+    const fullKey = `${currentCity}:${ENS_KEY}:${key}`;
+    localStorage.setItem(fullKey, JSON.stringify(obj));
+    (async () => { try { await supabase.from('model_states').upsert({ key: fullKey, state: obj, updated_at: new Date().toISOString() }); } catch {} })();
+  }
+  function decayWeights(ws){ for (const k in ws) ws[k] *= DECAY_PER_DAY; }
+  function contextKey(lead, season){ return `${lead}:${season}`; }
+  function softmaxNormalize(obj){ let sum = 0; for (const k in obj) sum += obj[k]; if (sum <= 0) { const ks = Object.keys(obj); const n = ks.length || 1; ks.forEach(k => obj[k]=1/n); return; } for (const k in obj) obj[k] /= sum; }
+  function mixWithUniform(weights, gamma = MIX_GAMMA){ const ks = Object.keys(weights); if (!ks.length) return; const n = ks.length; ks.forEach(k => { weights[k] = (1 - gamma) * weights[k] + gamma * (1 / n); }); }
+  function ewmaUpdate(old, value, halfLifeDays){
+    if (value == null) return old ?? null;
+    const alpha = (halfLifeDays && halfLifeDays > 0) ? 1 - Math.exp(-Math.log(2) / halfLifeDays) : 1;
+    return (old == null) ? value : (1 - alpha) * old + alpha * value;
+  }
+
+  function buildCandidatesForDay(targetISO, highTime){
+    const c0 = d0CandidatesFor(targetISO, highTime);
+    const c1 = d1CandidatesFor(targetISO);
+    const seriesAll = combineSeries(c1.series, c0.series);
+    const seriesRep = repFromSeries(seriesAll);
+    const candidates = {};
+    if (c1.latest  != null) candidates.D1_latest  = Number(c1.latest);
+    if (c1.trimmed != null) candidates.D1_trimmed = Number(c1.trimmed);
+    if (c0.latest  != null) candidates.D0_latest  = Number(c0.latest);
+    if (c0.trimmed != null) candidates.D0_trimmed = Number(c0.trimmed);
+    if (seriesRep  != null) candidates.series_rep = Number(seriesRep);
+    const todayISO = nycISODate(0), tomorrowISO = nycISODate(1);
+    if (window.accuWeatherData && targetISO === todayISO && window.accuWeatherData.today != null) {
+      candidates.AccuWeather = Number(window.accuWeatherData.today);
+    } else if (window.accuWeatherData && targetISO === tomorrowISO && window.accuWeatherData.tomorrow != null) {
+      candidates.AccuWeather = Number(window.accuWeatherData.tomorrow);
+    } else {
+      const parseTs = (t) => new Date((t || "").replace(" EDT", "").replace(" EST", "").trim());
+      const accRowsFiltered = accuRows.filter(r => r.target_date === targetISO).sort((a, b) => parseTs(a.timestamp || a.forecast_time) - parseTs(b.timestamp || b.forecast_time));
+      const accLatest = accRowsFiltered.length ? accRowsFiltered[accRowsFiltered.length - 1] : null;
+      candidates.AccuWeather = accLatest ? Number(accLatest.predicted_high) : null;
+    }
+    if (window.mlPredictions) {
+      if (targetISO === todayISO && window.mlPredictions.today != null) candidates.ML_bias_corrected = Number(window.mlPredictions.today);
+      else if (targetISO === tomorrowISO && window.mlPredictions.tomorrow != null) candidates.ML_bias_corrected = Number(window.mlPredictions.tomorrow);
+    }
+    const vals = [];
+    (c1.series||[]).forEach(r=>{ const v=Number(r.predicted_high); if(Number.isFinite(v)) vals.push(v); });
+    (c0.series||[]).forEach(r=>{ const v=Number(r.predicted_high); if(Number.isFinite(v)) vals.push(v); });
+    const envelope = vals.length ? { lo: Math.min(...vals), hi: Math.max(...vals) } : { lo:null, hi:null };
+    return { candidates, envelope, c0, c1, seriesAll };
+  }
+
+  async function predictWithHedge(lead, season, candidates){
+    const key = contextKey(lead, season);
+    let st = await loadState(key) || { w:{}, bias:null, rmse:null, lastDay:null };
+    const MIN_SEASONAL_OBS = 14;
+    const totalObs = st.learnCounts ? Object.values(st.learnCounts).reduce((sum, count) => sum + count, 0) : 0;
+    if (!st.bias || st.bias === 0 || !st.lastDay || totalObs < MIN_SEASONAL_OBS) {
+      const altSeason = season === "warm" ? "cool" : "warm";
+      const altSt = await loadState(contextKey(lead, altSeason));
+      if (altSt && altSt.bias != null && altSt.bias !== 0) { st.bias = altSt.bias; st.rmse = altSt.rmse; }
+    }
+    const names = Reflect.ownKeys(candidates).filter(k => typeof k === 'string' && candidates[k] != null);
+    if (!names.length) return { y:null, y0:null, bias:0, pad:2, weights:{}, key };
+    if (!Object.keys(st.w).length) { const init = 1 / names.length; names.forEach(n => st.w[n] = init); }
+    else { const newNames = names.filter(n => !(n in st.w)); newNames.forEach(n => st.w[n] = 1e-6); }
+    mixWithUniform(st.w, MIX_GAMMA);
+    const denom = names.reduce((s,n)=>s + (st.w[n]||0), 0) || 1;
+    const y0 = names.reduce((s,n)=>s + (st.w[n]||0) * (candidates[n] || 0), 0) / denom;
+    if (!Number.isFinite(y0) || y0 === 0) return { y:null, y0:null, bias:0, pad:2, weights:{...st.w}, key };
+    const bias = st.bias ?? 0;
+    const y = y0 + bias;
+    const pad = Math.max(2, Number(st.rmse ?? 0) || 0);
+    return { y, y0, bias, pad, weights:{...st.w}, key };
+  }
+
+  async function updateHedgeOnActual(kind, season, candidates, actual, targetISO, force = false) {
+    if (!CLIENT_LEARNING && !force) return;
+    const key = contextKey(kind, season);
+    let st = await loadState(key) || { w:{}, bias:null, rmse:null, lastDay:null, learnCounts:{} };
+    if (!st.learnCounts) st.learnCounts = {};
+    const names = Object.keys(candidates);
+    if (!names.length || actual == null) return;
+    if (st.lastDay && st.lastDay !== targetISO) decayWeights(st.w);
+    st.lastDay = targetISO;
+    mixWithUniform(st.w, MIX_GAMMA);
+    const denom = names.reduce((s,n)=>s + (st.w[n]||0), 0) || 1;
+    const y0 = names.reduce((s,n)=>s + (st.w[n]||0) * candidates[n], 0) / denom;
+    const yhat = (st.bias ?? 0) + (y0 ?? 0);
+    const err = Number(actual) - Number(yhat);
+    for (const n of names){
+      const li = Math.abs(Number(candidates[n]) - Number(actual));
+      const count = st.learnCounts[n] || 0;
+      const etaBoost = count < 10 ? 2.0 : 1.0;
+      st.w[n] = (st.w[n] || 0) * Math.exp(-ETA * etaBoost * li);
+      st.learnCounts[n] = count + 1;
+    }
+    softmaxNormalize(st.w); mixWithUniform(st.w, MIX_GAMMA);
+    const clipped = Math.max(-6, Math.min(6, err));
+    st.bias = ewmaUpdate(st.bias, clipped, BIAS_HALFLIFE_DAYS);
+    const sq = Math.min(36, err*err);
+    const oldVar = st.rmse == null ? null : (st.rmse*st.rmse);
+    const varNew = ewmaUpdate(oldVar, sq, RMSE_HALFLIFE_DAYS);
+    st.rmse = varNew == null ? st.rmse : Math.sqrt(Math.max(0, varNew));
+    saveState(key, st);
+  }
+
+  async function warmOnceForCurrentCSV() {
+    let serverWeights = null;
+    try {
+      const { data, error } = await supabase.from('prediction_logs').select('recommendation').eq('target_date', '9999-12-31').eq('lead_used', 'ensemble_weights').eq('city', currentCity).maybeSingle();
+      if (!error && data && data.recommendation) { serverWeights = typeof data.recommendation === 'string' ? JSON.parse(data.recommendation) : data.recommendation; }
+    } catch {}
+    function buildSeedFromServer(sw, prefix) {
+      if (!sw || !sw.weights) return null;
+      const w = sw.weights, nwsW = w.nws_last || 0, result = {};
+      result[`${prefix}_latest`]  = Math.round(nwsW * 0.6 * 1e6) / 1e6;
+      result[`${prefix}_trimmed`] = Math.round(nwsW * 0.4 * 1e6) / 1e6;
+      result.series_rep = w.nws_mean || 0; result.AccuWeather = w.accu_last || 0; result.ML_bias_corrected = w.ml_prediction || 0;
+      return result;
+    }
+    const d0ServerW = buildSeedFromServer(serverWeights, "D0"), d1ServerW = buildSeedFromServer(serverWeights, "D1");
+    const serverBias = serverWeights ? (serverWeights.bias || 0) : 0, serverRmse = serverWeights ? (serverWeights.rmse || 2.0) : 2.0;
+    const defaultW = { D0_latest: 0.03, D0_trimmed: 0.02, series_rep: 0.02, AccuWeather: 0.83, ML_bias_corrected: 0.10 };
+    const defaultD1W = { D1_latest: 0.03, D1_trimmed: 0.02, series_rep: 0.02, AccuWeather: 0.83, ML_bias_corrected: 0.10 };
+    const seeds = [
+      [`${currentCity}:${ENS_KEY}:today:warm`, { w: d0ServerW || defaultW, bias: serverBias, rmse: serverRmse, lastDay: null, learnCounts: {} }],
+      [`${currentCity}:${ENS_KEY}:today:cool`, { w: d0ServerW || defaultW, bias: serverBias, rmse: serverRmse, lastDay: null, learnCounts: {} }],
+      [`${currentCity}:${ENS_KEY}:tomorrow:warm`, { w: d1ServerW || defaultD1W, bias: serverBias, rmse: serverRmse, lastDay: null, learnCounts: {} }],
+      [`${currentCity}:${ENS_KEY}:tomorrow:cool`, { w: d1ServerW || defaultD1W, bias: serverBias, rmse: serverRmse, lastDay: null, learnCounts: {} }],
+    ];
+    for (const [k, v] of seeds) {
+      const existing = localStorage.getItem(k);
+      if (!existing) { localStorage.setItem(k, JSON.stringify(v)); }
+      else if (serverWeights) {
+        try {
+          const parsed = JSON.parse(existing);
+          const isToday = k.includes(":today:");
+          const serverW = isToday ? d0ServerW : d1ServerW;
+          if (serverW && parsed.w) {
+            const merged = { ...serverW };
+            for (const cn of Object.keys(parsed.w)) { if (!(cn in merged)) merged[cn] = parsed.w[cn]; }
+            parsed.w = merged;
+            if (parsed.bias === 0 || parsed.bias === null) parsed.bias = serverBias;
+            localStorage.setItem(k, JSON.stringify(parsed));
+          }
+        } catch {}
+      }
+    }
+  }
+
+  async function pretrainFromHistory() {
+    const pretrainKey = `${currentCity}:${ENS_KEY}:pretrain_done`;
+    const actualsCount = allRows.filter(r => r.forecast_or_actual === "actual" && r.actual_high).length;
+    const pretrainSig = `${actualsCount}`;
+    if (localStorage.getItem(pretrainKey) === pretrainSig) return;
+    const byDay = new Map();
+    for (const r of allRows) {
+      const day = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day || "")) continue;
+      if (!byDay.has(day)) byDay.set(day, { actual: null });
+      if (r.forecast_or_actual === "actual" && r.actual_high) byDay.get(day).actual = r;
+    }
+    const todayISO = nycISODate(0);
+    for (const [iso, { actual }] of byDay.entries()) {
+      if (!actual || actual.actual_high == null) continue;
+      if (iso === todayISO && !hasActualFor(todayISO)) continue;
+      const season = isWarmSeason(iso) ? "warm" : "cool";
+      const hiTime = actual.high_time || "";
+      const actualF = Number(actual.actual_high);
+      const builtToday = buildCandidatesForDay(iso, hiTime);
+      await updateHedgeOnActual("today", season, builtToday.candidates, actualF, iso, true);
+      const d1 = d1CandidatesFor(iso);
+      const candTomorrow = {};
+      if (d1.latest  != null) candTomorrow.D1_latest  = Number(d1.latest);
+      if (d1.trimmed != null) candTomorrow.D1_trimmed = Number(d1.trimmed);
+      const rep1 = repFromSeries(d1.series);
+      if (rep1 != null) candTomorrow.series_rep = Number(rep1);
+      const accD1 = latestPreHighValue(getAccuRowsFor(iso, "D1"), "");
+      if (Number.isFinite(accD1)) candTomorrow.AccuWeather = Number(accD1);
+      await updateHedgeOnActual("tomorrow", season, candTomorrow, actualF, iso, true);
+    }
+    localStorage.setItem(pretrainKey, pretrainSig);
+  }
+
+  // ── Gaussian bucket probability math ─────────────────────────────────
+  function _erf(x) {
+    const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741, a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+    const sign = x < 0 ? -1 : 1; x = Math.abs(x);
+    const t = 1 / (1 + p * x);
+    const y = 1 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+    return sign * y;
+  }
+  function normalCDF(x, mu, sigma) { return 0.5 * (1 + _erf((x - mu) / (sigma * Math.SQRT2))); }
+  function computeBucketProbabilities(temp, kalshiRanges, stdDev) {
+    if (!kalshiRanges || !Array.isArray(kalshiRanges)) return [];
+    const results = [];
+    for (const range of kalshiRanges) {
+      const lo = range.min ?? (range.max - 10);
+      const hi = (range.max != null) ? range.max + 1 : (range.min + 10);
+      const p = normalCDF(hi, temp, stdDev) - normalCDF(lo, temp, stdDev);
+      if (p > 0.01) results.push({ range, prob: p });
+    }
+    results.sort((a, b) => b.prob - a.prob);
+    return results;
+  }
+  function mapToKalshiRange(temp, kalshiData) {
+    if (!kalshiData?.ranges || !Array.isArray(kalshiData.ranges)) return null;
+    for (const range of kalshiData.ranges) {
+      if (range.min === null && temp < range.max + 1) return range;
+      if (range.max === null && temp >= range.min) return range;
+      if (range.min !== null && range.max !== null && temp >= range.min && temp < range.max + 1) return range;
+    }
+    return null;
+  }
+
+  // ── AccuWeather ──────────────────────────────────────────────────────
+  async function fetchAccuWeatherForecasts() {
+    try {
+      const calledForCity = currentCity;
+      const response = await fetch(`/api/accuweather-forecast?location=${CC().accuLocationKey}`);
+      if (!response.ok) return null;
+      const data = await response.json();
+      if (currentCity !== calledForCity) return null;
+      if (!window.accuWeatherData) window.accuWeatherData = { today: null, tomorrow: null };
+      window.accuWeatherData.today = Math.round(data.DailyForecasts[0].Temperature.Maximum.Value);
+      window.accuWeatherData.tomorrow = Math.round(data.DailyForecasts[1].Temperature.Maximum.Value);
+      return window.accuWeatherData;
+    } catch { return null; }
+  }
+
+  // ── ML predictions from Supabase ─────────────────────────────────────
+  async function loadMLPredictions() {
+    const today = nycISODate(0), tomorrow = nycISODate(1);
+    try {
+      const { data, error } = await supabase.from('prediction_logs').select('*')
+        .in('target_date', [today, tomorrow]).in('lead_used', ['today_for_today', 'today_for_tomorrow'])
+        .eq('city', currentCity).order('timestamp', { ascending: false });
+      if (error) return;
+      let gotToday = false, gotTomorrow = false;
+      for (const row of data) {
+        const mlVal = row.ml_f ?? row.prediction_value;
+        if (mlVal == null) continue;
+        if (row.target_date === today && !gotToday) {
+          window.mlPredictions.today = Number(mlVal);
+          window.mlPredictions.todayBetSignal = row.bet_signal || null;
+          window.mlPredictions.todayMLBucket = row.ml_bucket || null;
+          window.mlPredictions.todayMLConfidence = row.ml_confidence != null ? Number(row.ml_confidence) : null;
+          window.mlPredictions.todayMarketSnapshot = row.kalshi_market_snapshot || null;
+          window.mlPredictions.todayBucketProbs = row.ml_bucket_probs || null;
+          gotToday = true;
+        }
+        if (row.target_date === tomorrow && !gotTomorrow) {
+          window.mlPredictions.tomorrow = Number(mlVal);
+          window.mlPredictions.tomorrowBetSignal = row.bet_signal || null;
+          window.mlPredictions.tomorrowMLBucket = row.ml_bucket || null;
+          window.mlPredictions.tomorrowMLConfidence = row.ml_confidence != null ? Number(row.ml_confidence) : null;
+          window.mlPredictions.tomorrowMarketSnapshot = row.kalshi_market_snapshot || null;
+          window.mlPredictions.tomorrowBucketProbs = row.ml_bucket_probs || null;
+          gotTomorrow = true;
+        }
+        if (gotToday && gotTomorrow) break;
+      }
+    } catch {}
+  }
+
+  async function loadMLBucketStats() {
+    try {
+      const { data, error } = await supabase.from('prediction_logs').select('ml_result').eq('city', currentCity).not('ml_result', 'is', null);
+      if (error || !data) return;
+      const wins = data.filter(r => r.ml_result === 'WIN').length;
+      const total = data.length;
+      window.mlBucketStats = { wins, total, rate: total > 0 ? Math.round(wins / total * 100) : null };
+    } catch {}
+  }
+
+  // ── DSM / CLI parsing ────────────────────────────────────────────────
+  function parseDSM(text) {
+    if (!text) return null;
+    const t = text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    const dateMatch = t.match(/\b(\d{1,2})\/(\d{2})\b/);
+    if (!dateMatch) return null;
+    const after = t.slice(t.indexOf(dateMatch[0]) + dateMatch[0].length);
+    const hiBlock = after.match(/\b(\d{6})\b/);
+    if (!hiBlock) return null;
+    const block = hiBlock[1];
+    const tempF = Number(block.slice(0, 2));
+    const hh = block.slice(2, 4), mm = block.slice(4, 6);
+    if (!Number.isFinite(tempF)) return null;
+    const now = new Date(), year = now.getFullYear();
+    const dd = String(dateMatch[1]).padStart(2, "0"), mmMon = String(dateMatch[2]).padStart(2, "0");
+    const dayISO = `${year}-${mmMon}-${dd}`;
+    const when = new Date(`${dayISO}T${hh}:${mm}:00`);
+    const fmtET = fmtTimeET(when);
+    return { tempF, timeET: fmtET, dayISO };
+  }
+  function parseCLI(text) {
+    if (!text) return null;
+    const t = text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    const dateMatch = t.match(/CLIMATE SUMMARY FOR (\w+) (\d{1,2}) (\d{4})/i);
+    if (!dateMatch) return null;
+    const months = { JANUARY:1, FEBRUARY:2, MARCH:3, APRIL:4, MAY:5, JUNE:6, JULY:7, AUGUST:8, SEPTEMBER:9, OCTOBER:10, NOVEMBER:11, DECEMBER:12 };
+    const mon = months[dateMatch[1].toUpperCase()]; if (!mon) return null;
+    const dd = String(dateMatch[2]).padStart(2, "0"), mmStr = String(mon).padStart(2, "0"), year = dateMatch[3];
+    const dayISO = `${year}-${mmStr}-${dd}`;
+    const maxMatch = t.match(/MAXIMUM\s+(\d{1,3})\s+(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+    if (!maxMatch) return null;
+    const tempF = Number(maxMatch[1]);
+    let hh = Number(maxMatch[2]); const mi = maxMatch[3], ampm = maxMatch[4].toUpperCase();
+    if (ampm === "PM" && hh < 12) hh += 12; if (ampm === "AM" && hh === 12) hh = 0;
+    const when = new Date(`${dayISO}T${String(hh).padStart(2,"0")}:${mi}:00`);
+    const fmtTime = fmtTimeET(when);
+    return { tempF, timeET: fmtTime, dayISO };
+  }
+
+  // ── Overnight high warning (Open-Meteo) ──────────────────────────────
+  async function checkOvernightHighWarning() {
+    try {
+      const cc = CC(); if (!cc.lat || !cc.lon) return {};
+      const tz = cc.timezone;
+      const todayISO = nycISODate(0), tomorrowISO = nycISODate(1);
+      const latestForDate = (date) => {
+        const rows = allRows.filter(r => r.forecast_or_actual === "forecast" && r.target_date === date && r.predicted_high);
+        if (!rows.length) return null;
+        rows.sort((a, b) => (b.timestamp || b.forecast_time || "").localeCompare(a.timestamp || a.forecast_time || ""));
+        const v = Number(rows[0].predicted_high); return Number.isFinite(v) ? v : null;
+      };
+      const nwsTomorrow = latestForDate(tomorrowISO), nwsToday = latestForDate(todayISO);
+      if (!Number.isFinite(nwsTomorrow) && !Number.isFinite(nwsToday)) return {};
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${cc.lat}&longitude=${cc.lon}&hourly=temperature_2m&temperature_unit=fahrenheit&timezone=${encodeURIComponent(tz)}&forecast_days=2&past_hours=6`;
+      const resp = await fetch(url); if (!resp.ok) return {};
+      const data = await resp.json();
+      if (!data.hourly || !data.hourly.time) return {};
+      const times = data.hourly.time, temps = data.hourly.temperature_2m;
+      const tempAt = (dateISO, hour) => { const prefix = `${dateISO}T${String(hour).padStart(2, '0')}:00`; const idx = times.findIndex(t => t === prefix); return idx >= 0 ? temps[idx] : null; };
+      const result = {};
+      if (Number.isFinite(nwsTomorrow)) {
+        const overnightTemps = [tempAt(todayISO, 22), tempAt(todayISO, 23), tempAt(tomorrowISO, 0)].filter(t => t != null);
+        if (overnightTemps.length > 0) {
+          const overnightMax = Math.max(...overnightTemps);
+          if (overnightMax > nwsTomorrow) result.tomorrow = { overnightMax, forecast: nwsTomorrow };
+        }
+      }
+      if (Number.isFinite(nwsToday)) {
+        const nowLocal = new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
+        if (nowLocal.getHours() < 8) {
+          const yesterdayISO = nycISODate(-1);
+          const overnightTemps = [tempAt(yesterdayISO, 22), tempAt(yesterdayISO, 23), tempAt(todayISO, 0)].filter(t => t != null);
+          if (overnightTemps.length > 0) {
+            const overnightMax = Math.max(...overnightTemps);
+            if (overnightMax > nwsToday) result.today = { overnightMax, forecast: nwsToday };
+          }
+        }
+      }
+      return result;
+    } catch { return {}; }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // RENDERING into the redesign DOM
+  // ══════════════════════════════════════════════════════════════════════
+
+  function renderHeroMeta() {
+    const cc = CC();
+    const dateEl = document.getElementById('heroDate');
+    const stationEl = document.getElementById('heroStation');
+    if (dateEl) {
+      dateEl.textContent = new Intl.DateTimeFormat('en-US', { timeZone: cc.timezone, weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).format(new Date());
+    }
+    if (stationEl) stationEl.textContent = `${cc.station} \u00b7 ${cc.tzLong}`;
+  }
+
+  async function renderHeroTrainingDays() {
+    try {
+      let resp = await fetch('/model_metadata_v2.json');
+      if (!resp.ok) resp = await fetch(`${GITHUB_RAW}/model_metadata_v2.json`);
+      if (!resp.ok) return;
+      const meta = await resp.json();
+      const el = document.getElementById('heroTrainDays');
+      const el2 = document.getElementById('heroAtmoDays');
+      if (el) el.textContent = allRows.filter(r => r.forecast_or_actual === "forecast").length > 0
+        ? new Set(allRows.filter(r => r.forecast_or_actual === "actual").map(r => r.cli_date)).size : '--';
+      if (el2 && meta.num_days) el2.textContent = meta.num_days.toLocaleString();
+    } catch {}
+  }
+
+  function getTop2Buckets(bucketProbsRaw, marketSnapshot) {
+    if (!bucketProbsRaw) return null;
+    try {
+      const probs = typeof bucketProbsRaw === 'string' ? JSON.parse(bucketProbsRaw) : bucketProbsRaw;
+      let aggregated = {};
+      if (marketSnapshot) {
+        try {
+          const mkt = typeof marketSnapshot === 'string' ? JSON.parse(marketSnapshot) : marketSnapshot;
+          for (const [label] of Object.entries(mkt)) {
+            let sum = 0;
+            const rangeMatch = label.match(/^(\d+)-(\d+)$/);
+            const leMatch = label.match(/^<=(\d+)$/);
+            const geMatch = label.match(/^>=(\d+)$/);
+            if (rangeMatch) { const [lo, hi] = [Number(rangeMatch[1]), Number(rangeMatch[2])]; for (let t = lo; t <= hi; t++) sum += (probs[`${t}-${t+1}`] || 0); }
+            else if (leMatch) { const thr = Number(leMatch[1]); for (const [k, v] of Object.entries(probs)) { const m = k.match(/^(\d+)-(\d+)$/); if (m && Number(m[1]) <= thr) sum += v; } }
+            else if (geMatch) { const thr = Number(geMatch[1]); for (const [k, v] of Object.entries(probs)) { const m = k.match(/^(\d+)-(\d+)$/); if (m && Number(m[2]) >= thr) sum += v; } }
+            if (sum > 0.001) aggregated[label] = sum;
+          }
+        } catch { aggregated = probs; }
+      } else { aggregated = probs; }
+      const sorted = Object.entries(aggregated).sort((a, b) => b[1] - a[1]);
+      if (sorted.length < 1) return null;
+      return {
+        first: { bucket: sorted[0][0], prob: sorted[0][1] },
+        second: sorted.length > 1 ? { bucket: sorted[1][0], prob: sorted[1][1] } : null,
+        combined: sorted.length > 1 ? sorted[0][1] + sorted[1][1] : sorted[0][1]
+      };
+    } catch { return null; }
+  }
+
+  async function renderPredictionCards() {
+    const ml = window.mlPredictions || {};
+    const todayISO = nycISODate(0), tomorrowISO = nycISODate(1);
+
+    // Dates
+    const fmtDate = (offset) => new Intl.DateTimeFormat('en-US', { timeZone: CC().timezone, weekday: 'long', month: 'long', day: 'numeric' }).format(new Date(Date.now() + offset * 86400000));
+    document.getElementById('todayPredDate').textContent = fmtDate(0);
+    document.getElementById('tomorrowPredDate').textContent = fmtDate(1);
+
+    // Build ensemble predictions
+    const seasonToday = isWarmSeason(todayISO) ? "warm" : "cool";
+    const builtToday = buildCandidatesForDay(todayISO, "");
+    const predToday = await predictWithHedge("today", seasonToday, builtToday.candidates);
+
+    const seasonTomorrow = isWarmSeason(tomorrowISO) ? "warm" : "cool";
+    const builtTomorrow = buildCandidatesForDay(tomorrowISO, "");
+    const predTomorrow = await predictWithHedge("tomorrow", seasonTomorrow, builtTomorrow.candidates);
+
+    // Fetch Kalshi live + market data
+    let todayMarket = null, tomorrowMarket = null;
+    try { [todayMarket, tomorrowMarket] = await Promise.all([fetchKalshiLiveLeader(todayISO), fetchKalshiLiveLeader(tomorrowISO)]); } catch {}
+
+    // ── Render today card ──
+    renderOneCard("today", ml, predToday, builtToday, todayMarket, todayISO);
+    renderOneCard("tomorrow", ml, predTomorrow, builtTomorrow, tomorrowMarket, tomorrowISO);
+
+    // Overnight warnings
+    const overnightWarns = await checkOvernightHighWarning();
+    const warnToday = document.getElementById('todayWarnings');
+    const warnTomorrow = document.getElementById('tomorrowWarnings');
+    if (overnightWarns.today && warnToday) {
+      warnToday.innerHTML = `<div class="warn-bar warn-overnight">Overnight forecast (~${Math.round(overnightWarns.today.overnightMax)}\u00b0F at midnight) exceeds daytime forecast (${Math.round(overnightWarns.today.forecast)}\u00b0F) \u2014 daily high may be set overnight.</div>`;
+    }
+    if (overnightWarns.tomorrow && warnTomorrow) {
+      warnTomorrow.innerHTML = `<div class="warn-bar warn-overnight">Overnight forecast (~${Math.round(overnightWarns.tomorrow.overnightMax)}\u00b0F at midnight) exceeds daytime forecast (${Math.round(overnightWarns.tomorrow.forecast)}\u00b0F) \u2014 daily high may be set overnight.</div>`;
+    }
+
+    // Boundary warnings
+    if (predToday?.y && todayMarket?.ranges) {
+      const range = mapToKalshiRange(predToday.y, todayMarket);
+      if (range) {
+        const distToLower = range.min !== null ? predToday.y - range.min : Infinity;
+        const distToUpper = range.max !== null ? (range.max + 1) - predToday.y : Infinity;
+        const minDist = Math.min(distToLower, distToUpper);
+        if (minDist <= 0.5 && warnToday) {
+          const boundary = distToLower < distToUpper ? range.min : (range.max + 1);
+          warnToday.innerHTML += `<div class="warn-bar warn-boundary">Near bucket edge \u2014 ${predToday.y.toFixed(1)}\u00b0F is ${minDist.toFixed(1)}\u00b0 from the ${boundary}\u00b0 boundary.</div>`;
+        }
+      }
+    }
+  }
+
+  function renderOneCard(prefix, ml, pred, built, market, dateISO) {
+    const isToday = prefix === "today";
+    const bucket = isToday ? ml.todayMLBucket : ml.tomorrowMLBucket;
+    const confidence = isToday ? ml.todayMLConfidence : ml.tomorrowMLConfidence;
+    const signal = isToday ? ml.todayBetSignal : ml.tomorrowBetSignal;
+    const bucketProbs = isToday ? ml.todayBucketProbs : ml.tomorrowBucketProbs;
+    const marketSnapshot = isToday ? ml.todayMarketSnapshot : ml.tomorrowMarketSnapshot;
+
+    // ML Bucket
+    const bucketEl = document.getElementById(`${prefix}Bucket`);
+    if (bucketEl) bucketEl.textContent = bucket ? cleanKalshiLabel(bucket) : (pred?.y ? `~${Math.round(pred.y)}\u00b0` : '--');
+
+    // Confidence
+    const confPct = confidence != null ? Math.round(confidence * 100) : null;
+    const confEl = document.getElementById(`${prefix}ConfPct`);
+    const confFill = document.getElementById(`${prefix}ConfFill`);
+    if (confEl) confEl.textContent = confPct != null ? `${confPct}%` : '--%';
+    if (confFill) confFill.style.width = confPct != null ? `${confPct}%` : '0%';
+
+    // Runner-up
+    const top2 = getTop2Buckets(bucketProbs, marketSnapshot);
+    const runnerEl = document.getElementById(`${prefix}Runner`);
+    if (runnerEl && top2 && top2.second) {
+      const p1 = Math.round(top2.first.prob * 100), p2 = Math.round(top2.second.prob * 100);
+      runnerEl.innerHTML = `Runner-up: ${cleanKalshiLabel(top2.second.bucket)} (${p2}%) &middot; Top-2: <span class="top2-pct">${Math.round(top2.combined * 100)}%</span>`;
+    } else if (runnerEl) { runnerEl.textContent = ''; }
+
+    // Signal badge
+    const badgeEl = document.getElementById(`${prefix}SignalBadge`);
+    if (badgeEl && signal) {
+      const cls = signal === 'STRONG_BET' ? 'signal-strong' : signal === 'SKIP' ? 'signal-skip' : 'signal-lean';
+      const label = signal === 'STRONG_BET' ? 'Strong Bet' : signal === 'SKIP' ? 'Skip' : signal === 'BET' ? 'Bet' : signal;
+      badgeEl.className = `signal-badge ${cls}`;
+      badgeEl.textContent = label;
+    } else if (badgeEl) { badgeEl.className = 'signal-badge signal-lean'; badgeEl.textContent = '--'; }
+
+    // WIN/MISS for today if actual exists
+    if (isToday && hasActualFor(dateISO) && bucket) {
+      const resultEl = document.getElementById('todayResultTag');
+      const actualRow = allRows.find(r => r.forecast_or_actual === "actual" && r.cli_date === dateISO && r.actual_high);
+      const actualHigh = actualRow ? Number(actualRow.actual_high) : null;
+      if (resultEl && actualHigh != null) {
+        const actualInt = Math.round(actualHigh);
+        let isWin = false;
+        const leMatch = bucket.match(/^<=(\d+)$/), geMatch = bucket.match(/^>=(\d+)$/), rangeMatch = bucket.match(/^(\d+)-(\d+)$/);
+        if (leMatch) isWin = actualInt <= Number(leMatch[1]);
+        else if (geMatch) isWin = actualInt >= Number(geMatch[1]);
+        else if (rangeMatch) isWin = actualInt >= Number(rangeMatch[1]) && actualInt <= Number(rangeMatch[2]);
+        if (leMatch || geMatch || rangeMatch) {
+          resultEl.innerHTML = `<div class="pred-result"><span class="result-tag ${isWin ? 'result-win' : 'result-miss'}">${isWin ? 'Win' : 'Miss'} (actual: ${actualInt}\u00b0F)</span></div>`;
+        }
+      }
+    }
+
+    // Ensemble value
+    const ensembleEl = document.getElementById(`${prefix}Ensemble`);
+    if (ensembleEl && pred?.y) {
+      const sign = pred.bias >= 0 ? '+' : '';
+      ensembleEl.innerHTML = `Ensemble: <strong>${pred.y.toFixed(1)}\u00b0F</strong> (${sign}${pred.bias.toFixed(2)} bias)`;
+    }
+
+    // Reference data (NWS, AccuWeather, Kalshi) — grid layout
+    const refEl = document.getElementById(`${prefix}RefData`);
+    if (refEl) {
+      const nwsLatest = built.candidates.D0_latest ?? built.candidates.D1_latest;
+      const accu = built.candidates.AccuWeather;
+      let nwsHtml = `<div class="ref-item"><span class="ref-label">NWS Latest</span><span class="ref-value">${nwsLatest != null ? Math.round(nwsLatest) + '\u00b0F' : '--'}</span></div>`;
+      let accuHtml = `<div class="ref-item"><span class="ref-label">AccuWeather</span><span class="ref-value">${accu != null ? Math.round(accu) + '\u00b0F' : '--'}</span></div>`;
+      let kalshiHtml = '<div class="ref-item"><span class="ref-label">Kalshi Leader</span><span class="ref-value">--</span></div>';
+      if (market && market.leadingLabel) {
+        const pct = market.leadingProb != null ? ` (${Math.round(market.leadingProb * 100)}%)` : '';
+        kalshiHtml = `<div class="ref-item"><span class="ref-label">Kalshi Leader</span><span class="ref-value"><a href="${KALSHI_BASE_URL}" target="_blank">${cleanKalshiLabel(market.leadingLabel)}${pct}</a></span></div>`;
+      }
+      refEl.innerHTML = nwsHtml + accuHtml + kalshiHtml;
+    }
+
+    // Source agreement badge
+    const agreeEl = document.getElementById(`${prefix}SourceAgree`);
+    if (agreeEl) {
+      const sources = [];
+      const nws = built.candidates.D0_latest ?? built.candidates.D1_latest;
+      const accu = built.candidates.AccuWeather;
+      const mlVal = built.candidates.ML_bias_corrected;
+      if (nws != null) sources.push(nws);
+      if (accu != null) sources.push(accu);
+      if (mlVal != null) sources.push(mlVal);
+      if (sources.length >= 2) {
+        const spread = Math.max(...sources) - Math.min(...sources);
+        if (spread <= 3) {
+          const lo = Math.round(Math.min(...sources)), hi = Math.round(Math.max(...sources));
+          agreeEl.style.display = '';
+          agreeEl.className = `source-agree ${spread <= 2 ? 'agree-strong' : 'agree-mixed'}`;
+          agreeEl.innerHTML = `&#10003; ${spread <= 2 ? 'All sources agree' : 'Sources mostly agree'} (${lo}\u2013${hi}\u00b0F range)`;
+        } else {
+          agreeEl.style.display = '';
+          agreeEl.className = 'source-agree agree-disagree';
+          agreeEl.innerHTML = `Sources disagree (${Math.round(spread)}\u00b0F spread)`;
+        }
+      } else { agreeEl.style.display = 'none'; }
+    }
+
+    // NWS forecast trail chips
+    const trailEl = document.getElementById(`${prefix}ForecastTrail`);
+    if (trailEl) {
+      const forecastRows = allRows
+        .filter(r => r.forecast_or_actual === "forecast" && r.target_date === dateISO && r.predicted_high)
+        .sort((a, b) => (a.timestamp || a.forecast_time || "").localeCompare(b.timestamp || b.forecast_time || ""));
+      const compact = []; let lastVal = null;
+      forecastRows.forEach(r => {
+        const v = Number(r.predicted_high); if (!Number.isFinite(v)) return;
+        const rounded = Math.round(v);
+        if (rounded !== lastVal) { compact.push(r); lastVal = rounded; }
+      });
+      trailEl.innerHTML = compact.map((r, i) => {
+        const ts = safeParseTimestamp(r.timestamp || r.forecast_time);
+        const timeStr = ts ? fmtTimeET(ts).replace(/\s*(AM|PM)/i, (m, p) => p.toLowerCase()) : '';
+        const val = Math.round(Number(r.predicted_high));
+        const isLatest = i === compact.length - 1;
+        return `<span class="trail-chip${isLatest ? ' latest' : ''}"><span class="trail-time">${timeStr}</span>${val}\u00b0</span>`;
+      }).join('');
+    }
+  }
+
+  // ── Live strip rendering ─────────────────────────────────────────────
+  async function renderLiveStrip() {
+    const cc = CC();
+    // Current temp
+    const cur = await fetchJSON([`${API_BASE}/nws-current-temp`], { station: cc.station, cb: Date.now() });
+    if (cur && cur.currentF != null) {
+      document.getElementById('liveCurrent').textContent = `${Number(cur.currentF).toFixed(0)}\u00b0`;
+      window._recentObservedF = Number(cur.currentF);
+      const ts = cur.atISO ? new Date(cur.atISO) : null;
+      if (ts) document.getElementById('liveCurrentSub').textContent = `${fmtTimeET(ts)} ${cc.tzAbbr}`;
+    }
+
+    // 6-hr max
+    const sixHr = await fetchJSON([`${API_BASE}/nws-6hr-json`], { station: cc.station });
+    if (sixHr && sixHr.value != null) {
+      document.getElementById('live6hr').textContent = `${sixHr.value}\u00b0`;
+      window._sixHourMaxF = Number(sixHr.value);
+      document.getElementById('live6hrSub').textContent = sixHr.time ? `as of ${sixHr.time}` : '';
+    }
+
+    // DSM
+    const txt = await fetchTEXT(NWS_DSM_URLS);
+    const parsed = (cc.dsmProduct === "CLI") ? parseCLI(txt) : parseDSM(txt);
+    const todayISO = nycISODate(0);
+    if (parsed && parsed.dayISO === todayISO) {
+      document.getElementById('liveDSM').textContent = `${parsed.tempF}\u00b0`;
+      document.getElementById('liveDSMSub').textContent = `${parsed.timeET} ${cc.tzAbbr}`;
+    }
+
+    // CLI (actual)
+    const actualRow = allRows.find(r => r.forecast_or_actual === "actual" && r.cli_date === todayISO && r.actual_high);
+    if (actualRow) {
+      document.getElementById('liveCLI').textContent = `${Number(actualRow.actual_high).toFixed(0)}\u00b0`;
+      document.getElementById('liveCLISub').textContent = 'NWS CLI report';
+    }
+
+    // Yesterday
+    const yesterdayISO = nycISODate(-1);
+    const yRow = allRows.find(r => r.forecast_or_actual === "actual" && r.cli_date === yesterdayISO && r.actual_high);
+    if (yRow) {
+      document.getElementById('liveYesterday').textContent = `${Number(yRow.actual_high).toFixed(0)}\u00b0`;
+      document.getElementById('liveYesterdaySub').textContent = 'settled \u00b7 CLI';
+    }
+  }
+
+  // ── Stats rendering ──────────────────────────────────────────────────
+  async function renderStats() {
+    await loadMLBucketStats();
+    const stats = window.mlBucketStats;
+    document.getElementById('statWins').textContent = stats.wins || '--';
+    document.getElementById('statMisses').textContent = (stats.total - stats.wins) || '--';
+    document.getElementById('statAccuracy').textContent = stats.rate != null ? `${stats.rate}%` : '--%';
+
+    // Streak calculation
+    try {
+      const { data } = await supabase.from('prediction_logs').select('ml_result, target_date').eq('city', currentCity).not('ml_result', 'is', null).order('target_date', { ascending: false }).limit(20);
+      if (data && data.length) {
+        let streak = 0; const firstResult = data[0].ml_result;
+        for (const r of data) { if (r.ml_result === firstResult) streak++; else break; }
+        if (streak >= 2) document.getElementById('statStreak').textContent = `${streak} ${firstResult === 'WIN' ? 'wins' : 'misses'} in a row`;
+      }
+    } catch {}
+
+    // Forecast MAE from CSV
+    const daysWithActual = new Set();
+    let totalErr = 0, errCount = 0;
+    const dayMap = {};
+    allRows.forEach(r => {
+      const d = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
+      if (d) (dayMap[d] ??= []).push(r);
+    });
+    for (const [d, rows] of Object.entries(dayMap)) {
+      const actual = rows.find(r => r.forecast_or_actual === "actual" && r.actual_high);
+      if (!actual) continue;
+      daysWithActual.add(d);
+      const actualHigh = Number(actual.actual_high);
+      const forecasts = rows.filter(r => r.forecast_or_actual === "forecast" && r.predicted_high).map(r => Number(r.predicted_high)).filter(Number.isFinite);
+      if (forecasts.length) {
+        const errs = forecasts.map(f => Math.abs(f - actualHigh));
+        totalErr += errs.reduce((a,b) => a+b, 0) / errs.length;
+        errCount++;
+      }
+    }
+    document.getElementById('statMAE').textContent = errCount > 0 ? `${(totalErr / errCount).toFixed(1)}\u00b0` : '--';
+    document.getElementById('statDaysTracked').textContent = daysWithActual.size || '--';
+
+    // Within ±1°F
+    let within1 = 0, within1Total = 0;
+    for (const [d, rows] of Object.entries(dayMap)) {
+      const actual = rows.find(r => r.forecast_or_actual === "actual" && r.actual_high);
+      if (!actual) continue;
+      const actualHigh = Number(actual.actual_high);
+      const forecasts = rows.filter(r => r.forecast_or_actual === "forecast" && r.predicted_high)
+        .sort((a,b) => (b.timestamp || b.forecast_time || "").localeCompare(a.timestamp || a.forecast_time || ""));
+      if (forecasts.length) {
+        within1Total++;
+        if (Math.abs(Number(forecasts[0].predicted_high) - actualHigh) <= 1) within1++;
+      }
+    }
+    document.getElementById('statWithin1').textContent = within1Total > 0 ? `${Math.round(within1 / within1Total * 100)}%` : '--%';
+  }
+
+  // ── Chart rendering (ECharts) ───────────────────────────────────────
+  let echartsInstance = null;
+  function renderChart(daysLimit = 0) {
+    const byDate = {};
+    allRows.forEach(r => {
+      const d = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d || "")) return;
+      (byDate[d] ??= []).push(r);
+    });
+    let haveDays = Object.keys(byDate).sort();
+    if (daysLimit > 0) haveDays = haveDays.slice(-daysLimit);
+    const container = document.getElementById('trendChart');
+    if (!container) return;
+
+    const actualData = [], forecastData = [], accuData = [], errorData = [], labels = [];
+    haveDays.forEach(dayISO => {
+      const [Y,M,D] = dayISO.split('-').map(Number);
+      labels.push(new Intl.DateTimeFormat('en-US', { month:'short', day:'numeric' }).format(new Date(Y, M-1, D)));
+      const rows = byDate[dayISO] || [];
+      const actualRow = rows.find(r => r.forecast_or_actual === "actual" && r.actual_high);
+      const actualVal = actualRow ? Number(actualRow.actual_high) : null;
+      actualData.push(actualVal);
+      const forecasts = rows.filter(r => r.forecast_or_actual === "forecast" && r.predicted_high && (r.source || '').toLowerCase() !== 'accuweather')
+        .sort((a,b) => (b.timestamp || b.forecast_time || "").localeCompare(a.timestamp || a.forecast_time || ""));
+      const fcVal = forecasts.length ? Number(forecasts[0].predicted_high) : null;
+      forecastData.push(fcVal);
+      // AccuWeather
+      const accuForDay = accuRows.filter(r => r.target_date === dayISO && r.predicted_high)
+        .sort((a,b) => (b.timestamp || b.forecast_time || "").localeCompare(a.timestamp || a.forecast_time || ""));
+      accuData.push(accuForDay.length ? Number(accuForDay[0].predicted_high) : null);
+      // Error (forecast - actual)
+      errorData.push((actualVal != null && fcVal != null) ? Math.round((fcVal - actualVal) * 10) / 10 : null);
+    });
+
+    if (echartsInstance) echartsInstance.dispose();
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    echartsInstance = echarts.init(container, isDark ? 'dark' : null);
+
+    const option = {
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: isDark ? '#1c1917' : '#fff',
+        borderColor: isDark ? '#292524' : '#e7e5e4',
+        textStyle: { color: isDark ? '#fafaf9' : '#1c1917', fontSize: 13, fontFamily: 'Inter' },
+        formatter: (params) => {
+          let html = `<div style="font-weight:600;margin-bottom:4px">${params[0].axisValueLabel}</div>`;
+          params.forEach(p => {
+            if (p.value != null) html += `<div style="display:flex;align-items:center;gap:6px;margin:2px 0"><span style="width:8px;height:8px;border-radius:50%;background:${p.color};display:inline-block"></span>${p.seriesName}: <strong>${p.value}°F</strong></div>`;
+          });
+          return html;
+        }
+      },
+      legend: {
+        data: ['Actual High', 'NWS Forecast', 'AccuWeather'],
+        top: 0, right: 0,
+        textStyle: { color: isDark ? '#a8a29e' : '#78716c', fontFamily: 'Inter', fontSize: 11 },
+        itemWidth: 14, itemHeight: 3, itemGap: 16
+      },
+      grid: { left: 48, right: 24, top: 32, bottom: 24, containLabel: false },
+      xAxis: {
+        type: 'category', data: labels, boundaryGap: false,
+        axisLine: { lineStyle: { color: isDark ? '#292524' : '#e7e5e4' } },
+        axisLabel: { color: isDark ? '#57534e' : '#a8a29e', fontSize: 11, fontFamily: 'Inter',
+          interval: Math.max(0, Math.floor(labels.length / 8)) },
+        axisTick: { show: false }
+      },
+      yAxis: {
+        type: 'value',
+        axisLine: { show: false },
+        axisTick: { show: false },
+        splitLine: { lineStyle: { color: isDark ? '#1c1917' : '#f0eeeb', type: 'dashed' } },
+        axisLabel: { color: isDark ? '#57534e' : '#a8a29e', fontSize: 11, fontFamily: 'Inter', formatter: '{value}°' }
+      },
+      series: [
+        {
+          name: 'Actual High', type: 'line', data: actualData,
+          smooth: 0.3, symbol: 'circle', symbolSize: 5, showSymbol: false,
+          lineStyle: { width: 3, color: '#2563eb' },
+          itemStyle: { color: '#2563eb' },
+          areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(37,99,235,0.15)' },
+            { offset: 1, color: 'rgba(37,99,235,0)' }
+          ]) },
+          connectNulls: true
+        },
+        {
+          name: 'NWS Forecast', type: 'line', data: forecastData,
+          smooth: 0.3, symbol: 'circle', symbolSize: 4, showSymbol: false,
+          lineStyle: { width: 2.5, color: '#059669' },
+          itemStyle: { color: '#059669' },
+          connectNulls: true
+        },
+        {
+          name: 'AccuWeather', type: 'line', data: accuData,
+          smooth: 0.3, symbol: 'diamond', symbolSize: 4, showSymbol: false,
+          lineStyle: { width: 2, color: '#d97706', type: 'dashed' },
+          itemStyle: { color: '#d97706' },
+          connectNulls: true
+        }
+      ]
+    };
+    echartsInstance.setOption(option);
+    window.addEventListener('resize', () => echartsInstance?.resize());
+  }
+
+  // ── History table rendering ──────────────────────────────────────────
+  async function renderHistoryTable() {
+    const tbody = document.getElementById('historyBody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    const ml = window.mlPredictions || {};
+    const todayISO = nycISODate(0);
+
+    // Get ML results from Supabase for history
+    let mlResults = {};
+    try {
+      const { data } = await supabase.from('prediction_logs').select('target_date, ml_bucket, ml_result, ml_confidence')
+        .eq('city', currentCity).not('ml_result', 'is', null).order('target_date', { ascending: false }).limit(30);
+      if (data) data.forEach(r => { if (!mlResults[r.target_date]) mlResults[r.target_date] = r; });
+    } catch {}
+
+    const dayMap = {};
+    allRows.forEach(r => {
+      const d = (r.forecast_or_actual === "actual" ? r.cli_date : r.target_date);
+      if (d) (dayMap[d] ??= []).push(r);
+    });
+    const dates = Object.keys(dayMap).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort().reverse().slice(0, 14);
+
+    for (const date of dates) {
+      const rows = dayMap[date] || [];
+      const actual = rows.find(r => r.forecast_or_actual === "actual" && r.actual_high);
+      if (!actual) continue;
+      const actualHigh = Number(actual.actual_high);
+
+      const forecasts = rows.filter(r => r.forecast_or_actual === "forecast" && r.predicted_high)
+        .sort((a,b) => (b.timestamp || b.forecast_time || "").localeCompare(a.timestamp || a.forecast_time || ""));
+      const nwsLatest = forecasts.length ? Number(forecasts[0].predicted_high) : null;
+
+      const accForDate = accuRows.filter(r => r.target_date === date && r.predicted_high)
+        .sort((a,b) => (b.timestamp || b.forecast_time || "").localeCompare(a.timestamp || a.forecast_time || ""));
+      const accuLatest = accForDate.length ? Number(accForDate[0].predicted_high) : null;
+
+      const mlRow = mlResults[date];
+      const mlBucket = mlRow ? cleanKalshiLabel(mlRow.ml_bucket) : '--';
+      const mlResult = mlRow ? mlRow.ml_result : null;
+
+      const [,M,D] = date.split('-').map(Number);
+      const fmtD = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(date.split('-')[0], M-1, D));
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${fmtD}</td>
+        <td>${nwsLatest != null ? Math.round(nwsLatest) + '\u00b0' : '--'}</td>
+        <td>${accuLatest != null ? Math.round(accuLatest) + '\u00b0' : '--'}</td>
+        <td class="td-serif">${mlBucket}</td>
+        <td class="td-bold">${Number.isFinite(actualHigh) ? Math.round(actualHigh) + '\u00b0' : '--'}</td>
+        <td>${mlResult ? `<span class="result-tag ${mlResult === 'WIN' ? 'result-win' : 'result-miss'}">${mlResult === 'WIN' ? 'Win' : 'Miss'}</span>` : '--'}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+
+  // ── Detailed forecast log rendering ─────────────────────────────────
+  function renderDetailedLog() {
+    const tbody = document.getElementById('detailedLogBody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    const todayISO = nycISODate(0);
+    const dayMap = {};
+    allRows.forEach(r => {
+      const d = r.target_date || r.cli_date;
+      if (d) (dayMap[d] ??= []).push(r);
+    });
+    const dates = Object.keys(dayMap).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort().reverse().slice(0, 60);
+
+    for (const date of dates) {
+      const rows = dayMap[date] || [];
+      const actual = rows.find(r => r.forecast_or_actual === "actual" && r.actual_high);
+      const actualHigh = actual ? Number(actual.actual_high) : null;
+
+      const forecasts = rows.filter(r => r.forecast_or_actual === "forecast" && r.predicted_high)
+        .sort((a,b) => (a.timestamp || a.forecast_time || "").localeCompare(b.timestamp || b.forecast_time || ""));
+
+      for (const fc of forecasts) {
+        const fcVal = Number(fc.predicted_high);
+        const ts = safeParseTimestamp(fc.timestamp || fc.forecast_time);
+        const timeStr = ts ? fmtTimeET(ts) : '--';
+        const error = (actualHigh != null && Number.isFinite(fcVal)) ? (fcVal - actualHigh).toFixed(1) : '--';
+        const errorColor = error !== '--' ? (Math.abs(parseFloat(error)) <= 1 ? 'var(--green)' : Math.abs(parseFloat(error)) <= 2 ? 'var(--amber)' : 'var(--red)') : 'var(--text-light)';
+
+        const tr = document.createElement('tr');
+        tr.style.borderBottom = '1px solid var(--border)';
+        tr.innerHTML = `
+          <td style="padding:12px 20px;font-size:13px;">${date}</td>
+          <td style="padding:12px 20px;color:var(--text-muted);font-size:12px;">${timeStr}</td>
+          <td style="padding:12px 20px;text-align:center;font-weight:600;font-size:14px;">${Number.isFinite(fcVal) ? Math.round(fcVal) + '\u00b0F' : '--'}</td>
+          <td style="padding:12px 20px;text-align:center;font-weight:700;font-size:14px;">${actualHigh != null ? Math.round(actualHigh) + '\u00b0F' : '--'}</td>
+          <td style="padding:12px 20px;text-align:center;color:${errorColor};font-weight:700;font-size:14px;">${error !== '--' ? (parseFloat(error) > 0 ? '+' : '') + error + '\u00b0' : '--'}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+  }
+
+  // ── City toggle ──────────────────────────────────────────────────────
+  async function switchCity(cityKey) {
+    if (!CITY_CONFIG[cityKey] || cityKey === currentCity) return;
+    _citySwitching = true;
+    currentCity = cityKey;
+    localStorage.setItem("selectedCity", cityKey);
+    const cfg = CC();
+    CSV_URL = `${GITHUB_RAW}/${cfg.csvFile}`;
+    ACCU_URL = `${GITHUB_RAW}/${cfg.accuCsvFile}`;
+    KALSHI_BASE_URL = cfg.kalshiUrl;
+    NWS_DSM_URLS = [`${API_BASE}/nws-dsm?issuedby=${cfg.dsmIssuedby}&site=${cfg.dsmSite}&product=${cfg.dsmProduct || "DSM"}`];
+
+    // Update toggle buttons
+    document.querySelectorAll('.city-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.city === cityKey);
+    });
+
+    allRows = []; accuRows = []; filteredRows = [];
+    window.accuWeatherData = { today: null, tomorrow: null };
+    window.mlPredictions = { today: null, tomorrow: null };
+    window._recentObservedF = null; window._sixHourMaxF = null;
+    _citySwitching = false;
+
+    await bootData();
+  }
+
+  // ── Theme toggle with localStorage ───────────────────────────────────
+  function initTheme() {
+    const KEY = 'theme-pref';
+    const root = document.documentElement;
+    const btn = document.getElementById('themeBtn');
+    const mql = window.matchMedia("(prefers-color-scheme: dark)");
+
+    function currentPref() { return localStorage.getItem(KEY) || 'system'; }
+    function applyTheme(pref) {
+      if (pref === 'system') root.setAttribute('data-theme', mql.matches ? 'dark' : 'light');
+      else root.setAttribute('data-theme', pref);
+      if (btn) btn.textContent = root.getAttribute('data-theme') === 'dark' ? '\uD83C\uDF19' : '\u2600';
+    }
+    function cycle(pref) { return pref === 'system' ? 'dark' : pref === 'dark' ? 'light' : 'system'; }
+
+    applyTheme(currentPref());
+    mql.addEventListener('change', () => { if (currentPref() === 'system') applyTheme('system'); });
+    if (btn) btn.addEventListener('click', () => {
+      const next = cycle(currentPref());
+      localStorage.setItem(KEY, next);
+      applyTheme(next);
+    });
+  }
+
+  // ── Chart filter buttons ─────────────────────────────────────────────
+  function initChartFilters() {
+    document.getElementById('chartFilters')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('.chart-filter-btn');
+      if (!btn) return;
+      document.querySelectorAll('.chart-filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderChart(Number(btn.dataset.days));
+    });
+  }
+
+  // ── Boot sequence ────────────────────────────────────────────────────
+  async function bootData() {
+    renderHeroMeta();
+
+    // Load data sources in parallel
+    await Promise.all([
+      loadMLPredictions().catch(() => {}),
+      fetchAccuWeatherForecasts().catch(() => {}),
+    ]);
+
+    // Load CSVs
+    try {
+      const [nwsText, accuText] = await Promise.all([
+        fetch(CSV_URL, { cache: "no-store" }).then(r => r.text()),
+        fetch(ACCU_URL, { cache: "no-store" }).then(r => r.text()).catch(() => "")
+      ]);
+      parseCSV(nwsText);
+      parseAccuCSV(accuText);
+    } catch (err) { console.error("CSV load failed:", err); }
+
+    filteredRows = allRows.slice();
+
+    // Warm hedge & pretrain
+    try { await warmOnceForCurrentCSV(); } catch {}
+    try { await pretrainFromHistory(); } catch {}
+
+    // Render everything
+    await Promise.all([
+      renderPredictionCards(),
+      renderLiveStrip(),
+      renderStats(),
+      renderHeroTrainingDays(),
+    ]);
+    renderChart(0);
+    await renderHistoryTable();
+    renderDetailedLog();
+
+    // Polling intervals
+    setInterval(() => renderLiveStrip().catch(() => {}), 5 * 60 * 1000);
+    setInterval(() => renderPredictionCards().catch(() => {}), 60 * 1000);
+    setInterval(() => loadMLPredictions().then(() => renderPredictionCards()).catch(() => {}), 30 * 60 * 1000);
+    setInterval(() => fetchAccuWeatherForecasts().then(() => renderPredictionCards()).catch(() => {}), 2 * 60 * 60 * 1000);
+  }
+
+  // ── Init ─────────────────────────────────────────────────────────────
+  initTheme();
+  initChartFilters();
+
+  // City toggle buttons
+  document.getElementById('cityToggle')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.city-btn');
+    if (btn && btn.dataset.city) switchCity(btn.dataset.city);
+  });
+
+  // Set initial city toggle state
+  document.querySelectorAll('.city-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.city === currentCity);
+  });
+
+  // ── Auth gate ────────────────────────────────────────────────────────
+  function showApp() {
+    const g = document.getElementById('gate');
+    const a = document.getElementById('app');
+    if (g) g.style.display = 'none';
+    if (a) a.style.display = '';
+  }
+  function showGate(msg) {
+    const g = document.getElementById('gate');
+    if (!g) return;
+    g.style.display = '';
+    const sub = g.querySelector('.gate-sub');
+    if (sub && msg) sub.textContent = msg;
+  }
+
+  async function checkAccess() {
+    const path = location.pathname || "";
+    const onLogin = /\/login(\.html)?$/.test(path);
+
+    showGate("Checking access…");
+
+    const { data: sessData, error: sErr } = await supabase.auth.getSession();
+    if (sErr || !sessData?.session) {
+      if (!onLogin) location.href = "login.html";
+      else showGate("Please sign in.");
+      return;
+    }
+    const session = sessData.session;
+
+    try {
+      const { data: profile, error } = await supabase
+        .from("profiles")
+        .select("subscription_status, current_period_end, trial_used")
+        .eq("id", session.user.id)
+        .single();
+      if (error) throw error;
+
+      const status = String(profile?.subscription_status || "inactive").toLowerCase();
+      const entitled = (status === "active" || status === "trialing");
+      if (!entitled) {
+        const dest = profile?.trial_used ? "subscribe.html?reason=trial_expired" : "subscribe.html";
+        showGate("Subscription required → redirecting…");
+        location.href = dest;
+        return;
+      }
+
+      showApp();
+      await bootData().catch(console.error);
+    } catch (e) {
+      console.warn("Entitlement check failed", e);
+      if (!onLogin) location.href = "login.html";
+      else showGate("Please sign in.");
+    }
+  }
+
+  supabase.auth.onAuthStateChange((_event, session) => {
+    if (!session && !/\/login(\.html)?$/.test(location.pathname || "")) {
+      location.href = "login.html";
+    }
+  });
+
+  // Boot with auth
+  checkAccess();
+  </script>
+</body>
+</html>

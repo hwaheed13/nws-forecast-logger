@@ -1,0 +1,40 @@
+name: DSM Endpoint Comparison Test
+
+on:
+  schedule:
+    # 4:15 PM ET daily
+    # EDT (Apr-Oct): 4:15 PM EDT = 20:15 UTC → cron: 15 20
+    # EST (Nov-Mar): 4:15 PM EST = 21:15 UTC → cron: 15 21
+    # Using 20:15 UTC for EDT (current); will need adjustment Nov 1
+    - cron: '15 20 * * *'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  test-dsm-endpoints:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Test DSM endpoints and store results
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+        run: node scripts/test-dsm-endpoints.js
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsm-test-results
+          path: dsm-test-results.json
+          retention-days: 30

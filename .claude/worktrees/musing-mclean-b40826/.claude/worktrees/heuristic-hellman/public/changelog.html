@@ -1,0 +1,77 @@
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Release Notes — Daily Dew Point</title>
+<style>body{font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;max-width:800px;margin:40px auto;padding:0 16px;line-height:1.55;color:#1f2937}
+.version{margin-top:32px;padding-bottom:8px;border-bottom:1px solid #e5e7eb}
+.version h2{margin-bottom:4px}
+.version .date{color:#6b7280;font-size:0.9em;margin-bottom:12px}
+ul{padding-left:20px}li{margin-bottom:6px}
+.divider{margin:48px 0 32px;border:none;border-top:2px solid #e5e7eb}
+.bugfix-version{margin-top:24px;padding-bottom:8px}
+.bugfix-version h3{margin-bottom:4px;font-size:1em}
+.bugfix-version .date{color:#6b7280;font-size:0.85em;margin-bottom:8px}</style>
+</head><body>
+<h1>Release Notes</h1>
+<p>What's new and improved on Daily Dew Point.</p>
+
+<div class="version">
+<h2>March 29, 2026</h2>
+<div class="date">Latest</div>
+<ul>
+  <li><strong>Live weather observations</strong> — Predictions now incorporate real-time weather station data throughout the day, not just forecasts. As conditions change, the model adjusts.</li>
+  <li><strong>Intraday prediction updates</strong> — Both today's and tomorrow's predictions now refresh every 30 minutes with the latest data, instead of locking after the morning run.</li>
+  <li><strong>Expanded model inputs</strong> — The ML model now uses additional real-time signals including observed temperature, wind, and sky conditions to improve accuracy.</li>
+</ul>
+</div>
+
+<div class="version">
+<h2>March 22, 2026</h2>
+<div class="date"></div>
+<ul>
+  <li><strong>Overnight temperature advisory</strong> — Dashboard now warns when overnight temperatures may exceed the next day's forecast, helping you anticipate when the daily high could be set overnight rather than during the day.</li>
+  <li><strong>Daily model retraining</strong> — The ML model now retrains every morning with the previous day's data, instead of weekly. Predictions adapt faster to changing weather patterns.</li>
+  <li><strong>Enhanced prediction model</strong> — Added new atmospheric features to improve accuracy on days with sharp temperature swings.</li>
+  <li><strong>WIN/MISS tracking</strong> — ML bucket predictions are now scored against actual results daily, building a transparent track record.</li>
+  <li><strong>Improved Kalshi integration</strong> — Live market data now loads reliably with updated API support.</li>
+</ul>
+</div>
+
+<div class="version">
+<h2>March 2026</h2>
+<div class="date">Earlier this month</div>
+<ul>
+  <li><strong>ML bucket predictions</strong> — Launched machine learning model that predicts the most likely 2-degree Kalshi bucket for today and tomorrow.</li>
+  <li><strong>Top-2 bucket display</strong> — Shows the two most likely buckets with confidence percentages, giving you a realistic view of the odds.</li>
+  <li><strong>Bet signal indicators</strong> — STRONG BET, LEAN, and SKIP labels based on model confidence.</li>
+  <li><strong>Los Angeles support</strong> — Added LA (LAX) as a second city with full forecast tracking and ML predictions.</li>
+  <li><strong>Server-side ensemble learning</strong> — Forecast weights now learn from historical accuracy and are shared across all users.</li>
+</ul>
+</div>
+
+<div class="version">
+<h2>Summer–Fall 2025</h2>
+<div class="date">Foundation</div>
+<ul>
+  <li><strong>Forecast tracking</strong> — Began logging every NWS and AccuWeather forecast update with timestamps.</li>
+  <li><strong>Bias correction</strong> — Built weighted ensemble that adjusts forecasts based on historical accuracy.</li>
+  <li><strong>Kalshi market display</strong> — Live market leaders and settlement results.</li>
+  <li><strong>Historical accuracy stats</strong> — Bucket hit rate and forecast accuracy metrics.</li>
+</ul>
+</div>
+
+<hr class="divider">
+
+<h2>Bug Fixes</h2>
+
+<div class="bugfix-version">
+<h3>March 22, 2026</h3>
+<div class="date"></div>
+<ul>
+  <li>Fixed Kalshi market data not displaying due to API field update.</li>
+  <li>ML predictions now correctly reflect settled results when daily high is revised overnight.</li>
+  <li>Resolved data pipeline issues affecting prediction accuracy.</li>
+</ul>
+</div>
+
+<p style="margin-top:40px"><a href="/">← Back to Home</a></p>
+</body></html>

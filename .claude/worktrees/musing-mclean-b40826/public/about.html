@@ -1,0 +1,35 @@
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>About — Daily Dew Point</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<style>body{font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;max-width:800px;margin:40px auto;padding:0 16px;line-height:1.55;color:#1f2937}</style>
+</head><body>
+<h1>About Daily Dew Point</h1>
+
+<h2>What is this?</h2>
+<p>Daily Dew Point is a free forecast tracking and prediction tool for daily high temperature markets. We aggregate multiple weather forecast sources, track how they change throughout the day, and use a proprietary machine learning model to predict which temperature bucket is most likely to win on <a href="https://kalshi.com" target="_blank" rel="noopener">Kalshi</a>.</p>
+
+<h2>What you see on the dashboard</h2>
+<ul>
+  <li><strong>Forecast Tracking</strong> — Real-time NWS and AccuWeather forecasts for today and tomorrow, updated multiple times daily. Every forecast change is logged so you can see how predictions evolve.</li>
+  <li><strong>Bias-Corrected Prediction</strong> — A weighted ensemble that adjusts raw forecasts based on historical accuracy patterns. The weights are learned from data and update daily.</li>
+  <li><strong>ML Bucket Pick</strong> — Our machine learning model's top-2 bucket predictions with confidence levels. The model trains daily on new data and incorporates atmospheric conditions, forecast trajectories, and seasonal patterns.</li>
+  <li><strong>Kalshi Market</strong> — Live market leader and settlement results, pulled directly from Kalshi's API.</li>
+  <li><strong>Overnight Advisory</strong> — When overnight temperatures are forecasted to exceed the next day's daytime forecast, we flag it. This matters because the daily high is the calendar-day maximum, which can be set overnight rather than during the day.</li>
+</ul>
+
+<h2>How the model works</h2>
+<p>Our model is trained on hundreds of days of historical forecast data and years of atmospheric observations. It learns patterns in how forecasts miss — for example, certain atmospheric conditions that cause forecasts to consistently overshoot or undershoot. The model retrains daily to incorporate the latest data.</p>
+<p>The model outputs a probability distribution across temperature buckets, not just a single number. This lets us show confidence levels and identify when the model is uncertain.</p>
+
+<h2>Cities</h2>
+<p>Currently available for <strong>New York City</strong> (Central Park) and <strong>Los Angeles</strong> (LAX). More cities may be added in the future.</p>
+
+<h2>Limitations</h2>
+<p>Weather prediction is inherently uncertain. Our model improves over time as it trains on more data, but it will not be right every day. The bucket picks should be one input in your decision-making, not the only one. Always do your own research.</p>
+
+<h2>Contact</h2>
+<p>Questions or feedback? Email <a href="mailto:support@dewdropventures.com">support@dewdropventures.com</a>.</p>
+
+<p style="margin-top:40px"><a href="/">← Back to Home</a></p>
+</body></html>

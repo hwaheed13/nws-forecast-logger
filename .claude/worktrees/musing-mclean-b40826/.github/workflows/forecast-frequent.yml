@@ -1,0 +1,292 @@
+name: Frequent Forecast Updates
+
+on:
+  schedule:
+    # Run every 10 minutes from 4 AM to midnight EST, avoiding midnight-4AM EST date cutover.
+    # 10 min = 6x/hour: fast enough that the 2-run flip confirmation gate fires in ~20 min
+    # (vs 60 min at 30-min cadence), while staying reliable on GitHub Actions runners.
+    - cron: "*/10 9-23 * * *"  # 9:00-23:50 UTC = 4:00 AM EST - 6:50 PM EST
+    - cron: "*/10 0-3 * * *"   # 0:00-3:50 UTC = 7:00 PM EST - 10:50 PM EST (previous day)
+    # Skips UTC 4:00-8:59 (midnight-4AM EST) where AccuWeather returns stale data
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: forecast-frequent
+  cancel-in-progress: true
+
+jobs:
+  poll-forecasts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 pytz numpy==1.24.3 pandas==2.2.3 scikit-learn==1.3.0
+
+      # Decide whether to keep polling *today* (ET):
+      # - Stop after 6pm ET OR once an "actual" for today exists in the NWS CSV
+      - name: Decide polling flags (ET)
+        id: decide
+        run: |
+          python - <<'PY'
+          import os, csv, datetime, pytz
+          et = pytz.timezone("America/New_York")
+          now_et = datetime.datetime.now(et)
+          today_iso = now_et.strftime("%Y-%m-%d")
+          after_six = now_et.hour >= 18
+
+          has_actual_today = False
+          csv_path = "nws_forecast_log.csv"
+          if os.path.exists(csv_path):
+              with open(csv_path, newline="", encoding="utf-8") as f:
+                  r = csv.DictReader(f)
+                  for row in r:
+                      if (
+                          (row.get("forecast_or_actual") or "").strip() == "actual" and
+                          (row.get("cli_date") or "").strip() == today_iso and
+                          (row.get("actual_high") or "").strip() != ""
+                      ):
+                          has_actual_today = True
+                          break
+
+          should_log_today = (not after_six) and (not has_actual_today)
+
+          with open(os.environ["GITHUB_ENV"], "a") as env:
+              env.write(f"TODAY_ISO={today_iso}\n")
+              env.write(f"AFTER_SIX_ET={'true' if after_six else 'false'}\n")
+              env.write(f"HAS_ACTUAL_TODAY={'true' if has_actual_today else 'false'}\n")
+              env.write(f"SHOULD_LOG_TODAY={'true' if should_log_today else 'false'}\n")
+          PY
+
+      # ✅ Only log today's NWS forecast when we still need it
+      - name: Log today's NWS forecast (only if needed)
+        if: env.SHOULD_LOG_TODAY == 'true'
+        env:
+          TASK: forecast_today
+        run: python run_smart.py
+
+      # ✅ Always log tomorrow's NWS forecast every run
+      - name: Log tomorrow's NWS forecast
+        env:
+          TASK: forecast_tomorrow
+        run: python run_smart.py
+
+      # ✅ AccuWeather → accuweather_log.csv (only if changed, freeze today if NWS actual exists)
+      # FIXED: Now properly handles date cutover since we skip midnight-4AM EST
+      - name: Log AccuWeather forecasts if changed
+        env:
+          ACCU_API_KEY: ${{ secrets.ACCU_API_KEY }}
+          ACCU_LOCATION_KEY: ${{ secrets.ACCU_LOCATION_KEY }}
+          HAS_ACTUAL_TODAY: ${{ env.HAS_ACTUAL_TODAY }}
+        run: |
+          python - <<'PY'
+          import os, csv, datetime, pytz, requests, sys, time
+
+          ACCU_CSV = "accuweather_log.csv"
+          API_KEY = os.environ.get("ACCU_API_KEY")
+          LOC_KEY = os.environ.get("ACCU_LOCATION_KEY")
+          if not API_KEY or not LOC_KEY:
+              print("AccuWeather: missing API key or location key; skipping.", file=sys.stderr)
+              sys.exit(0)
+
+          et = pytz.timezone("America/New_York")
+          now_et = datetime.datetime.now(et)
+          today_iso = now_et.strftime("%Y-%m-%d")
+          tomorrow_iso = (now_et + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+          freeze_today = (os.environ.get("HAS_ACTUAL_TODAY","false").lower() == "true")
+
+          # Log current time for debugging
+          print(f"[Accu] Current ET time: {now_et.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+          print(f"[Accu] Today: {today_iso}, Tomorrow: {tomorrow_iso}")
+          
+          sess = requests.Session()
+          sess.headers.update({"Cache-Control": "no-cache", "Pragma": "no-cache"})
+
+          def fetch_daily_1day():
+              url = f"https://dataservice.accuweather.com/forecasts/v1/daily/1day/{LOC_KEY}"
+              params = {"apikey": API_KEY, "details": "true", "metric": "false", "_ts": str(int(time.time()))}
+              r = sess.get(url, params=params, timeout=20); r.raise_for_status()
+              return r.json().get("DailyForecasts", [])[0]
+
+          def fetch_daily_5day():
+              url = f"https://dataservice.accuweather.com/forecasts/v1/daily/5day/{LOC_KEY}"
+              params = {"apikey": API_KEY, "details": "true", "metric": "false", "_ts": str(int(time.time()))}
+              r = sess.get(url, params=params, timeout=20); r.raise_for_status()
+              return r.json().get("DailyForecasts", [])
+
+          new_highs, details = {}, {}
+
+          # Today (D0) - only fetch if not frozen and after 4 AM ET
+          # Since we skip midnight-4AM in the schedule, this should always be safe
+          if not freeze_today:
+              try:
+                  d0 = fetch_daily_1day()
+                  mx = (((d0 or {}).get("Temperature") or {}).get("Maximum") or {}).get("Value")
+                  phrase = ((d0 or {}).get("Day") or {}).get("IconPhrase","")
+                  if mx is not None:
+                      new_highs[today_iso] = int(round(float(mx)))
+                      details[today_iso] = phrase
+                      print(f"[Accu] D0 fetched: {new_highs[today_iso]}°F for {today_iso}")
+              except Exception as e:
+                  print(f"[Accu] D0 fetch failed: {e}", file=sys.stderr)
+
+          # Tomorrow (D1) - always safe to fetch
+          try:
+              five = fetch_daily_5day()
+              if len(five) > 1:
+                  d1 = five[1]
+                  mx = (((d1 or {}).get("Temperature") or {}).get("Maximum") or {}).get("Value")
+                  phrase = ((d1 or {}).get("Day") or {}).get("IconPhrase","")
+                  if mx is not None:
+                      new_highs[tomorrow_iso] = int(round(float(mx)))
+                      details[tomorrow_iso] = phrase
+                      print(f"[Accu] D1 fetched: {new_highs[tomorrow_iso]}°F for {tomorrow_iso}")
+              else:
+                  print(f"[Accu] Warning: 5-day forecast has only {len(five)} days", file=sys.stderr)
+          except Exception as e:
+              print(f"[Accu] D1 fetch failed: {e}", file=sys.stderr)
+
+          targets = [iso for iso in [today_iso, tomorrow_iso] if (iso != today_iso or not freeze_today)]
+          print(f"[Accu] Processing targets: {targets}")
+          print(f"[Accu] new_highs={new_highs} details={details}")
+
+          # Read last logged highs
+          last_accu = {iso: None for iso in targets}
+          if os.path.exists(ACCU_CSV):
+              with open(ACCU_CSV, newline="", encoding="utf-8") as f:
+                  r = csv.DictReader(f)
+                  for row in r:
+                      if row.get("source") != "AccuWeather": 
+                          continue
+                      if row.get("forecast_or_actual") != "forecast":
+                          continue
+                      t = row.get("target_date")
+                      if t in last_accu:
+                          try: last_accu[t] = int(float(row.get("predicted_high") or ""))
+                          except: pass
+          print(f"[Accu] last_accu={last_accu}")
+
+          # Append only if changed
+          fieldnames = [
+              "timestamp","target_date","forecast_or_actual","forecast_time",
+              "predicted_high","forecast_detail","cli_date","actual_high",
+              "high_time","bias_corrected_prediction","source"
+          ]
+          ts = now_et.strftime("%Y-%m-%d %H:%M:%S %Z")
+          to_append = []
+
+          for iso in targets:
+              nv = new_highs.get(iso)
+              pv = last_accu.get(iso)
+              if nv is not None and (pv is None or nv != pv):
+                  to_append.append({
+                      "timestamp": ts,
+                      "target_date": iso,
+                      "forecast_or_actual": "forecast",
+                      "forecast_time": ts,
+                      "predicted_high": str(int(nv)),
+                      "forecast_detail": f"Accu: {details.get(iso,'')}",
+                      "cli_date": "",
+                      "actual_high": "",
+                      "high_time": "",
+                      "bias_corrected_prediction": "",
+                      "source": "AccuWeather",
+                  })
+                  print(f"[Accu] Will append: {iso} = {nv}°F (was {pv}°F)")
+
+          if to_append:
+              file_exists = os.path.exists(ACCU_CSV)
+              if not file_exists:
+                  with open(ACCU_CSV, "w", newline="", encoding="utf-8") as f:
+                      w = csv.DictWriter(f, fieldnames=fieldnames)
+                      w.writeheader()
+              with open(ACCU_CSV, "a", newline="", encoding="utf-8") as f:
+                  w = csv.DictWriter(f, fieldnames=fieldnames)
+                  for row in to_append: w.writerow(row)
+              print(f"AccuWeather: appended {len(to_append)} changed row(s).")
+          else:
+              print("AccuWeather: no changes; nothing appended.")
+          PY
+
+      # ----- LA data collection -----
+      - name: Log today's NWS forecast - LA
+        env:
+          TASK: forecast_today
+        run: python run_smart.py --city lax
+
+      - name: Log tomorrow's NWS forecast - LA
+        env:
+          TASK: forecast_tomorrow
+        run: python run_smart.py --city lax
+
+      - name: Log AccuWeather forecasts - LA
+        env:
+          ACCU_API_KEY: ${{ secrets.ACCU_API_KEY }}
+          ACCU_LOCATION_KEY_LAX: ${{ secrets.ACCU_LOCATION_KEY_LAX }}
+        run: python accuweather_logger.py --city lax
+
+      # Tidy CSVs
+      - name: Remove empty/blank lines
+        run: |
+          for f in nws_forecast_log.csv accuweather_log.csv lax_nws_forecast_log.csv lax_accuweather_log.csv; do
+            if [ -f "$f" ]; then
+              grep -Ev '^[[:space:]]*(,?[[:space:]]*)*$' "$f" > /tmp/clean.csv || true
+              if [ -s /tmp/clean.csv ]; then mv /tmp/clean.csv "$f"; fi
+            fi
+          done
+
+      # Collect NWS hourly observations → Supabase (before predictions so obs are available)
+      - name: Collect NWS observations - NYC
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+          TZ: America/New_York
+        run: python prediction_writer.py collect_obs
+        continue-on-error: true
+
+      - name: Collect NWS observations - LA
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+        run: python prediction_writer.py --city lax collect_obs
+        continue-on-error: true
+
+      # Write ML + BCP predictions to Supabase (reads CSVs, does NOT modify repo)
+      - name: Write Supabase predictions - NYC (BCP + ML)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+          WU_API_KEY: ${{ secrets.WU_API_KEY }}
+          WU_STATION_IDS: ${{ secrets.WU_STATION_IDS }}
+          SYNOPTIC_TOKEN: ${{ secrets.SYNOPTIC_TOKEN }}
+          TZ: America/New_York
+        run: python prediction_writer.py both
+        continue-on-error: true
+
+      - name: Write Supabase predictions - LA
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+          SYNOPTIC_TOKEN: ${{ secrets.SYNOPTIC_TOKEN }}
+          TZ: America/New_York
+        run: python prediction_writer.py --city lax both
+        continue-on-error: true
+
+      # Commit & push (safe with rebase)
+      - name: Commit and push CSV if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add nws_forecast_log.csv accuweather_log.csv lax_nws_forecast_log.csv lax_accuweather_log.csv || true
+          git commit -m "Frequent forecast update [skip ci]" || echo "No changes to commit"
+          git fetch origin main
+          git rebase origin/main || { echo "Rebase failed; aborting"; git rebase --abort || true; exit 0; }
+          git push origin HEAD:main || true

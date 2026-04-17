@@ -1,0 +1,64 @@
+name: Synoptic Station Backfill
+
+on:
+  schedule:
+    # Every night at 11 PM ET (3 AM UTC) — after today's high is confirmed
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "How many days back to backfill (2=daily maintenance, 365=full historical seed)"
+        type: string
+        required: false
+        default: "2"
+
+# Populates obs_kjfk_temp, obs_klga_temp, obs_kewr_temp, obs_kteb_temp,
+# obs_kjfk_vs_knyc, obs_coastal_vs_inland, obs_airport_spread, and the full
+# Synoptic 20-station aggregate (obs_synoptic_mean, obs_synoptic_vs_nws, etc.)
+# into historical atm_snapshot rows that are missing them.
+#
+# The script is idempotent — rows that already have obs_kjfk_temp are skipped.
+#
+# To run the one-time historical seed (full 365 days):
+#   Actions → Synoptic Station Backfill → Run workflow → days: 365
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+
+    env:
+      SYNOPTIC_TOKEN:        ${{ secrets.SYNOPTIC_TOKEN }}
+      SUPABASE_URL:          ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy requests supabase python-dotenv
+
+      - name: Determine backfill window
+        id: window
+        run: |
+          # workflow_dispatch input wins; schedule default is 2
+          DAYS="${{ github.event.inputs.days }}"
+          DAYS="${DAYS:-2}"
+          echo "days=$DAYS" >> "$GITHUB_OUTPUT"
+          echo "Backfilling $DAYS days of Synoptic station data"
+
+      - name: Run Synoptic backfill
+        run: |
+          python backfill_synoptic.py --days ${{ steps.window.outputs.days }}
+
+      - name: Summarise
+        if: always()
+        run: |
+          echo "Backfill finished. Check logs above for rows updated / skipped."
