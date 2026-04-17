@@ -28,6 +28,34 @@ from model_config import (
 MODEL_VERSION = os.environ.get("PREDICTION_MODEL_VERSION", "bcp_v1")
 
 
+def _scrub_nan(obj):
+    """Recursively replace NaN / +Inf / -Inf with None in a dict/list tree.
+
+    Python's default `json.dumps` happily emits bare `NaN` / `Infinity`
+    tokens (violating the JSON spec), which causes JSON.parse to fail on
+    the frontend and silently blanks out every card that depends on the
+    snapshot.  Run values through this before `json.dumps(snap)`."""
+    if isinstance(obj, dict):
+        return {k: _scrub_nan(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_scrub_nan(v) for v in obj]
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    if isinstance(obj, np.floating):
+        f = float(obj)
+        if math.isnan(f) or math.isinf(f):
+            return None
+        return f
+    return obj
+
+
+def _snap_dumps(snap) -> str:
+    """Safe atm_snapshot serializer: scrubs NaN/Inf before dumping."""
+    return json.dumps(_scrub_nan(snap), allow_nan=False)
+
+
 def _ts_hour(ts_str: str) -> int | None:
     """Extract local hour (0-23) from a CSV timestamp string.
 
@@ -4562,7 +4590,7 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
         # Include the updated atm_snapshot so scored ML features are persisted.
         patch_data: dict = {"ml_result": result, "ml_actual_high": actual_high,
                             "bucket_rank_hit": bucket_rank_hit,
-                            "atm_snapshot": json.dumps(_atm_snap)}
+                            "atm_snapshot": _snap_dumps(_atm_snap)}
         canonical_bucket = pred.get("ml_bucket_canonical")
         ks_raw = pred.get("kalshi_market_snapshot")
         if canonical_bucket and canonical_bucket != ml_bucket:
@@ -5254,7 +5282,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 # ── Cache complete snapshot for fallback on next API failures ──
                 cache_snapshot(_CITY_KEY, snap)
 
-                payload["atm_snapshot"] = json.dumps(snap)
+                payload["atm_snapshot"] = _snap_dumps(snap)
                 print(f"📸 Atmospheric baseline advanced after recompute ({len(snap)} keys)")
 
     # ── Unconditional obs-panel refresh ──────────────────────────────────────
@@ -5715,7 +5743,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 # ── Cache complete snapshot for fallback on next API failures ──
                 cache_snapshot(_CITY_KEY, _ex_snap)
 
-                payload["atm_snapshot"] = json.dumps(_ex_snap)
+                payload["atm_snapshot"] = _snap_dumps(_ex_snap)
                 atm_keys = sum(1 for k in _ex_snap.keys() if k.startswith("atm_") or k.startswith("mm_") or k.startswith("ens_"))
                 obs_keys = sum(1 for k in _ex_snap.keys() if k.startswith("obs_snap_"))
                 valid_keys = sum(1 for v in _ex_snap.values() if v is not None and not (isinstance(v, float) and math.isnan(v)))
@@ -5826,7 +5854,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                     # ── Cache complete snapshot for fallback on next API failures ──
                     cache_snapshot(_CITY_KEY, snap)
 
-                    payload["atm_snapshot"] = json.dumps(snap)
+                    payload["atm_snapshot"] = _snap_dumps(snap)
                     obs_populated = sum(
                         1 for v in (live_obs or {}).values()
                         if v is not None and not (isinstance(v, float) and math.isnan(v))
@@ -6048,7 +6076,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                     print(f"  🗑️  Pending flip ({_prev_pending}) discarded — "
                           f"returned to canonical before confirmation, nothing shown")
             if _fs:
-                payload["atm_snapshot"] = json.dumps(_fs)
+                payload["atm_snapshot"] = _snap_dumps(_fs)
 
     # ── Fallback: ensure atm_snapshot is always written ──────────────────────
     # If we've gotten this far without setting payload["atm_snapshot"], it means:
@@ -6074,7 +6102,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             ):
                 # Cache for future fallback
                 cache_snapshot(_CITY_KEY, fallback_snap)
-                payload["atm_snapshot"] = json.dumps(fallback_snap)
+                payload["atm_snapshot"] = _snap_dumps(fallback_snap)
                 atm_keys = sum(1 for k in fallback_snap.keys() if k.startswith("atm_") or k.startswith("mm_"))
                 obs_keys = sum(1 for k in fallback_snap.keys() if k.startswith("obs_snap_"))
                 valid_keys = sum(1 for v in fallback_snap.values() if v is not None and not (isinstance(v, float) and math.isnan(v)))
@@ -6378,7 +6406,7 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
             # overwrite them cleanly.
             if isinstance(existing, dict):
                 _carry_flip_fields(snap_tm, existing)
-            payload["atm_snapshot"] = json.dumps(snap_tm)
+            payload["atm_snapshot"] = _snap_dumps(snap_tm)
             print(f"  📊 D+1 atm_snapshot: mm_spread={snap_tm.get('mm_spread')}, "
                   f"mm_mean={snap_tm.get('mm_mean')}, hrrr={snap_tm.get('mm_hrrr_max')}")
 
@@ -6452,7 +6480,7 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
                 # Back to canonical with no prior confirmed flip — clear any pending silently
                 _d1_fs["ml_flip_pending_bucket"] = None
             if _d1_fs:
-                payload["atm_snapshot"] = json.dumps(_d1_fs)
+                payload["atm_snapshot"] = _snap_dumps(_d1_fs)
 
     # ── Fallback: ensure atm_snapshot is always written (D+1) ──────────────────
     # Same logic as write_today_for_today: if we haven't set atm_snapshot yet,
@@ -6473,7 +6501,7 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
             ):
                 # Cache for future fallback
                 cache_snapshot(_CITY_KEY, fallback_snap_tm)
-                payload["atm_snapshot"] = json.dumps(fallback_snap_tm)
+                payload["atm_snapshot"] = _snap_dumps(fallback_snap_tm)
                 atm_keys = sum(1 for k in fallback_snap_tm.keys() if k.startswith("atm_") or k.startswith("mm_"))
                 obs_keys = sum(1 for k in fallback_snap_tm.keys() if k.startswith("obs_snap_"))
                 print(f"📸 D+1 fallback atm_snapshot written: {len(fallback_snap_tm)} total keys "
