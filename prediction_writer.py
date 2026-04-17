@@ -2051,7 +2051,66 @@ def _compute_ml_prediction(
                 if syn_pop > 0:
                     print(f"  ✅ Synoptic features: {syn_pop}/{len(syn_feats)} populated")
                 else:
+                    # ── ML-feature preservation ─────────────────────────────
+                    # Synoptic fetch returned all-NaN.  Without preservation
+                    # here, NaN Synoptic features flow into the ML model and
+                    # distort the prediction (seen on 2026-04-17 17:33 run:
+                    # syn_mean NaN → ML jumped to 79.3 vs prior 78.4 when
+                    # data was present).  Backfill from the most recent
+                    # Supabase row's obs_snap_syn_* display keys so the
+                    # model sees continuity instead of a sudden signal loss.
                     print(f"  ⚠️ Synoptic returned {len(syn_feats)} keys but all are NaN/None")
+                    try:
+                        _endpoint, _sb_key = _sb_endpoint()
+                        _lookback_url = (
+                            f"{_endpoint}"
+                            f"?city=eq.{_CITY_KEY}"
+                            f"&target_date=eq.{target_date_iso}"
+                            f"&lead_used=eq.today_for_today"
+                            f"&atm_snapshot=not.is.null"
+                            f"&order=timestamp.desc"
+                            f"&limit=5"
+                            f"&select=atm_snapshot"
+                        )
+                        _req = urllib.request.Request(_lookback_url, headers={
+                            "apikey": _sb_key,
+                            "Authorization": f"Bearer {_sb_key}",
+                            "Accept": "application/json",
+                        })
+                        with urllib.request.urlopen(_req, timeout=8) as _resp:
+                            _rows = json.loads(_resp.read().decode("utf-8"))
+                        # Find the first row whose snapshot has a valid syn_mean
+                        _restored = {}
+                        for _row in _rows:
+                            _ps = _snap_loads(_row.get("atm_snapshot"))
+                            if not isinstance(_ps, dict):
+                                continue
+                            _pm = _ps.get("obs_snap_syn_mean")
+                            if _pm is not None and not (isinstance(_pm, float) and np.isnan(_pm)):
+                                # Map snapshot display keys back to ML feature keys
+                                for _sk, _fk in [
+                                    ("obs_snap_syn_mean",   "obs_synoptic_mean"),
+                                    ("obs_snap_syn_min",    "obs_synoptic_min"),
+                                    ("obs_snap_syn_max",    "obs_synoptic_max"),
+                                    ("obs_snap_syn_spread", "obs_synoptic_spread"),
+                                    ("obs_snap_syn_vs_nws", "obs_synoptic_vs_nws"),
+                                    ("obs_snap_syn_count",  "obs_synoptic_count"),
+                                ]:
+                                    _pv = _ps.get(_sk)
+                                    if _pv is not None and not (isinstance(_pv, float) and np.isnan(_pv)):
+                                        v2_features[_fk] = float(_pv)
+                                        _restored[_fk] = float(_pv)
+                                break  # use the most recent valid row
+                        if _restored:
+                            print(f"  ♻️  Synoptic features restored from prior row: "
+                                  f"mean={_restored.get('obs_synoptic_mean')}°F "
+                                  f"({len(_restored)} keys)")
+                        else:
+                            print(f"  ⚠️ No prior Synoptic values found to restore — "
+                                  f"ML will see NaN (last 5 rows all null or missing)")
+                    except Exception as _restore_e:
+                        print(f"  ⚠️ Synoptic feature restore failed: "
+                              f"{type(_restore_e).__name__}: {_restore_e}")
                 # Write-back to prefetched_atm so the caller can store them in atm_snapshot.
                 # Include ALL obs_* keys from syn_feats — aggregate AND named station features.
                 if prefetched_atm is not None and syn_pop > 0:
@@ -5537,6 +5596,54 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                         _syn_pop += 1
                     if _syn_pop == 0:
                         print(f"  ⚠️ Synoptic API returned no data — preserving existing snapshot values")
+                        # If the existing snapshot ALSO has null for syn_mean,
+                        # preservation is a no-op — we're just perpetuating the
+                        # null state from whenever it first got written.  Look
+                        # back through recent rows to find the last one with
+                        # real Synoptic data and restore from there.  Fixes
+                        # the self-perpetuating-null bug seen on 2026-04-17
+                        # 17:33 run where the display card went blank.
+                        if _ex_snap.get("obs_snap_syn_mean") is None:
+                            try:
+                                _endpoint_b, _sb_key_b = _sb_endpoint()
+                                _lookback_url_b = (
+                                    f"{_endpoint_b}"
+                                    f"?city=eq.{_CITY_KEY}"
+                                    f"&target_date=eq.{target_date_iso}"
+                                    f"&lead_used=eq.today_for_today"
+                                    f"&atm_snapshot=not.is.null"
+                                    f"&order=timestamp.desc"
+                                    f"&limit=10"
+                                    f"&select=atm_snapshot"
+                                )
+                                _req_b = urllib.request.Request(_lookback_url_b, headers={
+                                    "apikey": _sb_key_b,
+                                    "Authorization": f"Bearer {_sb_key_b}",
+                                    "Accept": "application/json",
+                                })
+                                with urllib.request.urlopen(_req_b, timeout=8) as _resp_b:
+                                    _rows_b = json.loads(_resp_b.read().decode("utf-8"))
+                                _ss_restored = 0
+                                for _row_b in _rows_b:
+                                    _ps_b = _snap_loads(_row_b.get("atm_snapshot"))
+                                    if not isinstance(_ps_b, dict):
+                                        continue
+                                    _pm_b = _ps_b.get("obs_snap_syn_mean")
+                                    if _pm_b is not None and not (isinstance(_pm_b, float) and math.isnan(_pm_b)):
+                                        for _sk_b in ("obs_snap_syn_mean", "obs_snap_syn_min",
+                                                      "obs_snap_syn_max", "obs_snap_syn_spread",
+                                                      "obs_snap_syn_vs_nws", "obs_snap_syn_count"):
+                                            _pv_b = _ps_b.get(_sk_b)
+                                            if _pv_b is not None and not (isinstance(_pv_b, float) and math.isnan(_pv_b)):
+                                                _ex_snap[_sk_b] = _pv_b
+                                                _ss_restored += 1
+                                        break
+                                if _ss_restored:
+                                    print(f"  ♻️  Display Synoptic restored from prior row "
+                                          f"(mean={_ex_snap.get('obs_snap_syn_mean')}°F, "
+                                          f"{_ss_restored} keys)")
+                            except Exception as _lb_e:
+                                print(f"  ⚠️ Display Synoptic restore failed: {_lb_e}")
 
                     # v9: named station readings — city-specific
                     # Same guard: only overwrite if fresh data is non-None
