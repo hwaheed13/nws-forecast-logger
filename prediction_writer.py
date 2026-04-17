@@ -4703,9 +4703,60 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
         _intraday_flip_count = int(_atm_snap.get("ml_flip_count") or 0)
         _flip_history        = _atm_snap.get("ml_flip_history") or []
 
+        # ── Retrospective blow-past warning level ─────────────────────────
+        # Mirrors the scoring in api/flip-risk.js so we can track warning
+        # calibration over time: "when we WARNED blow-past HIGH, how often
+        # did blow-past actually occur?"  All inputs come from atm_snapshot
+        # which captures the state at canonical-write time.  Computes
+        # blowPoints from the same signals flip-risk.js uses, then buckets
+        # into NONE / MEDIUM / HIGH using the same thresholds (>=3=HIGH,
+        # >=2=MEDIUM, else NONE).
+        _blow_pts = 0
+        _ml_f_canon = _atm_snap.get("ml_f_canonical") or pred.get("ml_f_canonical") or pred.get("ml_f")
+        _obs_t      = _atm_snap.get("obs_snap_temp_live") or _atm_snap.get("obs_snap_knyc_temp")
+        _t925       = _atm_snap.get("obs_snap_t925_live") or _atm_snap.get("obs_snap_t925_hrrr")
+        _wind_dir   = _atm_snap.get("obs_snap_wind_dir_card") or _atm_snap.get("obs_snap_wind_dir")
+        _nws_last   = _atm_snap.get("nws_last") or pred.get("nws_d0")
+        _canon_hour = _atm_snap.get("canonical_hour")
+
+        # Signal A: obs already near predicted high (post-10am, <2°F gap)
+        try:
+            if (_obs_t is not None and _ml_f_canon is not None and _canon_hour is not None
+                    and (float(_ml_f_canon) - float(_obs_t)) < 2.0
+                    and float(_canon_hour) >= 10):
+                _blow_pts += 2
+        except (TypeError, ValueError): pass
+
+        # Signal B: warm 925mb (> 55°F)
+        try:
+            if _t925 is not None and float(_t925) > 55.0:
+                _blow_pts += 2
+        except (TypeError, ValueError): pass
+
+        # Signal C: warm wind direction (SW, S, SSW, WSW)
+        if isinstance(_wind_dir, str) and _wind_dir in ("SW", "S", "SSW", "WSW"):
+            _blow_pts += 2
+
+        # Signal D: ML well above NWS (>3°F)
+        try:
+            if (_ml_f_canon is not None and _nws_last is not None
+                    and (float(_ml_f_canon) - float(_nws_last)) > 3.0):
+                _blow_pts += 1
+        except (TypeError, ValueError): pass
+
+        # Thresholds match flip-risk.js
+        if _blow_pts >= 3:
+            _blow_past_warned = "HIGH"
+        elif _blow_pts >= 2:
+            _blow_past_warned = "MEDIUM"
+        else:
+            _blow_past_warned = "NONE"
+
         # Persist scored features back into atm_snapshot so the training pipeline
         # can use them as ground-truth labels / contextual features next season.
         _atm_snap["scored_blow_past_occurred"]  = _blow_past_occurred
+        _atm_snap["scored_blow_past_warned"]    = _blow_past_warned
+        _atm_snap["scored_blow_past_warn_pts"]  = _blow_pts
         _atm_snap["scored_intraday_flip_count"] = _intraday_flip_count
         if _actual_vs_ceiling is not None:
             _atm_snap["scored_actual_vs_ceiling"] = _actual_vs_ceiling
@@ -4719,6 +4770,7 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
                      if _actual_vs_ceiling is not None else "no ceiling (≥ bucket)")
         print(f"  📈 Scored ML features: blow_past={_blow_past_occurred} "
               f"(actual={actual_high}°F vs {_ceil_str}), "
+              f"warned={_blow_past_warned}(pts={_blow_pts}), "
               f"flip_count={_intraday_flip_count}")
         # ────────────────────────────────────────────────────────────────────────
 
