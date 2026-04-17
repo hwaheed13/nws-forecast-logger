@@ -5887,6 +5887,31 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             if _fs:
                 payload["atm_snapshot"] = json.dumps(_fs)
 
+    # ── Fallback: ensure atm_snapshot is always written ──────────────────────
+    # If we've gotten this far without setting payload["atm_snapshot"], it means:
+    #   - ML didn't recompute (ml_recomputed=False)
+    #   - AND obs-panel refresh didn't run (either not a stable cycle OR no existing row)
+    #   - AND flip tracking didn't set it
+    # This happens on the very first prediction write of a new day before ML runs.
+    # Fetch atmospheric features so the Live Observation Sources panel has data.
+    if "atm_snapshot" not in payload:
+        try:
+            fallback_atm = _fetch_atmospheric_features(target_date_iso)
+            if fallback_atm and any(
+                v is not None and not (isinstance(v, float) and math.isnan(v))
+                for v in fallback_atm.values()
+            ):
+                # Cache for future fallback
+                cache_snapshot(_CITY_KEY, fallback_atm)
+                payload["atm_snapshot"] = json.dumps(fallback_atm)
+                print(f"📸 Fallback atm_snapshot written: {len(fallback_atm)} keys "
+                      f"({sum(1 for v in fallback_atm.values() if v is not None)} non-null)")
+            else:
+                # No data available yet — don't write empty snapshot
+                print(f"⚠️ Fallback atm_snapshot: no atmospheric data available yet")
+        except Exception as _fb_e:
+            print(f"⚠️ Fallback atm_snapshot fetch failed: {_fb_e}")
+
     supabase_upsert(payload)
 
 def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
@@ -6238,6 +6263,25 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
                 _d1_fs["ml_flip_pending_bucket"] = None
             if _d1_fs:
                 payload["atm_snapshot"] = json.dumps(_d1_fs)
+
+    # ── Fallback: ensure atm_snapshot is always written (D+1) ──────────────────
+    # Same logic as write_today_for_today: if we haven't set atm_snapshot yet,
+    # fetch atmospheric features so tomorrow's Live Sources panel has data.
+    if "atm_snapshot" not in payload:
+        try:
+            fallback_atm_tm = _fetch_atmospheric_features(tomorrow_iso)
+            if fallback_atm_tm and any(
+                v is not None and not (isinstance(v, float) and math.isnan(v))
+                for v in fallback_atm_tm.values()
+            ):
+                # Cache for future fallback
+                cache_snapshot(_CITY_KEY, fallback_atm_tm)
+                payload["atm_snapshot"] = json.dumps(fallback_atm_tm)
+                print(f"📸 D+1 fallback atm_snapshot written: {len(fallback_atm_tm)} keys")
+            else:
+                print(f"⚠️ D+1 fallback atm_snapshot: no atmospheric data available yet")
+        except Exception as _fb_e:
+            print(f"⚠️ D+1 fallback atm_snapshot fetch failed: {_fb_e}")
 
     supabase_upsert(payload)
 
