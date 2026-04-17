@@ -5362,6 +5362,15 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     live_atm: dict = {}
     live_obs: dict = {}
 
+    # Initialize _live_bp_payload empty so all write sites that do
+    # `snap.update(_live_bp_payload)` work regardless of which branch fires.
+    # The full-freeze early-exit branch (past atm_cutoff) skips the block
+    # that populates this, but downstream obs-panel refresh + write sites
+    # still run and would hit UnboundLocalError.  Empty dict is a no-op
+    # update; the downstream fields just won't be populated that cycle,
+    # which is correct behavior when we're in freeze state.
+    _live_bp_payload: dict = {}
+
     # ── mm_* carry-key registry and morning-anchor helper ─────────────────────
     # Defined at function scope so they're available in ALL branches:
     #   - the normal intraday branch (carry-forward, restoration loop)
