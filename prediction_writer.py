@@ -56,6 +56,29 @@ def _snap_dumps(snap) -> str:
     return json.dumps(_scrub_nan(snap), allow_nan=False)
 
 
+def _snap_loads(raw) -> dict:
+    """Safe atm_snapshot parser: handles legacy rows that may contain bare
+    NaN / Infinity tokens emitted before the _snap_dumps helper existed.
+    Returns {} on any parse failure rather than crashing the caller."""
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, str):
+        return {}
+    try:
+        return json.loads(raw)
+    except Exception:
+        # Fall back: sanitize NaN / Infinity tokens and retry.
+        try:
+            import re
+            cleaned = re.sub(r':\s*NaN\b', ': null', raw)
+            cleaned = re.sub(r':\s*-?Infinity\b', ': null', cleaned)
+            return json.loads(cleaned)
+        except Exception:
+            return {}
+
+
 def _ts_hour(ts_str: str) -> int | None:
     """Extract local hour (0-23) from a CSV timestamp string.
 
@@ -3863,13 +3886,8 @@ def _check_atmospheric_shift(
     """
     if not live_atm or not stored_snapshot_raw:
         return False, []
-    try:
-        stored = (
-            json.loads(stored_snapshot_raw)
-            if isinstance(stored_snapshot_raw, str)
-            else stored_snapshot_raw
-        )
-    except Exception:
+    stored = _snap_loads(stored_snapshot_raw)
+    if not stored:
         return False, []
 
     reasons = []
@@ -4542,13 +4560,7 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
 
         # Read flip state from yesterday's atm_snapshot (already fetched above).
         _atm_raw = pred.get("atm_snapshot")
-        try:
-            _atm_snap: dict = (
-                json.loads(_atm_raw) if isinstance(_atm_raw, str)
-                else (_atm_raw if isinstance(_atm_raw, dict) else {})
-            ) if _atm_raw else {}
-        except Exception:
-            _atm_snap = {}
+        _atm_snap: dict = _snap_loads(_atm_raw) if _atm_raw else {}
         _intraday_flip_count = int(_atm_snap.get("ml_flip_count") or 0)
         _flip_history        = _atm_snap.get("ml_flip_history") or []
 
@@ -4756,11 +4768,8 @@ def _carry_flip_fields(snap: dict, src_existing: dict) -> None:
     _src_raw = src_existing.get("atm_snapshot") if isinstance(src_existing, dict) else None
     if not _src_raw:
         return
-    try:
-        _src = json.loads(_src_raw) if isinstance(_src_raw, str) else _src_raw
-    except Exception:
-        return
-    if not isinstance(_src, dict):
+    _src = _snap_loads(_src_raw)
+    if not isinstance(_src, dict) or not _src:
         return
     copied = []
     for fk in _FLIP_FIELDS:
@@ -5171,10 +5180,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             # any obs_snap_* key that became None after _add_obs_to_snap if the
             # existing snapshot had a valid value for it.
             _prev_snap_raw = existing.get("atm_snapshot") if isinstance(existing, dict) else None
-            _prev_snap = (
-                json.loads(_prev_snap_raw) if isinstance(_prev_snap_raw, str)
-                else (_prev_snap_raw if isinstance(_prev_snap_raw, dict) else {})
-            )
+            _prev_snap = _snap_loads(_prev_snap_raw) if _prev_snap_raw else {}
             snap = {k: live_atm[k] for k in _ATM_SNAPSHOT_KEYS if k in live_atm}
             if snap:
                 # Inject NWS sequence features — computed inside _compute_ml_prediction()
@@ -5304,13 +5310,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             # outer except block silently catches — causing the entire refresh
             # to be skipped every cycle after the first.  Handle both cases:
             _ex_snap_raw = existing.get("atm_snapshot")
-            try:
-                _ex_snap = (
-                    json.loads(_ex_snap_raw) if isinstance(_ex_snap_raw, str)
-                    else (_ex_snap_raw if isinstance(_ex_snap_raw, dict) else {})
-                )
-            except Exception:
-                _ex_snap = {}
+            _ex_snap = _snap_loads(_ex_snap_raw) if _ex_snap_raw else {}
             # ── Preserve pre-modification snapshot for derived signal deltas ──
             # stored_snapshot_dict is used by inland warming / stratus clearing
             # to compare current values against previous cycle.  On the recompute
@@ -6009,20 +6009,14 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         if _canon_bkt and _curr_bkt:
             # Load whichever snapshot we're writing, or the existing one as fallback
             _fs_raw = payload.get("atm_snapshot") or existing.get("atm_snapshot")
-            try:
-                _fs = (json.loads(_fs_raw) if isinstance(_fs_raw, str)
-                       else (_fs_raw.copy() if isinstance(_fs_raw, dict) else {})) \
-                       if _fs_raw else {}
-            except Exception:
+            _fs = _snap_loads(_fs_raw) if _fs_raw else {}
+            if isinstance(_fs, dict):
+                _fs = _fs.copy()  # don't mutate existing
+            else:
                 _fs = {}
             # Read prior flip state from the existing (pre-write) snapshot
             _pfs_raw = existing.get("atm_snapshot")
-            try:
-                _pfs = (json.loads(_pfs_raw) if isinstance(_pfs_raw, str)
-                        else (_pfs_raw if isinstance(_pfs_raw, dict) else {})) \
-                        if _pfs_raw else {}
-            except Exception:
-                _pfs = {}
+            _pfs = _snap_loads(_pfs_raw) if _pfs_raw else {}
             _prev_flip_count  = int(_pfs.get("ml_flip_count") or 0)
             _prev_pending     = _pfs.get("ml_flip_pending_bucket")   # unconfirmed last run
             _prev_confirmed   = bool(_pfs.get("ml_flip_occurred"))   # ever confirmed?
@@ -6178,10 +6172,7 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     if live_atm_tm and isinstance(existing, dict):
         try:
             _prev_snap_tm_raw = existing.get("atm_snapshot")
-            _prev_snap_tm = (
-                json.loads(_prev_snap_tm_raw) if isinstance(_prev_snap_tm_raw, str)
-                else (_prev_snap_tm_raw if isinstance(_prev_snap_tm_raw, dict) else {})
-            )
+            _prev_snap_tm = _snap_loads(_prev_snap_tm_raw) if _prev_snap_tm_raw else {}
             _carried_tm = []
             for _ck in _MM_CARRY_KEYS_TM:
                 _fresh_v = live_atm_tm.get(_ck)
@@ -6424,19 +6415,13 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
             print(f"  ⚠️  D+1 flip tracking skipped: ml_bucket absent from payload")
         if _d1_canon and _d1_curr:
             _d1_snap_raw = payload.get("atm_snapshot") or existing.get("atm_snapshot")
-            try:
-                _d1_fs = (json.loads(_d1_snap_raw) if isinstance(_d1_snap_raw, str)
-                          else (_d1_snap_raw.copy() if isinstance(_d1_snap_raw, dict) else {})) \
-                         if _d1_snap_raw else {}
-            except Exception:
+            _d1_fs = _snap_loads(_d1_snap_raw) if _d1_snap_raw else {}
+            if isinstance(_d1_fs, dict):
+                _d1_fs = _d1_fs.copy()
+            else:
                 _d1_fs = {}
             _d1_pfs_raw = existing.get("atm_snapshot")
-            try:
-                _d1_pfs = (json.loads(_d1_pfs_raw) if isinstance(_d1_pfs_raw, str)
-                           else (_d1_pfs_raw if isinstance(_d1_pfs_raw, dict) else {})) \
-                          if _d1_pfs_raw else {}
-            except Exception:
-                _d1_pfs = {}
+            _d1_pfs = _snap_loads(_d1_pfs_raw) if _d1_pfs_raw else {}
             _d1_prev_count   = int(_d1_pfs.get("ml_flip_count") or 0)
             _d1_prev_pending = _d1_pfs.get("ml_flip_pending_bucket")
             _d1_prev_history = _d1_pfs.get("ml_flip_history") or []
