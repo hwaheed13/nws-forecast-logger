@@ -165,7 +165,8 @@ def _compute_live_blow_past_level(*, ml_f, nws_f, obs_t, canon_hour,
                                   syn_vs_nws, jfk_vs_nws,
                                   coastal_vs_inland, kjfk_vs_knyc,
                                   hrrr_vs_nws,
-                                  hrrr_cloud_bias_risk=False):
+                                  hrrr_cloud_bias_risk=False,
+                                  nw_convection_pts=0):
     """Port of the blow-past scoring logic from api/flip-risk.js.
 
     Takes LIVE values (not canonical-snapshot values) and returns:
@@ -248,6 +249,14 @@ def _compute_live_blow_past_level(*, ml_f, nws_f, obs_t, canon_hour,
     if hrrr_cloud_bias_risk and blow > 0:
         blow = max(0, blow - 1)
 
+    # NW convection forming upstream (Rockland/Westchester/N-NJ) is an
+    # upside cap — outflow pushes cool air into Manhattan 30-60 min later.
+    # Treat as cap-hold points so the existing cap-suppression logic
+    # handles it uniformly.  Per-cell pts (0-5 from the detector) add
+    # directly to cap total.
+    if nw_convection_pts and nw_convection_pts > 0:
+        cap += int(nw_convection_pts)
+
     # Strong cap (>=4) zeroes blow-past — matches flip-risk.js line 357
     if cap >= 4:
         blow = 0
@@ -295,6 +304,162 @@ def _compute_hrrr_cloud_bias_risk(live_atm: dict, live_obs: dict) -> bool:
         return hrrr_cc < 30.0 and obs_cc > 50.0
     except (TypeError, ValueError):
         return False
+
+
+def _compute_nw_convection_risk(stored_snap: dict, current_snap_partial: dict,
+                                live_obs: dict) -> dict:
+    """Detect convection forming NW/W of NYC (Rockland/Westchester/N-NJ).
+
+    Per Kalshi community (thecloudboy, 2026-04-17): HRRR frequently misses
+    convection forming in these counties, and the convective outflow pushes
+    cool air into Manhattan 30-60 minutes later — capping the daily high
+    below what HRRR predicted.
+
+    Signal: KCDW (Caldwell NJ, ~15mi WNW) cooling faster than KNYC is the
+    leading indicator.  A convective cell dumping rain/outflow on KCDW
+    shows up as a temp drop there before the air reaches Central Park.
+
+    Returns dict with:
+      nw_convection_risk: bool — signal fired this cycle
+      nw_convection_pts:  int  — severity (0-3), higher = stronger signal
+      nw_convection_reason: str — human-readable trigger
+
+    Thresholds chosen from thecloudboy's operational experience:
+      - KCDW dropping 1.5°F+/cycle when KNYC is flat/warming → suspicious
+      - KCDW dropping 2.5°F+/cycle → strong signal
+      - Plus: observed cloud cover rising >15pp corroborates
+    """
+    out = {
+        "nw_convection_risk":   False,
+        "nw_convection_pts":    0,
+        "nw_convection_reason": "",
+    }
+    try:
+        prev_kcdw = stored_snap.get("obs_snap_kcdw") if stored_snap else None
+        curr_kcdw = current_snap_partial.get("obs_snap_kcdw") if current_snap_partial else None
+        if prev_kcdw is None or curr_kcdw is None:
+            return out
+        try:
+            kcdw_delta = float(curr_kcdw) - float(prev_kcdw)
+        except (TypeError, ValueError):
+            return out
+        if math.isnan(kcdw_delta):
+            return out
+
+        # KNYC heating rate for comparison (stable or cooling = bigger concern)
+        knyc_rate = None
+        knyc_rate_raw = (live_obs or {}).get("obs_heating_rate")
+        if knyc_rate_raw is not None:
+            try:
+                knyc_rate = float(knyc_rate_raw)
+                if math.isnan(knyc_rate):
+                    knyc_rate = None
+            except (TypeError, ValueError):
+                knyc_rate = None
+
+        # Cloud cover trend (rising clouds + KCDW cooling = convection)
+        prev_cc = stored_snap.get("obs_snap_cloud_cover") if stored_snap else None
+        curr_cc = current_snap_partial.get("obs_snap_cloud_cover") if current_snap_partial else None
+        cc_rise = None
+        if prev_cc is not None and curr_cc is not None:
+            try:
+                cc_rise = float(curr_cc) - float(prev_cc)
+                if math.isnan(cc_rise):
+                    cc_rise = None
+            except (TypeError, ValueError):
+                cc_rise = None
+
+        pts = 0
+        reasons = []
+
+        # Primary: KCDW cooling meaningfully
+        if kcdw_delta <= -2.5:
+            pts += 3
+            reasons.append(f"KCDW {kcdw_delta:+.1f}°F/cycle (strong cooling)")
+        elif kcdw_delta <= -1.5:
+            pts += 2
+            reasons.append(f"KCDW {kcdw_delta:+.1f}°F/cycle")
+        elif kcdw_delta <= -1.0:
+            pts += 1
+            reasons.append(f"KCDW {kcdw_delta:+.1f}°F/cycle (mild)")
+
+        # Corroborator: KNYC not warming while KCDW drops (differential cooling)
+        if pts > 0 and knyc_rate is not None and knyc_rate <= 0:
+            pts += 1
+            reasons.append(f"KNYC flat/cooling ({knyc_rate:+.1f}°F/hr)")
+
+        # Corroborator: rising cloud cover supports convection hypothesis
+        if pts > 0 and cc_rise is not None and cc_rise >= 15:
+            pts += 1
+            reasons.append(f"cloud rising +{cc_rise:.0f}pp")
+
+        if pts >= 2:
+            out["nw_convection_risk"] = True
+            out["nw_convection_pts"] = pts
+            out["nw_convection_reason"] = "; ".join(reasons)
+        elif pts == 1:
+            # Log weak signal without firing — useful diagnostic
+            out["nw_convection_pts"] = pts
+            out["nw_convection_reason"] = "; ".join(reasons) + " (below threshold)"
+
+        return out
+    except Exception:
+        return out
+
+
+def _compute_solar_window_threat(live_atm: dict, live_obs: dict, current_hour: int) -> dict:
+    """Detect the "solar window before rain" pattern (thecloudboy signal).
+
+    Operational description: strong clear-sky solar heating immediately
+    before an approaching rain line arrives.  Creates a short-lived
+    temperature spike of 1-3°F above what models expect, often pushing
+    a forecast HIGH of 78 into 79-80 territory before the rain drops
+    temps back down.
+
+    Signals used:
+      (a) Forecast precip later in day (rain approaching)
+      (b) Current cloud cover LOW (clear window right now)
+      (c) We're in the peak-heating window (11am-4pm local)
+
+    Returns dict with:
+      solar_window_threat:   bool
+      solar_window_reason:   str
+
+    Because this is a high-variance signal (the "wild random uptick" by
+    thecloudboy's own characterization), it doesn't add blow-past points
+    directly — it's just logged as training signal + optional dashboard
+    display.  Over time, if training data shows strong correlation between
+    this flag and actual upside surprises, a future model can use it.
+    """
+    out = {"solar_window_threat": False, "solar_window_reason": ""}
+    try:
+        if current_hour is None:
+            return out
+        if not (11 <= int(current_hour) <= 16):
+            return out  # Outside peak-heating window
+
+        precip_total = (live_atm or {}).get("atm_precip_total")
+        obs_cc       = (live_obs or {}).get("obs_cloud_cover")
+
+        if precip_total is None or obs_cc is None:
+            return out
+        try:
+            precip_total = float(precip_total); obs_cc = float(obs_cc)
+            if math.isnan(precip_total) or math.isnan(obs_cc):
+                return out
+        except (TypeError, ValueError):
+            return out
+
+        # Rain forecast today (>0.05") + clear right now (cloud <40%)
+        if precip_total > 0.05 and obs_cc < 40.0:
+            out["solar_window_threat"] = True
+            out["solar_window_reason"] = (
+                f"{precip_total:.2f}\" precip forecast today but {obs_cc:.0f}% cloud now "
+                f"(solar window before rain line)"
+            )
+        return out
+    except Exception:
+        return out
 
 
 # Kalshi API base URL (public, no auth needed)
@@ -4917,6 +5082,7 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
                                 or _fnum(_atm_snap.get("obs_kjfk_vs_knyc")),
             hrrr_vs_nws       = _hrrr_vs_nws,
             hrrr_cloud_bias_risk = bool(_atm_snap.get("live_hrrr_cloud_bias_risk")),
+            nw_convection_pts = int(_atm_snap.get("live_nw_convection_pts") or 0),
         )
 
         # Persist scored features back into atm_snapshot so the training
@@ -5395,6 +5561,17 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 return None if (math.isnan(f) or math.isinf(f)) else f
             except (TypeError, ValueError): return None
 
+        # ── NW convection risk (pre-compute so it can feed blow-past scoring) ──
+        # Rockland/Westchester/N-NJ convection cools KCDW first, then pushes
+        # into Manhattan 30-60 min later.  Captured as a cap-hold signal.
+        _current_for_conv = {
+            "obs_snap_kcdw":        (live_obs or {}).get("obs_kcdw_temp"),
+            "obs_snap_cloud_cover": (live_obs or {}).get("obs_cloud_cover"),
+        }
+        _nw_conv = _compute_nw_convection_risk(
+            stored_snapshot_dict or {}, _current_for_conv, live_obs or {}
+        )
+
         # Use ml_f from existing row (canonical or latest) — at this point ml
         # recompute hasn't run yet, so we need the prior prediction as the
         # reference.  Below, after ml_recomputed, we'll recompute the live
@@ -5427,6 +5604,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 lambda h, n: (h - n) if (h is not None and n is not None) else None
             )(_f((live_atm or {}).get("mm_hrrr_max")), _f(nws_latest)),
             "hrrr_cloud_bias_risk": _hrrr_cloud_bias,
+            "nw_convection_pts":    int(_nw_conv.get("nw_convection_pts") or 0),
         }
 
         _live_bp_level, _live_blow_pts, _live_cap_pts = _compute_live_blow_past_level(**live_blow_inputs)
@@ -5461,6 +5639,39 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             "live_blow_past_cap_pts":     _live_cap_pts,
             "live_hrrr_cloud_bias_risk":  bool(_hrrr_cloud_bias),
         }
+
+        # ── NW convection risk (Rockland/Westchester upstream watch) ────────
+        # Per Kalshi community: HRRR often misses convection forming NW/W
+        # of NYC.  Convective outflow cools KCDW (Caldwell NJ) first, then
+        # pushes toward Manhattan over the next 30-60 min.  Detecting the
+        # KCDW temp drop before it reaches KNYC gives an upside-suppressor
+        # signal for the Kalshi bucket.  _nw_conv was computed earlier (before
+        # live_blow_inputs) so the scoring function could consume its
+        # nw_convection_pts via the cap-hold aggregate.  Here we just wire
+        # its fields into the payload so every snapshot write carries them.
+        _live_bp_payload["live_nw_convection_risk"]   = _nw_conv["nw_convection_risk"]
+        _live_bp_payload["live_nw_convection_pts"]    = _nw_conv["nw_convection_pts"]
+        _live_bp_payload["live_nw_convection_reason"] = _nw_conv["nw_convection_reason"]
+        if _nw_conv["nw_convection_risk"]:
+            print(f"  🌩️  NW convection risk: pts={_nw_conv['nw_convection_pts']} "
+                  f"({_nw_conv['nw_convection_reason']})")
+
+        # ── Solar window threat (pre-rain upside spike, thecloudboy signal) ──
+        # High-variance signal — logged as training feature, not added to
+        # blow-past points.  When solar radiation spikes through clear air
+        # right before an approaching rain line, temps can jump 1-3°F in
+        # ~30 min and push past a bucket ceiling unpredictably.  Over time,
+        # if training data shows correlation, a future model can weight it.
+        _cur_hr_for_solar = None
+        try:
+            _cur_hr_for_solar = int(now_nyc().hour)
+        except Exception:
+            pass
+        _sol = _compute_solar_window_threat(live_atm or {}, live_obs or {}, _cur_hr_for_solar)
+        _live_bp_payload["live_solar_window_threat"] = _sol["solar_window_threat"]
+        _live_bp_payload["live_solar_window_reason"] = _sol["solar_window_reason"]
+        if _sol["solar_window_threat"]:
+            print(f"  ☀️  Solar window threat: {_sol['solar_window_reason']}")
 
         atm_triggered, atm_reasons = _check_atmospheric_shift(live_atm, stored_atm_snapshot)
         obs_triggered, obs_reasons = (
