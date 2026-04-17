@@ -3725,42 +3725,90 @@ def backfill_high_timing_features(city_key: str = None) -> str:
 _LOCK_NOT_FOUND = "not_found"
 _LOCK_ERROR = "error"
 
-def _fetch_existing_prediction(target_date_iso: str):
+def _fetch_existing_prediction(target_date_iso: str, lead_used: str = "today_for_today"):
     """
     Check if a prediction already exists in Supabase for this target date.
 
-    Uses a lead-agnostic idempotency key so the first prediction for a given
-    target date wins (tomorrow's prediction locks out today's for the same date).
+    Queries by (city, target_date, lead_used) and returns the MOST RECENT row —
+    this used to query by a deprecated idempotency_key format (`{city}:{model}:{date}`)
+    that pre-dated the 3-hour-bucketed snapshot scheme.  After snapshot_hour was
+    introduced, writes landed in keys like `{city}:{model}:{date}:{hour}`, so the
+    lookup silently never matched real rows.  Result: `existing` was always
+    `_LOCK_NOT_FOUND` (or worse, a stale pre-scheme row from months ago), which
+    made flip tracking, Kalshi-snapshot backfill detection, and accu-baseline
+    advance logic all operate on the wrong anchor.  This version returns the
+    latest actual row so state machines compare against what truly exists.
 
-    Also fetches nws_d0 and accuweather so write_today_for_today can compare
-    the current agency forecasts against the values used in the last ML run,
-    and only recompute when an agency has actually revised their forecast.
+    Cross-lead inheritance: when called from write_today_for_today (lead_used
+    default = "today_for_today"), we ALSO check yesterday's D+1 row for the
+    same target_date.  If D+1 set a canonical yesterday ~10am ET when Kalshi
+    markets opened, D0 must respect that canonical and continue the same flip
+    tracking — otherwise the day rollover silently resets the canonical anchor
+    and the morning's shifts aren't visible.
 
     Returns:
-      dict  – existing prediction row (contains ml_f, ml_bucket, ml_confidence,
-               ml_bucket_probs, ml_version, kalshi_market_snapshot, nws_d0, accuweather)
+      dict  – most recent prediction row for (city, target_date, lead_used),
+              falling back to D+1 row if D0 row missing canonical but D+1 has one
       _LOCK_NOT_FOUND – no row exists yet (compute fresh ML prediction)
       _LOCK_ERROR – network/auth error (skip ML to avoid overwriting)
     """
     try:
         endpoint, key = _sb_endpoint()
-        idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{target_date_iso}"
-        url = (f"{endpoint}?idempotency_key=eq.{idem_key}"
-               f"&select=ml_f,ml_bucket,ml_confidence,ml_bucket_probs,ml_version,"
-               f"kalshi_market_snapshot,nws_d0,accuweather,atm_snapshot,ml_bucket_canonical")
-        req = urllib.request.Request(url, headers={
-            "apikey": key, "Authorization": f"Bearer {key}",
-            "Accept": "application/json",
-        })
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            rows = json.loads(resp.read().decode("utf-8"))
-        if rows and rows[0].get("ml_f") is not None:
+
+        def _query_lead(lead: str):
+            url = (
+                f"{endpoint}"
+                f"?city=eq.{_CITY_KEY}"
+                f"&target_date=eq.{target_date_iso}"
+                f"&lead_used=eq.{lead}"
+                f"&ml_f=not.is.null"
+                f"&order=timestamp.desc"
+                f"&limit=1"
+                f"&select=idempotency_key,ml_f,ml_bucket,ml_confidence,ml_bucket_probs,"
+                f"ml_version,kalshi_market_snapshot,nws_d0,accuweather,atm_snapshot,"
+                f"ml_bucket_canonical,ml_f_canonical"
+            )
+            req = urllib.request.Request(url, headers={
+                "apikey": key, "Authorization": f"Bearer {key}",
+                "Accept": "application/json",
+            })
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                rows = json.loads(resp.read().decode("utf-8"))
+            return rows[0] if (rows and rows[0].get("ml_f") is not None) else None
+
+        # Primary: query rows matching the requested lead
+        primary = _query_lead(lead_used)
+
+        # Cross-lead fallback: when D0 runs and finds no canonical for this target
+        # date under its own lead, check yesterday's D+1 row for the same target
+        # date.  Pulls in yesterday's ~10am canonical + any flip history D+1 built
+        # up overnight, so the D0 transition doesn't reset state.
+        if lead_used == "today_for_today" and (
+            primary is None or primary.get("ml_bucket_canonical") is None
+        ):
+            d1_row = _query_lead("today_for_tomorrow")
+            if d1_row is not None and d1_row.get("ml_bucket_canonical") is not None:
+                if primary is None:
+                    print(f"  🔗 D0 inheriting state from yesterday's D+1 row "
+                          f"(canonical={d1_row.get('ml_bucket_canonical')})")
+                    primary = d1_row
+                else:
+                    # D0 row exists but has no canonical yet — graft D+1's
+                    # canonical + flip state onto the D0 row we return.
+                    for _k in ("ml_bucket_canonical", "ml_f_canonical", "atm_snapshot"):
+                        _v = d1_row.get(_k)
+                        if _v is not None and primary.get(_k) is None:
+                            primary[_k] = _v
+                    print(f"  🔗 D0 grafted canonical from yesterday's D+1 row "
+                          f"(canonical={primary.get('ml_bucket_canonical')})")
+
+        if primary is not None:
             # Allow force-recompute for specific dates (e.g., after code fix)
             force_dates = os.environ.get("FORCE_RECOMPUTE_DATES", "")
             if target_date_iso in force_dates.split(","):
                 print(f"🔓 Force-recompute enabled for {target_date_iso}")
                 return _LOCK_NOT_FOUND
-            return rows[0]
+            return primary
         return _LOCK_NOT_FOUND
     except Exception as e:
         print(f"⚠️ Could not check existing prediction: {e}")
@@ -6062,7 +6110,7 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     # Intraday re-prediction for tomorrow: always recompute ML.
     # Today's observations (obs_temp_vs_forecast_max) inform tomorrow's prediction.
     # As today's high climbs, that signal flows into tomorrow's forecast.
-    existing = _fetch_existing_prediction(tomorrow_iso)
+    existing = _fetch_existing_prediction(tomorrow_iso, lead_used="today_for_tomorrow")
     tomorrow_market_probs = _fetch_kalshi_market_probs(tomorrow_iso)
     if isinstance(existing, dict):
         print(f"🔄 Recomputing tomorrow's prediction (previous: {existing['ml_f']}°F → {existing.get('ml_bucket')})")
