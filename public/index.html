@@ -4125,26 +4125,44 @@ window._atmFeatures = null;
 
 async function fetchAtmFeatures() {
   try {
-    const r = await fetch(`/api/atm-features?city=${currentCity}&cb=${Date.now()}`, { signal: AbortSignal.timeout(15000) });
-    if (!r.ok) return;
+    const url = `/api/atm-features?city=${currentCity}&cb=${Date.now()}`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!r.ok) {
+      console.error(`[Atm-Features] Fetch failed: ${r.status} ${r.statusText}`);
+      return;
+    }
     const d = await r.json();
     window._atmFeatures = d;
+    console.debug(`[Atm-Features] Fetched for ${currentCity}:`, d);
     renderAtmSignals();
     // Refresh flip risk now that we have fresh atmospheric signals
     fetchFlipRisk();
-  } catch {}
+  } catch (err) {
+    console.error(`[Atm-Features] Error:`, err);
+  }
 }
 
 function renderAtmSignals() {
   const panel = document.getElementById('atm-signals-panel');
   const grid  = document.getElementById('atm-signals-grid');
   const ts    = document.getElementById('atm-signals-ts');
-  if (!panel || !grid) return;
+  if (!panel || !grid) {
+    console.error('[Atm-Signals] Missing DOM elements');
+    return;
+  }
 
   const d = window._atmFeatures;
-  if (!d) { panel.style.display = 'none'; return; }
+  if (!d) {
+    console.debug('[Atm-Signals] No data available yet');
+    panel.style.display = 'none';
+    return;
+  }
   // Stale guard: don't show data from a different city
-  if (d.city && d.city !== currentCity) { panel.style.display = 'none'; return; }
+  if (d.city && d.city !== currentCity) {
+    console.debug(`[Atm-Signals] Data is for ${d.city}, current is ${currentCity}`);
+    panel.style.display = 'none';
+    return;
+  }
 
   const pk  = d.peak_heating || {};
   const cur = d.current || {};
