@@ -4348,8 +4348,11 @@ function renderAtmSignals() {
   if (_snapStratusClearing) _warmSigs++;
   // Inland warming acceleration: NNJ stations rising fast = warm advection arriving (warm-signal)
   if (_snapWarmingAccel) _warmSigs++;
-  // Live NNJ gradient: inland significantly warmer than coast = warm air advancing (warm-signal)
-  if (_strongGradient) _warmSigs++;
+  // Live NNJ gradient: inland significantly warmer than coast = warm air
+  // advancing (warm-signal) — but ONLY if inland is actively warming.
+  // A static +5°F gradient at night is just differential cooling, not
+  // advection (see comments in the nowcastLines block below).
+  if (_strongGradient && _snapInlandRate != null && Number(_snapInlandRate) > 0) _warmSigs++;
   else if (_coolGradient) _coolSigs++;
 
   const _totalSigs = _warmSigs + _coolSigs;
@@ -4369,9 +4372,51 @@ function renderAtmSignals() {
   }
   if (_strongGradient) {
     const _gSrc = _liveSmqForGrad != null ? 'SMQ' : 'CDW';
-    _nowcastLines += `<div style="font-size:11px;margin-top:4px;color:#d97706;font-weight:600;">
-      🌡️ NNJ inland gradient +${_liveGradient}°F (JFK→${_gSrc}) — warm air advancing toward coast
-    </div>`;
+    // ── Time-of-day / warming-direction gating ──────────────────────────
+    // A +5°F inland gradient has opposite meanings depending on context:
+    //
+    //   1. Daytime (10am-5pm) + inland temps RISING
+    //      → classical "warm air advancing toward coast" ahead of peak
+    //
+    //   2. Nighttime + inland temps RISING
+    //      → rare but real: nocturnal heat advection (warm front passing
+    //      through, summer heat-wave patterns, low-level jet). Still
+    //      meaningful for tomorrow's high.
+    //
+    //   3. Any time + inland temps FLAT or FALLING
+    //      → NOT advection — just differential cooling rates (coastal
+    //      cooling via sea breeze or marine layer faster than inland).
+    //      Noisy post-sunset, misleading if labeled "warm air advancing."
+    //
+    // Gate: only render advection label when inland is ACTIVELY warming
+    // (_snapInlandRate > 0).  This distinguishes signal from cooling
+    // differential regardless of time of day.
+    const dispTZ = currentCity === 'lax' ? 'America/Los_Angeles' : 'America/New_York';
+    const _hrLocal = parseInt(
+      new Date().toLocaleString('en-US', { timeZone: dispTZ, hour: 'numeric', hour12: false }),
+      10,
+    );
+    const _isPeakHeating = _hrLocal >= 10 && _hrLocal <= 17;
+    const _inlandActivelyWarming = _snapInlandRate != null && Number(_snapInlandRate) > 0;
+
+    if (_inlandActivelyWarming) {
+      // True advection — inland stations rising.  Label reflects time-of-day context.
+      const _advLabel = _isPeakHeating
+        ? 'warm air advancing toward coast'
+        : 'nocturnal heat advection — inland still warming';
+      _nowcastLines += `<div style="font-size:11px;margin-top:4px;color:#d97706;font-weight:600;">
+        🌡️ NNJ inland gradient +${_liveGradient}°F (JFK→${_gSrc}) — ${_advLabel}
+      </div>`;
+    } else if (_isPeakHeating) {
+      // Strong gradient during peak heating but inland not warming — unusual.
+      // Show as a neutral observation, not a "warm air advancing" claim.
+      _nowcastLines += `<div style="font-size:11px;margin-top:4px;color:#6b7280;font-weight:600;">
+        🌡️ NNJ inland gradient +${_liveGradient}°F (JFK→${_gSrc}) — static spread, inland flat
+      </div>`;
+    }
+    // Evening + not warming: suppress entirely.  A +5°F gradient at 9pm
+    // with everyone cooling is just differential cooling — not actionable
+    // signal for tomorrow's high, and misleading as "warm advancing."
   }
   if (_totalSigs >= 3) {
     if (_warmSigs >= _totalSigs * 0.75) {
