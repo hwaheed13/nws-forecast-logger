@@ -1103,6 +1103,104 @@ def _reconcile_obs_with_fresh(live_obs: dict, dlock_result: dict) -> dict:
     return reconciled
 
 
+def _apply_physical_floor(
+    ml: Optional[dict],
+    dlock_result: dict,
+    buffer: float = 0.2,
+) -> Optional[dict]:
+    """
+    Apply a physical-validity floor to ml_f: the predicted daily high cannot
+    be LOWER than what's already been observed today.
+
+    Failure mode this addresses (observed 2026-04-18 LAX):
+      - At 12:00 PDT, max hit 75.9°F at KLAX area
+      - Temps started falling after peak
+      - Some mid-day cycle recomputed ML → output 73.7°F (thermometer-chasing)
+      - Dashboard card showed "⛔ LIVE DATA EXCEEDS PREDICTION" — an admission
+        that the predicted high (73.7) is physically impossible given observed
+        max (75.9) is already in the books
+      - Freeze then held 73.7 for rest of day → lost bet (actual 75-76 bucket)
+
+    Core physical constraint: the day's HIGH cannot be less than any value
+    already measured today.  If observed max is 75.9, the prediction for
+    today's high must be at least 75.9 (modulo rounding/measurement noise).
+    Applied AFTER the model runs so the model still uses all its features to
+    inform the direction and magnitude of the prediction — we only clip the
+    output when it would be physically impossible.
+
+    When ml_f < obs_high_f - buffer:
+      - ml_f is floored to obs_high_f
+      - ml_bucket is re-derived via temp_to_bucket_label (internal label)
+      - ml_bucket_probs is filtered via _apply_observed_floor (removes buckets
+        whose UPPER bound is below observed floor, renormalizes the rest)
+      - A log line is emitted noting the adjustment
+
+    Args:
+      ml: dict from _compute_ml_prediction or freeze-branch passthrough, or None
+      dlock_result: output of _detect_high_locked (has obs_high_f)
+      buffer: small tolerance (°F) to absorb measurement/rounding noise.
+              Default 0.2°F — prediction only floored if clearly below observed.
+
+    Returns:
+      ml dict (mutated in place) or None if input was None.
+    """
+    if ml is None or not isinstance(ml, dict):
+        return ml
+    if not isinstance(dlock_result, dict):
+        return ml
+
+    obs_high = dlock_result.get("obs_high_f")
+    if obs_high is None:
+        return ml
+
+    try:
+        obs_high_f = float(obs_high)
+        ml_f = float(ml.get("ml_f"))
+    except (TypeError, ValueError):
+        return ml
+
+    # Only clip when ml is clearly below observed max (beyond the buffer).
+    # Equality and within-buffer cases preserve original value — measurement
+    # noise between stations shouldn't trigger spurious floors.
+    if ml_f >= obs_high_f - buffer:
+        return ml
+
+    old_bucket = ml.get("ml_bucket")
+    old_ml_f = ml_f
+
+    # Floor ml_f to observed max.  Using obs_high exactly (not obs_high + buffer)
+    # since the model shouldn't REDUCE the prediction below what we've seen —
+    # and shouldn't over-correct either.  Let the floor be tight.
+    new_ml_f = round(float(obs_high_f), 1)
+    ml["ml_f"] = new_ml_f
+
+    # Re-derive ml_bucket from new ml_f using the same internal label function
+    # ML uses.  temp_to_bucket_label uses floor: 75.9 → "75-76", 76.0 → "76-77".
+    try:
+        from model_config import temp_to_bucket_label
+        new_bucket = temp_to_bucket_label(new_ml_f)
+        ml["ml_bucket"] = new_bucket
+    except Exception:
+        new_bucket = old_bucket  # keep old if mapping fails
+
+    # Filter bucket_probs: drop buckets whose upper bound is below observed.
+    # If model had 73-74: 0.6, 74-75: 0.3, 75-76: 0.1 and obs is 75.9,
+    # drop 73-74 and 74-75 (upper bounds 74, 75 both < floor=75), keep 75-76.
+    probs = ml.get("ml_bucket_probs")
+    if isinstance(probs, dict) and probs:
+        filtered = _apply_observed_floor(probs, new_ml_f)
+        if filtered:
+            ml["ml_bucket_probs"] = filtered
+
+    print(
+        f"🚧 Physical floor applied: ml_f {old_ml_f:.1f}°F → {new_ml_f:.1f}°F "
+        f"(observed max {obs_high_f:.1f}°F is already higher) | "
+        f"bucket {old_bucket} → {new_bucket}"
+    )
+
+    return ml
+
+
 def _check_prediction_divergence(
     dlock_result: dict,
     existing_ml_f: float | None,
@@ -6756,6 +6854,19 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             print(f"⚠️  Obs panel refresh skipped: {_e}")
 
     if ml:
+        # ── Physical floor (2026-04-18) ─────────────────────────────────────
+        # Guarantee ml_f is not below observed max.  The day's HIGH cannot be
+        # less than any value already measured today.  If the model (via any
+        # path: recompute, freeze-hold, canonical-inherit) produced ml_f <
+        # obs_high_f - 0.2°F, we clip it up.  The model still uses all its
+        # features — this is a post-inference physical-validity constraint,
+        # not a feature adjustment.
+        #
+        # Today's LAX example: model held at 73.7°F while observed max was
+        # 75.9°F.  Dashboard literally showed "LIVE DATA EXCEEDS PREDICTION"
+        # warning users not to trust the call.  Physical floor fixes that.
+        ml = _apply_physical_floor(ml, _dlock)
+
         payload["ml_f"] = ml["ml_f"]
         payload["ml_bucket"] = ml["ml_bucket"]
         payload["ml_confidence"] = ml["ml_confidence"]
