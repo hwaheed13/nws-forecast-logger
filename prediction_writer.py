@@ -6507,6 +6507,19 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 if existing.get("ml_bucket_canonical") is not None:
                     payload["ml_bucket_canonical"] = existing["ml_bucket_canonical"]
             _log_ml_revision(target_date_iso, "today_for_today", ml, "first_write")
+            # ── Baseline rebuild guard ─────────────────────────────────────
+            # Only do the "first-write baseline snap" rebuild when the
+            # stable-cycle block DIDN'T already populate payload["atm_snapshot"]
+            # with a rich _ex_snap (which includes fresh Synoptic + obs keys
+            # we just fetched).  Without this guard, the rebuild below would
+            # start from snap = {} + fill_missing_from_cache, producing a thin
+            # snapshot that overwrites the good one via merge-duplicates.
+            # Symptom: every cycle writes a thinner snapshot, progressively
+            # wiping Synoptic / obs keys from the Supabase row (observed
+            # 2026-04-17: snapshot degraded from 140 non-null → 84 over 8 hrs).
+            _already_has_rich_snap = "atm_snapshot" in payload
+            if _already_has_rich_snap:
+                print(f"  ✓ Skipping baseline rebuild — stable-cycle already wrote rich snapshot")
             # Store morning atmospheric + obs baseline on canonical write.
             # On subsequent runs, live_atm and live_obs are compared against this
             # snapshot to detect intraday shifts BEFORE agencies update forecasts.
@@ -6514,7 +6527,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             # An empty snapshot (just obs_snap_* keys) is better than NULL which
             # breaks dashboard rendering and stable-cycle recovery.
             snap = {}
-            if live_atm and any(
+            if not _already_has_rich_snap and live_atm and any(
                 v is not None and not (isinstance(v, float) and math.isnan(v))
                 for v in live_atm.values()
             ):
@@ -6522,12 +6535,13 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 snap = {k: live_atm[k] for k in _ATM_SNAPSHOT_KEYS if k in live_atm}
             # Fill any missing atm_* / mm_* keys from cache to ensure Multi-Model Spread / HRRR vs NWS
             # cards always have data even if Open-Meteo ensemble or Synoptic fetch failed.
-            snap = fill_missing_from_cache(_CITY_KEY, snap)
+            if not _already_has_rich_snap:
+                snap = fill_missing_from_cache(_CITY_KEY, snap)
             # Always write snapshot on canonical (first-write) path, even if empty.
             # An empty snapshot dict still allows _add_obs_to_snap to populate obs_snap_*
             # display keys, which is essential for the "Live Observation Sources" panel.
             # NULL snapshot breaks dashboard panel rendering and makes the cards disappear.
-            if True:  # Always run on canonical write to ensure snapshot is always persisted
+            if not _already_has_rich_snap:  # Skip if stable-cycle already wrote fresh snap
                     # Inject NWS sequence features — computed inside _compute_ml_prediction()
                     # but not returned via live_atm (which is Open-Meteo only).
                     _inject_nws_sequence_to_snap(snap, nws_latest, target_date_iso, rows)
