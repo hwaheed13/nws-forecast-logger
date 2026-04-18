@@ -978,6 +978,66 @@ def _load_v7_models():
     )
 
 
+def _check_prediction_divergence(
+    dlock_result: dict,
+    existing_ml_f: float | None,
+    divergence_threshold: float = 2.5,
+) -> tuple[bool, str]:
+    """
+    Check if the existing prediction has clearly diverged from observed reality.
+
+    Safety net trigger that runs every cycle regardless of time-of-day or freeze
+    state.  Fires when stored ml_f is clearly wrong vs. observations.  Works in
+    tandem with the always-recompute behavior added in the same refactor — even
+    when triggers are removed, if we're past_cutoff and the prediction is wildly
+    off, this forces a freeze-override recompute.
+
+    FAILURE MODE THIS ADDRESSES (observed 2026-04-18):
+      - Morning prediction locked at 67.6°F
+      - Max observed all day capped at 64.9°F with temps falling 2+ hours
+      - past_cutoff put ML into full freeze after 3pm → no recompute
+      - Result: ml_f held at 67.6°F for 14+ hours while reality said 65°F max
+
+    TRIGGER LOGIC (returns True if ANY fires):
+      Cooling divergence:
+        obs_max_so_far < ml_f - threshold AND temps falling ≥ 2 hours
+      Blow-past divergence:
+        obs_max_so_far > ml_f + threshold  (no falling_hrs requirement)
+
+    Returns (diverged: bool, reason: str).
+    """
+    if existing_ml_f is None:
+        return False, ""
+
+    obs_max = dlock_result.get("obs_high_f")
+    falling_hrs = int(dlock_result.get("falling_hrs") or 0)
+
+    if obs_max is None:
+        return False, ""
+
+    try:
+        ml_f = float(existing_ml_f)
+        obs_max = float(obs_max)
+    except (TypeError, ValueError):
+        return False, ""
+
+    if obs_max < ml_f - divergence_threshold and falling_hrs >= 2:
+        return True, (
+            f"obs_diverging_low: max_so_far={obs_max:.1f}°F vs "
+            f"prediction={ml_f:.1f}°F (Δ={obs_max - ml_f:+.1f}°F, "
+            f"falling {falling_hrs}h)"
+        )
+
+    if obs_max > ml_f + divergence_threshold:
+        return True, (
+            f"obs_diverging_high: max_so_far={obs_max:.1f}°F vs "
+            f"prediction={ml_f:.1f}°F (Δ={obs_max - ml_f:+.1f}°F, "
+            f"blow-past forming)"
+        )
+
+    return False, ""
+
+
 def _detect_high_locked(target_date_iso: str,
                         nws_forecast: float | None = None) -> dict:
     """
@@ -5415,6 +5475,30 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         past_cutoff   = True
         print(f"🔒 Dynamic high-lock overrides clock cutoffs: {_dlock['reason']}")
 
+    # ── Divergence override: force recompute when prediction clearly wrong ─────
+    # Safety net: when stored ml_f has clearly diverged from observed reality
+    # (≥2.5°F off with falling temps, or blow-past exceeding prediction), force
+    # the normal recompute branch to run even if past_cutoff is active.
+    #
+    # Context: Commit 1 of obs-unification refactor (2026-04-18).  Even with
+    # always-recompute in the normal branch, past_cutoff still freezes ML hold.
+    # This override ensures we never hold a clearly-wrong prediction.
+    _divergence_detected = False
+    _divergence_reason = ""
+    if not has_actual_today and isinstance(existing, dict):
+        _divergence_detected, _divergence_reason = _check_prediction_divergence(
+            _dlock, existing.get("ml_f"),
+        )
+        if _divergence_detected and past_cutoff:
+            # Release past_cutoff + atm_cutoff so normal branch runs with fresh obs.
+            # Keep agency_cutoff True (so NWS/Accu baselines don't advance from
+            # post-peak thermometer values).
+            past_cutoff = False
+            atm_cutoff  = False
+            print(f"🔀 Divergence override: releasing full freeze — {_divergence_reason}")
+        elif _divergence_detected:
+            print(f"🔀 Divergence detected (pre-cutoff): {_divergence_reason}")
+
     if has_actual_today and isinstance(existing, dict):
         # Day is over — actual recorded. Prediction is final.
         print(f"🔒 Actual high recorded — prediction frozen: {existing['ml_f']}°F → {existing.get('ml_bucket')}")
@@ -5694,54 +5778,48 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             nws_revised = False   # agencies echo observed temps after 2pm
             accu_revised = False
 
-        # AccuWeather revisions advance the stored baseline (so future comparisons are
-        # correct) but do NOT trigger an ML recompute — AccuWeather often echoes observed
-        # temps intraday, which would cause the ML to chase the thermometer.
-        # NWS, atmospheric shifts, and obs ground-truth are the independent signals.
-        if nws_revised or atm_triggered or obs_triggered:
-            trigger_reasons = []
-            if nws_revised:
-                trigger_reasons.append(f"NWS {stored_nws:.0f}→{nws_latest:.0f}°F")
-            if atm_triggered:
-                trigger_reasons.extend(atm_reasons)
-            if obs_triggered:
-                trigger_reasons.extend(obs_reasons)
-            print(f"🔄 ML recompute triggered: {', '.join(trigger_reasons)}")
-            # Pass prefetched atmospheric data — avoids redundant API calls (~15-20s)
-            ml = _compute_ml_prediction(rows, target_date_iso, prefetched_atm=live_atm)
-            ml_recomputed = True
-            if ml:
-                _log_ml_revision(target_date_iso, "today_for_today", ml, ", ".join(trigger_reasons))
-        elif accu_revised:
-            # AccuWeather revised — advance baseline only, no ML recompute.
-            accu_disp = f"{stored_accu:.0f}→{accu_latest:.0f}°F"
-            print(f"📌 AccuWeather revised ({accu_disp}) — advancing baseline, ML held: "
-                  f"{existing['ml_f']}°F → {existing.get('ml_bucket')}")
-            ml_recomputed = True  # causes nws_d0/accuweather baseline to advance in payload
-            ml = {
-                "ml_f": existing["ml_f"],
-                "ml_bucket": existing["ml_bucket"],
-                "ml_confidence": existing["ml_confidence"],
-                "ml_bucket_probs": existing.get("ml_bucket_probs"),
-                "ml_version": existing.get("ml_version"),
-            }
+        # ── Fix A (2026-04-18): Always recompute ML inference every cycle ──────
+        # Previously: gated on `nws_revised or atm_triggered or obs_triggered`,
+        # meaning the model held for hours when none of those fired.  This caused
+        # the 2026-04-18 failure where ml_f=67.6°F held all day while actual max
+        # was 64.9°F — no trigger detected the divergence because NWS held,
+        # AccuWeather held, atm was stable, and obs triggers were silenced past
+        # 2pm agency_cutoff.
+        #
+        # New behavior: ALWAYS run _compute_ml_prediction() in the normal branch.
+        # The model has features for max_so_far, heating_rate, cloud_cover, BL
+        # depth, etc. — trust it to weigh them correctly each cycle.  Triggers
+        # still detected for LOGGING (so we can see what drove meaningful changes
+        # vs. what would have been "no-op" recomputes under the old rule).
+        trigger_reasons = []
+        if nws_revised:
+            trigger_reasons.append(f"NWS {stored_nws:.0f}→{nws_latest:.0f}°F")
+        if atm_triggered:
+            trigger_reasons.extend(atm_reasons)
+        if obs_triggered:
+            trigger_reasons.extend(obs_reasons)
+        if _divergence_detected:
+            trigger_reasons.append(_divergence_reason)
+        if accu_revised:
+            # AccuWeather advances baseline even without causing recompute in the
+            # old logic.  Keep the label for logging so we know it shifted.
+            trigger_reasons.append(f"AccuWx {stored_accu:.0f}→{accu_latest:.0f}°F (baseline)")
 
-        elif stored_nws is None and stored_accu is None:
-            # No stored baseline (row predates this logic). Recompute once to
-            # establish nws_d0/accuweather/atm_snapshot baseline going forward.
-            print(f"🔄 No stored forecast baseline — recomputing to establish "
-                  f"(previous: {existing['ml_f']}°F → {existing.get('ml_bucket')})")
-            ml = _compute_ml_prediction(rows, target_date_iso, prefetched_atm=live_atm)
-            ml_recomputed = True
-            if ml:
-                _log_ml_revision(target_date_iso, "today_for_today", ml, "baseline_reestablish")
-
-        else:
-            # No revision since last ML run — hold the existing prediction.
-            nws_disp  = f"{nws_latest:.0f}°F"  if nws_latest  is not None else "N/A"
-            accu_disp = f"{accu_latest:.0f}°F" if accu_latest is not None else "N/A"
-            print(f"⏸️ No triggers fired (NWS={nws_disp}, AccuWeather={accu_disp} unchanged, "
-                  f"atm stable) — ML held: {existing['ml_f']}°F → {existing.get('ml_bucket')}")
+        _trigger_summary = ", ".join(trigger_reasons) if trigger_reasons else "no_discrete_triggers"
+        print(f"🔄 ML recompute (every cycle): {_trigger_summary}")
+        ml = _compute_ml_prediction(rows, target_date_iso, prefetched_atm=live_atm)
+        ml_recomputed = True
+        if ml:
+            # Log the revision reason — use trigger list if populated, else a
+            # generic "intraday refresh" label so we can distinguish trigger-
+            # driven changes from routine polling updates in the revision log.
+            _rev_reason = ", ".join(trigger_reasons) if trigger_reasons else "intraday_refresh"
+            _log_ml_revision(target_date_iso, "today_for_today", ml, _rev_reason)
+        elif existing is not None and isinstance(existing, dict):
+            # _compute_ml_prediction returned None (model unavailable / insufficient
+            # data).  Fall back to existing prediction so we don't drop the row.
+            print(f"  ⚠️ ML recompute returned None — holding existing: "
+                  f"{existing.get('ml_f')}°F → {existing.get('ml_bucket')}")
             ml = {
                 "ml_f": existing["ml_f"],
                 "ml_bucket": existing["ml_bucket"],
