@@ -978,6 +978,131 @@ def _load_v7_models():
     )
 
 
+def _reconcile_obs_with_fresh(live_obs: dict, dlock_result: dict) -> dict:
+    """
+    Reconcile CSV-derived live_obs with fresh NWS API obs from _detect_high_locked.
+
+    Problem this addresses (observed 2026-04-18):
+      - `python prediction_writer.py collect_obs` runs at workflow start but can
+        have partial failures (today: KNYC timed out for some runs)
+      - When collect_obs doesn't fully update the CSV, subsequent
+        _fetch_observation_features reads return STALE cached values
+      - Result: live_obs["obs_latest_temp"]=57.9°F (dawn reading) persists for
+        hours while actual NWS obs show current=60.1°F, max=64.9°F
+      - Model recompute uses stale values → prediction doesn't update
+      - Snapshot writes stale values → dashboard cards show stale data
+
+    Meanwhile _detect_high_locked fetches directly from api.weather.gov/stations/
+    {station}/observations every cycle and gets fresh data.  This helper uses
+    that fresh data to override CSV values when they diverge ≥1.5°F.
+
+    Why 1.5°F threshold: when CSV and fresh agree within 1.5°F, we keep CSV
+    because its derived fields (heating_rate, vs_forecast, falling_hrs from
+    full history) are computed from the same point-in-time.  Override them
+    piecemeal could produce inconsistent feature vectors.  When they diverge
+    >1.5°F the CSV is definitively stale — override with fresh and let the
+    downstream writers use the new values.
+
+    Fields reconciled (only "current state" fields, not derived/historical):
+      obs_latest_temp    ← dlock_result["current_f"]
+      obs_max_so_far     ← dlock_result["obs_high_f"]  (max is monotonic;
+                           fresh value is the authoritative high of the day)
+      obs_temp_falling_hrs ← dlock_result["falling_hrs"]
+
+    Fields NOT reconciled (keep CSV-derived):
+      obs_heating_rate, obs_vs_intra_forecast, obs_is_overnight_high,
+      obs_high_peak_hour — require historical context from CSV.
+
+    Args:
+      live_obs: dict from _fetch_observation_features (may be stale-cached)
+      dlock_result: dict from _detect_high_locked (always fresh NWS API)
+
+    Returns:
+      New dict with reconciled values.  Input live_obs not mutated.
+    """
+    if not isinstance(live_obs, dict):
+        return live_obs
+    if not isinstance(dlock_result, dict):
+        return dict(live_obs)
+
+    fresh_current = dlock_result.get("current_f")
+    fresh_max = dlock_result.get("obs_high_f")
+    fresh_falling = dlock_result.get("falling_hrs")
+
+    reconciled = dict(live_obs)
+    overrides: list[str] = []
+
+    # Reconcile current temp: override CSV if fresh diverges ≥1.5°F.
+    csv_current = live_obs.get("obs_latest_temp")
+    if fresh_current is not None:
+        try:
+            fc = float(fresh_current)
+            if csv_current is None or (
+                isinstance(csv_current, float) and math.isnan(csv_current)
+            ):
+                reconciled["obs_latest_temp"] = fc
+                overrides.append(f"obs_latest_temp: CSV null→fresh {fc:.1f}°F")
+            else:
+                cc = float(csv_current)
+                if abs(fc - cc) >= 1.5:
+                    reconciled["obs_latest_temp"] = fc
+                    overrides.append(
+                        f"obs_latest_temp: CSV {cc:.1f}°F → fresh {fc:.1f}°F "
+                        f"(Δ={fc-cc:+.1f})"
+                    )
+        except (TypeError, ValueError):
+            pass
+
+    # Reconcile max_so_far: fresh max is authoritative for the day.
+    # Always override if CSV < fresh (max only goes up).  If CSV > fresh
+    # (rare race condition), keep CSV since it saw something fresh didn't.
+    csv_max = live_obs.get("obs_max_so_far")
+    if fresh_max is not None:
+        try:
+            fm = float(fresh_max)
+            if csv_max is None or (
+                isinstance(csv_max, float) and math.isnan(csv_max)
+            ):
+                reconciled["obs_max_so_far"] = fm
+                overrides.append(f"obs_max_so_far: CSV null→fresh {fm:.1f}°F")
+            else:
+                cm = float(csv_max)
+                if fm > cm + 0.1:  # small tolerance for FP noise
+                    reconciled["obs_max_so_far"] = fm
+                    overrides.append(
+                        f"obs_max_so_far: CSV {cm:.1f}°F → fresh {fm:.1f}°F "
+                        f"(stale by {fm-cm:+.1f})"
+                    )
+        except (TypeError, ValueError):
+            pass
+
+    # Reconcile falling_hrs: fresh is always more current.
+    # Only override if there's a clear disagreement.
+    if fresh_falling is not None:
+        try:
+            ff = int(fresh_falling)
+            csv_falling = live_obs.get("obs_temp_falling_hrs")
+            if csv_falling is None or (
+                isinstance(csv_falling, float) and math.isnan(csv_falling)
+            ):
+                reconciled["obs_temp_falling_hrs"] = float(ff)
+                overrides.append(f"obs_temp_falling_hrs: CSV null→fresh {ff}h")
+            else:
+                cf = int(float(csv_falling))
+                if abs(ff - cf) >= 1:
+                    reconciled["obs_temp_falling_hrs"] = float(ff)
+                    overrides.append(
+                        f"obs_temp_falling_hrs: CSV {cf}h → fresh {ff}h"
+                    )
+        except (TypeError, ValueError):
+            pass
+
+    if overrides:
+        print(f"  🔁 Obs reconciliation (CSV was stale): {'; '.join(overrides)}")
+
+    return reconciled
+
+
 def _check_prediction_divergence(
     dlock_result: dict,
     existing_ml_f: float | None,
@@ -1845,6 +1970,7 @@ def _compute_bet_signal(
 def _compute_ml_prediction(
     rows: list[dict], target_date_iso: str,
     prefetched_atm: Optional[dict] = None,
+    prefetched_obs: Optional[dict] = None,
 ) -> Optional[dict]:
     """
     Compute ML bias-corrected prediction for *target_date_iso* using the
@@ -1855,6 +1981,18 @@ def _compute_ml_prediction(
         and use this dict instead. Used when the caller already fetched live
         atmospheric data for the intraday shift comparison, to avoid a redundant
         set of 3 Open-Meteo API calls (~15-20 seconds each run).
+
+    prefetched_obs: if provided, skip the internal _fetch_observation_features()
+        call and use this dict instead.  Added 2026-04-18 so the caller can
+        pass in an obs dict that's already been reconciled against fresh NWS
+        API data from _detect_high_locked.  The internal CSV-cache-based
+        _fetch_observation_features can return stale values when the workflow's
+        collect_obs step had partial failures — reconciling at the caller and
+        passing in fresh values here ensures the MODEL sees the same obs the
+        SNAPSHOT is writing.  Only used by same-day (today_for_today) callers;
+        D+1 callers keep the default internal fetch path (which queries Supabase
+        directly and cross-checks with api.weather.gov — not affected by the
+        CSV staleness issue).
 
     Returns {"ml_f": float, "ml_bucket": str, "ml_confidence": float}
     or None if insufficient data or models missing.
@@ -2360,13 +2498,34 @@ def _compute_ml_prediction(
                 if _today_nws_fc:
                     _today_nws_last = sorted(_today_nws_fc)[-1][1]
 
-            # Fetch observation features (real-time NWS station data)
-            obs_features = _fetch_observation_features(
-                target_date_iso,
-                nws_last=features.get("nws_last"),
-                atm_features=atm_features,
-                today_nws_last=_today_nws_last,
-            )
+            # Fetch observation features (real-time NWS station data).
+            # If the caller passed prefetched_obs (reconciled against fresh NWS
+            # API), use it directly to avoid re-reading the potentially-stale
+            # CSV cache.  Only use prefetched_obs if it's non-empty AND has at
+            # least one populated value (defensive against empty/all-null dicts
+            # that would give the model no signal).
+            def _dict_has_values(d: Optional[dict]) -> bool:
+                if not isinstance(d, dict) or not d:
+                    return False
+                return any(
+                    v is not None and not (isinstance(v, float) and np.isnan(v))
+                    for v in d.values()
+                )
+
+            if _dict_has_values(prefetched_obs):
+                obs_features = dict(prefetched_obs)
+                # Ensure all OBSERVATION_COLS present — fill missing with NaN.
+                for _col in OBSERVATION_COLS:
+                    if _col not in obs_features:
+                        obs_features[_col] = np.nan
+                print(f"🔭 Using prefetched obs features ({len(prefetched_obs)} keys provided)")
+            else:
+                obs_features = _fetch_observation_features(
+                    target_date_iso,
+                    nws_last=features.get("nws_last"),
+                    atm_features=atm_features,
+                    today_nws_last=_today_nws_last,
+                )
             v2_features.update(obs_features)
             obs_populated = sum(1 for v in obs_features.values()
                                 if v is not None and not (isinstance(v, float) and np.isnan(v)))
@@ -5632,6 +5791,20 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         except Exception as _obs_e:
             print(f"⚠️ Live obs fetch failed: {_obs_e}")
 
+        # ── Commit 2/3 (2026-04-18): Reconcile CSV obs with fresh NWS API ─────
+        # _fetch_observation_features reads from CSV cache populated by
+        # `collect_obs` step at workflow start.  When collect_obs has partial
+        # failures (station timeouts), the CSV gets stale — but _detect_high_locked
+        # at function entry fetched fresh NWS obs directly.  Override the stale
+        # CSV values here so downstream (_add_obs_to_snap, snapshot write, AND
+        # the ML model via prefetched_obs) all see the same fresh values.
+        #
+        # The reconciled live_obs is threaded to:
+        #   1. _compute_ml_prediction via prefetched_obs (model trains on fresh)
+        #   2. _add_obs_to_snap via live_obs (snapshot writes fresh)
+        # So MODEL and SNAPSHOT no longer drift from each other.
+        live_obs = _reconcile_obs_with_fresh(live_obs, _dlock)
+
         # ── LIVE BLOW-PAST WARNING LEVEL ────────────────────────────────────
         # Compute the blow-past level the user WOULD see on the dashboard
         # right now (flip-risk.js runs this same scoring on demand at render
@@ -5807,7 +5980,15 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
 
         _trigger_summary = ", ".join(trigger_reasons) if trigger_reasons else "no_discrete_triggers"
         print(f"🔄 ML recompute (every cycle): {_trigger_summary}")
-        ml = _compute_ml_prediction(rows, target_date_iso, prefetched_atm=live_atm)
+        # Pass both prefetched_atm (fresh Open-Meteo) AND prefetched_obs
+        # (reconciled via _reconcile_obs_with_fresh above).  Model now sees
+        # the SAME obs values that will be written to the snapshot — no
+        # drift between what the model predicts on vs. what the dashboard shows.
+        ml = _compute_ml_prediction(
+            rows, target_date_iso,
+            prefetched_atm=live_atm,
+            prefetched_obs=live_obs,
+        )
         ml_recomputed = True
         if ml:
             # Log the revision reason — use trigger list if populated, else a
@@ -5860,6 +6041,10 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 )
             except Exception:
                 live_obs = {}
+            # ── Commit 2/3 (2026-04-18): Reconcile LOCK_NOT_FOUND obs too ─────
+            # First write of the day — even here, CSV may be stale if collect_obs
+            # failed.  _dlock ran at function entry with fresh NWS API data.
+            live_obs = _reconcile_obs_with_fresh(live_obs, _dlock)
         # Log immediately for LOCK_ERROR case — canonical write logs separately below
         # for LOCK_NOT_FOUND. Avoids double-logging on canonical write.
         if ml and existing is not _LOCK_NOT_FOUND:
@@ -6396,6 +6581,11 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                         nws_last=_nws_for_obs,
                         atm_features=live_atm,
                     )
+                    # ── Commit 2/3 (2026-04-18): Reconcile with fresh NWS obs ─
+                    # Same reasoning as the normal branch: CSV cache can be stale
+                    # if collect_obs had partial failures.  _dlock has fresh NWS
+                    # API obs.  Override stale values before writing display snap.
+                    _obs_disp = _reconcile_obs_with_fresh(_obs_disp, _dlock)
                     _OBS_DISPLAY_KEYS = (
                         # ── Primary KNYC observation ──────────────────────────
                         "obs_snap_temp", "obs_snap_max_so_far",
