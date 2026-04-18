@@ -6223,6 +6223,13 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                             ("obs_snap_kewr", "obs_kewr_temp"),
                             ("obs_snap_kteb", "obs_kteb_temp"),
                             ("obs_snap_knyc_syn", "obs_knyc_temp"),
+                            # KCDW (Caldwell NJ) + KSMQ (Somerville NJ) — deeper inland
+                            # probes for NNJ warming detection.  Synoptic fetches these
+                            # via direct STID request but they were missing from this
+                            # write-back loop, causing them to be null in Supabase
+                            # every stable-cycle even though the fetch succeeded.
+                            ("obs_snap_kcdw", "obs_kcdw_temp"),
+                            ("obs_snap_ksmq", "obs_ksmq_temp"),
                             ("obs_snap_kjfk_vs_knyc", "obs_kjfk_vs_knyc"),
                             ("obs_snap_klga_vs_knyc", "obs_klga_vs_knyc"),
                             ("obs_snap_kewr_vs_knyc", "obs_kewr_vs_knyc"),
@@ -6241,6 +6248,8 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                             ("obs_snap_klga_obs_at", "obs_klga_obs_at"),
                             ("obs_snap_kewr_obs_at", "obs_kewr_obs_at"),
                             ("obs_snap_kteb_obs_at", "obs_kteb_obs_at"),
+                            ("obs_snap_kcdw_obs_at", "obs_kcdw_obs_at"),
+                            ("obs_snap_ksmq_obs_at", "obs_ksmq_obs_at"),
                             ("obs_snap_manh_obs_at", "obs_manh_obs_at"),
                         ]:
                             _ts = _syn_fresh.get(_fk)
