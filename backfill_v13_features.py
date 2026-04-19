@@ -78,19 +78,39 @@ def backfill_v13_features(city_key: str = "nyc", dry_run: bool = False):
     marine_populated = 0
     inland_populated = 0
 
+    import json as _json
+
+    def _src(row, key):
+        """Read a feature from either top-level column or atm_snapshot JSONB.
+        prediction_logs stores most obs/atm features inside the atm_snapshot
+        JSONB column, not as top-level columns — so plain row.get(key) returns
+        None. Fall back to parsing atm_snapshot."""
+        v = row.get(key)
+        if v is not None:
+            return v
+        snap = row.get("atm_snapshot")
+        if isinstance(snap, str):
+            try:
+                snap = _json.loads(snap)
+            except Exception:
+                snap = None
+        if isinstance(snap, dict):
+            return snap.get(key)
+        return None
+
     for row in rows:
         row_id = row.get("id")
         target_date = row.get("target_date")
 
-        # Extract source columns
-        atm_925mb_mean = _float_or_none(row.get("atm_925mb_temp_mean"))
-        obs_latest_temp = _float_or_none(row.get("obs_latest_temp"))
-        obs_kjfk_vs_knyc = _float_or_none(row.get("obs_kjfk_vs_knyc"))
-        atm_bl_height_max = _float_or_none(row.get("atm_bl_height_max"))
-        obs_kteb_temp = _float_or_none(row.get("obs_kteb_temp"))
-        obs_kcdw_temp = _float_or_none(row.get("obs_kcdw_temp"))
-        obs_ksmq_temp = _float_or_none(row.get("obs_ksmq_temp"))
-        mm_mean = _float_or_none(row.get("mm_mean"))
+        # Extract source columns (check top-level AND atm_snapshot JSONB)
+        atm_925mb_mean = _float_or_none(_src(row, "atm_925mb_temp_mean"))
+        obs_latest_temp = _float_or_none(_src(row, "obs_latest_temp"))
+        obs_kjfk_vs_knyc = _float_or_none(_src(row, "obs_kjfk_vs_knyc"))
+        atm_bl_height_max = _float_or_none(_src(row, "atm_bl_height_max"))
+        obs_kteb_temp = _float_or_none(_src(row, "obs_kteb_temp"))
+        obs_kcdw_temp = _float_or_none(_src(row, "obs_kcdw_temp"))
+        obs_ksmq_temp = _float_or_none(_src(row, "obs_ksmq_temp"))
+        mm_mean = _float_or_none(_src(row, "mm_mean"))
 
         # Compute entrainment_temp_diff
         entrainment_temp_diff = None
