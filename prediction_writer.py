@@ -2974,6 +2974,19 @@ def _compute_ml_prediction(
                     inland_mean = sum(inland_temps) / len(inland_temps)
                     v2_features["inland_strength"] = round(inland_mean - float(_mm_mean), 1)
 
+            # Stash BL-safeguard features (and their sources) into result so the
+            # Supabase upsert payload can persist them as top-level columns.
+            # Without this, v13 training sees them as NaN for most historical rows
+            # (they only exist inside atm_snapshot JSONB, which backfill can't
+            # reliably recompute once source obs roll off).
+            _bl_cols = {}
+            for _c in ("entrainment_temp_diff", "marine_containment", "inland_strength"):
+                _v = v2_features.get(_c)
+                if _v is not None and not (isinstance(_v, float) and math.isnan(_v)):
+                    _bl_cols[_c] = _v
+            if _bl_cols:
+                result["bl_safeguard_cols"] = _bl_cols
+
             # Build feature DataFrame (v4 or v2 depending on available model)
             X_v2 = pd.DataFrame([v2_features])
             for col in active_feature_cols:
@@ -7006,6 +7019,10 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             payload["ml_direct_bucket"] = ml["ml_direct_bucket"]
         # Canonical fields — written once on first non-null ML prediction.
         payload["is_canonical"] = is_canonical_write
+        # Persist BL-safeguard features as top-level cols so v13 training can
+        # read them directly (instead of parsing atm_snapshot JSONB).
+        for _bk, _bv in (ml.get("bl_safeguard_cols") or {}).items():
+            payload[_bk] = _bv
         if is_canonical_write:
             payload["ml_bucket_canonical"] = ml["ml_bucket"]
             payload["ml_f_canonical"] = ml["ml_f"]
@@ -7510,6 +7527,10 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
             payload["ml_direct_bucket"] = ml["ml_direct_bucket"]
         # Canonical fields for D1 — set once on first non-null ML write for this date.
         payload["is_canonical"] = is_canonical_write
+        # Persist BL-safeguard features as top-level cols so v13 training can
+        # read them directly (instead of parsing atm_snapshot JSONB).
+        for _bk, _bv in (ml.get("bl_safeguard_cols") or {}).items():
+            payload[_bk] = _bv
         if is_canonical_write:
             payload["ml_bucket_canonical"] = ml["ml_bucket"]
             payload["ml_f_canonical"] = ml["ml_f"]

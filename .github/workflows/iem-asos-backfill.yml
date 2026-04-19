@@ -1,0 +1,94 @@
+name: IEM ASOS Backfill (4yr obs into multiyear CSV)
+
+# Manual backfill: pulls 2022-01-01 → today ASOS obs from IEM for NYC/LAX
+# station panels, merges peak daily temps into multiyear_atmospheric.csv,
+# and computes the 3 v13 BL-safeguard features on 4 years of history.
+#
+# Safety design:
+#   1. Dry-run step runs FIRST (7-day sample) — fails fast if IEM changed
+#      response format or a station is blocked, before any CSV mutation.
+#   2. Original CSV is backed up to .bak-{timestamp} by the script before
+#      any write.
+#   3. Row-count invariant enforced — script aborts if rows != before.
+#   4. Only ADDS columns — never removes/renames existing ones.
+#   5. Retrains v13 AFTER the backfill so you can see fresh CV metrics in
+#      the commit (bcp_v13_*.pkl + model_metadata_v13.json update).
+#
+# Run: Actions tab → IEM ASOS Backfill → Run workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      city:
+        description: "City to backfill (nyc or lax)"
+        required: true
+        default: "nyc"
+        type: choice
+        options: [nyc, lax]
+      skip_retrain:
+        description: "Skip the v13 retrain step (useful for testing)"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  iem-asos-backfill:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL:          ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy==1.24.3 pandas==2.2.3 scikit-learn==1.3.0 requests beautifulsoup4 pytz supabase python-dotenv
+
+      - name: Backfill IEM ASOS (dry-run gate)
+        run: |
+          echo "=== Dry-run: 7-day sample to validate IEM response format ==="
+          python backfill_iem_asos.py --city ${{ github.event.inputs.city }} --dry-run
+
+      - name: Backfill IEM ASOS (full 4yr commit)
+        run: |
+          echo "=== Full backfill: 2022-01-01 → today, writing to multiyear CSV ==="
+          python backfill_iem_asos.py --city ${{ github.event.inputs.city }}
+
+      - name: Retrain v13 (reads newly enriched multiyear CSV)
+        if: ${{ github.event.inputs.skip_retrain != 'true' }}
+        run: |
+          echo "=== Retraining v13 with 4yr BL-safeguard signal ==="
+          python train_models.py --city ${{ github.event.inputs.city }} --v13
+
+      - name: Verify artifacts
+        run: |
+          ls -lh multiyear_atmospheric.csv lax_multiyear_atmospheric.csv *.bak-* 2>/dev/null || true
+          ls -lh bcp_v13_*.pkl lax_bcp_v13_*.pkl model_metadata_v13.json lax_model_metadata_v13.json 2>/dev/null || true
+
+      - name: Commit updated multiyear CSV + v13 models
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Stage the enriched CSV(s). Do NOT commit .bak-* files — they're
+          # local-safety artifacts, not repo state.
+          git add multiyear_atmospheric.csv lax_multiyear_atmospheric.csv 2>/dev/null || true
+          git add bcp_v13_*.pkl lax_bcp_v13_*.pkl model_metadata_v13.json lax_model_metadata_v13.json 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "IEM ASOS backfill: 4yr BL-safeguard features into multiyear CSV (${{ github.event.inputs.city }})"
+            git fetch origin main
+            git rebase origin/main || { echo "Rebase failed; aborting"; git rebase --abort || true; exit 0; }
+            git push origin HEAD:main || true
+          fi

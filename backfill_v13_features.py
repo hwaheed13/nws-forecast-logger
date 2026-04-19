@@ -56,12 +56,29 @@ def backfill_v13_features(city_key: str = "nyc", dry_run: bool = False):
     print(f"Backfill v13 BL Safeguard Features — {city_key.upper()}")
     print(f"{'='*60}")
 
-    # Fetch all prediction_logs for this city (WARNING: large dataset!)
+    # Fetch all prediction_logs for this city. Supabase caps .select() at 1000
+    # rows per request by default, so we paginate via .range().
     print(f"\n📥 Loading prediction_logs from Supabase for {city_key}...")
+    rows = []
+    page_size = 1000
+    offset = 0
     try:
-        response = sb.table("prediction_logs").select("*").eq("city", city_key).execute()
-        rows = response.data or []
-        print(f"  Loaded {len(rows)} rows")
+        while True:
+            response = (
+                sb.table("prediction_logs")
+                .select("*")
+                .eq("city", city_key)
+                .order("id")
+                .range(offset, offset + page_size - 1)
+                .execute()
+            )
+            batch = response.data or []
+            rows.extend(batch)
+            print(f"  Fetched {len(batch)} rows (total so far: {len(rows)})")
+            if len(batch) < page_size:
+                break
+            offset += page_size
+        print(f"  Loaded {len(rows)} rows total")
     except Exception as e:
         print(f"❌ Failed to load prediction_logs: {e}")
         return False
@@ -132,14 +149,20 @@ def backfill_v13_features(city_key: str = "nyc", dry_run: bool = False):
             inland_strength = round(inland_mean - mm_mean, 1)
             inland_populated += 1
 
-        # Prepare update
-        update = {
-            "id": row_id,
-            "entrainment_temp_diff": entrainment_temp_diff,
-            "marine_containment": marine_containment,
-            "inland_strength": inland_strength,
-        }
-        updates.append(update)
+        # Prepare update — only include keys with real values so we don't
+        # overwrite existing populated values with None. (Live prediction_writer
+        # runs now write these top-level; backfill should augment, not wipe.)
+        update = {"id": row_id}
+        if entrainment_temp_diff is not None:
+            update["entrainment_temp_diff"] = entrainment_temp_diff
+        if marine_containment is not None:
+            update["marine_containment"] = marine_containment
+        if inland_strength is not None:
+            update["inland_strength"] = inland_strength
+        # Skip rows where nothing was computed — avoids a pointless update that
+        # touches updated_at and burns Supabase quota.
+        if len(update) > 1:
+            updates.append(update)
 
         # Track test cases
         if target_date in ["2026-04-12", "2026-04-15"]:
