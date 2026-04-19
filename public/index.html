@@ -5760,12 +5760,24 @@ window._predTomorrow = predTomorrow;
            _nwsForTodayGuard >= _overnightObsMax + 2 &&
            _nowHourLocal < 14)
           ||
-          // 6-hour NWS max already exceeds the overnight peak by >1.5°F —
-          // means a new daytime high has been set regardless of what the live
-          // API returned to obs_snap_max_so_far (two different data sources).
+          // 6-hour NWS max already matches or exceeds the overnight peak —
+          // means a new daytime reading has already equaled or beaten the
+          // claimed overnight value. If that's true, the "overnight high"
+          // story is wrong regardless of what obs_snap_max_so_far says.
+          // (Previous threshold of +1.5°F missed cases where the daytime
+          // ramp was exactly at or just below the stale peak value.)
           (_overnightObsMax != null &&
            Number.isFinite(window._sixHourMaxF) &&
-           window._sixHourMaxF > _overnightObsMax + 1.5)
+           window._sixHourMaxF >= _overnightObsMax - 0.5)
+          ||
+          // After the normal morning-ramp window (10am local), the day's
+          // real high is being built right now — an "overnight high
+          // detected" claim is almost certainly a stale snapshot from a
+          // prior cycle. Suppress unless there's a recent, independent
+          // confirmation (which would have triggered one of the guards
+          // above). Safety net for any residual bad snapshots the
+          // backend detector rewrite misses.
+          (_overnightObsMax != null && _nowHourLocal >= 10)
         );
 
         // Suppress overnight note if live data already invalidates the prediction —
