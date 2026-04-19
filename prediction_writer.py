@@ -1425,8 +1425,12 @@ def _detect_high_locked(target_date_iso: str,
         falling = 0
         prev_t  = current_f
         for dt_obs, _hr, t in reversed(obs_today[:-1]):
-            if t > prev_t:
-                break   # found an obs that was warmer than the one after it → stop
+            # Walking oldest-first-in-reverse: t is the OLDER reading, prev_t
+            # is the NEWER. A falling trend means older > newer. If the older
+            # reading is not strictly warmer than the newer one, the falling
+            # streak has ended (temp was flat or rising at that step).
+            if t <= prev_t:
+                break
             falling += 1
             prev_t = t
         result["falling_hrs"] = falling
@@ -3807,22 +3811,45 @@ def _fetch_observation_features(
     try:
         max_val = features.get("obs_max_so_far")
         if max_val is not None and not (isinstance(max_val, float) and np.isnan(max_val)):
-            # Find which observation had the max temp
+            # Peak-hour lookup must use the internal max of `valid_obs` rather
+            # than the post-reconciled `obs_max_so_far`. `obs_max_so_far` can be
+            # overwritten by _reconcile_obs_with_freshness() with a value from a
+            # DIFFERENT source (NWS live API obs_high aggregate). In that case,
+            # scanning valid_obs with a 0.15°F tolerance either (a) finds no
+            # match and the detector silently fails, or (b) matches a spurious
+            # row at an unrelated hour — producing bogus "peak at 2:00" claims
+            # when the actual 2am reading was 49°F. Scan valid_obs against ITS
+            # OWN max so the timestamp is always a real observation.
             peak_hour = None
-            for r in reversed(valid_obs):
-                if abs(r["temp_f"] - max_val) < 0.15:
-                    try:
-                        dt = datetime.fromisoformat(r["observed_at"].replace("Z", "+00:00"))
-                        peak_hour = dt.astimezone(tz).hour
-                    except Exception:
-                        pass
-                    break
-            features["obs_high_peak_hour"] = float(peak_hour) if peak_hour is not None else np.nan
+            internal_max = None
+            peak_row = None
+            for r in valid_obs:
+                t = r.get("temp_f")
+                if t is None:
+                    continue
+                if internal_max is None or t > internal_max:
+                    internal_max = t
+                    peak_row = r
+            if peak_row is not None:
+                try:
+                    dt = datetime.fromisoformat(peak_row["observed_at"].replace("Z", "+00:00"))
+                    peak_hour = dt.astimezone(tz).hour
+                except Exception:
+                    peak_hour = None
+            # If the reconciled max disagrees with valid_obs's internal max by
+            # more than 0.5°F, the claimed max came from a source whose timing
+            # we can't verify. Refuse to claim an overnight-high timestamp in
+            # that case — safer to show nothing than a false "locked" badge.
+            _timing_verifiable = (
+                internal_max is not None
+                and abs(float(internal_max) - float(max_val)) <= 0.5
+            )
+            features["obs_high_peak_hour"] = float(peak_hour) if (peak_hour is not None and _timing_verifiable) else np.nan
             # Only flag as overnight high if the NWS daytime forecast is NOT
             # substantially above the observed overnight peak. If NWS still
             # forecasts 3+ °F above the overnight max, the day's actual high
             # hasn't been set yet — don't lock the prediction prematurely.
-            if peak_hour is not None and peak_hour < 9:
+            if peak_hour is not None and _timing_verifiable and peak_hour < 9:
                 # ── Diurnal-range guard (Option B) ──────────────────────
                 # A peak at 00:30 that cools 10°F by 5am is NOT a stuck-warm
                 # airmass — it's yesterday's residual heat dissipating
@@ -3876,11 +3903,17 @@ def _fetch_observation_features(
                               f"airmass stuck warm)")
             else:
                 features["obs_is_overnight_high"] = 0.0
-            # Consecutive falling hours from the peak
+            # Consecutive falling hours from the peak. Walking newest-first:
+            # `prev_t` is the newer reading, `r["temp_f"]` is the older one.
+            # A falling streak exists when older > newer. Stop when the older
+            # reading is NOT strictly warmer than the newer one (flat or
+            # rising means the falling streak ends). Previous code had the
+            # comparison inverted — it counted rising temps as "falling",
+            # causing false "Temp falling for Nh" banners in the UI.
             falling = 0
             prev_t  = valid_obs[-1]["temp_f"] if valid_obs else None
             for r in reversed(valid_obs[:-1]):
-                if prev_t is None or r["temp_f"] > prev_t:
+                if prev_t is None or r["temp_f"] <= prev_t:
                     break
                 falling += 1
                 prev_t = r["temp_f"]
@@ -7370,13 +7403,28 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 _prev_history = []
 
             if _curr_bkt != _canon_bkt:
-                if _prev_pending == _curr_bkt:
+                _prev_confirmed_bucket = _pfs.get("ml_flip_bucket")
+                # Already-confirmed SUSTAINED non-canonical state: the bucket
+                # hasn't actually changed — don't re-increment the counter on
+                # every 2-poll cycle. Just preserve the existing confirmed
+                # record. (Prior bug: clearing `pending` after each confirm
+                # caused the next poll to re-PENDING then re-CONFIRM the same
+                # bucket, inflating `ml_flip_count` by 1 every ~2 polls.)
+                if _prev_confirmed and _prev_confirmed_bucket == _curr_bkt:
+                    _fs["ml_flip_occurred"]       = True
+                    _fs["ml_flip_count"]          = _prev_flip_count
+                    _fs["ml_flip_bucket"]         = _prev_confirmed_bucket
+                    _fs["ml_flip_history"]        = _prev_history
+                    _fs["ml_flip_pending_bucket"] = None
+                elif _prev_pending == _curr_bkt:
                     # ── CONFIRMED: same non-canonical bucket seen twice in a row ──
+                    # Only fires on a genuine NEW flip (curr_bucket changed
+                    # from the prior confirmed bucket, or this is the first
+                    # confirmation of the day).
                     _fs["ml_flip_occurred"]       = True
                     _fs["ml_flip_count"]          = _prev_flip_count + 1
                     _fs["ml_flip_bucket"]         = _curr_bkt
-                    _fs["ml_flip_pending_bucket"] = None   # clear — no longer pending
-                    # Append to confirmed history; deduplicate tail
+                    _fs["ml_flip_pending_bucket"] = None
                     if not _prev_history or _prev_history[-1] != _curr_bkt:
                         _fs["ml_flip_history"] = _prev_history + [_curr_bkt]
                     else:
@@ -7384,14 +7432,12 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                     _chain = " → ".join([_canon_bkt] + _fs["ml_flip_history"])
                     print(f"  ✅ Flip #{_fs['ml_flip_count']} CONFIRMED (2 consecutive runs): {_chain}")
                 else:
-                    # ── PENDING: first time seeing this non-canonical bucket ──
-                    # Do NOT set ml_flip_occurred — gate not yet passed.
-                    # Preserve any prior confirmed flip state so history isn't lost.
+                    # ── PENDING: new non-canonical bucket not yet confirmed ──
                     _fs["ml_flip_pending_bucket"] = _curr_bkt
                     if _prev_confirmed:
                         _fs["ml_flip_occurred"] = True
                         _fs["ml_flip_count"]    = _prev_flip_count
-                        _fs["ml_flip_bucket"]   = _pfs.get("ml_flip_bucket", _curr_bkt)
+                        _fs["ml_flip_bucket"]   = _prev_confirmed_bucket or _curr_bkt
                         _fs["ml_flip_history"]  = _prev_history
                     print(f"  ⏳ Flip PENDING ({_canon_bkt} → {_curr_bkt}) — "
                           f"awaiting one more run to confirm (gate: 2 consecutive)")
