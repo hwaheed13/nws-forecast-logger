@@ -257,15 +257,28 @@ def run(
         print("❌ No stations returned data. Aborting.")
         return False
 
-    # Merge each station's peaks into the base df
+    # Merge each station's peaks into the base df. Drop any pre-existing
+    # target column first so re-runs overwrite instead of colliding into
+    # _x/_y suffix duplicates (observed after the initial successful run
+    # populated obs_knyc_temp, etc.).
     merged = base.copy()
     for col, peaks in peaks_by_station.items():
         if peaks.empty:
             continue
+        if col in merged.columns:
+            merged = merged.drop(columns=[col])
         peaks = peaks.rename(columns={"peak": col})
         merged = merged.merge(peaks, left_on="target_date", right_on="date", how="left")
         if "date" in merged.columns:
             merged = merged.drop(columns=["date"])
+
+    # Also drop stale derived columns so compute_bl_features recomputes
+    # cleanly instead of leaving the old values alongside fresh source cols.
+    for derived_col in ("obs_latest_temp", "obs_kjfk_vs_knyc",
+                         "entrainment_temp_diff", "marine_containment",
+                         "inland_strength"):
+        if derived_col in merged.columns:
+            merged = merged.drop(columns=[derived_col])
 
     # Compute BL-safeguard derived features (NYC only; LAX is a no-op)
     merged = compute_bl_features(merged, city_key)
