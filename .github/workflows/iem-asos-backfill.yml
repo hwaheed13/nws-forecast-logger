@@ -65,6 +65,12 @@ jobs:
           echo "=== Full backfill: 2022-01-01 → today, writing to multiyear CSV ==="
           python backfill_iem_asos.py --city ${{ github.event.inputs.city }}
 
+      - name: Backfill BL height + 925mb temp (Open-Meteo historical-forecast)
+        run: |
+          echo "=== Filling atm_bl_height_* + atm_925mb_temp_* gaps from Open-Meteo ==="
+          python backfill_bl_925.py --city ${{ github.event.inputs.city }} --dry-run
+          python backfill_bl_925.py --city ${{ github.event.inputs.city }}
+
       - name: Retrain v13 (reads newly enriched multiyear CSV)
         if: ${{ github.event.inputs.skip_retrain != 'true' }}
         run: |
