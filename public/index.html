@@ -5780,6 +5780,22 @@ window._predTomorrow = predTomorrow;
           (_overnightObsMax != null && _nowHourLocal >= 10)
         );
 
+        // Early-drop middle state: fires 2 hrs dropping AND ≥ 2°F below
+        // day's observed max. Closes the dead zone between peak and the
+        // stronger 3-hr banner — the window where the signal is most
+        // actionable for bet sizing. Requires both conditions so a single
+        // cloud-shadow dip of 0.3°F doesn't trigger.
+        const _snapCurrent = (_snap.obs_snap_temp != null && !isNaN(Number(_snap.obs_snap_temp)))
+          ? Number(_snap.obs_snap_temp) : null;
+        const _peakDropGap = (_overnightObsMax != null && _snapCurrent != null)
+          ? (_overnightObsMax - _snapCurrent)
+          : null;
+        const _earlyPastPeak = (
+          _fallingHrs != null && Number(_fallingHrs) >= 2 && Number(_fallingHrs) < 3 &&
+          _peakDropGap != null && _peakDropGap >= 2.0 &&
+          _peakHour != null && Math.round(_peakHour) >= 9  // daytime peak, not overnight
+        );
+
         // Suppress overnight note if live data already invalidates the prediction —
         // the two messages are contradictory and the banner takes priority.
         const overnightHighNote = (_overnightFlag == 1 && _peakHour != null && !_overnightSuppressed && !_liveInvalidatedEarly)
@@ -5790,6 +5806,10 @@ window._predTomorrow = predTomorrow;
           : (_fallingHrs != null && Number(_fallingHrs) >= 3)
           ? `<div style="font-size:12px;background:#fefce8;border-left:3px solid #eab308;padding:6px 10px;margin-top:6px;border-radius:4px;">
               📉 Temp falling for ${Math.round(_fallingHrs)}h — high likely past its peak.
+             </div>`
+          : _earlyPastPeak
+          ? `<div style="font-size:12px;background:#fefce8;border-left:3px solid #eab308;padding:6px 10px;margin-top:6px;border-radius:4px;">
+              🏔️ <strong>Day's high likely in</strong> — peak ${Number(_overnightObsMax).toFixed(1)}°F at ${Math.round(_peakHour)}:00, now ${_peakDropGap.toFixed(1)}°F below and dropping for ${Math.round(_fallingHrs)}h.
              </div>`
           : '';
 
