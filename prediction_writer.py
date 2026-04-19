@@ -560,6 +560,18 @@ def _load_v2_models():
         except Exception as e:
             print(f"⚠️ atm predictor load error: {e}")
 
+        # Shadow atm predictor (forecast-sourced, trained on historical-forecast-api
+        # data so training distribution matches live-inference distribution).
+        # Logged only — never drives production until shadow perf proves it wins.
+        _ML_MODEL_CACHE[f"{prefix}v2_atm_predictor_shadow"] = None
+        try:
+            with open(f"{prefix}atm_predictor_forecast.pkl", "rb") as f:
+                _ML_MODEL_CACHE[f"{prefix}v2_atm_predictor_shadow"] = pickle.load(f)
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            print(f"⚠️ shadow atm predictor load error: {e}")
+
         # Bucket classifier (the important one)
         try:
             from train_classifier import BucketClassifier
@@ -2941,6 +2953,32 @@ def _compute_ml_prediction(
             else:
                 v2_features["atm_predicted_high"] = np.nan
                 v2_features["atm_vs_forecast_diff"] = np.nan
+
+            # Shadow v3 atm predictor (forecast-sourced) — logged only, never used.
+            # We compare `atm_predicted_high_shadow` vs `atm_predicted_high` over
+            # time to decide whether forecast-sourced training beats ERA5.
+            try:
+                import nws_auto_logger as _nal
+                _prefix = _nal._CITY_CFG.get("model_prefix", "")
+                _shadow_atm = _ML_MODEL_CACHE.get(f"{_prefix}v2_atm_predictor_shadow")
+                if _shadow_atm is not None:
+                    _sm = _shadow_atm["model"]
+                    _scols = _shadow_atm["features"]
+                    _sinp = pd.DataFrame([v2_features])
+                    for _c in _scols:
+                        if _c not in _sinp.columns:
+                            _sinp[_c] = np.nan
+                    _spred = float(_sm.predict(_sinp[_scols])[0])
+                    v2_features["atm_predicted_high_shadow"] = _spred
+                    if prefetched_atm is not None:
+                        prefetched_atm["atm_predicted_high_shadow"] = _spred
+                        prefetched_atm["atm_predicted_high"] = v2_features.get("atm_predicted_high")
+                    _prod = v2_features.get("atm_predicted_high")
+                    if _prod is not None and not (isinstance(_prod, float) and np.isnan(_prod)):
+                        print(f"🔬 Shadow atm predictor: {_spred:.1f}°F "
+                              f"(prod: {_prod:.1f}°F, Δ={_spred - _prod:+.1f}°F)")
+            except Exception as _se:
+                print(f"  ⚠️ Shadow atm predictor skipped: {_se}")
 
             # v11: derive model-vs-NWS divergence features BEFORE building X_v2,
             # so they are populated in the DataFrame (not left as NaN fill-ins).
