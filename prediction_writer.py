@@ -56,6 +56,19 @@ def _snap_dumps(snap) -> str:
     return json.dumps(_scrub_nan(snap), allow_nan=False)
 
 
+def _snap_payload(snap) -> dict:
+    """Scrubbed dict for assigning into a PostgREST JSONB column.
+
+    DO NOT json.dumps this value before putting it in the payload — the outer
+    json.dumps in supabase_upsert/PATCH handles serialization.  Stringifying
+    here causes Postgres to store atm_snapshot as a JSONB string primitive
+    (jsonb_typeof='string') instead of an object, and training + downstream
+    code that expects a dict breaks silently on those rows.
+    """
+    scrubbed = _scrub_nan(snap)
+    return scrubbed if isinstance(scrubbed, dict) else {}
+
+
 def _snap_loads(raw) -> dict:
     """Safe atm_snapshot parser: handles legacy rows that may contain bare
     NaN / Infinity tokens emitted before the _snap_dumps helper existed.
@@ -5575,7 +5588,7 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
         # Include the updated atm_snapshot so scored ML features are persisted.
         patch_data: dict = {"ml_result": result, "ml_actual_high": actual_high,
                             "bucket_rank_hit": bucket_rank_hit,
-                            "atm_snapshot": _snap_dumps(_atm_snap)}
+                            "atm_snapshot": _snap_payload(_atm_snap)}
         canonical_bucket = pred.get("ml_bucket_canonical")
         ks_raw = pred.get("kalshi_market_snapshot")
         if canonical_bucket and canonical_bucket != ml_bucket:
@@ -6465,7 +6478,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                     snap["_ml_features_from_cache"] = list(ml["features_from_cache"])
                     snap["_ml_cache_age_s"] = ml.get("cache_age_s")
 
-                payload["atm_snapshot"] = _snap_dumps(snap)
+                payload["atm_snapshot"] = _snap_payload(snap)
                 print(f"📸 Atmospheric baseline advanced after recompute ({len(snap)} keys)")
 
     # ── Unconditional obs-panel refresh ──────────────────────────────────────
@@ -6985,7 +6998,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 # Live blow-past warning calibration
                 _ex_snap.update(_live_bp_payload)
 
-                payload["atm_snapshot"] = _snap_dumps(_ex_snap)
+                payload["atm_snapshot"] = _snap_payload(_ex_snap)
                 atm_keys = sum(1 for k in _ex_snap.keys() if k.startswith("atm_") or k.startswith("mm_") or k.startswith("ens_"))
                 obs_keys = sum(1 for k in _ex_snap.keys() if k.startswith("obs_snap_"))
                 valid_keys = sum(1 for v in _ex_snap.values() if v is not None and not (isinstance(v, float) and math.isnan(v)))
@@ -7135,7 +7148,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                     # Live blow-past warning calibration (canonical write)
                     snap.update(_live_bp_payload)
 
-                    payload["atm_snapshot"] = _snap_dumps(snap)
+                    payload["atm_snapshot"] = _snap_payload(snap)
                     obs_populated = sum(
                         1 for v in (live_obs or {}).values()
                         if v is not None and not (isinstance(v, float) and math.isnan(v))
@@ -7353,7 +7366,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             if _fs:
                 # Live blow-past warning calibration
                 _fs.update(_live_bp_payload)
-                payload["atm_snapshot"] = _snap_dumps(_fs)
+                payload["atm_snapshot"] = _snap_payload(_fs)
 
     # ── Fallback: ensure atm_snapshot is always written ──────────────────────
     # If we've gotten this far without setting payload["atm_snapshot"], it means:
@@ -7381,7 +7394,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 cache_snapshot(_CITY_KEY, fallback_snap)
                 # Live blow-past warning calibration
                 fallback_snap.update(_live_bp_payload)
-                payload["atm_snapshot"] = _snap_dumps(fallback_snap)
+                payload["atm_snapshot"] = _snap_payload(fallback_snap)
                 atm_keys = sum(1 for k in fallback_snap.keys() if k.startswith("atm_") or k.startswith("mm_"))
                 obs_keys = sum(1 for k in fallback_snap.keys() if k.startswith("obs_snap_"))
                 valid_keys = sum(1 for v in fallback_snap.values() if v is not None and not (isinstance(v, float) and math.isnan(v)))
@@ -7692,7 +7705,7 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
             if ml and ml.get("features_from_cache"):
                 snap_tm["_ml_features_from_cache"] = list(ml["features_from_cache"])
                 snap_tm["_ml_cache_age_s"] = ml.get("cache_age_s")
-            payload["atm_snapshot"] = _snap_dumps(snap_tm)
+            payload["atm_snapshot"] = _snap_payload(snap_tm)
             print(f"  📊 D+1 atm_snapshot: mm_spread={snap_tm.get('mm_spread')}, "
                   f"mm_mean={snap_tm.get('mm_mean')}, hrrr={snap_tm.get('mm_hrrr_max')}")
 
@@ -7760,7 +7773,7 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
                 # Back to canonical with no prior confirmed flip — clear any pending silently
                 _d1_fs["ml_flip_pending_bucket"] = None
             if _d1_fs:
-                payload["atm_snapshot"] = _snap_dumps(_d1_fs)
+                payload["atm_snapshot"] = _snap_payload(_d1_fs)
 
     # ── Fallback: ensure atm_snapshot is always written (D+1) ──────────────────
     # Same logic as write_today_for_today: if we haven't set atm_snapshot yet,
@@ -7781,7 +7794,7 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
             ):
                 # Cache for future fallback
                 cache_snapshot(_CITY_KEY, fallback_snap_tm)
-                payload["atm_snapshot"] = _snap_dumps(fallback_snap_tm)
+                payload["atm_snapshot"] = _snap_payload(fallback_snap_tm)
                 atm_keys = sum(1 for k in fallback_snap_tm.keys() if k.startswith("atm_") or k.startswith("mm_"))
                 obs_keys = sum(1 for k in fallback_snap_tm.keys() if k.startswith("obs_snap_"))
                 print(f"📸 D+1 fallback atm_snapshot written: {len(fallback_snap_tm)} total keys "
