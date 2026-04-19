@@ -3132,10 +3132,57 @@ def _compute_ml_prediction(
                 result["ml_f"] = round(v2_temp, 1)
                 result["ml_bucket"] = v2_best["bucket"]
                 result["ml_confidence"] = v2_best["probability"]
-                result["ml_bucket_probs"] = json.dumps(
-                    {bp["bucket"]: bp["probability"] for bp in bucket_probs}
-                )
+                result["ml_bucket_probs"] = {
+                    bp["bucket"]: bp["probability"] for bp in bucket_probs
+                }
                 result["ml_version"] = active_version
+
+                # Disagreement safety gate: when the model diverges hard from BOTH
+                # consensus sources (NWS and AccuWeather) by ≥ 2°F in the same
+                # direction, the historical hit rate collapses (4/6 losses measured
+                # on big-divergence days). Cap confidence so we don't broadcast
+                # STRONG BET on a lonely call. Point prediction is unchanged —
+                # only the confidence label and top-bucket probability are capped.
+                _nws_ref = features.get("nws_last")
+                _accu_ref = features.get("accu_last") if has_accu else None
+                try:
+                    if _nws_ref is not None and _accu_ref is not None:
+                        _ml_f = float(v2_temp)
+                        _nws_d = _ml_f - float(_nws_ref)
+                        _accu_d = _ml_f - float(_accu_ref)
+                        if abs(_nws_d) >= 2.0 and abs(_accu_d) >= 2.0 and (_nws_d * _accu_d) > 0:
+                            _cap = 0.60
+                            if result["ml_confidence"] > _cap:
+                                _orig_conf = result["ml_confidence"]
+                                result["ml_confidence"] = _cap
+                                # Redistribute the suppressed mass evenly to the
+                                # other buckets so probs still sum to 1.
+                                probs_map = result["ml_bucket_probs"]
+                                top = v2_best["bucket"]
+                                others = [b for b in probs_map if b != top]
+                                if others:
+                                    shed = _orig_conf - _cap
+                                    add = shed / len(others)
+                                    probs_map[top] = _cap
+                                    for b in others:
+                                        probs_map[b] = probs_map[b] + add
+                                    result["ml_bucket_probs"] = probs_map
+                                result["ml_disagreement_gate"] = {
+                                    "triggered": True,
+                                    "ml_f": round(_ml_f, 1),
+                                    "nws": round(float(_nws_ref), 1),
+                                    "accu": round(float(_accu_ref), 1),
+                                    "nws_delta": round(_nws_d, 1),
+                                    "accu_delta": round(_accu_d, 1),
+                                    "original_confidence": round(_orig_conf, 3),
+                                    "capped_confidence": _cap,
+                                }
+                                print(f"   🛡️ Disagreement gate: ml={_ml_f:.1f}°F vs "
+                                      f"nws={float(_nws_ref):.1f}°F (Δ{_nws_d:+.1f}) / "
+                                      f"accu={float(_accu_ref):.1f}°F (Δ{_accu_d:+.1f}) "
+                                      f"→ confidence {_orig_conf:.0%} → {_cap:.0%}")
+                except Exception as _gate_e:
+                    print(f"   ⚠️ Disagreement gate check failed: {_gate_e}")
 
                 # Direct map: what bucket does the regression temp map to?
                 from model_config import temp_to_bucket_label
