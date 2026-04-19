@@ -30,6 +30,11 @@ on:
         required: false
         default: false
         type: boolean
+      skip_iem:
+        description: "Skip the IEM backfill steps (IEM data already in CSV; use when 429-throttled)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -56,11 +61,13 @@ jobs:
           pip install numpy==1.24.3 pandas==2.2.3 scikit-learn==1.3.0 requests beautifulsoup4 pytz supabase python-dotenv
 
       - name: Backfill IEM ASOS (dry-run gate)
+        if: ${{ github.event.inputs.skip_iem != 'true' }}
         run: |
           echo "=== Dry-run: 7-day sample to validate IEM response format ==="
           python backfill_iem_asos.py --city ${{ github.event.inputs.city }} --dry-run
 
       - name: Backfill IEM ASOS (full 4yr commit)
+        if: ${{ github.event.inputs.skip_iem != 'true' }}
         run: |
           echo "=== Full backfill: 2022-01-01 → today, writing to multiyear CSV ==="
           python backfill_iem_asos.py --city ${{ github.event.inputs.city }}
