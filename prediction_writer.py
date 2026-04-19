@@ -790,6 +790,53 @@ def _load_v10_models():
     )
 
 
+def _load_v13_models():
+    """Load v13 models: bcp_v13 regressor + classifier + feature cols (cached).
+    v13 = v11 (154 features) + 3 BL-safeguard features (entrainment_temp_diff,
+    marine_containment, inland_strength) = 160 total. Features are computed at
+    inference (~line 2830); missing pkl falls through to v11 in the cascade.
+    """
+    import nws_auto_logger as _nal
+    prefix = _nal._CITY_CFG.get("model_prefix", "")
+    cache_key = f"{prefix}v13_regressor"
+    if cache_key not in _ML_MODEL_CACHE:
+        _ML_MODEL_CACHE[cache_key] = None
+        _ML_MODEL_CACHE[f"{prefix}v13_classifier"] = None
+        _ML_MODEL_CACHE[f"{prefix}v13_feature_cols"] = None
+
+        try:
+            with open(f"{prefix}bcp_v13_regressor.pkl", "rb") as f:
+                _ML_MODEL_CACHE[cache_key] = pickle.load(f)
+            print(f"✅ Loaded v13 regression model [BL safeguards] (prefix='{prefix}')")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            print(f"⚠️ v13 regression load error: {e}")
+
+        try:
+            from train_classifier import BucketClassifier
+            if os.path.exists(f"{prefix}bcp_v13_classifier.pkl"):
+                _ML_MODEL_CACHE[f"{prefix}v13_classifier"] = BucketClassifier.load(
+                    f"{prefix}bcp_v13_classifier.pkl"
+                )
+                print(f"✅ Loaded v13 bucket classifier (prefix='{prefix}')")
+        except Exception as e:
+            print(f"⚠️ v13 classifier load error: {e}")
+
+        try:
+            if os.path.exists(f"{prefix}bcp_v13_feature_cols.pkl"):
+                with open(f"{prefix}bcp_v13_feature_cols.pkl", "rb") as f:
+                    _ML_MODEL_CACHE[f"{prefix}v13_feature_cols"] = pickle.load(f)
+        except Exception as e:
+            print(f"⚠️ v13 feature cols load error: {e}")
+
+    return (
+        _ML_MODEL_CACHE.get(cache_key),
+        _ML_MODEL_CACHE.get(f"{prefix}v13_classifier"),
+        _ML_MODEL_CACHE.get(f"{prefix}v13_feature_cols"),
+    )
+
+
 def _load_v11_models():
     """Load v11 models: bcp_v11 regressor + classifier + feature cols (cached).
     v11 = v10 (151 features) + model-vs-NWS divergence (3 features = 154 total).
@@ -2480,6 +2527,7 @@ def _compute_ml_prediction(
     # v6: AccuWeather/NWS base + NBM, GEM HRDPS, HRRR 925mb, OKX radiosonde (138 features)
     # v5: AccuWeather/NWS base + high-timing features (122 features)
     # v4+: older architectures (backward compat)
+    v13_regressor, v13_classifier, v13_feature_cols = _load_v13_models()
     v11_regressor, v11_classifier, v11_feature_cols = _load_v11_models()
     v10_regressor, v10_classifier, v10_feature_cols = _load_v10_models()
     v9_regressor, v9_classifier, v9_feature_cols = _load_v9_models()
@@ -2490,17 +2538,60 @@ def _compute_ml_prediction(
     v4_regressor, v4_bucket_info, v4_classifier = _load_v4_models()
     v2_temp_model, v2_bucket_info, v2_classifier, v2_atm_predictor = _load_v2_models()
 
-    # Select best available model (prefer newest)
-    use_v11 = v11_classifier is not None and v11_feature_cols is not None
-    use_v10 = not use_v11 and v10_classifier is not None and v10_feature_cols is not None
-    use_v9 = not use_v11 and not use_v10 and v9_classifier is not None and v9_feature_cols is not None
-    use_v8 = not use_v11 and not use_v10 and not use_v9 and v8_classifier is not None and v8_feature_cols is not None
-    use_v7 = not use_v11 and not use_v10 and not use_v9 and not use_v8 and v7_classifier is not None and v7_feature_cols is not None
-    use_v6 = not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and v6_classifier is not None and v6_feature_cols is not None
-    use_v5 = not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and not use_v6 and v5_classifier is not None and v5_feature_cols is not None
-    use_v4 = not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and not use_v6 and not use_v5 and v4_classifier is not None
+    # ── Version pin (rollback lever) ──
+    # PREDICTION_MODEL_VERSION env var, if set, restricts the cascade to a single
+    # version. If the pinned version isn't loadable, we FAIL LOUDLY rather than
+    # silently falling through — a pinned rollback that silently reverts defeats
+    # the purpose. Accepted values: "bcp_v13" | "bcp_v11" | "bcp_v10" | ... |
+    # "bcp_v4" | "bcp_v2". Unset (or "bcp_v1") = no pin, use latest available.
+    _pin_raw = os.environ.get("PREDICTION_MODEL_VERSION", "").strip().lower()
+    _pin = _pin_raw if _pin_raw and _pin_raw != "bcp_v1" else None
+    _loadable = {
+        "bcp_v13": v13_classifier is not None and v13_feature_cols is not None,
+        "bcp_v11": v11_classifier is not None and v11_feature_cols is not None,
+        "bcp_v10": v10_classifier is not None and v10_feature_cols is not None,
+        "bcp_v9":  v9_classifier  is not None and v9_feature_cols  is not None,
+        "bcp_v8":  v8_classifier  is not None and v8_feature_cols  is not None,
+        "bcp_v7":  v7_classifier  is not None and v7_feature_cols  is not None,
+        "bcp_v6":  v6_classifier  is not None and v6_feature_cols  is not None,
+        "bcp_v5":  v5_classifier  is not None and v5_feature_cols  is not None,
+        "bcp_v4":  v4_classifier  is not None,
+    }
+    if _pin is not None:
+        if _pin not in _loadable:
+            raise RuntimeError(
+                f"PREDICTION_MODEL_VERSION={_pin_raw!r} is not a recognized version "
+                f"(expected one of {sorted(_loadable.keys())} or unset)"
+            )
+        if not _loadable[_pin]:
+            raise RuntimeError(
+                f"PREDICTION_MODEL_VERSION={_pin_raw!r} requested but not loadable "
+                f"— missing pkl files for prefix. Refusing to silently fall through."
+            )
 
-    if use_v11:
+    # Select best available model (prefer newest). Pin, if set, forces the
+    # cascade to skip later branches by masking loadable flags.
+    def _ok(version: str, loaded: bool) -> bool:
+        if _pin is not None:
+            return (version == _pin) and loaded
+        return loaded
+
+    use_v13 = _ok("bcp_v13", _loadable["bcp_v13"])
+    use_v11 = not use_v13 and _ok("bcp_v11", _loadable["bcp_v11"])
+    use_v10 = not use_v13 and not use_v11 and _ok("bcp_v10", _loadable["bcp_v10"])
+    use_v9  = not use_v13 and not use_v11 and not use_v10 and _ok("bcp_v9",  _loadable["bcp_v9"])
+    use_v8  = not use_v13 and not use_v11 and not use_v10 and not use_v9 and _ok("bcp_v8", _loadable["bcp_v8"])
+    use_v7  = not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and _ok("bcp_v7", _loadable["bcp_v7"])
+    use_v6  = not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and _ok("bcp_v6", _loadable["bcp_v6"])
+    use_v5  = not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and not use_v6 and _ok("bcp_v5", _loadable["bcp_v5"])
+    use_v4  = not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and not use_v6 and not use_v5 and _ok("bcp_v4", _loadable["bcp_v4"])
+
+    if use_v13:
+        active_classifier = v13_classifier
+        active_regressor  = v13_regressor
+        active_feature_cols = v13_feature_cols
+        active_version = "v13_bl_safeguard"
+    elif use_v11:
         active_classifier = v11_classifier
         active_regressor  = v11_regressor
         active_feature_cols = v11_feature_cols
@@ -2550,7 +2641,27 @@ def _compute_ml_prediction(
         active_feature_cols = FEATURE_COLS_V2
         active_version = "v2_atm_classifier"
 
-    active_bucket_info = v4_bucket_info if (use_v10 or use_v9 or use_v8 or use_v7 or use_v6 or use_v5 or use_v4) else v2_bucket_info
+    active_bucket_info = v4_bucket_info if (use_v13 or use_v11 or use_v10 or use_v9 or use_v8 or use_v7 or use_v6 or use_v5 or use_v4) else v2_bucket_info
+
+    # One-line provenance log per prediction cycle (per city, per lead).
+    # Captures both regressor and classifier types so incomplete retrains
+    # (e.g., classifier pkl missing while regressor present) are visible.
+    _reg_t = type(active_regressor).__name__ if active_regressor is not None else "None"
+    _cls_t = type(active_classifier).__name__ if active_classifier is not None else "None"
+    _n_feat = (
+        len(active_feature_cols) if active_feature_cols is not None
+        else (len(FEATURE_COLS_V2) if not active_classifier else 0)
+    )
+    _pin_tag = f" [pinned={_pin}]" if _pin else ""
+    print(f"🧠 [{_CITY_KEY}] Active model: {active_version}{_pin_tag} | "
+          f"regressor={_reg_t} | classifier={_cls_t} | features={_n_feat}")
+
+    # Expose the actually-loaded version so downstream Supabase writes can
+    # record truth (model_name/version), not the env-var label. Fixes the
+    # data-integrity bug where every row was written as MODEL_VERSION regardless
+    # of which model actually produced the prediction.
+    result["active_version"] = active_version
+    result["active_model_features"] = _n_feat
 
     if active_classifier is not None:
         try:
@@ -2563,8 +2674,13 @@ def _compute_ml_prediction(
                 atm_features = _fetch_atmospheric_features(target_date_iso)
 
                 # ── Cache fallback: Fill missing values from cached snapshot ──
-                # If Open-Meteo or Synoptic APIs are rate-limited/down, fill gaps with cache
-                atm_features = fill_missing_from_cache(_CITY_KEY, atm_features)
+                # If Open-Meteo or Synoptic APIs are rate-limited/down, fill gaps with cache.
+                # Meta gets propagated into result so Supabase writes can record which
+                # features were cache-filled and how stale the cache was.
+                atm_features, _cm = fill_missing_from_cache(_CITY_KEY, atm_features)
+                if _cm["filled_keys"]:
+                    result["features_from_cache"] = list(_cm["filled_keys"])
+                    result["cache_age_s"] = _cm["cache_age_s"]
 
             # Merge atmospheric features into the feature dict
             v2_features = dict(features)
@@ -6127,7 +6243,7 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 try:
                     cached = get_cached_snapshot(_CITY_KEY)
                     if cached:
-                        live_atm = fill_missing_from_cache(_CITY_KEY, live_atm)
+                        live_atm, _cm_fill = fill_missing_from_cache(_CITY_KEY, live_atm)
                         print(f"📦 Filled live_atm from cache after fetch failure")
                 except Exception:
                     pass
@@ -6169,6 +6285,11 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     snapshot_hour = (now_hour // 3) * 3
     # Use hourly idempotency key for snapshot archival so each 3-hour bucket creates a new row
     idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{target_date_iso}:{snapshot_hour:02d}"
+    # Record the ACTUALLY loaded model version, not the env-var label. Fixes
+    # the data-integrity bug where rows were labeled with MODEL_VERSION regardless
+    # of which cascade branch won. idempotency_key stays on MODEL_VERSION to
+    # preserve row identity across cycles.
+    _active_ver = (ml or {}).get("active_version") or MODEL_VERSION
 
     payload = {
         "idempotency_key": idem_key,
@@ -6177,11 +6298,11 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         "target_date": target_date_iso,
         "snapshot_hour": snapshot_hour,  # Archive this snapshot's 3-hour bucket
         "lead_used": "today_for_today",
-        "model_name": MODEL_VERSION,
+        "model_name": _active_ver,
         "prediction_value": float(f"{bcp:.1f}") if bcp is not None else (ml["ml_f"] if ml else 0.0),
         "rep_forecast": today_pre_mean,
         "bias_applied": avg_bias_excl_today,
-        "version": MODEL_VERSION,
+        "version": _active_ver,
         "recommendation": "live — updates on agency forecast revision",
         "source_card": "nws_auto_logger",
         "city": _CITY_KEY,
@@ -6323,6 +6444,13 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 # earlier in the function scope.  Empty dict in freeze paths,
                 # populated in normal path.  Either way, this update is safe.
                 snap.update(_live_bp_payload)
+
+                # Persist ML-path cache provenance into atm_snapshot so we can
+                # later filter predictions by "used fresh vs cached features"
+                # and measure whether cache-filled picks were less accurate.
+                if ml and ml.get("features_from_cache"):
+                    snap["_ml_features_from_cache"] = list(ml["features_from_cache"])
+                    snap["_ml_cache_age_s"] = ml.get("cache_age_s")
 
                 payload["atm_snapshot"] = _snap_dumps(snap)
                 print(f"📸 Atmospheric baseline advanced after recompute ({len(snap)} keys)")
@@ -6924,7 +7052,12 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             # Fill any missing atm_* / mm_* keys from cache to ensure Multi-Model Spread / HRRR vs NWS
             # cards always have data even if Open-Meteo ensemble or Synoptic fetch failed.
             if not _already_has_rich_snap:
-                snap = fill_missing_from_cache(_CITY_KEY, snap)
+                snap, _snap_cm = fill_missing_from_cache(_CITY_KEY, snap)
+                # Record cache provenance into the snapshot itself so post-hoc
+                # analysis can distinguish live vs cache-filled predictions.
+                if _snap_cm["filled_keys"]:
+                    snap["_cache_filled_keys"] = list(_snap_cm["filled_keys"])
+                    snap["_cache_age_s"] = _snap_cm["cache_age_s"]
             # Always write snapshot on canonical (first-write) path, even if empty.
             # An empty snapshot dict still allows _add_obs_to_snap to populate obs_snap_*
             # display keys, which is essential for the "Live Observation Sources" panel.
@@ -7276,8 +7409,9 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     live_atm_tm: dict = {}
     try:
         live_atm_tm = _fetch_atmospheric_features(tomorrow_iso)
-        # Cache fallback: Fill missing values from cached snapshot if API partial failure
-        live_atm_tm = fill_missing_from_cache(_CITY_KEY, live_atm_tm)
+        # Cache fallback: Fill missing values from cached snapshot if API partial failure.
+        # Meta captured for optional downstream logging.
+        live_atm_tm, _cm_tm = fill_missing_from_cache(_CITY_KEY, live_atm_tm)
     except Exception as _atm_e:
         print(f"⚠️ write_today_for_tomorrow: _fetch_atmospheric_features failed: {_atm_e}")
         # Try cache as last resort if fetch completely fails
@@ -7343,6 +7477,8 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
     snapshot_hour = (now_hour // 3) * 3
     # D+1 also gets hourly snapshots for training progression
     idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{tomorrow_iso}:{snapshot_hour:02d}"
+    # Record the ACTUALLY loaded model version (see write_today_for_today above).
+    _active_ver = (ml or {}).get("active_version") or MODEL_VERSION
 
     payload = {
         "idempotency_key": idem_key,
@@ -7351,13 +7487,13 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
         "target_date": tomorrow_iso,
         "snapshot_hour": snapshot_hour,  # Archive D+1 snapshots at 3-hour intervals
         "lead_used": "today_for_tomorrow",
-        "model_name": MODEL_VERSION,
+        "model_name": _active_ver,
         "prediction_value": bcp_tm if bcp_tm is not None else (ml["ml_f"] if ml else None),
         "nws_d1": nws_latest_tm,
         "accuweather": accu_latest_tm,
         "bias_applied": avg_bias_all,
         "rep_forecast": None,
-        "version": MODEL_VERSION,
+        "version": _active_ver,
         "recommendation": "snapshot from today",
         "source_card": "nws_auto_logger",
         "city": _CITY_KEY,
@@ -7531,6 +7667,10 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
             # overwrite them cleanly.
             if isinstance(existing, dict):
                 _carry_flip_fields(snap_tm, existing)
+            # Persist ML-path cache provenance for D+1 writes too.
+            if ml and ml.get("features_from_cache"):
+                snap_tm["_ml_features_from_cache"] = list(ml["features_from_cache"])
+                snap_tm["_ml_cache_age_s"] = ml.get("cache_age_s")
             payload["atm_snapshot"] = _snap_dumps(snap_tm)
             print(f"  📊 D+1 atm_snapshot: mm_spread={snap_tm.get('mm_spread')}, "
                   f"mm_mean={snap_tm.get('mm_mean')}, hrrr={snap_tm.get('mm_hrrr_max')}")

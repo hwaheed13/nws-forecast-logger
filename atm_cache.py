@@ -122,29 +122,51 @@ def cache_snapshot(city: str, snapshot: Dict[str, Any]) -> None:
     print(f"  💾 Cached {city.upper()} snapshot ({n_valid}/{n_total} fields, {percent}% complete)")
 
 
-def fill_missing_from_cache(city: str, snapshot: Dict[str, Any]) -> Dict[str, Any]:
+def _cache_age_seconds(city: str) -> Optional[float]:
+    """Return current cache age in seconds for a city, or None if no cache."""
+    cache = _load_cache()
+    if city not in cache:
+        return None
+    ts_raw = cache[city].get("timestamp")
+    if not ts_raw:
+        return None
+    try:
+        ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+        return (datetime.now(ts.tzinfo) - ts).total_seconds()
+    except Exception:
+        return None
+
+
+def fill_missing_from_cache(city: str, snapshot: Dict[str, Any]):
     """
     Fill missing (NaN/None) fields in snapshot using cached values.
-    Returns updated snapshot.
+
+    Returns (snapshot, meta) where meta is:
+        {"filled_keys": [...], "cache_age_s": float_or_None}
+
+    meta is always returned (even when nothing was filled) so callers can
+    persist cache provenance into prediction_logs for audit:
+    "was this prediction made on live or cached features, and how stale?"
 
     Usage: After fetching fresh data, fill any gaps with cached values.
     """
     cached = get_cached_snapshot(city)
     if not cached:
-        return snapshot
+        return snapshot, {"filled_keys": [], "cache_age_s": None}
 
-    filled_count = 0
+    filled_keys = []
     for key, cached_val in cached.items():
         if key not in snapshot or not _is_valid_value(snapshot[key]):
-            # This field is missing/NaN, use cached value
             if _is_valid_value(cached_val):
                 snapshot[key] = cached_val
-                filled_count += 1
+                filled_keys.append(key)
 
-    if filled_count > 0:
-        print(f"  🔄 Filled {filled_count} missing fields from {city.upper()} cache")
+    age_s = _cache_age_seconds(city)
+    if filled_keys:
+        age_tag = f", cache age {age_s:.0f}s" if age_s is not None else ""
+        print(f"  🔄 Filled {len(filled_keys)} missing fields from {city.upper()} cache{age_tag}")
 
-    return snapshot
+    return snapshot, {"filled_keys": filled_keys, "cache_age_s": age_s}
 
 
 def clear_cache() -> None:
