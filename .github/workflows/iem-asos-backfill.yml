@@ -89,6 +89,11 @@ jobs:
           else
             git commit -m "IEM ASOS backfill: 4yr BL-safeguard features into multiyear CSV (${{ github.event.inputs.city }})"
             git fetch origin main
-            git rebase origin/main || { echo "Rebase failed; aborting"; git rebase --abort || true; exit 0; }
+            # Stash any remaining unstaged changes (training writes intermediate
+            # files after commit step stages only the pkls). Rebase refuses on a
+            # dirty tree, so stash -u covers both tracked and untracked.
+            git stash push -u -m "pre-rebase-stash" || true
+            git rebase origin/main || { echo "Rebase failed; aborting"; git rebase --abort || true; git stash pop || true; exit 0; }
+            git stash pop || true
             git push origin HEAD:main || true
           fi

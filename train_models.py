@@ -862,9 +862,14 @@ class NYCTemperatureModelTrainer:
             # Select ONLY columns that exist in the prediction_logs schema.
             # All forecast-related fields (nws_last, accu_last, rolling_bias_*,
             # nws_first, etc.) live inside atm_snapshot JSONB — not as top-level cols.
+            # Also pull the 3 v13 BL safeguard top-level columns — these are
+            # populated by backfill_v13_features.py / prediction_writer.py and
+            # are NOT inside atm_snapshot. Without this, forecast-day training
+            # rows get 0 BL feature coverage and v13 collapses to v12.
             resp = (
                 sb.table("prediction_logs")
-                .select("target_date,ml_actual_high,atm_snapshot")
+                .select("target_date,ml_actual_high,atm_snapshot,"
+                        "entrainment_temp_diff,marine_containment,inland_strength")
                 .eq("city", self.city_key)
                 .in_("lead_used", ["today_for_today", "D0"])
                 .not_.is_("atm_snapshot", "null")
@@ -888,6 +893,12 @@ class NYCTemperatureModelTrainer:
                 for k, v in snap.items():
                     if k not in record:
                         record[k] = v
+                # Overlay top-level BL cols so they survive the merge into
+                # features_df even if the JSONB lacks the source inputs.
+                for bl_col in ("entrainment_temp_diff", "marine_containment", "inland_strength"):
+                    bl_val = r.get(bl_col)
+                    if bl_val is not None:
+                        record[bl_col] = bl_val
                 records.append(record)
 
             df = pd.DataFrame(records)
@@ -1195,22 +1206,34 @@ class NYCTemperatureModelTrainer:
         """
         df = self.features_df
 
+        # Preserve any pre-populated values (e.g. from Supabase top-level cols
+        # loaded via _load_supabase_snapshot_features). We compute fresh values
+        # below and combine: computed takes priority where valid, else fall
+        # back to the pre-existing value.
+        def _coalesce(col_name, computed):
+            existing = df[col_name] if col_name in df.columns else None
+            if existing is None:
+                df[col_name] = computed
+            else:
+                df[col_name] = computed.where(computed.notna(), existing)
+
         # 1) entrainment_temp_diff = 925mb - obs_latest_temp
         if "atm_925mb_temp_mean" in df.columns and "obs_latest_temp" in df.columns:
-            df["entrainment_temp_diff"] = (df["atm_925mb_temp_mean"] - df["obs_latest_temp"]).round(1)
-        else:
+            _coalesce("entrainment_temp_diff",
+                      (df["atm_925mb_temp_mean"] - df["obs_latest_temp"]).round(1))
+        elif "entrainment_temp_diff" not in df.columns:
             df["entrainment_temp_diff"] = np.nan
 
         # 2) marine_containment = obs_kjfk_vs_knyc / atm_bl_height_max
         # Avoid division by zero and negative BL heights
         if "obs_kjfk_vs_knyc" in df.columns and "atm_bl_height_max" in df.columns:
             mask = (df["atm_bl_height_max"] > 0) & (df["atm_bl_height_max"].notna())
-            df["marine_containment"] = np.where(
-                mask,
-                (df["obs_kjfk_vs_knyc"] / df["atm_bl_height_max"]).round(6),
-                np.nan
+            computed = pd.Series(
+                np.where(mask, (df["obs_kjfk_vs_knyc"] / df["atm_bl_height_max"]).round(6), np.nan),
+                index=df.index,
             )
-        else:
+            _coalesce("marine_containment", computed)
+        elif "marine_containment" not in df.columns:
             df["marine_containment"] = np.nan
 
         # 3) inland_strength = mean(kteb, kcdw, ksmq) - mm_mean
@@ -1219,10 +1242,10 @@ class NYCTemperatureModelTrainer:
             available = [c for c in inland_cols if c in df.columns]
             if available:
                 inland_mean = df[available].mean(axis=1, skipna=True)
-                df["inland_strength"] = (inland_mean - df["mm_mean"]).round(1)
-            else:
+                _coalesce("inland_strength", (inland_mean - df["mm_mean"]).round(1))
+            elif "inland_strength" not in df.columns:
                 df["inland_strength"] = np.nan
-        else:
+        elif "inland_strength" not in df.columns:
             df["inland_strength"] = np.nan
 
         # Log coverage
