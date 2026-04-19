@@ -2089,56 +2089,81 @@ def _compute_bet_signal(
     ml_bucket: str,
     market_probs: dict,
     bucket_just_changed: bool = False,
-) -> tuple[str, float, float]:
+    ml_bucket_probs: dict | None = None,
+) -> tuple[str, str, float, float]:
     """
-    Compute bet signal using Kelly criterion for principled sizing.
+    Compute bet signal across two independent dimensions:
 
-    The ML pick (ml_bucket) is always the signal — market price only
-    determines how much to bet, not whether to bet.
+      CONVICTION — how sure the model is about its own pick.
+        Driven by ml_confidence, margin-over-runner-up, and stability.
+        Independent of market pricing. A model can be STRONG_BET confident
+        even if the market already agrees (in which case there's no trade).
 
-    Half-Kelly fraction:
-        kelly_f = 0.5 * (p_model - p_market) / (1 - p_market)
+      EDGE TIER — how mispriced the market is relative to the model.
+        Orthogonal to conviction. Strong conviction + NO_EDGE means
+        "model and market agree, nothing to trade." Weak conviction +
+        STRONG_EDGE means "model is uncertain but market is clearly off."
 
-    bucket_just_changed: if True, downgrade signal one tier — a bucket that
-        just shifted hasn't proven stability yet, so we shouldn't call it
-        STRONG BET on the same cycle it changed.
+    Users see both: "BET · +12% edge" or "STRONG_BET · NO_EDGE (market agrees)"
 
-    Returns (signal, edge, kelly_fraction) where:
-      signal:        "STRONG_BET" / "BET" / "LEAN" / "SKIP"
-      edge:          ml_confidence - market_prob (raw edge)
-      kelly_fraction: half-Kelly fraction of bankroll to wager (0 if no edge)
+    Stability: bucket_just_changed downgrades conviction one tier — a fresh
+    pick hasn't held across two polling cycles yet.
+
+    Returns (conviction, edge_tier, edge, kelly_fraction):
+      conviction:     "STRONG_BET" / "BET" / "LEAN" / "SKIP"
+      edge_tier:      "STRONG_EDGE" / "EDGE" / "NO_EDGE" / "MARKET_AHEAD" / "UNKNOWN"
+      edge:           ml_confidence - market_prob (raw, signed)
+      kelly_fraction: half-Kelly fraction of bankroll (0 if no edge)
     """
+    # ── Conviction: model-only ────────────────────────────────────────────
+    # Margin over runner-up: 42% vs 40% means the model basically can't decide;
+    # 42% vs 15% is a clear preference.
+    runner_up_prob = 0.0
+    if ml_bucket_probs:
+        sorted_probs = sorted(ml_bucket_probs.values(), reverse=True)
+        if len(sorted_probs) >= 2:
+            runner_up_prob = float(sorted_probs[1])
+    margin = ml_confidence - runner_up_prob
+
+    if ml_confidence >= 0.55 and margin >= 0.15:
+        conviction = "STRONG_BET"
+    elif ml_confidence >= 0.40 and margin >= 0.08:
+        conviction = "BET"
+    elif ml_confidence >= 0.25:
+        conviction = "LEAN"
+    else:
+        conviction = "SKIP"
+
+    if bucket_just_changed and conviction != "SKIP":
+        _downgrade = {"STRONG_BET": "BET", "BET": "LEAN", "LEAN": "SKIP"}
+        _orig = conviction
+        conviction = _downgrade.get(conviction, conviction)
+        print(f"  ⬇️  Conviction downgraded {_orig} → {conviction} "
+              f"(bucket just shifted — waiting for next cycle to confirm)")
+
+    # ── Edge tier: model vs market ────────────────────────────────────────
     market_prob = market_probs.get(ml_bucket, 0.0) if market_probs else 0.0
     edge = round(ml_confidence - market_prob, 4)
 
-    # Half-Kelly: requires positive market price to compute odds
+    if not market_probs or market_prob <= 0.0:
+        edge_tier = "UNKNOWN"
+    elif edge >= 0.15:
+        edge_tier = "STRONG_EDGE"
+    elif edge >= 0.03:
+        edge_tier = "EDGE"
+    elif edge > -0.03:
+        edge_tier = "NO_EDGE"
+    else:
+        edge_tier = "MARKET_AHEAD"
+
+    # Half-Kelly: sizing only; independent of conviction label
     if market_probs and 0.0 < market_prob < 1.0:
         kelly_full = (ml_confidence - market_prob) / (1.0 - market_prob)
         kelly_half = round(max(kelly_full * 0.5, 0.0), 4)
     else:
-        # No live market price — can still pick but can't size
         kelly_half = 0.0
 
-    # Signal derived from Kelly fraction (principled, not arbitrary thresholds)
-    if kelly_half >= 0.15:
-        signal = "STRONG_BET"
-    elif kelly_half >= 0.08:
-        signal = "BET"
-    elif kelly_half >= 0.03:
-        signal = "LEAN"
-    else:
-        signal = "SKIP"
-
-    # Stability guard: if the bucket just shifted, downgrade one tier.
-    # A fresh revision hasn't proven itself stable — don't show STRONG BET
-    # on the same cycle the model changed its mind.
-    if bucket_just_changed and signal != "SKIP":
-        _downgrade = {"STRONG_BET": "BET", "BET": "LEAN", "LEAN": "SKIP"}
-        _orig = signal
-        signal = _downgrade.get(signal, signal)
-        print(f"  ⬇️  Bet signal downgraded {_orig} → {signal} (bucket just shifted — waiting for next cycle to confirm)")
-
-    return signal, edge, kelly_half
+    return conviction, edge_tier, edge, kelly_half
 
 
 def _compute_ml_prediction(
@@ -7350,13 +7375,15 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                     print(f"ℹ️ Direct map ({direct_bucket}) differs from prob-aligned ({kalshi_bucket}) "
                           f"— keeping prob-aligned (higher expected accuracy)")
 
-                signal, edge, kelly_f = _compute_bet_signal(
+                signal, edge_tier, edge, kelly_f = _compute_bet_signal(
                     payload["ml_confidence"], payload["ml_bucket"], market_probs,
                     bucket_just_changed=_bucket_just_changed,
+                    ml_bucket_probs=raw_probs,
                 )
                 payload["bet_signal"] = signal
                 payload["ml_edge"] = edge
-                print(f"🎯 Bet signal: {signal} (edge={edge:+.0%}, kelly={kelly_f:.1%})")
+                payload["ml_edge_tier"] = edge_tier
+                print(f"🎯 Conviction: {signal} · Edge: {edge_tier} ({edge:+.0%}, kelly={kelly_f:.1%})")
                 if is_canonical_write:
                     canonical_bucket = payload.get("ml_bucket", "")
                     payload["market_prob_at_prediction"] = round(market_probs.get(canonical_bucket, 0.0), 4)
@@ -7370,13 +7397,21 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 and _prev_bucket is not None
                 and _prev_bucket != direct_bucket
             )
-            signal, edge, kelly_f = _compute_bet_signal(
+            _raw_probs_direct = ml.get("ml_bucket_probs")
+            if isinstance(_raw_probs_direct, str):
+                try:
+                    _raw_probs_direct = json.loads(_raw_probs_direct)
+                except Exception:
+                    _raw_probs_direct = None
+            signal, edge_tier, edge, kelly_f = _compute_bet_signal(
                 ml["ml_confidence"], direct_bucket, market_probs,
                 bucket_just_changed=_bucket_just_changed,
+                ml_bucket_probs=_raw_probs_direct,
             )
             payload["bet_signal"] = signal
             payload["ml_edge"] = edge
-            print(f"🎯 Bet signal: {signal} (edge={edge:+.0%}, kelly={kelly_f:.1%})")
+            payload["ml_edge_tier"] = edge_tier
+            print(f"🎯 Conviction: {signal} · Edge: {edge_tier} ({edge:+.0%}, kelly={kelly_f:.1%})")
             if is_canonical_write:
                 payload["market_prob_at_prediction"] = round(market_probs.get(direct_bucket, 0.0), 4)
                 payload["kelly_fraction"] = kelly_f
@@ -7733,12 +7768,14 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
                     print(f"ℹ️ Direct map ({direct_bucket}) differs from prob-aligned ({kalshi_bucket}) "
                           f"— keeping prob-aligned (higher expected accuracy)")
 
-                signal, edge, kelly_f = _compute_bet_signal(
-                    payload["ml_confidence"], payload["ml_bucket"], market_probs
+                signal, edge_tier, edge, kelly_f = _compute_bet_signal(
+                    payload["ml_confidence"], payload["ml_bucket"], market_probs,
+                    ml_bucket_probs=raw_probs,
                 )
                 payload["bet_signal"] = signal
                 payload["ml_edge"] = edge
-                print(f"🎯 Bet signal: {signal} (edge={edge:+.0%}, kelly={kelly_f:.1%})")
+                payload["ml_edge_tier"] = edge_tier
+                print(f"🎯 Conviction: {signal} · Edge: {edge_tier} ({edge:+.0%}, kelly={kelly_f:.1%})")
                 if is_canonical_write:
                     canonical_bucket = payload.get("ml_bucket", "")
                     payload["market_prob_at_prediction"] = round(market_probs.get(canonical_bucket, 0.0), 4)
@@ -7747,12 +7784,20 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
                     print(f"📐 kelly_fraction={kelly_f:.1%} (half-Kelly — bet this % of bankroll)")
         elif direct_bucket:
             payload["ml_bucket"] = direct_bucket
-            signal, edge, kelly_f = _compute_bet_signal(
-                ml["ml_confidence"], direct_bucket, market_probs
+            _raw_probs_d1_direct = ml.get("ml_bucket_probs")
+            if isinstance(_raw_probs_d1_direct, str):
+                try:
+                    _raw_probs_d1_direct = json.loads(_raw_probs_d1_direct)
+                except Exception:
+                    _raw_probs_d1_direct = None
+            signal, edge_tier, edge, kelly_f = _compute_bet_signal(
+                ml["ml_confidence"], direct_bucket, market_probs,
+                ml_bucket_probs=_raw_probs_d1_direct,
             )
             payload["bet_signal"] = signal
             payload["ml_edge"] = edge
-            print(f"🎯 Bet signal: {signal} (edge={edge:+.0%}, kelly={kelly_f:.1%})")
+            payload["ml_edge_tier"] = edge_tier
+            print(f"🎯 Conviction: {signal} · Edge: {edge_tier} ({edge:+.0%}, kelly={kelly_f:.1%})")
             if is_canonical_write:
                 payload["market_prob_at_prediction"] = round(market_probs.get(direct_bucket, 0.0), 4)
                 payload["kelly_fraction"] = kelly_f

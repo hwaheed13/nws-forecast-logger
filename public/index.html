@@ -3234,7 +3234,7 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
     try {
       const _ml = window.mlPredictions || {};
       if (_ml.todayMLBucket && typeof renderCard === 'function') {
-        renderCard("today", _ml.todayMLBucket, _ml.todayBetSignal, _ml.todayMLConfidence, _ml.todayEdge, _ml.todayMarketSnapshot);
+        renderCard("today", _ml.todayMLBucket, _ml.todayBetSignal, _ml.todayMLConfidence, _ml.todayEdge, _ml.todayMarketSnapshot, _ml.todayEdgeTier);
       }
     } catch {}
 
@@ -3429,8 +3429,22 @@ function _mlSignalStyle(sig) {
     case "STRONG_BET": return { color: "#059669", bg: "#ecfdf5", border: "#059669", label: "STRONG BET", icon: "🔥" };
     case "BET":        return { color: "#16a34a", bg: "#f0fdf4", border: "#16a34a", label: "BET",        icon: "✅" };
     case "LEAN":       return { color: "#d97706", bg: "#fffbeb", border: "#f59e0b", label: "LEAN",       icon: "📊" };
-    case "SKIP":       return { color: "#6b7280", bg: "#f3f4f6", border: "#9ca3af", label: "NO EDGE",    icon: "⏭️" };
+    case "SKIP":       return { color: "#6b7280", bg: "#f3f4f6", border: "#9ca3af", label: "SKIP",       icon: "⏭️" };
     default:           return { color: "#6b7280", bg: "#f9fafb", border: "#d1d5db", label: sig || "---", icon: "" };
+  }
+}
+
+// Edge tier = how mispriced the market is vs the model (orthogonal to conviction).
+// A model can be STRONG_BET confident while the market already agrees — that's
+// STRONG_BET + NO_EDGE = no trade. These labels split those two questions.
+function _mlEdgeTierStyle(tier) {
+  switch (tier) {
+    case "STRONG_EDGE":  return { color: "#059669", bg: "#ecfdf5", border: "#059669", label: "STRONG EDGE",  icon: "💎" };
+    case "EDGE":         return { color: "#16a34a", bg: "#f0fdf4", border: "#16a34a", label: "EDGE",         icon: "📈" };
+    case "NO_EDGE":      return { color: "#6b7280", bg: "#f3f4f6", border: "#9ca3af", label: "NO EDGE",      icon: "⚖️" };
+    case "MARKET_AHEAD": return { color: "#dc2626", bg: "#fef2f2", border: "#dc2626", label: "MARKET AHEAD", icon: "📉" };
+    case "UNKNOWN":      return { color: "#6b7280", bg: "#f9fafb", border: "#d1d5db", label: "NO MARKET",    icon: "—"  };
+    default:             return null;
   }
 }
 
@@ -3513,7 +3527,7 @@ function renderMLBetSignal() {
   const getTop2 = _mlGetTop2;
 
   // Render a signal card
-  const renderCard = (prefix, bucket, signal, confidence, edge, marketSnapshot) => {
+  const renderCard = (prefix, bucket, signal, confidence, edge, marketSnapshot, edgeTier) => {
     const el = document.getElementById(`ml-signal-${prefix}`);
     const detail = document.getElementById(`ml-signal-${prefix}-detail`);
     const card = document.getElementById(`ml-signal-${prefix}-card`);
@@ -3536,9 +3550,16 @@ function renderMLBetSignal() {
     // Format bucket label
     const fmtBucket = (b) => cleanKalshiLabel(b);
 
-    // Signal badge
+    // Conviction badge (model-only: how sure is the model?)
     const signalBadge = signal
       ? `<span class="signal-badge" style="background:${s.bg};color:${s.color};padding:4px 10px;border-radius:999px;font-weight:800;font-size:14px;border:1px solid ${s.border};">${s.icon} ${s.label}</span>`
+      : '';
+
+    // Edge-tier badge (market-mispricing: does the market disagree?)
+    // Orthogonal to conviction — STRONG_BET + NO_EDGE means "model sure, market agrees, no trade."
+    const eStyle = edgeTier ? _mlEdgeTierStyle(edgeTier) : null;
+    const edgeBadge = eStyle
+      ? `<span class="signal-badge" style="background:${eStyle.bg};color:${eStyle.color};padding:4px 10px;border-radius:999px;font-weight:700;font-size:12px;border:1px solid ${eStyle.border};margin-left:4px;">${eStyle.icon} ${eStyle.label}${edge != null && edgeTier !== 'UNKNOWN' ? ` ${edge > 0 ? '+' : ''}${Math.round(edge * 100)}%` : ''}</span>`
       : '';
 
     if (top2 && top2.second) {
@@ -3553,6 +3574,7 @@ function renderMLBetSignal() {
         <span style="font-weight:700;color:#2563eb;">${fmtBucket(top2.second.bucket)}</span>
         <span style="color:#6b7280;font-size:13px;">(${p2}%)</span>
         ${signalBadge}
+        ${edgeBadge}
       `;
       // Detail: combined probability
       const combColor = combinedPct >= 75 ? "#059669" : combinedPct >= 60 ? "#16a34a" : "#d97706";
@@ -3563,6 +3585,7 @@ function renderMLBetSignal() {
       el.innerHTML = `
         <span style="font-weight:700;color:#16a34a;">${bucketDisplay}</span>
         ${signalBadge}
+        ${edgeBadge}
       `;
       if (detail) {
         if (confidence != null) {
@@ -3693,7 +3716,7 @@ function renderMLBetSignal() {
       if (card) card.style.borderLeftColor = borderColor;
     }
   } else {
-    renderCard("today", ml.todayMLBucket, ml.todayBetSignal, ml.todayMLConfidence, ml.todayEdge, ml.todayMarketSnapshot);
+    renderCard("today", ml.todayMLBucket, ml.todayBetSignal, ml.todayMLConfidence, ml.todayEdge, ml.todayMarketSnapshot, ml.todayEdgeTier);
   }
 
   // ── Intraday flip indicator ───────────────────────────────────────────────
@@ -3743,7 +3766,7 @@ function renderMLBetSignal() {
     }
   }
 
-  renderCard("tomorrow", ml.tomorrowMLBucket, ml.tomorrowBetSignal, ml.tomorrowMLConfidence, ml.tomorrowEdge, ml.tomorrowMarketSnapshot);
+  renderCard("tomorrow", ml.tomorrowMLBucket, ml.tomorrowBetSignal, ml.tomorrowMLConfidence, ml.tomorrowEdge, ml.tomorrowMarketSnapshot, ml.tomorrowEdgeTier);
 
   // LAX informational note — model now trains on all available days (persistence
   // for non-forecast rows, real forecasts upweighted 5:1). Fewer real forecast
@@ -7154,6 +7177,7 @@ async function loadMLPredictions() {
         window.mlPredictions.today = Number(mlVal);
         window.mlPredictions.todayBetSignal = row.bet_signal || null;
         window.mlPredictions.todayEdge = row.ml_edge != null ? Number(row.ml_edge) : null;
+        window.mlPredictions.todayEdgeTier = row.ml_edge_tier || null;
         window.mlPredictions.todayMLBucket = row.ml_bucket || null;
         window.mlPredictions.todayMLConfidence = row.ml_confidence != null ? Number(row.ml_confidence) : null;
         window.mlPredictions.todayMarketSnapshot = row.kalshi_market_snapshot || null;
@@ -7175,6 +7199,7 @@ async function loadMLPredictions() {
         window.mlPredictions.tomorrow = Number(mlVal);
         window.mlPredictions.tomorrowBetSignal = row.bet_signal || null;
         window.mlPredictions.tomorrowEdge = row.ml_edge != null ? Number(row.ml_edge) : null;
+        window.mlPredictions.tomorrowEdgeTier = row.ml_edge_tier || null;
         window.mlPredictions.tomorrowMLBucket = row.ml_bucket || null;
         window.mlPredictions.tomorrowMLConfidence = row.ml_confidence != null ? Number(row.ml_confidence) : null;
         window.mlPredictions.tomorrowMarketSnapshot = row.kalshi_market_snapshot || null;
