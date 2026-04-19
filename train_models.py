@@ -882,9 +882,22 @@ class NYCTemperatureModelTrainer:
                 return None
 
             records = []
+            bad_snap_rows = 0
             for r in rows:
-                snap_raw = r.get("atm_snapshot") or {}
-                snap = json.loads(snap_raw) if isinstance(snap_raw, str) else snap_raw
+                snap_raw = r.get("atm_snapshot")
+                # Normalize to a dict. Supabase may hand back a list or null
+                # for legacy rows — skip the JSONB merge for those instead of
+                # crashing the whole load (which loses all 273 forecast rows).
+                if isinstance(snap_raw, str):
+                    try:
+                        snap = json.loads(snap_raw)
+                    except Exception:
+                        snap = None
+                else:
+                    snap = snap_raw
+                if not isinstance(snap, dict):
+                    bad_snap_rows += 1
+                    snap = {}
                 record = {"target_date": str(r["target_date"])[:10]}
                 record["actual_high"] = r.get("ml_actual_high")
                 # All other training features come from atm_snapshot JSONB.
@@ -900,6 +913,8 @@ class NYCTemperatureModelTrainer:
                     if bl_val is not None:
                         record[bl_col] = bl_val
                 records.append(record)
+            if bad_snap_rows:
+                print(f"  ⚠️ Skipped JSONB on {bad_snap_rows} row(s) with non-dict atm_snapshot")
 
             df = pd.DataFrame(records)
             df["target_date"] = df["target_date"].astype(str)
