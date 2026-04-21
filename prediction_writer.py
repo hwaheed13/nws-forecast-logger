@@ -2188,9 +2188,11 @@ def _compute_bet_signal(
       edge:           ml_confidence - market_prob (raw, signed)
       kelly_fraction: half-Kelly fraction of bankroll (0 if no edge)
     """
-    # ── Conviction: model-only ────────────────────────────────────────────
-    # Margin over runner-up: 42% vs 40% means the model basically can't decide;
-    # 42% vs 15% is a clear preference.
+    # ── Conviction: MODEL-only, independent of Kalshi market prices ───────
+    # ml_confidence = model probability for the Kalshi bucket it picked
+    # (after aggregating the 1°F distribution into the bucket's range).
+    # market_probs (Kalshi traders' pricing) is NOT used here — it's
+    # user-driven and only feeds the separate edge_tier dimension below.
     runner_up_prob = 0.0
     if ml_bucket_probs:
         sorted_probs = sorted(ml_bucket_probs.values(), reverse=True)
@@ -2198,17 +2200,26 @@ def _compute_bet_signal(
             runner_up_prob = float(sorted_probs[1])
     margin = ml_confidence - runner_up_prob
 
-    if ml_confidence >= 0.55 and margin >= 0.15:
+    if ml_confidence >= 0.70 and margin >= 0.20:
         conviction = "STRONG_BET"
-    elif ml_confidence >= 0.40 and margin >= 0.08:
+    elif ml_confidence >= 0.50 and margin >= 0.10:
         conviction = "BET"
-    elif ml_confidence >= 0.25:
+    elif ml_confidence >= 0.30:
         conviction = "LEAN"
     else:
         conviction = "SKIP"
 
+    # HEDGE: model can't decide between two adjacent buckets. Trumps BET/LEAN
+    # (but never STRONG_BET). Model-prob based — market irrelevant.
+    if (conviction in ("BET", "LEAN")
+            and runner_up_prob >= 0.25
+            and margin <= 0.10
+            and (ml_confidence + runner_up_prob) >= 0.55):
+        conviction = "HEDGE"
+
     if bucket_just_changed and conviction != "SKIP":
-        _downgrade = {"STRONG_BET": "BET", "BET": "LEAN", "LEAN": "SKIP"}
+        _downgrade = {"STRONG_BET": "BET", "BET": "LEAN",
+                      "HEDGE": "LEAN", "LEAN": "SKIP"}
         _orig = conviction
         conviction = _downgrade.get(conviction, conviction)
         print(f"  ⬇️  Conviction downgraded {_orig} → {conviction} "
