@@ -1273,6 +1273,39 @@ def _apply_physical_floor(
     return ml
 
 
+def _project_expected_peak(
+    obs_max: float | None,
+    local_hour: int | None,
+    month: int | None,
+) -> float | None:
+    """
+    Climatology-based estimate of the day's peak temperature, given the current
+    obs_max_so_far and the local hour-of-day.  Returns obs_max + expected
+    remaining heating from this hour to daily peak.
+
+    Used by the proactive projected-peak divergence check — fires BEFORE obs
+    blows past the prediction, giving the model a chance to adjust in time
+    rather than after the winning bucket is already free information.
+
+    Remaining-heating table is intentionally conservative to avoid false
+    alarms on cap days (marine layer, cloud deck, etc.).  Winter values
+    are halved to reflect shorter/weaker heating.  After 3pm local we
+    assume peak has arrived and return obs_max unchanged.
+    """
+    if obs_max is None or local_hour is None:
+        return None
+    if local_hour >= 15:
+        return obs_max
+    # Conservative spring/fall NYC-region estimate of °F added from hour H
+    # to daily peak. Tuned low so false positives are rare.
+    table = {6: 8.0, 7: 7.0, 8: 5.5, 9: 4.0, 10: 3.0, 11: 2.0,
+             12: 1.2, 13: 0.7, 14: 0.3}
+    remaining = table.get(int(local_hour), 0.0)
+    if month in (12, 1, 2):
+        remaining *= 0.5
+    return obs_max + remaining
+
+
 def _check_prediction_divergence(
     dlock_result: dict,
     existing_ml_f: float | None,
@@ -1293,11 +1326,26 @@ def _check_prediction_divergence(
       - past_cutoff put ML into full freeze after 3pm → no recompute
       - Result: ml_f held at 67.6°F for 14+ hours while reality said 65°F max
 
+    FAILURE MODE THIS ALSO ADDRESSES (observed 2026-04-20):
+      - Prediction stuck at ≤50°F all day
+      - Obs climbed steadily through the morning — 45 → 48 → 50 → 51
+      - Old blow-past trigger requires obs > ml_f + 2.5 to fire; 51 vs 50
+        wasn't enough margin
+      - By the time the floor guard forced 51-52, peak was imminent and
+        the winning bucket was essentially free information
+      - Fix: projected-peak trigger using climatology. If obs is already
+        within 1°F of predicted peak at noon, the real peak is likely
+        2-3°F higher — fire a recompute then, not at 3pm.
+
     TRIGGER LOGIC (returns True if ANY fires):
       Cooling divergence:
         obs_max_so_far < ml_f - threshold AND temps falling ≥ 2 hours
       Blow-past divergence:
         obs_max_so_far > ml_f + threshold  (no falling_hrs requirement)
+      Projected-peak divergence (proactive):
+        obs_max + climatological_remaining_heating > ml_f + threshold
+        AND local hour < 14 (only useful pre-peak)
+        AND temps not currently falling (cap-day check)
 
     Returns (diverged: bool, reason: str).
     """
@@ -1329,6 +1377,31 @@ def _check_prediction_divergence(
             f"prediction={ml_f:.1f}°F (Δ={obs_max - ml_f:+.1f}°F, "
             f"blow-past forming)"
         )
+
+    # Proactive projected-peak check. Only fires pre-2pm when temps are not
+    # falling (avoids firing on cap days where obs has already peaked early).
+    # Uses a TIGHTER threshold (1.5°F) than the reactive blow-past check
+    # because the projection is a forward estimate — catching a 2°F gap
+    # proactively is more useful than catching a 2.5°F gap after it happens.
+    projected_threshold = 1.5
+    if falling_hrs == 0:
+        try:
+            import nws_auto_logger as _nal
+            import zoneinfo as _zi
+            _tz = _nal._CITY_CFG.get("timezone", "America/New_York")
+            _now = datetime.now(_zi.ZoneInfo(_tz))
+            projected = _project_expected_peak(obs_max, _now.hour, _now.month)
+            if (projected is not None
+                    and _now.hour < 14
+                    and projected > ml_f + projected_threshold):
+                return True, (
+                    f"obs_projected_peak: obs_max={obs_max:.1f}°F at "
+                    f"{_now.hour}:00 local → projected peak {projected:.1f}°F "
+                    f"vs prediction {ml_f:.1f}°F (gap +{projected - ml_f:.1f}°F, "
+                    f"climatology-based)"
+                )
+        except Exception:
+            pass  # timezone / import failure — fall through silently
 
     return False, ""
 
