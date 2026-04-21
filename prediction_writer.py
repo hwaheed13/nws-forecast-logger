@@ -7430,6 +7430,41 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
                 payload["ml_confidence"] = kalshi_conf
                 print(f"🎯 Kalshi prob-aligned bucket: {kalshi_bucket} ({kalshi_conf:.0%})")
 
+                # Post-Kalshi disagreement gate.  The ML-bucket-level gate (at the
+                # classifier site) caps the top 1°F bucket's probability, but when
+                # _map_ml_to_kalshi_buckets aggregates several 1°F buckets into one
+                # Kalshi bucket (e.g. "<=50" = 47-48 + 48-49 + 49-50 + ...), the
+                # redistributed shed mass climbs back INTO the same Kalshi bucket
+                # and effectively undoes the cap.  April 20, 2026 exhibited this:
+                # ml=49.5, nws=52, accu=53 → classifier-level gate capped
+                # "49-50" to 60%, but Kalshi "<=50" still stored 96%.
+                # Re-apply the cap at the aggregated-bucket level so bet_signal,
+                # conviction, and the dashboard reflect the model's isolation.
+                _nws_ref_k = payload.get("nws_d0")
+                _accu_ref_k = payload.get("accuweather")
+                if _accu_ref_k is None and isinstance(ml, dict):
+                    _accu_ref_k = ml.get("accu_last")
+                _ml_f_k = payload.get("ml_f") if payload.get("ml_f") is not None else (
+                    ml.get("ml_f") if isinstance(ml, dict) else None
+                )
+                try:
+                    if (_nws_ref_k is not None and _accu_ref_k is not None
+                            and _ml_f_k is not None):
+                        _nws_d_k  = float(_ml_f_k) - float(_nws_ref_k)
+                        _accu_d_k = float(_ml_f_k) - float(_accu_ref_k)
+                        if (abs(_nws_d_k) >= 2.0 and abs(_accu_d_k) >= 2.0
+                                and (_nws_d_k * _accu_d_k) > 0
+                                and payload.get("ml_confidence", 0) > 0.60):
+                            _orig_k = payload["ml_confidence"]
+                            payload["ml_confidence"] = 0.60
+                            print(f"   🛡️ Post-Kalshi disagreement gate: "
+                                  f"ml={_ml_f_k:.1f}°F vs "
+                                  f"nws={float(_nws_ref_k):.1f}°F (Δ{_nws_d_k:+.1f}) / "
+                                  f"accu={float(_accu_ref_k):.1f}°F (Δ{_accu_d_k:+.1f}) "
+                                  f"→ confidence {_orig_k:.0%} → 60%")
+                except Exception as _pk_e:
+                    print(f"   ⚠️ Post-Kalshi gate failed: {_pk_e}")
+
                 # Also re-check bucket change against the final Kalshi-aligned bucket
                 _bucket_just_changed = _bucket_just_changed or (
                     not is_canonical_write
@@ -7829,6 +7864,41 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
                 payload["ml_bucket"] = kalshi_bucket
                 payload["ml_confidence"] = kalshi_conf
                 print(f"🎯 Kalshi prob-aligned bucket: {kalshi_bucket} ({kalshi_conf:.0%})")
+
+                # Post-Kalshi disagreement gate.  The ML-bucket-level gate (at the
+                # classifier site) caps the top 1°F bucket's probability, but when
+                # _map_ml_to_kalshi_buckets aggregates several 1°F buckets into one
+                # Kalshi bucket (e.g. "<=50" = 47-48 + 48-49 + 49-50 + ...), the
+                # redistributed shed mass climbs back INTO the same Kalshi bucket
+                # and effectively undoes the cap.  April 20, 2026 exhibited this:
+                # ml=49.5, nws=52, accu=53 → classifier-level gate capped
+                # "49-50" to 60%, but Kalshi "<=50" still stored 96%.
+                # Re-apply the cap at the aggregated-bucket level so bet_signal,
+                # conviction, and the dashboard reflect the model's isolation.
+                _nws_ref_k = payload.get("nws_d0")
+                _accu_ref_k = payload.get("accuweather")
+                if _accu_ref_k is None and isinstance(ml, dict):
+                    _accu_ref_k = ml.get("accu_last")
+                _ml_f_k = payload.get("ml_f") if payload.get("ml_f") is not None else (
+                    ml.get("ml_f") if isinstance(ml, dict) else None
+                )
+                try:
+                    if (_nws_ref_k is not None and _accu_ref_k is not None
+                            and _ml_f_k is not None):
+                        _nws_d_k  = float(_ml_f_k) - float(_nws_ref_k)
+                        _accu_d_k = float(_ml_f_k) - float(_accu_ref_k)
+                        if (abs(_nws_d_k) >= 2.0 and abs(_accu_d_k) >= 2.0
+                                and (_nws_d_k * _accu_d_k) > 0
+                                and payload.get("ml_confidence", 0) > 0.60):
+                            _orig_k = payload["ml_confidence"]
+                            payload["ml_confidence"] = 0.60
+                            print(f"   🛡️ Post-Kalshi disagreement gate: "
+                                  f"ml={_ml_f_k:.1f}°F vs "
+                                  f"nws={float(_nws_ref_k):.1f}°F (Δ{_nws_d_k:+.1f}) / "
+                                  f"accu={float(_accu_ref_k):.1f}°F (Δ{_accu_d_k:+.1f}) "
+                                  f"→ confidence {_orig_k:.0%} → 60%")
+                except Exception as _pk_e:
+                    print(f"   ⚠️ Post-Kalshi gate failed: {_pk_e}")
 
                 # Store second-best Kalshi bucket for later outcome tracking
                 sorted_aligned = sorted(kalshi_aligned.items(), key=lambda x: x[1], reverse=True)
