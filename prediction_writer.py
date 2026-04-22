@@ -3858,30 +3858,40 @@ def _fetch_observation_features(
     # Cloud cover from sky condition text
     features["obs_cloud_cover"] = _sky_to_cloud_cover(latest.get("sky_condition", ""))
 
-    # Heating rate: linear slope over last 3 hours of observations
+    # Heating rate: linear slope over last ~3 hours of observations.
+    #
+    # Previous bug: took valid_obs[-4:] — last 4 records by count. ASOS/METAR
+    # reports every ~5 min, so 4 records = ~15–20 min of span. At 1°F obs
+    # precision the temp diff across 15 min is almost always 0, so heating_rate
+    # silently stuck at 0.00 on most days (confirmed on 2026-04-20 trace where
+    # temps clearly rose 44.6 → 48.9 but heating_rate read 0.00 at every run).
+    #
+    # Fix: filter by TIME, not count. Keep obs whose timestamp is within
+    # WINDOW_HRS of the latest reading; require a minimum span before reporting.
+    _HR_WINDOW_HRS = 3.0
+    _HR_MIN_SPAN_HRS = 0.75   # need ≥45 min of data before the slope is meaningful
+    features["obs_heating_rate"] = np.nan
     if len(valid_obs) >= 2:
-        # Use last min(len, ~3 hours worth) observations
-        recent = valid_obs[-4:] if len(valid_obs) >= 4 else valid_obs
         try:
-            temps = [r["temp_f"] for r in recent]
-            # Compute hours elapsed for each observation relative to first
-            t0_str = recent[0]["observed_at"].replace("Z", "+00:00")
-            t0 = datetime.fromisoformat(t0_str)
-            hours = []
-            for r in recent:
-                ti = datetime.fromisoformat(r["observed_at"].replace("Z", "+00:00"))
-                hours.append((ti - t0).total_seconds() / 3600.0)
-            if hours[-1] > 0:
-                # Simple linear slope: (last - first) / hours_elapsed
-                features["obs_heating_rate"] = round(
-                    (temps[-1] - temps[0]) / hours[-1], 2
-                )
-            else:
-                features["obs_heating_rate"] = np.nan
+            latest_dt = datetime.fromisoformat(
+                valid_obs[-1]["observed_at"].replace("Z", "+00:00"))
+            cutoff = latest_dt - timedelta(hours=_HR_WINDOW_HRS)
+            window = [
+                r for r in valid_obs
+                if datetime.fromisoformat(r["observed_at"].replace("Z", "+00:00")) >= cutoff
+            ]
+            if len(window) >= 2:
+                t0 = datetime.fromisoformat(
+                    window[0]["observed_at"].replace("Z", "+00:00"))
+                t1 = datetime.fromisoformat(
+                    window[-1]["observed_at"].replace("Z", "+00:00"))
+                span_hrs = (t1 - t0).total_seconds() / 3600.0
+                if span_hrs >= _HR_MIN_SPAN_HRS:
+                    features["obs_heating_rate"] = round(
+                        (window[-1]["temp_f"] - window[0]["temp_f"]) / span_hrs, 2
+                    )
         except Exception:
-            features["obs_heating_rate"] = np.nan
-    else:
-        features["obs_heating_rate"] = np.nan
+            pass
 
     # Heating rate DELTA (stall signal) — was warming, now plateaued?
     #
