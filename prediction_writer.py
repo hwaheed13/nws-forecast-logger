@@ -5604,14 +5604,23 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
     if actual_high is None:
         return  # No actual yet — nothing to score
 
-    # Fetch yesterday's prediction from Supabase
+    # Fetch yesterday's prediction from Supabase.
+    # Rows are keyed as `{city}:{model}:{date}:{HH}` (8 hourly snapshots/day).
+    # The legacy `{city}:{model}:{date}` key format hasn't been written since
+    # snapshot_hour was introduced, so we query by (city, target_date, lead_used)
+    # and pick the latest snapshot. Mirrors the fix in _fetch_existing_prediction.
     try:
         endpoint, key = _sb_endpoint()
-        idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{yesterday_iso}"
-        url = (f"{endpoint}?idempotency_key=eq.{idem_key}"
-               f"&select=ml_bucket,ml_f,ml_result,ml_actual_high,kalshi_market_snapshot,"
-               f"ml_bucket_canonical,ml_f_canonical,ml_result_canonical,"
-               f"ml_bucket_2,ml_bucket_2_prob,bucket_rank_hit,atm_snapshot")
+        url = (f"{endpoint}?city=eq.{_CITY_KEY}"
+               f"&target_date=eq.{yesterday_iso}"
+               f"&lead_used=eq.today_for_today"
+               f"&ml_bucket=not.is.null"
+               f"&order=timestamp.desc"
+               f"&limit=1"
+               f"&select=idempotency_key,ml_bucket,ml_f,ml_result,ml_actual_high,"
+               f"kalshi_market_snapshot,ml_bucket_canonical,ml_f_canonical,"
+               f"ml_result_canonical,ml_bucket_2,ml_bucket_2_prob,bucket_rank_hit,"
+               f"atm_snapshot")
         req = urllib.request.Request(url, headers={
             "apikey": key, "Authorization": f"Bearer {key}",
             "Accept": "application/json",
@@ -5622,6 +5631,9 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
         if not pred_rows or not pred_rows[0].get("ml_bucket"):
             return
         pred = pred_rows[0]
+        idem_key = pred.get("idempotency_key")
+        if not idem_key:
+            return
         bucket_2 = pred.get("ml_bucket_2")  # second-best Kalshi bucket (may be None for old rows)
 
         # Already fully scored with same actual? Skip.
