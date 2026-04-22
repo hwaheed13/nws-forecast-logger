@@ -1,49 +1,49 @@
 {
-  "trained_on": "2026-04-21T11:33:32.414253",
+  "trained_on": "2026-04-22T00:51:19.323688",
   "version": "v3_unified_regression",
-  "num_days": 1570,
-  "num_forecast_days": 275,
+  "num_days": 1571,
+  "num_forecast_days": 276,
   "num_multiyear_days": 1295,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-04-20"
+    "end": "2026-04-21"
   },
   "performance": {
-    "cv_mae": 0.79,
-    "cv_bucket_accuracy_1f": 0.1615,
-    "residual_std": 2.76,
+    "cv_mae": 0.8,
+    "cv_bucket_accuracy_1f": 0.1176,
+    "residual_std": 2.77,
     "per_fold_mae": [
-      0.54,
+      0.56,
       0.41,
       0.33,
-      0.63,
-      2.02
+      0.64,
+      2.04
     ],
     "per_fold_bucket_acc": [
-      0.1429,
-      0.1801
+      0.0667,
+      0.1686
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 1.3428
+      "importance": 1.3095
     },
     {
       "name": "intra_temp_5pm",
-      "importance": 0.0113
+      "importance": 0.0096
     },
     {
       "name": "intra_temp_noon",
-      "importance": 0.0045
+      "importance": 0.0053
     },
     {
       "name": "intra_temp_3pm",
-      "importance": 0.0027
+      "importance": 0.0033
     },
     {
       "name": "accu_last",
-      "importance": 0.0018
+      "importance": 0.0019
     },
     {
       "name": "atm_dewpoint_mean",
@@ -51,18 +51,10 @@
     },
     {
       "name": "intra_high_vs_noon",
-      "importance": 0.0004
+      "importance": 0.0003
     },
     {
       "name": "atm_temp_range",
-      "importance": 0.0003
-    },
-    {
-      "name": "atm_vs_forecast_diff",
-      "importance": 0.0003
-    },
-    {
-      "name": "atm_morning_temp_6am",
       "importance": 0.0002
     },
     {
@@ -70,7 +62,15 @@
       "importance": 0.0002
     },
     {
-      "name": "mm_mean",
+      "name": "intra_temp_9am",
+      "importance": 0.0002
+    },
+    {
+      "name": "atm_vs_forecast_diff",
+      "importance": 0.0002
+    },
+    {
+      "name": "atm_morning_temp_6am",
       "importance": 0.0002
     },
     {
@@ -78,7 +78,7 @@
       "importance": 0.0002
     },
     {
-      "name": "intra_temp_9am",
+      "name": "mm_mean",
       "importance": 0.0002
     },
     {
