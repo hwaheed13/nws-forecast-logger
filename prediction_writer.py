@@ -2188,9 +2188,11 @@ def _compute_bet_signal(
       edge:           ml_confidence - market_prob (raw, signed)
       kelly_fraction: half-Kelly fraction of bankroll (0 if no edge)
     """
-    # ── Conviction: model-only ────────────────────────────────────────────
-    # Margin over runner-up: 42% vs 40% means the model basically can't decide;
-    # 42% vs 15% is a clear preference.
+    # ── Conviction: MODEL-only, independent of Kalshi market prices ───────
+    # ml_confidence = model probability for the Kalshi bucket it picked
+    # (after aggregating the 1°F distribution into the bucket's range).
+    # market_probs (Kalshi traders' pricing) is NOT used here — it's
+    # user-driven and only feeds the separate edge_tier dimension below.
     runner_up_prob = 0.0
     if ml_bucket_probs:
         sorted_probs = sorted(ml_bucket_probs.values(), reverse=True)
@@ -2198,17 +2200,26 @@ def _compute_bet_signal(
             runner_up_prob = float(sorted_probs[1])
     margin = ml_confidence - runner_up_prob
 
-    if ml_confidence >= 0.55 and margin >= 0.15:
+    if ml_confidence >= 0.70 and margin >= 0.20:
         conviction = "STRONG_BET"
-    elif ml_confidence >= 0.40 and margin >= 0.08:
+    elif ml_confidence >= 0.50 and margin >= 0.10:
         conviction = "BET"
-    elif ml_confidence >= 0.25:
+    elif ml_confidence >= 0.30:
         conviction = "LEAN"
     else:
         conviction = "SKIP"
 
+    # HEDGE: model can't decide between two adjacent buckets. Trumps BET/LEAN
+    # (but never STRONG_BET). Model-prob based — market irrelevant.
+    if (conviction in ("BET", "LEAN")
+            and runner_up_prob >= 0.25
+            and margin <= 0.10
+            and (ml_confidence + runner_up_prob) >= 0.55):
+        conviction = "HEDGE"
+
     if bucket_just_changed and conviction != "SKIP":
-        _downgrade = {"STRONG_BET": "BET", "BET": "LEAN", "LEAN": "SKIP"}
+        _downgrade = {"STRONG_BET": "BET", "BET": "LEAN",
+                      "HEDGE": "LEAN", "LEAN": "SKIP"}
         _orig = conviction
         conviction = _downgrade.get(conviction, conviction)
         print(f"  ⬇️  Conviction downgraded {_orig} → {conviction} "
@@ -3847,30 +3858,40 @@ def _fetch_observation_features(
     # Cloud cover from sky condition text
     features["obs_cloud_cover"] = _sky_to_cloud_cover(latest.get("sky_condition", ""))
 
-    # Heating rate: linear slope over last 3 hours of observations
+    # Heating rate: linear slope over last ~3 hours of observations.
+    #
+    # Previous bug: took valid_obs[-4:] — last 4 records by count. ASOS/METAR
+    # reports every ~5 min, so 4 records = ~15–20 min of span. At 1°F obs
+    # precision the temp diff across 15 min is almost always 0, so heating_rate
+    # silently stuck at 0.00 on most days (confirmed on 2026-04-20 trace where
+    # temps clearly rose 44.6 → 48.9 but heating_rate read 0.00 at every run).
+    #
+    # Fix: filter by TIME, not count. Keep obs whose timestamp is within
+    # WINDOW_HRS of the latest reading; require a minimum span before reporting.
+    _HR_WINDOW_HRS = 3.0
+    _HR_MIN_SPAN_HRS = 0.75   # need ≥45 min of data before the slope is meaningful
+    features["obs_heating_rate"] = np.nan
     if len(valid_obs) >= 2:
-        # Use last min(len, ~3 hours worth) observations
-        recent = valid_obs[-4:] if len(valid_obs) >= 4 else valid_obs
         try:
-            temps = [r["temp_f"] for r in recent]
-            # Compute hours elapsed for each observation relative to first
-            t0_str = recent[0]["observed_at"].replace("Z", "+00:00")
-            t0 = datetime.fromisoformat(t0_str)
-            hours = []
-            for r in recent:
-                ti = datetime.fromisoformat(r["observed_at"].replace("Z", "+00:00"))
-                hours.append((ti - t0).total_seconds() / 3600.0)
-            if hours[-1] > 0:
-                # Simple linear slope: (last - first) / hours_elapsed
-                features["obs_heating_rate"] = round(
-                    (temps[-1] - temps[0]) / hours[-1], 2
-                )
-            else:
-                features["obs_heating_rate"] = np.nan
+            latest_dt = datetime.fromisoformat(
+                valid_obs[-1]["observed_at"].replace("Z", "+00:00"))
+            cutoff = latest_dt - timedelta(hours=_HR_WINDOW_HRS)
+            window = [
+                r for r in valid_obs
+                if datetime.fromisoformat(r["observed_at"].replace("Z", "+00:00")) >= cutoff
+            ]
+            if len(window) >= 2:
+                t0 = datetime.fromisoformat(
+                    window[0]["observed_at"].replace("Z", "+00:00"))
+                t1 = datetime.fromisoformat(
+                    window[-1]["observed_at"].replace("Z", "+00:00"))
+                span_hrs = (t1 - t0).total_seconds() / 3600.0
+                if span_hrs >= _HR_MIN_SPAN_HRS:
+                    features["obs_heating_rate"] = round(
+                        (window[-1]["temp_f"] - window[0]["temp_f"]) / span_hrs, 2
+                    )
         except Exception:
-            features["obs_heating_rate"] = np.nan
-    else:
-        features["obs_heating_rate"] = np.nan
+            pass
 
     # Heating rate DELTA (stall signal) — was warming, now plateaued?
     #
@@ -5563,16 +5584,21 @@ def _score_bucket(ml_bucket: str, actual_int: int, kalshi_snapshot_raw) -> bool:
     return False
 
 
-def score_yesterday_prediction(rows: list[dict]) -> None:
+def score_yesterday_prediction(rows: list[dict], target_date_iso: Optional[str] = None) -> None:
     """
-    Score yesterday's ML prediction against the actual high.
+    Score a day's ML prediction against the actual high.
     Updates the prediction_logs row with ml_result ('WIN' or 'MISS')
     and ml_actual_high.
-    """
-    today = today_nyc()
-    yesterday_iso = (today - timedelta(days=1)).strftime("%Y-%m-%d")
 
-    # Get yesterday's actual high from CSV
+    target_date_iso: explicit YYYY-MM-DD to score. Defaults to yesterday.
+    """
+    if target_date_iso:
+        yesterday_iso = target_date_iso
+    else:
+        today = today_nyc()
+        yesterday_iso = (today - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # Get target day's actual high from CSV
     actual_high = None
     for r in rows:
         if (r.get("forecast_or_actual") == "actual" and
@@ -5583,14 +5609,23 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
     if actual_high is None:
         return  # No actual yet — nothing to score
 
-    # Fetch yesterday's prediction from Supabase
+    # Fetch yesterday's prediction from Supabase.
+    # Rows are keyed as `{city}:{model}:{date}:{HH}` (8 hourly snapshots/day).
+    # The legacy `{city}:{model}:{date}` key format hasn't been written since
+    # snapshot_hour was introduced, so we query by (city, target_date, lead_used)
+    # and pick the latest snapshot. Mirrors the fix in _fetch_existing_prediction.
     try:
         endpoint, key = _sb_endpoint()
-        idem_key = f"{_CITY_KEY}:{MODEL_VERSION}:{yesterday_iso}"
-        url = (f"{endpoint}?idempotency_key=eq.{idem_key}"
-               f"&select=ml_bucket,ml_f,ml_result,ml_actual_high,kalshi_market_snapshot,"
-               f"ml_bucket_canonical,ml_f_canonical,ml_result_canonical,"
-               f"ml_bucket_2,ml_bucket_2_prob,bucket_rank_hit,atm_snapshot")
+        url = (f"{endpoint}?city=eq.{_CITY_KEY}"
+               f"&target_date=eq.{yesterday_iso}"
+               f"&lead_used=eq.today_for_today"
+               f"&ml_bucket=not.is.null"
+               f"&order=timestamp.desc"
+               f"&limit=1"
+               f"&select=idempotency_key,ml_bucket,ml_f,ml_result,ml_actual_high,"
+               f"kalshi_market_snapshot,ml_bucket_canonical,ml_f_canonical,"
+               f"ml_result_canonical,ml_bucket_2,ml_bucket_2_prob,bucket_rank_hit,"
+               f"atm_snapshot")
         req = urllib.request.Request(url, headers={
             "apikey": key, "Authorization": f"Bearer {key}",
             "Accept": "application/json",
@@ -5601,6 +5636,9 @@ def score_yesterday_prediction(rows: list[dict]) -> None:
         if not pred_rows or not pred_rows[0].get("ml_bucket"):
             return
         pred = pred_rows[0]
+        idem_key = pred.get("idempotency_key")
+        if not idem_key:
+            return
         bucket_2 = pred.get("ml_bucket_2")  # second-best Kalshi bucket (may be None for old rows)
 
         # Already fully scored with same actual? Skip.
@@ -8401,6 +8439,10 @@ def _cli():
     s.add_parser("backfill_obs")
     s.add_parser("backfill_obs_historical")
     s.add_parser("backfill_high_timing")
+    bs = s.add_parser("backfill_scores",
+                      help="Retro-score WIN/MISS for a date range (inclusive).")
+    bs.add_argument("--start", required=True, help="YYYY-MM-DD")
+    bs.add_argument("--end",   required=True, help="YYYY-MM-DD")
     args = p.parse_args()
 
     set_city(args.city)
@@ -8414,6 +8456,19 @@ def _cli():
     elif args.cmd == "backfill_high_timing":    backfill_high_timing_features(args.city)
     elif args.cmd == "today_for_today":    write_today_for_today(args.date)
     elif args.cmd == "today_for_tomorrow": write_today_for_tomorrow(args.date)
+    elif args.cmd == "backfill_scores":
+        from datetime import date as _date
+        rows, _ = _read_all_rows()
+        d0 = _date.fromisoformat(args.start)
+        d1 = _date.fromisoformat(args.end)
+        cur = d0
+        while cur <= d1:
+            iso = cur.isoformat()
+            print(f"\n── Scoring {iso} ──")
+            score_yesterday_prediction(rows, target_date_iso=iso)
+            cur = cur + timedelta(days=1)
+        try: backfill_canonical_results()
+        except Exception as e: print("⚠️ backfill_canonical_results failed:", e)
     else: write_both_snapshots()
 
 if __name__ == "__main__": _cli()
