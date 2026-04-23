@@ -3577,9 +3577,18 @@ function renderMLBetSignal() {
         ${signalBadge}
         ${edgeBadge}
       `;
-      // Detail: combined probability
+      // Detail: combined top-2 + ML confidence (top-1 bucket probability).
+      // Both are shown so users see breadth (top-2) and depth (top-1) — a 70%
+      // combined with 40% top-1 means a close-call between two buckets, not a
+      // confident single pick.
       const combColor = combinedPct >= 75 ? "#059669" : combinedPct >= 60 ? "#16a34a" : "#d97706";
-      if (detail) detail.innerHTML = `Combined top-2: <span style="color:${combColor};font-weight:600;">${combinedPct}%</span>`;
+      let detailHTML = `Combined top-2: <span style="color:${combColor};font-weight:600;">${combinedPct}%</span>`;
+      if (confidence != null) {
+        const confPct = Math.round(confidence * 100);
+        const confColor = confPct >= 65 ? "#059669" : confPct >= 45 ? "#16a34a" : "#dc2626";
+        detailHTML += ` <span style="color:#9ca3af;">|</span> ML confidence: <span style="color:${confColor};font-weight:600;">${confPct}%</span>`;
+      }
+      if (detail) detail.innerHTML = detailHTML;
     } else {
       // Single bucket fallback
       const bucketDisplay = fmtBucket(bucket);
