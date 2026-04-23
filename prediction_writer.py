@@ -5584,16 +5584,21 @@ def _score_bucket(ml_bucket: str, actual_int: int, kalshi_snapshot_raw) -> bool:
     return False
 
 
-def score_yesterday_prediction(rows: list[dict]) -> None:
+def score_yesterday_prediction(rows: list[dict], target_date_iso: Optional[str] = None) -> None:
     """
-    Score yesterday's ML prediction against the actual high.
+    Score a day's ML prediction against the actual high.
     Updates the prediction_logs row with ml_result ('WIN' or 'MISS')
     and ml_actual_high.
-    """
-    today = today_nyc()
-    yesterday_iso = (today - timedelta(days=1)).strftime("%Y-%m-%d")
 
-    # Get yesterday's actual high from CSV
+    target_date_iso: explicit YYYY-MM-DD to score. Defaults to yesterday.
+    """
+    if target_date_iso:
+        yesterday_iso = target_date_iso
+    else:
+        today = today_nyc()
+        yesterday_iso = (today - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # Get target day's actual high from CSV
     actual_high = None
     for r in rows:
         if (r.get("forecast_or_actual") == "actual" and
@@ -8434,6 +8439,10 @@ def _cli():
     s.add_parser("backfill_obs")
     s.add_parser("backfill_obs_historical")
     s.add_parser("backfill_high_timing")
+    bs = s.add_parser("backfill_scores",
+                      help="Retro-score WIN/MISS for a date range (inclusive).")
+    bs.add_argument("--start", required=True, help="YYYY-MM-DD")
+    bs.add_argument("--end",   required=True, help="YYYY-MM-DD")
     args = p.parse_args()
 
     set_city(args.city)
@@ -8447,6 +8456,19 @@ def _cli():
     elif args.cmd == "backfill_high_timing":    backfill_high_timing_features(args.city)
     elif args.cmd == "today_for_today":    write_today_for_today(args.date)
     elif args.cmd == "today_for_tomorrow": write_today_for_tomorrow(args.date)
+    elif args.cmd == "backfill_scores":
+        from datetime import date as _date
+        rows, _ = _read_all_rows()
+        d0 = _date.fromisoformat(args.start)
+        d1 = _date.fromisoformat(args.end)
+        cur = d0
+        while cur <= d1:
+            iso = cur.isoformat()
+            print(f"\n── Scoring {iso} ──")
+            score_yesterday_prediction(rows, target_date_iso=iso)
+            cur = cur + timedelta(days=1)
+        try: backfill_canonical_results()
+        except Exception as e: print("⚠️ backfill_canonical_results failed:", e)
     else: write_both_snapshots()
 
 if __name__ == "__main__": _cli()
