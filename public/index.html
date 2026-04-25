@@ -3787,7 +3787,24 @@ function renderMLBetSignal() {
     const _fnPending     = _fnSnap.ml_flip_pending_bucket || null;
     const _fnLabel       = b => cleanKalshiLabel ? cleanKalshiLabel(b) : b;
 
-    if (_canonBucket && _currBucket && _canonBucket !== _currBucket) {
+    // Map raw 1°F ML buckets to Kalshi-aggregated buckets. Raw-bucket churn
+    // (e.g. 48-49 → 49-50 → 50-51, all `<=50` in Kalshi terms) shouldn't render
+    // as a shift since the market position is unchanged.
+    const _fnMktSnap     = ml.todayMarketSnapshot;
+    const _fnCanonKalshi = _mlMapTempToKalshiBucket(ml.todayMLFCanonical, _fnMktSnap);
+    const _fnCurrKalshi  = _mlMapTempToKalshiBucket(ml.today,             _fnMktSnap);
+    const _fnSameKalshi  = (_fnCanonKalshi && _fnCurrKalshi && _fnCanonKalshi === _fnCurrKalshi);
+    // Did any historical flip ever cross a Kalshi boundary?
+    const _fnHistCrossedK = _fnHistory.some(h => {
+      const m = String(h).match(/^(\d+)-(\d+)$/);
+      const t = m ? (Number(m[1]) + Number(m[2])) / 2 : parseFloat(h);
+      const k = _mlMapTempToKalshiBucket(t, _fnMktSnap);
+      return k && _fnCanonKalshi && k !== _fnCanonKalshi;
+    });
+
+    if (_fnSameKalshi && !_fnHistCrossedK) {
+      _flipNote.innerHTML = '';
+    } else if (_canonBucket && _currBucket && _canonBucket !== _currBucket) {
       // Currently shifted (confirmed)
       const _fnHist  = _fnHistory.length > 0 ? _fnHistory : [_currBucket];
       const _fnChain = [_canonBucket, ..._fnHist].map(_fnLabel).join(' → ');
@@ -4081,8 +4098,25 @@ function renderFlipRisk() {
   })();
   // PENDING: one run has shown a different bucket but not yet confirmed (needs 2 consecutive)
   const _flipPendingBucket = _todaySnap.ml_flip_pending_bucket || null;
-  // "Returned" = bucket is back at canonical but a confirmed flip did happen earlier today
-  const flipReturnedToCanonical = !flipAlreadyOccurred && _flipOccurred && canonBucket && currentBucket;
+  // Map a raw bucket label (e.g. "48-49") to its Kalshi-aggregated equivalent
+  // by routing the bucket midpoint through the market snapshot.
+  function _rawBucketToKalshi(rawLabel, mktSnap) {
+    if (!rawLabel) return null;
+    const m = String(rawLabel).match(/^(\d+)-(\d+)$/);
+    if (!m) return _mlMapTempToKalshiBucket(parseFloat(rawLabel), mktSnap);
+    const mid = (Number(m[1]) + Number(m[2])) / 2;
+    return _mlMapTempToKalshiBucket(mid, mktSnap);
+  }
+  // If every entry in flip history maps to the same Kalshi bucket as canonical,
+  // the "flip" was raw 1°F-bucket churn that doesn't move the market position.
+  // Suppress the RETURNED narrative entirely in that case.
+  const _flipHistoryCrossedKalshi = _flipHistory.some(h => {
+    const k = _rawBucketToKalshi(h, _mktSnap);
+    return k && _canonKalshi && k !== _canonKalshi;
+  });
+  // "Returned" = bucket is back at canonical AND at least one historical flip
+  // actually crossed a Kalshi boundary.
+  const flipReturnedToCanonical = !flipAlreadyOccurred && _flipOccurred && canonBucket && currentBucket && _flipHistoryCrossedKalshi;
   // "Watching" = a single non-canonical run seen; not yet confirmed, not yet shown as OCCURRED
   const flipWatching = !flipAlreadyOccurred && !_flipOccurred && !!_flipPendingBucket && !!canonBucket;
 
@@ -6026,8 +6060,21 @@ window._predTomorrow = predTomorrow;
         const _fPendingBucket   = _snapForFlip.ml_flip_pending_bucket || null;
         // Build chain: canonical → every intermediate → current/back
         const _chainSteps = b => cleanKalshiLabel ? cleanKalshiLabel(b) : b;
+        // Suppress when raw-bucket churn doesn't actually move Kalshi position.
+        const _flipMktSnap   = _mlForFlip.todayMarketSnapshot;
+        const _flipCanonK    = _mlMapTempToKalshiBucket(_mlForFlip.todayMLFCanonical, _flipMktSnap);
+        const _flipCurrK     = _mlMapTempToKalshiBucket(_mlForFlip.today,             _flipMktSnap);
+        const _flipSameKalshi = (_flipCanonK && _flipCurrK && _flipCanonK === _flipCurrK);
+        const _flipHistCrossedK = _fHistory.some(h => {
+          const m = String(h).match(/^(\d+)-(\d+)$/);
+          const t = m ? (Number(m[1]) + Number(m[2])) / 2 : parseFloat(h);
+          const k = _mlMapTempToKalshiBucket(t, _flipMktSnap);
+          return k && _flipCanonK && k !== _flipCanonK;
+        });
         let canonicalFlipNote = '';
-        if (_canonBucket && _currBucket && _canonBucket !== _currBucket) {
+        if (_flipSameKalshi && !_flipHistCrossedK) {
+          canonicalFlipNote = '';
+        } else if (_canonBucket && _currBucket && _canonBucket !== _currBucket) {
           // Currently at a different (CONFIRMED) bucket — show every step so oscillations are visible
           const _activeHist = _fHistory.length > 0 ? _fHistory : [_currBucket];
           const _chain2     = [_canonBucket, ..._activeHist].map(_chainSteps).join(' → ');
