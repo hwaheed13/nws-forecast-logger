@@ -1173,8 +1173,26 @@ async function checkEarlyMorningExceedance() {
 
   // Primary signal: if overnight MIN is within 5°F of forecast high, airmass
   // is stuck warm → blow-past likely.
+  // Suppress once the day has resolved: past ~10 AM local the morning ramp
+  // is over, and if the day's observed max already touched the forecast the
+  // "blow-past risk" thesis has either already played out or been disproven
+  // by what's actually rolled in (clouds, marine cap, cold advection, etc.).
+  const _hourLocalNow = (() => {
+    try {
+      return parseInt(new Intl.DateTimeFormat("en-US", {
+        timeZone: CC().timezone, hour: "numeric", hour12: false
+      }).format(new Date()), 10);
+    } catch { return null; }
+  })();
+  const _todayMaxObs = Number.isFinite(window._sixHourMaxF) ? window._sixHourMaxF : null;
+  const _preDawnStale = (
+    (_hourLocalNow != null && _hourLocalNow >= 10) ||
+    (_todayMaxObs != null && Number.isFinite(latestForecast) &&
+     _todayMaxObs >= latestForecast - 0.5)
+  );
   const OVERNIGHT_MIN_PROXIMITY_F = 5.0;
-  if (overnightMin != null &&
+  if (!_preDawnStale &&
+      overnightMin != null &&
       Number.isFinite(latestForecast) &&
       (latestForecast - overnightMin) < OVERNIGHT_MIN_PROXIMITY_F) {
     return {
@@ -3508,6 +3526,31 @@ function _mlGetTop2(bucketProbsRaw, marketSnapshot) {
   } catch { return null; }
 }
 
+// Map a raw temp (°F) to its Kalshi bucket label using the market snapshot.
+// Returns null if no snapshot or no matching bucket. Used by flip detection so
+// raw 1°F-wide ML buckets ("48-49") and Kalshi 2°F-range buckets ("<=50") can
+// be compared on equal footing — both temps map to the same Kalshi bucket
+// when they fall in the same range, which prevents phantom early-morning flips
+// where the canonical was written before Kalshi opened (raw label) and the
+// current is post-open (aggregated label).
+function _mlMapTempToKalshiBucket(tempF, marketSnapshot) {
+  if (tempF == null || !marketSnapshot) return null;
+  try {
+    const mkt = typeof marketSnapshot === 'string' ? JSON.parse(marketSnapshot) : marketSnapshot;
+    const t = Math.round(Number(tempF));
+    if (!Number.isFinite(t)) return null;
+    for (const label of Object.keys(mkt)) {
+      const le = label.match(/^<=(\d+)$/);
+      if (le && t <= Number(le[1])) return label;
+      const ge = label.match(/^>=(\d+)$/);
+      if (ge && t >= Number(ge[1])) return label;
+      const rng = label.match(/^(\d+)-(\d+)$/);
+      if (rng && t >= Number(rng[1]) && t <= Number(rng[2])) return label;
+    }
+  } catch {}
+  return null;
+}
+
 function renderMLBetSignal() {
   const ml = window.mlPredictions || {};
   const grid = document.getElementById("ml-bet-signal-grid");
@@ -4002,9 +4045,25 @@ function renderFlipRisk() {
 
   // ── Post-flip and late-day state detection ────────────────────────────────
   const ml2 = window.mlPredictions || {};
-  const canonBucket   = ml2.todayMLBucketCanonical;
-  const currentBucket = ml2.todayMLBucket;
-  const flipAlreadyOccurred = canonBucket && currentBucket && canonBucket !== currentBucket;
+  const _rawCanonBucket   = ml2.todayMLBucketCanonical;
+  const _rawCurrentBucket = ml2.todayMLBucket;
+  // Re-aggregate both raw bucket labels through the current Kalshi market snapshot.
+  // Without this, an early-morning canonical written before Kalshi opened (raw
+  // 1°F label like "48-49") compared against an aggregated current ("<=50")
+  // string-mismatches and triggers a phantom flip even when both temps fall in
+  // the same Kalshi bucket. ml_f_canonical / ml.today are the underlying numbers.
+  const _mktSnap = ml2.todayMarketSnapshot;
+  const _canonKalshi   = _mlMapTempToKalshiBucket(ml2.todayMLFCanonical, _mktSnap);
+  const _currentKalshi = _mlMapTempToKalshiBucket(ml2.today,             _mktSnap);
+  const canonBucket   = _canonKalshi   || _rawCanonBucket;
+  const currentBucket = _currentKalshi || _rawCurrentBucket;
+  // Compare on Kalshi-equivalent labels when both map cleanly; otherwise fall
+  // back to the raw string compare (preserves prior behavior pre-Kalshi-open).
+  const flipAlreadyOccurred = (
+    (_canonKalshi && _currentKalshi)
+      ? _canonKalshi !== _currentKalshi
+      : (_rawCanonBucket && _rawCurrentBucket && _rawCanonBucket !== _rawCurrentBucket)
+  );
 
   // Read flip history from atm_snapshot — persisted even after bucket returns to canonical
   const _todaySnap        = ml2.todayAtmSnapshot || {};
@@ -5755,10 +5814,15 @@ window._predTomorrow = predTomorrow;
         // ── Pre-compute live invalidation so overnight note can reference it ──
         // (full banner is built later, but we need _liveInvalidated here)
         const _liveObsMaxEarly = (() => {
-          const candidates = [
-            _overnightObsMax,
-            Number.isFinite(window._sixHourMaxF) ? window._sixHourMaxF : null,
-          ].filter(v => v != null);
+          // METAR's six_hr_max_f rolls back 6 hours, so before 6 AM local it
+          // includes pre-midnight readings from the previous day. Only trust it
+          // once enough of today has elapsed that the rolling window is fully
+          // post-midnight (6+ AM local). obs_snap_max_so_far is already
+          // day-filtered server-side, so it's always safe.
+          const sixHrSafe = (
+            Number.isFinite(window._sixHourMaxF) && _nowHourLocal >= 6
+          ) ? window._sixHourMaxF : null;
+          const candidates = [_overnightObsMax, sixHrSafe].filter(v => v != null);
           return candidates.length ? Math.max(...candidates) : null;
         })();
         const _mlBucketUpperEarly = (() => {
