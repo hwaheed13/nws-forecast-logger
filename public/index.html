@@ -5864,16 +5864,23 @@ window._predTomorrow = predTomorrow;
         // ── Pre-compute live invalidation so overnight note can reference it ──
         // (full banner is built later, but we need _liveInvalidated here)
         const _liveObsMaxEarly = (() => {
-          // METAR's six_hr_max_f rolls back 6 hours, so before 6 AM local it
-          // includes pre-midnight readings from the previous day. Only trust it
-          // once enough of today has elapsed that the rolling window is fully
-          // post-midnight (6+ AM local). obs_snap_max_so_far is already
-          // day-filtered server-side, so it's always safe.
-          const sixHrSafe = (
+          // Banner-only source: NWS 6-hr rolling max, today-filtered server-side
+          // (parsed.date === todayISO at the nws-6hr-json endpoint) and gated to
+          // post-6-AM local so the rolling window doesn't span midnight.
+          //
+          // Deliberately NOT using obs_snap_max_so_far here even though it's
+          // available: that value is computed across KNYC + JFK + LGA combined,
+          // and the Kalshi market resolves on KNYC alone. A regional station's
+          // brief overnight reading shouldn't tip "DO NOT ACT ON THIS PREDICTION."
+          // The model still consumes obs_max_so_far for its broader airmass
+          // signal — this is just the banner's stricter view.
+          //
+          // Side-effect: the banner now naturally clears once the rolling 6-hr
+          // window slides past the bucket-exceeding reading, which is the right
+          // behavior for an actionable "is reality still exceeding" warning.
+          return (
             Number.isFinite(window._sixHourMaxF) && _nowHourLocal >= 6
-          ) ? window._sixHourMaxF : null;
-          const candidates = [_overnightObsMax, sixHrSafe].filter(v => v != null);
-          return candidates.length ? Math.max(...candidates) : null;
+          ) ? Number(window._sixHourMaxF) : null;
         })();
         const _mlBucketUpperEarly = (() => {
           if (!bucket) return null;
