@@ -1173,8 +1173,26 @@ async function checkEarlyMorningExceedance() {
 
   // Primary signal: if overnight MIN is within 5°F of forecast high, airmass
   // is stuck warm → blow-past likely.
+  // Suppress once the day has resolved: past ~10 AM local the morning ramp
+  // is over, and if the day's observed max already touched the forecast the
+  // "blow-past risk" thesis has either already played out or been disproven
+  // by what's actually rolled in (clouds, marine cap, cold advection, etc.).
+  const _hourLocalNow = (() => {
+    try {
+      return parseInt(new Intl.DateTimeFormat("en-US", {
+        timeZone: CC().timezone, hour: "numeric", hour12: false
+      }).format(new Date()), 10);
+    } catch { return null; }
+  })();
+  const _todayMaxObs = Number.isFinite(window._sixHourMaxF) ? window._sixHourMaxF : null;
+  const _preDawnStale = (
+    (_hourLocalNow != null && _hourLocalNow >= 10) ||
+    (_todayMaxObs != null && Number.isFinite(latestForecast) &&
+     _todayMaxObs >= latestForecast - 0.5)
+  );
   const OVERNIGHT_MIN_PROXIMITY_F = 5.0;
-  if (overnightMin != null &&
+  if (!_preDawnStale &&
+      overnightMin != null &&
       Number.isFinite(latestForecast) &&
       (latestForecast - overnightMin) < OVERNIGHT_MIN_PROXIMITY_F) {
     return {
