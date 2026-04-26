@@ -1,49 +1,49 @@
 {
-  "trained_on": "2026-04-25T11:10:18.764424",
+  "trained_on": "2026-04-26T17:13:47.439916",
   "version": "v3_unified_regression",
-  "num_days": 1574,
-  "num_forecast_days": 279,
+  "num_days": 1575,
+  "num_forecast_days": 280,
   "num_multiyear_days": 1295,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-04-24"
+    "end": "2026-04-25"
   },
   "performance": {
     "cv_mae": 0.8,
-    "cv_bucket_accuracy_1f": 0.1172,
-    "residual_std": 2.77,
+    "cv_bucket_accuracy_1f": 0.1175,
+    "residual_std": 2.78,
     "per_fold_mae": [
-      0.57,
+      0.54,
       0.41,
       0.33,
-      0.65,
-      2.02
+      0.67,
+      2.06
     ],
     "per_fold_bucket_acc": [
-      0.0588,
-      0.1756
+      0.0556,
+      0.1794
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 1.3264
+      "importance": 1.3082
     },
     {
       "name": "intra_temp_5pm",
-      "importance": 0.01
+      "importance": 0.0084
     },
     {
       "name": "intra_temp_noon",
-      "importance": 0.0052
+      "importance": 0.0061
     },
     {
       "name": "intra_temp_3pm",
-      "importance": 0.0035
+      "importance": 0.0032
     },
     {
       "name": "accu_last",
-      "importance": 0.0016
+      "importance": 0.0017
     },
     {
       "name": "atm_dewpoint_mean",
@@ -51,10 +51,14 @@
     },
     {
       "name": "intra_high_vs_noon",
-      "importance": 0.0004
+      "importance": 0.0003
     },
     {
       "name": "atm_temp_range",
+      "importance": 0.0003
+    },
+    {
+      "name": "atm_vs_forecast_diff",
       "importance": 0.0002
     },
     {
@@ -62,15 +66,11 @@
       "importance": 0.0002
     },
     {
-      "name": "atm_vs_forecast_diff",
+      "name": "accu_max",
       "importance": 0.0002
     },
     {
       "name": "prev_day_high",
-      "importance": 0.0002
-    },
-    {
-      "name": "accu_max",
       "importance": 0.0002
     },
     {
