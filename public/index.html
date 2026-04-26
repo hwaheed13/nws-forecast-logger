@@ -3207,6 +3207,24 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
       if (parsed && parsed.dayISO === today) {
         el.textContent = `${parsed.tempF.toFixed(0)}°F`;
         note.textContent = `${parsed.timeET} ${CC().tzAbbr} • NWS daily summary message`;
+        // Mirror into the shared window._dsmHighF so downstream consumers
+        // (LIVE EXCEEDS banner, KNYC card "DSM High" line) work even when
+        // the Supabase nws_daily_summary row hasn't been written yet by the
+        // GitHub Actions workflow. The panel + the model logic should never
+        // disagree about whether DSM exists.
+        const _existing = Number.isFinite(window._dsmHighF) ? Number(window._dsmHighF) : null;
+        if (_existing == null || parsed.tempF > _existing) {
+          window._dsmHighF = parsed.tempF;
+          window._dsmHighTime = parsed.iso || null;
+          console.log(`📊 DSM High mirrored from NWS scrape: ${parsed.tempF}°F at ${parsed.timeET}`);
+          try { if (typeof renderLiveSourcesPanel === 'function') renderLiveSourcesPanel(); } catch {}
+          try {
+            const _ml = window.mlPredictions || {};
+            if (_ml.todayMLBucket && typeof renderCard === 'function') {
+              renderCard("today", _ml.todayMLBucket, _ml.todayBetSignal, _ml.todayMLConfidence, _ml.todayEdge, _ml.todayMarketSnapshot, _ml.todayEdgeTier);
+            }
+          } catch {}
+        }
       } else {
         clearDSMOnly();
       }
