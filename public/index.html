@@ -7875,6 +7875,10 @@ async function bootApp() {
           window._dsmHighF = Number(data.dsm_high);
           window._dsmHighTime = data.dsm_high_time || null;
           console.log(`📊 DSM High loaded on page init: ${window._dsmHighF}°F at ${window._dsmHighTime}`);
+          // Re-render the live sources panel so the KNYC card picks up the
+          // "DSM High: NN°F" line on initial page load (polling + realtime
+          // listener already do this; this matches their behavior on cold-load).
+          try { if (typeof renderLiveSourcesPanel === 'function') renderLiveSourcesPanel(); } catch (e) { console.error("renderLiveSourcesPanel error:", e); }
           // Re-render today's ML card so the LIVE EXCEEDS banner picks up the
           // new DSM value (DSM can exceed the 6-hr max because it captures peaks
           // between hourly polls — without this re-render, a 55-56 prediction
