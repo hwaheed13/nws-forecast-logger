@@ -221,7 +221,7 @@ export default async function handler(req, res) {
       flipPoints += 2;
       blowPoints += 3;
       signals.push({ factor: "obs_trajectory", dir: "blow", weight: 3,
-        label: `${obsTemp.toFixed(1)}°F now${peakNote}, ${Math.abs(gap).toFixed(1)}°F ABOVE ML center — blow-past CONFIRMED` });
+        label: `${obsTemp.toFixed(1)}°F now${peakNote}, ${Math.abs(gap).toFixed(1)}°F ABOVE ML center — blow-past <strong style="color:#dc2626;font-weight:800;">CONFIRMED</strong>` });
     } else if (gap < 2 && canonHour >= 10) {
       // Already near the predicted high — actual could exceed easily
       flipPoints += 1;
