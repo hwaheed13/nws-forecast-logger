@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-04-25T11:12:27.353972",
+  "trained_on": "2026-04-26T03:27:20.375842",
   "version": "v13_bl_safeguard_features",
   "base_cascade": "HRRR > NBM > AccuWeather > NWS",
   "new_features": "entrainment_temp_diff, marine_containment, inland_strength",
@@ -8,11 +8,11 @@
   "n_marine_rows": 16,
   "n_inland_rows": 8,
   "v13_regression": {
-    "cv_mae": 0.839753238607517,
-    "cv_bucket_accuracy": 0.36824675324675327,
-    "residual_std": 2.282813679090856,
+    "cv_mae": 0.845979463710993,
+    "cv_bucket_accuracy": 0.35,
+    "residual_std": 2.278781338293585,
     "n_features": 171,
-    "n_training_rows": 279
+    "n_training_rows": 280
   },
   "feature_columns_v13": [
     "nws_first",
