@@ -5905,9 +5905,21 @@ window._predTomorrow = predTomorrow;
           // Side-effect: the banner now naturally clears once the rolling 6-hr
           // window slides past the bucket-exceeding reading, which is the right
           // behavior for an actionable "is reality still exceeding" warning.
-          return (
+          //
+          // DSM (NWS Daily Summary Message) is the OFFICIAL high-so-far when it
+          // posts (~3-4 PM ET on most days). It can exceed the 6-hr max because
+          // DSM captures peaks that occurred between hourly polls — exactly why
+          // a card showing 55-56 with DSM=57 still looked like a "BET" without
+          // this. Take whichever is higher: 6-hr max OR DSM.
+          const _sixHrSource = (
             Number.isFinite(window._sixHourMaxF) && _nowHourLocal >= 6
           ) ? Number(window._sixHourMaxF) : null;
+          const _dsmSource = Number.isFinite(window._dsmHighF)
+            ? Number(window._dsmHighF) : null;
+          if (_sixHrSource == null && _dsmSource == null) return null;
+          if (_sixHrSource == null) return _dsmSource;
+          if (_dsmSource == null)   return _sixHrSource;
+          return Math.max(_sixHrSource, _dsmSource);
         })();
         const _mlBucketUpperEarly = (() => {
           if (!bucket) return null;
@@ -7863,6 +7875,16 @@ async function bootApp() {
           window._dsmHighF = Number(data.dsm_high);
           window._dsmHighTime = data.dsm_high_time || null;
           console.log(`📊 DSM High loaded on page init: ${window._dsmHighF}°F at ${window._dsmHighTime}`);
+          // Re-render today's ML card so the LIVE EXCEEDS banner picks up the
+          // new DSM value (DSM can exceed the 6-hr max because it captures peaks
+          // between hourly polls — without this re-render, a 55-56 prediction
+          // with DSM=57 still showed STRONG BET).
+          try {
+            const _ml = window.mlPredictions || {};
+            if (_ml.todayMLBucket && typeof renderCard === 'function') {
+              renderCard("today", _ml.todayMLBucket, _ml.todayBetSignal, _ml.todayMLConfidence, _ml.todayEdge, _ml.todayMarketSnapshot, _ml.todayEdgeTier);
+            }
+          } catch {}
         }
       } catch (e) {
         // Silently handle errors (no data yet is expected early in the day)
@@ -7897,6 +7919,14 @@ async function bootApp() {
                 console.log(`📊 DSM High updated: ${window._dsmHighF}°F at ${window._dsmHighTime}`);
                 // Re-render the live sources panel with the new DSM data
                 try { renderLiveSourcesPanel(); } catch (e) { console.error("renderLiveSourcesPanel error:", e); }
+                // Re-render today's ML card so the LIVE EXCEEDS banner triggers
+                // immediately when DSM exceeds the predicted bucket.
+                try {
+                  const _ml = window.mlPredictions || {};
+                  if (_ml.todayMLBucket && typeof renderCard === 'function') {
+                    renderCard("today", _ml.todayMLBucket, _ml.todayBetSignal, _ml.todayMLConfidence, _ml.todayEdge, _ml.todayMarketSnapshot, _ml.todayEdgeTier);
+                  }
+                } catch {}
               }
             }
           )
@@ -7933,6 +7963,13 @@ async function bootApp() {
           window._dsmHighTime = data.dsm_high_time || null;
           console.log(`📊 DSM polled: ${window._dsmHighF}°F at ${window._dsmHighTime}`);
           try { renderLiveSourcesPanel(); } catch (e) { console.error("renderLiveSourcesPanel error:", e); }
+          // Re-render today's ML card so the LIVE EXCEEDS banner picks up DSM
+          try {
+            const _ml = window.mlPredictions || {};
+            if (_ml.todayMLBucket && typeof renderCard === 'function') {
+              renderCard("today", _ml.todayMLBucket, _ml.todayBetSignal, _ml.todayMLConfidence, _ml.todayEdge, _ml.todayMarketSnapshot, _ml.todayEdgeTier);
+            }
+          } catch {}
         }
       } catch (e) {
         // Silently handle errors (no data yet is expected)
