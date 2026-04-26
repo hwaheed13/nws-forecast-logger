@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-04-26T03:25:44.215329",
+  "trained_on": "2026-04-26T07:14:51.939936",
   "version": "v3_unified_regression",
   "num_days": 1575,
   "num_forecast_days": 280,
@@ -9,81 +9,81 @@
     "end": "2026-04-25"
   },
   "performance": {
-    "cv_mae": 0.8,
-    "cv_bucket_accuracy_1f": 0.1213,
-    "residual_std": 2.77,
+    "cv_mae": 5.51,
+    "cv_bucket_accuracy_1f": 0.0115,
+    "residual_std": 19.49,
     "per_fold_mae": [
-      0.57,
-      0.4,
+      0.54,
+      0.41,
       0.33,
-      0.67,
-      2.03
+      1.47,
+      24.82
     ],
     "per_fold_bucket_acc": [
-      0.0556,
-      0.187
+      0.0,
+      0.0229
     ]
   },
   "top_features": [
     {
+      "name": "prev_day_high",
+      "importance": 0.2942
+    },
+    {
       "name": "atm_predicted_high",
-      "importance": 1.2944
-    },
-    {
-      "name": "intra_temp_5pm",
-      "importance": 0.0096
-    },
-    {
-      "name": "intra_temp_noon",
-      "importance": 0.0068
-    },
-    {
-      "name": "intra_temp_3pm",
-      "importance": 0.0031
+      "importance": 0.2183
     },
     {
       "name": "accu_last",
+      "importance": 0.0198
+    },
+    {
+      "name": "mm_mean",
+      "importance": 0.0168
+    },
+    {
+      "name": "intra_temp_3pm",
+      "importance": 0.0115
+    },
+    {
+      "name": "day_of_year_cos",
+      "importance": 0.0049
+    },
+    {
+      "name": "is_winter",
+      "importance": 0.003
+    },
+    {
+      "name": "atm_vs_forecast_diff",
+      "importance": 0.0028
+    },
+    {
+      "name": "nws_last",
+      "importance": 0.0021
+    },
+    {
+      "name": "accu_max",
       "importance": 0.0018
+    },
+    {
+      "name": "atm_temp_range",
+      "importance": 0.0014
+    },
+    {
+      "name": "accu_mean",
+      "importance": 0.0013
+    },
+    {
+      "name": "intra_temp_noon",
+      "importance": 0.0011
     },
     {
       "name": "atm_dewpoint_mean",
       "importance": 0.0007
     },
     {
-      "name": "intra_high_vs_noon",
-      "importance": 0.0004
-    },
-    {
-      "name": "atm_temp_range",
-      "importance": 0.0003
-    },
-    {
-      "name": "atm_vs_forecast_diff",
-      "importance": 0.0002
-    },
-    {
-      "name": "intra_temp_9am",
-      "importance": 0.0002
-    },
-    {
-      "name": "prev_day_high",
-      "importance": 0.0002
-    },
-    {
-      "name": "accu_max",
-      "importance": 0.0002
-    },
-    {
-      "name": "mm_mean",
-      "importance": 0.0001
-    },
-    {
-      "name": "accu_post_9am_delta",
-      "importance": 0.0001
-    },
-    {
-      "name": "atm_morning_temp_6am",
-      "importance": 0.0001
+      "name": "prev_day_temp_drop",
+      "importance": 0.0006
     }
   ],
   "hyperparameters": {
