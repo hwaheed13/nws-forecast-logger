@@ -326,8 +326,10 @@ def get_synoptic_obs_features(
         print(f"  🔍 Fetching {len(missing_named)} named station(s) by STID "
               f"(outside radius): {', '.join(sorted(missing_named))}")
         direct_stns = _fetch_stids_direct(list(missing_named))
+        _direct_returned = set()
         for stn in direct_stns:
             stid = stn.get("STID", "?").upper()
+            _direct_returned.add(stid)
             obs = stn.get("OBSERVATIONS", {})
             temp_val = obs.get("air_temp_value_1", {})
             if isinstance(temp_val, dict):
@@ -345,6 +347,15 @@ def get_synoptic_obs_features(
                     print(f"  ✈️  {stid}: {tf:.1f}°F  (obs {obs_dt})  [direct STID fetch]")
                 except (ValueError, TypeError):
                     pass
+        # Visibility: which named STIDs Synoptic refused to return at all (within=90 min).
+        # When this list is non-empty for hours, the dashboard will show stale carryover
+        # values for those stations (preserved by the upstream snapshot loader). Logging
+        # this makes it possible to distinguish "Synoptic outage" from "our cache bug".
+        _silent = sorted(set(missing_named) - _direct_returned)
+        if _silent:
+            print(f"  ⚠️ Synoptic returned 0 obs (within=90min) for: {', '.join(_silent)} — "
+                  f"upstream feed gap. Cached values from prior fetch will be carried "
+                  f"forward by snapshot loader (visible as STALE on dashboard).")
 
     # If we have no radius stations AND no named stations, there's genuinely nothing
     # to return — bail here rather than at the start (STID fetch had a chance to run).
