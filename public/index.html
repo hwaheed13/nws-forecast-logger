@@ -1131,6 +1131,42 @@ window._sixHourMaxF    = window._sixHourMaxF ?? null;
 window._dsmHighF       = window._dsmHighF ?? null;
 window._dsmHighTime    = window._dsmHighTime ?? null;
 
+// ── Synchronously restore cached DSM/6hr max from localStorage on cold load ──
+// Without this, on hard refresh the today card briefly renders STRONG BET before
+// the async Supabase/NWS fetches return — flicker the user explicitly flagged.
+// Cache is keyed by today's ISO date so it auto-expires at midnight.
+try {
+  const _todayISO = (() => {
+    const d = new Date();
+    const y = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric' }).format(d);
+    const m = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', month: '2-digit' }).format(d);
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', day: '2-digit' }).format(d);
+    return `${y}-${m}-${day}`;
+  })();
+  const _cityKey = (typeof window !== 'undefined' && window.localStorage)
+    ? (localStorage.getItem('selectedCity') || 'nyc') : 'nyc';
+  const _cacheKey = `dd:liveCache:${_cityKey}:${_todayISO}`;
+  const _raw = localStorage.getItem(_cacheKey);
+  if (_raw) {
+    const _c = JSON.parse(_raw);
+    if (Number.isFinite(_c.dsmHighF)) { window._dsmHighF = _c.dsmHighF; window._dsmHighTime = _c.dsmHighTime || null; }
+    if (Number.isFinite(_c.sixHourMaxF)) { window._sixHourMaxF = _c.sixHourMaxF; }
+  }
+  // Expose helper so setters can persist updates
+  window._persistLiveCache = () => {
+    try {
+      localStorage.setItem(_cacheKey, JSON.stringify({
+        dsmHighF: Number.isFinite(window._dsmHighF) ? window._dsmHighF : null,
+        dsmHighTime: window._dsmHighTime || null,
+        sixHourMaxF: Number.isFinite(window._sixHourMaxF) ? window._sixHourMaxF : null,
+        savedAt: Date.now(),
+      }));
+    } catch {}
+  };
+} catch {
+  window._persistLiveCache = () => {};
+}
+
 // --- Detect if overnight high exceeded forecast (full hourly scan) ---
 async function checkEarlyMorningExceedance() {
   const todayISO = nycISODate(0);
@@ -3216,6 +3252,7 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
         if (_existing == null || parsed.tempF > _existing) {
           window._dsmHighF = parsed.tempF;
           window._dsmHighTime = parsed.iso || null;
+          try { window._persistLiveCache && window._persistLiveCache(); } catch {}
           console.log(`📊 DSM High mirrored from NWS scrape: ${parsed.tempF}°F at ${parsed.timeET}`);
           try { if (typeof renderLiveSourcesPanel === 'function') renderLiveSourcesPanel(); } catch {}
           try {
@@ -3246,6 +3283,7 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
         if (parsed && parsed.value != null && isToday) {
          el.textContent = `${parsed.value}°F`;
         window._sixHourMaxF = Number(parsed.value);
+        try { window._persistLiveCache && window._persistLiveCache(); } catch {}
           note.textContent = parsed.time ? `as of ${parsed.time} • 6-hr max` : "Latest 6-hr max";
         } else if (parsed && parsed.value != null) {
           // Data exists but is stale (from yesterday)
@@ -7901,6 +7939,7 @@ async function bootApp() {
         if (data && data.dsm_high != null) {
           window._dsmHighF = Number(data.dsm_high);
           window._dsmHighTime = data.dsm_high_time || null;
+          try { window._persistLiveCache && window._persistLiveCache(); } catch {}
           console.log(`📊 DSM High loaded on page init: ${window._dsmHighF}°F at ${window._dsmHighTime}`);
           // Re-render the live sources panel so the KNYC card picks up the
           // "DSM High: NN°F" line on initial page load (polling + realtime
@@ -7947,6 +7986,7 @@ async function bootApp() {
               if (row && row.dsm_high != null) {
                 window._dsmHighF = Number(row.dsm_high);
                 window._dsmHighTime = row.dsm_high_time || null;
+                try { window._persistLiveCache && window._persistLiveCache(); } catch {}
                 console.log(`📊 DSM High updated: ${window._dsmHighF}°F at ${window._dsmHighTime}`);
                 // Re-render the live sources panel with the new DSM data
                 try { renderLiveSourcesPanel(); } catch (e) { console.error("renderLiveSourcesPanel error:", e); }
@@ -7992,6 +8032,7 @@ async function bootApp() {
         if (data && data.dsm_high != null) {
           window._dsmHighF = Number(data.dsm_high);
           window._dsmHighTime = data.dsm_high_time || null;
+          try { window._persistLiveCache && window._persistLiveCache(); } catch {}
           console.log(`📊 DSM polled: ${window._dsmHighF}°F at ${window._dsmHighTime}`);
           try { renderLiveSourcesPanel(); } catch (e) { console.error("renderLiveSourcesPanel error:", e); }
           // Re-render today's ML card so the LIVE EXCEEDS banner picks up DSM
