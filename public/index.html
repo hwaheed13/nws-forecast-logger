@@ -5845,7 +5845,7 @@ window._predTomorrow = predTomorrow;
 
         // ── Build card HTML — bucket is the hero ──────────────────────────────
         const top2b1 = top2 ? cleanKalshiLabel(top2.first.bucket) : (bucket ? cleanKalshiLabel(bucket) : null);
-        const signalBadge = signal
+        let signalBadge = signal
           ? `<span class="signal-badge" style="background:${s.bg};color:${s.color};padding:3px 9px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid ${s.border};">${s.icon} ${s.label}</span>`
           : '';
 
@@ -5976,6 +5976,15 @@ window._predTomorrow = predTomorrow;
           _mlBucketUpperEarly !== Infinity &&
           _liveObsMaxEarly > _mlBucketUpperEarly + 0.5
         );
+
+        // Override the bet signal badge when reality has already exceeded the
+        // predicted bucket. Otherwise the card displays a logical contradiction
+        // ("STRONG BET 55-56" sitting next to the LIVE EXCEEDS banner because
+        // observed max is 57). The banner explains the situation; this badge
+        // makes the action recommendation match it.
+        if (_liveInvalidatedEarly) {
+          signalBadge = `<span class="signal-badge" style="background:#fef2f2;color:#b91c1c;padding:3px 9px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid #dc2626;">⛔ DO NOT BET</span>`;
+        }
 
         const _overnightSuppressed = (
           // NWS D0 confirmed high is ≥2°F above overnight peak — regardless of
