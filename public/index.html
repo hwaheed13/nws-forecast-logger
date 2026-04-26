@@ -1163,8 +1163,49 @@ try {
       }));
     } catch {}
   };
+
+  // ── ML predictions cache ────────────────────────────────────────────────
+  // Without this, on cold load the today card waits ~1-3s for loadMLPredictions
+  // to finish its Supabase fetch before painting anything. Cache the relevant
+  // mlPredictions fields and restore synchronously here so the first paint
+  // already has the bucket / bet signal / market snapshot. The async fetch
+  // still runs and updates with fresh data when it completes (every 30 min).
+  const _mlCacheKey = `dd:mlCache:${_cityKey}:${_todayISO}`;
+  const _MLCACHE_FIELDS = [
+    'today', 'todayBetSignal', 'todayEdge', 'todayEdgeTier', 'todayMLBucket',
+    'todayMLConfidence', 'todayMarketSnapshot', 'todayMLVersion', 'todayBucketProbs',
+    'todayKellyFraction', 'todayMarketProbAtPrediction', 'todayMLBucketCanonical',
+    'todayMLFCanonical', 'todayAtmSnapshot', 'todayNwsD0', 'todayAccuWeather',
+    'tomorrow', 'tomorrowBetSignal', 'tomorrowEdge', 'tomorrowEdgeTier', 'tomorrowMLBucket',
+    'tomorrowMLConfidence', 'tomorrowMarketSnapshot', 'tomorrowMLVersion', 'tomorrowBucketProbs',
+    'tomorrowKellyFraction', 'tomorrowMarketProbAtPrediction', 'tomorrowAtmSnapshot',
+    'tomorrowNwsD0', 'tomorrowNwsD1', 'tomorrowAccuWeather',
+  ];
+  // Synchronous restore — runs before any async fetch
+  try {
+    const _mlRaw = localStorage.getItem(_mlCacheKey);
+    if (_mlRaw) {
+      const _mlc = JSON.parse(_mlRaw);
+      window.mlPredictions = window.mlPredictions || { today: null, tomorrow: null };
+      for (const k of _MLCACHE_FIELDS) {
+        if (_mlc[k] !== undefined) window.mlPredictions[k] = _mlc[k];
+      }
+      window._mlPredictionsRestoredFromCache = true;
+    }
+  } catch {}
+  window._persistMLPredictionsCache = () => {
+    try {
+      const _ml = window.mlPredictions || {};
+      const _payload = { savedAt: Date.now() };
+      for (const k of _MLCACHE_FIELDS) {
+        if (_ml[k] !== undefined) _payload[k] = _ml[k];
+      }
+      localStorage.setItem(_mlCacheKey, JSON.stringify(_payload));
+    } catch {}
+  };
 } catch {
   window._persistLiveCache = () => {};
+  window._persistMLPredictionsCache = () => {};
 }
 
 // --- Detect if overnight high exceeded forecast (full hourly scan) ---
@@ -7546,6 +7587,10 @@ async function loadMLPredictions() {
   if (typeof renderMLBetSignal === "function") renderMLBetSignal();
   // Trigger flip risk fetch after ML data loaded (atm features may already be cached)
   if (typeof fetchFlipRisk === "function") fetchFlipRisk();
+
+  // Persist a snapshot of mlPredictions so the next cold-load can paint the
+  // today card on the first frame without waiting for this Supabase fetch.
+  try { window._persistMLPredictionsCache && window._persistMLPredictionsCache(); } catch {}
 }
 
 // Load bucket-rank outcome stats (how often bucket 2 hits when bucket 1 misses)
@@ -7751,6 +7796,13 @@ async function bootApp() {
 
     // Load today's prediction history + ML predictions from Supabase
     try { await loadTodaysPredictionHistory(); } catch {}
+    // Fast-path: if we restored mlPredictions from localStorage on page init,
+    // render the today card NOW (before the async Supabase fetch) so users see
+    // the prediction + LIVE EXCEEDS banner instantly on cold load. The fetch
+    // below still runs and overwrites with fresh data.
+    if (window._mlPredictionsRestoredFromCache && typeof renderMLBetSignal === 'function') {
+      try { renderMLBetSignal(); } catch {}
+    }
     try { await loadMLPredictions(); } catch {}
     try { loadMLBucketStats(); } catch {}
     try { loadMLDivergenceStats(); } catch {}
