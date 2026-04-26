@@ -22,6 +22,65 @@ from typing import Optional
 
 SYNOPTIC_BASE = "https://api.synopticdata.com/v2"
 
+# NWS api.weather.gov is used as a fallback when Synoptic's relay goes dark on a
+# named ASOS (observed: KJFK / KEWR stuck at 40-45h old in Synoptic while NWS
+# had them current within minutes). NWS is free, requires no token, and covers
+# all FAA ASOS stations we track. The model + dashboard cards both depend on
+# fresh values for these stations — a multi-hour gap silently degrades both.
+NWS_OBS_URL = "https://api.weather.gov/stations/{stid}/observations/latest"
+NWS_USER_AGENT = "nws-forecast-logger/1.0 (synoptic_client fallback)"
+
+
+def _fetch_nws_latest(stid: str):  # -> tuple[Optional[float], Optional[str]]
+    """
+    Fetch one ASOS station's latest observation from NWS api.weather.gov.
+
+    Returns (temp_f, obs_iso) or (None, None) on any failure. Used as the
+    fallback when Synoptic's `within=90` filter returns nothing for a named
+    station — the upstream relay sometimes lags by hours/days even when the
+    station itself is reporting fine.
+
+    Public, no token, ~1 req/station per cron tick → trivially under any
+    sensible rate limit.
+    """
+    try:
+        req = urllib.request.Request(
+            NWS_OBS_URL.format(stid=stid),
+            headers={"User-Agent": NWS_USER_AGENT, "Accept": "application/geo+json"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        props = data.get("properties", {}) or {}
+        temp_c = (props.get("temperature") or {}).get("value")
+        ts     = props.get("timestamp")
+        if temp_c is None or ts is None:
+            return None, None
+        temp_f = float(temp_c) * 9.0 / 5.0 + 32.0
+        return round(temp_f, 1), ts
+    except Exception as e:
+        print(f"  ⚠️ NWS fallback fetch failed for {stid}: {e}")
+        return None, None
+
+
+def _is_obs_stale(obs_iso, max_age_minutes: int = 120) -> bool:
+    """True if obs timestamp is older than max_age_minutes (default 2h)."""
+    if not obs_iso:
+        return True
+    try:
+        from datetime import datetime, timezone
+        # Accept both "Z" and offset-suffix ISO strings
+        s = obs_iso.replace("Z", "+00:00")
+        # Synoptic returns "...-0400" without colon — normalize to "-04:00"
+        if len(s) >= 5 and s[-5] in "+-" and s[-3] != ":":
+            s = s[:-2] + ":" + s[-2:]
+        obs_dt = datetime.fromisoformat(s)
+        if obs_dt.tzinfo is None:
+            obs_dt = obs_dt.replace(tzinfo=timezone.utc)
+        age_min = (datetime.now(timezone.utc) - obs_dt).total_seconds() / 60.0
+        return age_min > max_age_minutes
+    except Exception:
+        return True
+
 
 def _token() -> Optional[str]:
     return os.environ.get("SYNOPTIC_TOKEN", "").strip() or None
@@ -354,8 +413,37 @@ def get_synoptic_obs_features(
         _silent = sorted(set(missing_named) - _direct_returned)
         if _silent:
             print(f"  ⚠️ Synoptic returned 0 obs (within=90min) for: {', '.join(_silent)} — "
-                  f"upstream feed gap. Cached values from prior fetch will be carried "
-                  f"forward by snapshot loader (visible as STALE on dashboard).")
+                  f"upstream feed gap. Trying NWS api.weather.gov fallback.")
+
+    # ── NWS api.weather.gov fallback for stale or missing named stations ──────
+    # Synoptic's relay occasionally lags by hours/days on a named ASOS even when
+    # the station itself is reporting fine via FAA → NWS ingestion (observed
+    # 2026-04-26: KJFK/KEWR stuck 45h old in Synoptic, current within minutes
+    # via api.weather.gov). NWS only covers FAA ASOS — i.e. "K"-prefixed STIDs —
+    # so we skip MANH (NY Mesonet) which Synoptic remains the sole source for.
+    _stale_or_missing = []
+    for _stid in named_stids:
+        if _stid not in named_temps:
+            _stale_or_missing.append((_stid, "missing"))
+        elif _is_obs_stale(named_obs_at.get(_stid), max_age_minutes=120):
+            _stale_or_missing.append((_stid, "stale"))
+    # Only K-prefixed FAA ASOS — skip mesonet/buoy/coop sites NWS doesn't host
+    _nws_candidates = [(s, r) for s, r in _stale_or_missing if s.startswith("K")]
+    if _nws_candidates:
+        print(f"  🔄 NWS fallback for {len(_nws_candidates)} station(s): "
+              f"{', '.join(f'{s}({r})' for s, r in _nws_candidates)}")
+        for _stid, _reason in _nws_candidates:
+            _tf, _ts = _fetch_nws_latest(_stid)
+            if _tf is None:
+                continue
+            # NWS reading must itself be fresh (within 2h) to be worth using.
+            # Otherwise we'd just be swapping one stale source for another.
+            if _is_obs_stale(_ts, max_age_minutes=120):
+                print(f"  ⚠️ NWS {_stid} also stale ({_ts}); keeping Synoptic value")
+                continue
+            named_temps[_stid] = _tf
+            named_obs_at[_stid] = _ts
+            print(f"  ✅ NWS {_stid}: {_tf:.1f}°F (obs {_ts})  [overrode {_reason} Synoptic]")
 
     # If we have no radius stations AND no named stations, there's genuinely nothing
     # to return — bail here rather than at the start (STID fetch had a chance to run).
