@@ -63,6 +63,9 @@ export default async function handler(req, res) {
   const accuF          = parseFloat(q.accu_f)          || null;
   const ensRange       = parseFloat(q.ensemble_range)  || null;
   const obsTemp        = parseFloat(q.current_obs_temp)|| null;
+  // Day's peak so far (6-hr rolling max). Used to compare against ML center —
+  // catches brief temp spikes that happened between live polls.
+  const obsMaxToday    = parseFloat(q.obs_max_today)   || null;
   const canonHour      = parseInt(q.canonical_hour)    || null;
   const t925Live       = parseFloat(q.t925_live)       || null;
   const windDir        = (q.wind_dir_card || "").toUpperCase();
@@ -196,22 +199,38 @@ export default async function handler(req, res) {
   }
 
   // C) Observed temp trajectory — how far below predicted high is current obs?
-  // Large gap at early hour = long way to flip bucket upward
+  // Large gap at early hour = long way to flip bucket upward.
+  //
+  // Use the day's peak so far (max of live obs and 6-hr rolling max) for the gap
+  // calculation, not just the live "now" reading. A brief mid-cycle spike to 56°F
+  // counts as having reached 56°F, even if the next live poll registers 55°F.
+  // The label still shows the live "now" so users see the current state, but adds
+  // "(peak X°F)" when the day's peak is materially above the current reading.
   if (obsTemp != null && mlF != null && canonHour != null) {
-    const gap = mlF - obsTemp;
+    // Effective temp for gap math = max(live, peak-so-far)
+    const effTemp  = (obsMaxToday != null && obsMaxToday > obsTemp) ? obsMaxToday : obsTemp;
+    const peakNote = (obsMaxToday != null && obsMaxToday > obsTemp + 0.5)
+      ? ` (peak ${obsMaxToday.toFixed(1)}°F)` : '';
+    const gap = mlF - effTemp;
     if (gap > 8 && canonHour < 10) {
       // Very cold start, needs big warming to reach predicted high
       signals.push({ factor: "obs_trajectory", dir: "hold", weight: 0,
-        label: `${obsTemp.toFixed(1)}°F now, needs +${gap.toFixed(1)}°F to reach ML center — heating gap suppresses upside flips` });
+        label: `${obsTemp.toFixed(1)}°F now${peakNote}, needs +${gap.toFixed(1)}°F to reach ML center — heating gap suppresses upside flips` });
+    } else if (gap < 0 && canonHour >= 10) {
+      // Already exceeded predicted high — blow-past CONFIRMED
+      flipPoints += 2;
+      blowPoints += 3;
+      signals.push({ factor: "obs_trajectory", dir: "blow", weight: 3,
+        label: `${obsTemp.toFixed(1)}°F now${peakNote}, ${Math.abs(gap).toFixed(1)}°F ABOVE ML center — blow-past CONFIRMED` });
     } else if (gap < 2 && canonHour >= 10) {
       // Already near the predicted high — actual could exceed easily
       flipPoints += 1;
       blowPoints += 2;
       signals.push({ factor: "obs_trajectory", dir: "blow", weight: 2,
-        label: `${obsTemp.toFixed(1)}°F now, only ${gap.toFixed(1)}°F below ML center — blow-past risk elevated` });
+        label: `${obsTemp.toFixed(1)}°F now${peakNote}, only ${gap.toFixed(1)}°F below ML center — blow-past risk elevated` });
     } else {
       signals.push({ factor: "obs_trajectory", dir: "neutral", weight: 0,
-        label: `${obsTemp.toFixed(1)}°F now, ${gap.toFixed(1)}°F below ML center` });
+        label: `${obsTemp.toFixed(1)}°F now${peakNote}, ${gap.toFixed(1)}°F below ML center` });
     }
   }
 

@@ -4007,6 +4007,10 @@ async function fetchFlipRisk() {
     ml_confidence:    ml.todayMLConfidence!= null ? ml.todayMLConfidence : '',
     ensemble_range:   (window._ensembleRange != null) ? window._ensembleRange : (pk.hrrr_ecmwf_diff != null ? Math.abs(pk.hrrr_ecmwf_diff) : ''),
     current_obs_temp: (window._recentObservedF != null) ? window._recentObservedF : '',
+    // Day's peak so far (NWS 6-hr rolling max). Lets flip-risk see brief spikes
+    // between live polls — e.g. KNYC instant=55 but 6hr_max=56 from a touch-spike
+    // means the bucket has already been blown past, even if "now" still reads 55.
+    obs_max_today:    Number.isFinite(window._sixHourMaxF) ? window._sixHourMaxF : '',
     canonical_hour:   localHour,
     t925_live:        cur.temp_925hPa_now != null ? cur.temp_925hPa_now : (pk.temp_925hPa != null ? pk.temp_925hPa : ''),
     wind_dir_card:    cur.wind_dir_card_now || cur.wind_dir_card || '',
@@ -5083,16 +5087,39 @@ function renderLiveSourcesPanel() {
   const _ktebAge = minsAgo(s.obs_snap_kteb_obs_at) || (lroValid && lro.ktebObsAt ? lro.ktebObsAt : null);
   const _knyc_obs_age = minsAgo(s.obs_snap_knyc_obs_at);
 
+  // Staleness flag — Synoptic upstream sometimes carries forward old timestamps
+  // when the station hasn't reported in hours. We keep the value (don't blank,
+  // since the model still consumes it) but visually grey it out so it's obvious
+  // when these readings are NOT live. Threshold: 2h. KNYC/JFK report hourly so
+  // anything beyond 90-120 min is genuinely abnormal.
+  const _isStale = (isoStr) => {
+    if (!isoStr) return false;
+    try {
+      const ms = new Date(isoStr).getTime();
+      if (isNaN(ms)) return false;
+      return (Date.now() - ms) > 2 * 60 * 60 * 1000;  // >2h
+    } catch { return false; }
+  };
+  const _jfkStale = _isStale(s.obs_snap_kjfk_obs_at);
+  const _kewrStale = _isStale(s.obs_snap_kewr_obs_at);
+  const _ktebStale = _isStale(s.obs_snap_kteb_obs_at);
+  const _staleStyle = (isStale) => isStale
+    ? 'color:var(--text-muted);text-decoration:line-through;opacity:0.7;'
+    : '';
+  const _staleTag = (isStale) => isStale
+    ? ` <span style="font-size:9px;background:#fee2e2;color:#991b1b;padding:1px 4px;border-radius:3px;font-weight:700;letter-spacing:0.03em;" title="Synoptic feed hasn't updated this station in &gt;2h. Value still flows to model but is not live.">STALE</span>`
+    : '';
+
   // Build main value: JFK / EWR (same as before — now always available via live fetch)
   // TEB shown in sub-line as it's the new addition, keeps the hero display clean
   const _jfkStr = snap_kjfk != null
-    ? f1(snap_kjfk) + (_kjfkAge ? ` <span style="font-size:10px;color:var(--text-muted)">(${_kjfkAge})</span>` : "")
+    ? `<span style="${_staleStyle(_jfkStale)}">${f1(snap_kjfk)}</span>${_staleTag(_jfkStale)}` + (_kjfkAge ? ` <span style="font-size:10px;color:var(--text-muted)">(${_kjfkAge})</span>` : "")
     : null;
   const _kewrStr = snap_kewr != null
-    ? f1(snap_kewr) + (_kewrAge ? ` <span style="font-size:10px;color:var(--text-muted)">(${_kewrAge})</span>` : "")
+    ? `<span style="${_staleStyle(_kewrStale)}">${f1(snap_kewr)}</span>${_staleTag(_kewrStale)}` + (_kewrAge ? ` <span style="font-size:10px;color:var(--text-muted)">(${_kewrAge})</span>` : "")
     : null;
   const _ktebStr = snap_kteb != null
-    ? f1(snap_kteb) + (_ktebAge ? ` <span style="font-size:10px;color:var(--text-muted)">(${_ktebAge})</span>` : "")
+    ? `<span style="${_staleStyle(_ktebStale)}">${f1(snap_kteb)}</span>${_staleTag(_ktebStale)}` + (_ktebAge ? ` <span style="font-size:10px;color:var(--text-muted)">(${_ktebAge})</span>` : "")
     : null;
   const _airportMain = _jfkStr && _kewrStr
     ? `${_jfkStr} / ${_kewrStr}`
@@ -5884,10 +5911,33 @@ window._predTomorrow = predTomorrow;
         })();
         const _mlBucketUpperEarly = (() => {
           if (!bucket) return null;
-          if (bucket.startsWith('>=')) return Infinity;
-          if (bucket.startsWith('<=')) return parseFloat(bucket.slice(2));
-          const parts = bucket.split('-');
-          if (parts.length === 2) return parseFloat(parts[1]);
+          // Normalize: strip degree signs / spaces, handle unicode ≤≥, "to" separator,
+          // en/em dashes. Server may return raw "53-54", Kalshi-cleaned "53° to 54°",
+          // or unicode forms — banner failed to fire when parser returned null on any
+          // of these. Any failure here silently disabled the LIVE-DATA banner.
+          const b = String(bucket)
+            .replace(/[°\s]/g, '')
+            .replace(/[–—−]/g, '-')   // en-dash, em-dash, minus → hyphen
+            .replace(/≤/g, '<=')
+            .replace(/≥/g, '>=')
+            .replace(/to/gi, '-')
+            .toLowerCase();
+          if (b.startsWith('>=')) return Infinity;
+          if (b.startsWith('<=')) {
+            const n = parseFloat(b.slice(2));
+            return Number.isFinite(n) ? n : null;
+          }
+          const parts = b.split('-').filter(p => p.length > 0);
+          if (parts.length === 2) {
+            const n = parseFloat(parts[1]);
+            if (Number.isFinite(n)) return n;
+          }
+          // Single number (rare but possible): treat as the upper bound itself
+          if (parts.length === 1) {
+            const n = parseFloat(parts[0]);
+            if (Number.isFinite(n)) return n;
+          }
+          console.warn('[liveInvalidation] could not parse bucket upper from', bucket);
           return null;
         })();
         const _liveInvalidatedEarly = (
