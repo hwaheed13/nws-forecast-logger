@@ -212,11 +212,21 @@ export default async function handler(req, res) {
   // counts as having reached 56°F, even if the next live poll registers 55°F.
   // The label still shows the live "now" so users see the current state, but adds
   // "(peak X°F)" when the day's peak is materially above the current reading.
-  if (obsTemp != null && mlF != null && canonHour != null) {
-    // Effective temp for gap math = max(live, peak-so-far)
-    const effTemp  = (obsMaxToday != null && obsMaxToday > obsTemp) ? obsMaxToday : obsTemp;
-    const peakNote = (obsMaxToday != null && obsMaxToday > obsTemp + 0.5)
-      ? ` (peak ${obsMaxToday.toFixed(1)}°F)` : '';
+  // Use peak-so-far as fallback when live obs hasn't loaded yet — without this,
+  // an empty current_obs_temp param skips the whole block, suppressing a
+  // confirmed blow-past that's plainly visible in obs_max_today.
+  const _haveAnyObs = (obsTemp != null) || (obsMaxToday != null);
+  if (_haveAnyObs && mlF != null && canonHour != null) {
+    // Effective temp for gap math = max(live, peak-so-far). Display temp =
+    // live if available, otherwise peak.
+    const _displayObs = (obsTemp != null) ? obsTemp : obsMaxToday;
+    const effTemp = (obsMaxToday != null && (obsTemp == null || obsMaxToday > obsTemp))
+      ? obsMaxToday
+      : obsTemp;
+    const peakNote = (obsTemp != null && obsMaxToday != null && obsMaxToday > obsTemp + 0.5)
+      ? ` (peak ${obsMaxToday.toFixed(1)}°F)`
+      : (obsTemp == null && obsMaxToday != null) ? ` (peak so far, live obs pending)` : '';
+    const obsTempForLabel = _displayObs;
     // Compare effTemp against BOTH the current ML center and the morning canonical
     // ML center, then use whichever produces the worst (smallest/most negative) gap.
     // Without canonical, as the model walks up to chase obs, gap converges to 0
@@ -229,24 +239,24 @@ export default async function handler(req, res) {
     if (gap > 8 && canonHour < 10) {
       // Very cold start, needs big warming to reach predicted high
       signals.push({ factor: "obs_trajectory", dir: "hold", weight: 0,
-        label: `${obsTemp.toFixed(1)}°F now${peakNote}, needs +${gap.toFixed(1)}°F to reach ${gapTarget} — heating gap suppresses upside flips` });
+        label: `${obsTempForLabel.toFixed(1)}°F now${peakNote}, needs +${gap.toFixed(1)}°F to reach ${gapTarget} — heating gap suppresses upside flips` });
     } else if (gap < 0 && canonHour >= 10) {
       // Already exceeded predicted high — blow-past CONFIRMED
       flipPoints += 2;
       blowPoints += 3;
       const tgtNote = (gapTarget === "canonical") ? ` (canonical ${gapTargetF.toFixed(1)}°F)` : '';
       signals.push({ factor: "obs_trajectory", dir: "blow", weight: 3,
-        label: `${obsTemp.toFixed(1)}°F now${peakNote}, ${Math.abs(gap).toFixed(1)}°F ABOVE ${gapTarget}${tgtNote} — blow-past <strong style="color:#dc2626;font-weight:800;">CONFIRMED</strong>` });
+        label: `${obsTempForLabel.toFixed(1)}°F now${peakNote}, ${Math.abs(gap).toFixed(1)}°F ABOVE ${gapTarget}${tgtNote} — blow-past <strong style="color:#dc2626;font-weight:800;">CONFIRMED</strong>` });
     } else if (gap < 2 && canonHour >= 10) {
       // Already near the predicted high — actual could exceed easily
       flipPoints += 1;
       blowPoints += 2;
       const tgtNote = (gapTarget === "canonical") ? ` (canonical ${gapTargetF.toFixed(1)}°F)` : '';
       signals.push({ factor: "obs_trajectory", dir: "blow", weight: 2,
-        label: `${obsTemp.toFixed(1)}°F now${peakNote}, only ${gap.toFixed(1)}°F below ${gapTarget}${tgtNote} — blow-past risk elevated` });
+        label: `${obsTempForLabel.toFixed(1)}°F now${peakNote}, only ${gap.toFixed(1)}°F below ${gapTarget}${tgtNote} — blow-past risk elevated` });
     } else {
       signals.push({ factor: "obs_trajectory", dir: "neutral", weight: 0,
-        label: `${obsTemp.toFixed(1)}°F now${peakNote}, ${gap.toFixed(1)}°F below ${gapTarget}` });
+        label: `${obsTempForLabel.toFixed(1)}°F now${peakNote}, ${gap.toFixed(1)}°F below ${gapTarget}` });
     }
   }
 
@@ -388,8 +398,19 @@ export default async function handler(req, res) {
   // Cap signals are reality — model spread just means the model is uncertain, not that
   // the warmer outcome is equally plausible when the whole station network is 7°F below.
   flipPoints = Math.max(0, flipPoints - capHoldPoints);
-  // Also zero out blow-past if strong marine cap is active
-  if (capHoldPoints >= 4) blowPoints = 0;
+  // Also zero out blow-past if strong marine cap is active — but ONLY when
+  // observed reality hasn't already disproved the cap. Cap signals come from
+  // morning station snapshots; once obs (or peak so far) has cleared the
+  // canonical or current ML center, the cap has demonstrably broken and
+  // suppressing the blow-past flag would hide a confirmed real-world breach.
+  const _peakF = (obsMaxToday != null) ? obsMaxToday
+                : (obsTemp    != null) ? obsTemp
+                : null;
+  const _capDisproved = (
+    (_peakF != null && canonicalMlF != null && _peakF >= canonicalMlF) ||
+    (_peakF != null && mlF          != null && _peakF >= mlF)
+  );
+  if (capHoldPoints >= 4 && !_capDisproved) blowPoints = 0;
 
   // ── 3. Synthesize overall risk level ────────────────────────────────────
   const flipRisk = flipPoints >= 4 ? "HIGH"
