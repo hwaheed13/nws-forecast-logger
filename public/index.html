@@ -3564,8 +3564,23 @@ function _mlEdgeTierStyle(tier) {
   }
 }
 
-function _mlGetTop2(bucketProbsRaw, marketSnapshot) {
+// peakF (optional): the day's peak observed temp in °F. When provided, any
+// Kalshi bucket whose entire range sits BELOW peakF is mathematically
+// impossible to land in (the day's high is already higher) and is excluded
+// from top-2 consideration. Used for today's card so we don't display
+// "or 66-67 47%" once obs has already hit 68. Tomorrow's card doesn't pass
+// peakF since tomorrow's day hasn't happened yet.
+function _mlGetTop2(bucketProbsRaw, marketSnapshot, peakF) {
   if (!bucketProbsRaw) return null;
+  const _peakF = (peakF != null && Number.isFinite(Number(peakF))) ? Number(peakF) : null;
+  const _isImpossible = (label) => {
+    if (_peakF == null) return false;
+    const rng = label.match(/^(\d+)-(\d+)$/);
+    if (rng) return Number(rng[2]) < Math.floor(_peakF);
+    const le  = label.match(/^<=(\d+)$/);
+    if (le) return Number(le[1]) < Math.floor(_peakF);
+    return false; // >=X is always reachable from above
+  };
   try {
     const probs = typeof bucketProbsRaw === 'string' ? JSON.parse(bucketProbsRaw) : bucketProbsRaw;
     let aggregated = {};
@@ -3612,6 +3627,12 @@ function _mlGetTop2(bucketProbsRaw, marketSnapshot) {
       // were Kalshi buckets.  Caller should treat null as "await market
       // data" and render an appropriate pending state.
       return null;
+    }
+    // Drop impossible buckets when peakF supplied (today's card only).
+    if (_peakF != null) {
+      for (const k of Object.keys(aggregated)) {
+        if (_isImpossible(k)) delete aggregated[k];
+      }
     }
     const sorted = Object.entries(aggregated).sort((a, b) => b[1] - a[1]);
     if (sorted.length < 1) return null;
@@ -3735,9 +3756,17 @@ function renderMLBetSignal() {
       return;
     }
 
-    // Get top-2 buckets
+    // Get top-2 buckets — for today, exclude buckets already mathematically
+    // out of reach (entire range below today's observed peak so far).
     const bucketProbs = prefix === "today" ? ml.todayBucketProbs : ml.tomorrowBucketProbs;
-    const top2 = getTop2(bucketProbs, marketSnapshot);
+    const _todayPeakF = (prefix === "today")
+      ? Math.max(
+          Number.isFinite(window._sixHourMaxF) ? Number(window._sixHourMaxF) : -Infinity,
+          Number.isFinite(window._dsmHighF)    ? Number(window._dsmHighF)    : -Infinity
+        )
+      : null;
+    const _peakArg = (_todayPeakF != null && Number.isFinite(_todayPeakF)) ? _todayPeakF : undefined;
+    const top2 = getTop2(bucketProbs, marketSnapshot, _peakArg);
 
     const s = signalStyle(signal);
     if (card) card.style.borderLeftColor = s.border;
@@ -5900,7 +5929,14 @@ window._predTomorrow = predTomorrow;
         const signal   = ml.todayBetSignal;
         const kellyF   = ml.todayKellyFraction;
         const mktProb  = ml.todayMarketProbAtPrediction;
-        const top2     = _mlGetTop2(ml.todayBucketProbs, ml.todayMarketSnapshot);
+        // Today's card excludes buckets already out of reach below today's
+        // peak observed temp so far (live 6hr max + DSM if available).
+        const _todayPeakF2 = Math.max(
+          Number.isFinite(window._sixHourMaxF) ? Number(window._sixHourMaxF) : -Infinity,
+          Number.isFinite(window._dsmHighF)    ? Number(window._dsmHighF)    : -Infinity
+        );
+        const _peakArg2 = Number.isFinite(_todayPeakF2) ? _todayPeakF2 : undefined;
+        const top2     = _mlGetTop2(ml.todayBucketProbs, ml.todayMarketSnapshot, _peakArg2);
         const s        = _mlSignalStyle(signal);
         const card     = document.getElementById("ml-signal-today-card");
         if (card) card.style.borderLeftColor = s.border;
