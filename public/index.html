@@ -4139,6 +4139,7 @@ async function fetchFlipRisk() {
     obs_max_today:    Number.isFinite(window._sixHourMaxF) ? window._sixHourMaxF : '',
     canonical_hour:   localHour,
     canonical_ml_f:   ml.todayMLFCanonical != null ? ml.todayMLFCanonical : '',
+    current_bucket:   ml.todayMLBucket || '',
     t925_live:        cur.temp_925hPa_now != null ? cur.temp_925hPa_now : (pk.temp_925hPa != null ? pk.temp_925hPa : ''),
     wind_dir_card:    cur.wind_dir_card_now || cur.wind_dir_card || '',
     top2_confidence:  top2 && top2.second  ? top2.second.prob : '',
@@ -4438,7 +4439,9 @@ function renderFlipRisk() {
                     border-radius:4px;font-size:12px;color:${_bpColor};line-height:1.4;">
           ${_bpIcon} <strong>Blow-past risk ${blow.level}</strong> — model predicts ${_currBktLabel}${_exceed}
         </div>`;
-    } else if (blow.level === 'LOW') {  // ← Only clear if explicitly LOW, not if undefined
+    } else if (blow.level === 'LOW' || blow.level === 'NONE') {
+      // Clear banner when blow-past is no longer HIGH/MEDIUM. Don't clear on
+      // undefined (avoid wiping during stale/missing responses).
       _bpWarn.innerHTML = '';
     }
   }

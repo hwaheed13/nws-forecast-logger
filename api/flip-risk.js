@@ -27,9 +27,13 @@
 //   canonical_hour    int        (current local hour — used as the >=10am gate
 //                                 for blow-past confirmation; named "canonical"
 //                                 for legacy compat but frontend sends current hour)
-//   canonical_ml_f    float      (the morning canonical ML center °F — used so
-//                                 blow-past fires against the original bet even
-//                                 after the model has walked up to match obs)
+//   canonical_ml_f    float      (the morning canonical ML center °F —
+//                                 informational context only; does NOT drive
+//                                 blow-past points. Used to surface "morning
+//                                 bet blown past" context in the obs label.)
+//   current_bucket    string     (current ML bucket label, e.g. "68-69" or
+//                                 "<=61" — used to derive the upper-bound
+//                                 target for forward-looking blow-past)
 //   t925_live         float      (live 925mb temp, °F)
 //   wind_dir_card     string     (e.g. "NNE")
 //   top2_confidence   float      (confidence of 2nd-best bucket, 0-1)
@@ -73,6 +77,20 @@ export default async function handler(req, res) {
   const obsMaxToday    = parseFloat(q.obs_max_today)   || null;
   const canonHour      = parseInt(q.canonical_hour)    || null;
   const canonicalMlF   = q.canonical_ml_f != null && q.canonical_ml_f !== '' ? parseFloat(q.canonical_ml_f) : null;
+  const currentBkt     = q.current_bucket || "";
+  // Parse a bucket label ("61-62", "<=61", ">=85") into [lo, hi] in °F.
+  // hi=null means open upper (>=X). lo=null means open lower (<=X).
+  function _bucketBounds(label) {
+    if (!label) return [null, null];
+    const m1 = String(label).match(/^(\d+)-(\d+)$/);
+    if (m1) return [Number(m1[1]), Number(m1[2])];
+    const m2 = String(label).match(/^<=(\d+)$/);
+    if (m2) return [null, Number(m2[1])];
+    const m3 = String(label).match(/^>=(\d+)$/);
+    if (m3) return [Number(m3[1]), null];
+    return [null, null];
+  }
+  const [, currBktUpper] = _bucketBounds(currentBkt);
   const t925Live       = parseFloat(q.t925_live)       || null;
   const windDir        = (q.wind_dir_card || "").toUpperCase();
   const top2Conf       = parseFloat(q.top2_confidence) || null;
@@ -204,21 +222,21 @@ export default async function handler(req, res) {
     }
   }
 
-  // C) Observed temp trajectory — how far below predicted high is current obs?
-  // Large gap at early hour = long way to flip bucket upward.
+  // C) Observed temp trajectory — forward-looking blow-past against the
+  // CURRENT bucket's upper bound. Blow-past means actual exceeds the entire
+  // current prediction range, not just its center. For a 68-69 bucket, peak=68
+  // is mid-bucket (no risk); peak=69.5 is past the upper bound (CONFIRMED).
   //
-  // Use the day's peak so far (max of live obs and 6-hr rolling max) for the gap
-  // calculation, not just the live "now" reading. A brief mid-cycle spike to 56°F
-  // counts as having reached 56°F, even if the next live poll registers 55°F.
-  // The label still shows the live "now" so users see the current state, but adds
-  // "(peak X°F)" when the day's peak is materially above the current reading.
+  // Canonical-vs-peak comparison is intentionally NOT used to drive blowPoints —
+  // "morning bet missed" is a separate concern surfaced via the flip chain and
+  // the DO NOT BET pill on the dead canonical card. Mixing the two confuses
+  // forward-looking betting decisions with retroactive bet-tracking.
+  //
   // Use peak-so-far as fallback when live obs hasn't loaded yet — without this,
   // an empty current_obs_temp param skips the whole block, suppressing a
-  // confirmed blow-past that's plainly visible in obs_max_today.
+  // confirmed blow-past plainly visible in obs_max_today.
   const _haveAnyObs = (obsTemp != null) || (obsMaxToday != null);
   if (_haveAnyObs && mlF != null && canonHour != null) {
-    // Effective temp for gap math = max(live, peak-so-far). Display temp =
-    // live if available, otherwise peak.
     const _displayObs = (obsTemp != null) ? obsTemp : obsMaxToday;
     const effTemp = (obsMaxToday != null && (obsTemp == null || obsMaxToday > obsTemp))
       ? obsMaxToday
@@ -227,36 +245,42 @@ export default async function handler(req, res) {
       ? ` (peak ${obsMaxToday.toFixed(1)}°F)`
       : (obsTemp == null && obsMaxToday != null) ? ` (peak so far, live obs pending)` : '';
     const obsTempForLabel = _displayObs;
-    // Compare effTemp against BOTH the current ML center and the morning canonical
-    // ML center, then use whichever produces the worst (smallest/most negative) gap.
-    // Without canonical, as the model walks up to chase obs, gap converges to 0
-    // and the blow-past flag against the morning bet never fires.
-    const gapCurrent = mlF - effTemp;
-    const gapCanon   = (canonicalMlF != null) ? (canonicalMlF - effTemp) : null;
-    const gap        = (gapCanon != null && gapCanon < gapCurrent) ? gapCanon : gapCurrent;
-    const gapTarget  = (gapCanon != null && gapCanon < gapCurrent) ? "canonical" : "ML center";
-    const gapTargetF = (gapCanon != null && gapCanon < gapCurrent) ? canonicalMlF : mlF;
+
+    // Forward target = current bucket upper bound when known; fall back to ML
+    // center if no bucket label was passed (legacy callers). Bucket-based gives
+    // a true "exits the prediction range" semantic.
+    const fwdTarget   = (currBktUpper != null) ? currBktUpper : mlF;
+    const fwdLabel    = (currBktUpper != null) ? `current bucket upper (${currBktUpper}°F)` : `ML center`;
+    const gap         = fwdTarget - effTemp;  // +ve = peak still below, -ve = peak past upper
+
+    // Optional canonical context note (informational only — does NOT add points)
+    const canonNote = (canonicalMlF != null && effTemp >= canonicalMlF)
+      ? ` · morning bet (canonical ${canonicalMlF.toFixed(1)}°F) blown past`
+      : '';
+
     if (gap > 8 && canonHour < 10) {
-      // Very cold start, needs big warming to reach predicted high
       signals.push({ factor: "obs_trajectory", dir: "hold", weight: 0,
-        label: `${obsTempForLabel.toFixed(1)}°F now${peakNote}, needs +${gap.toFixed(1)}°F to reach ${gapTarget} — heating gap suppresses upside flips` });
+        label: `${obsTempForLabel.toFixed(1)}°F now${peakNote}, needs +${gap.toFixed(1)}°F to reach ${fwdLabel} — heating gap suppresses upside flips` });
     } else if (gap < 0 && canonHour >= 10) {
-      // Already exceeded predicted high — blow-past CONFIRMED
+      // Peak has cleared the upper bound of the current bucket — true blow-past
       flipPoints += 2;
       blowPoints += 3;
-      const tgtNote = (gapTarget === "canonical") ? ` (canonical ${gapTargetF.toFixed(1)}°F)` : '';
       signals.push({ factor: "obs_trajectory", dir: "blow", weight: 3,
-        label: `${obsTempForLabel.toFixed(1)}°F now${peakNote}, ${Math.abs(gap).toFixed(1)}°F ABOVE ${gapTarget}${tgtNote} — blow-past <strong style="color:#dc2626;font-weight:800;">CONFIRMED</strong>` });
-    } else if (gap < 2 && canonHour >= 10) {
-      // Already near the predicted high — actual could exceed easily
+        label: `${obsTempForLabel.toFixed(1)}°F now${peakNote}, ${Math.abs(gap).toFixed(1)}°F ABOVE ${fwdLabel}${canonNote} — blow-past <strong style="color:#dc2626;font-weight:800;">CONFIRMED</strong>` });
+    } else if (gap < 0.5 && canonHour >= 10) {
+      // Within 0.5°F of the upper bound — one minor uptick clears it
       flipPoints += 1;
       blowPoints += 2;
-      const tgtNote = (gapTarget === "canonical") ? ` (canonical ${gapTargetF.toFixed(1)}°F)` : '';
       signals.push({ factor: "obs_trajectory", dir: "blow", weight: 2,
-        label: `${obsTempForLabel.toFixed(1)}°F now${peakNote}, only ${gap.toFixed(1)}°F below ${gapTarget}${tgtNote} — blow-past risk elevated` });
+        label: `${obsTempForLabel.toFixed(1)}°F now${peakNote}, only ${gap.toFixed(1)}°F below ${fwdLabel}${canonNote} — blow-past risk elevated` });
+    } else if (gap < 1.5 && canonHour >= 10) {
+      // Within 1.5°F — watch but not actionable
+      blowPoints += 1;
+      signals.push({ factor: "obs_trajectory", dir: "blow", weight: 1,
+        label: `${obsTempForLabel.toFixed(1)}°F now${peakNote}, ${gap.toFixed(1)}°F below ${fwdLabel}${canonNote} — bucket has limited headroom` });
     } else {
       signals.push({ factor: "obs_trajectory", dir: "neutral", weight: 0,
-        label: `${obsTempForLabel.toFixed(1)}°F now${peakNote}, ${gap.toFixed(1)}°F below ${gapTarget}` });
+        label: `${obsTempForLabel.toFixed(1)}°F now${peakNote}, ${gap.toFixed(1)}°F below ${fwdLabel}${canonNote}` });
     }
   }
 
@@ -399,16 +423,15 @@ export default async function handler(req, res) {
   // the warmer outcome is equally plausible when the whole station network is 7°F below.
   flipPoints = Math.max(0, flipPoints - capHoldPoints);
   // Also zero out blow-past if strong marine cap is active — but ONLY when
-  // observed reality hasn't already disproved the cap. Cap signals come from
-  // morning station snapshots; once obs (or peak so far) has cleared the
-  // canonical or current ML center, the cap has demonstrably broken and
-  // suppressing the blow-past flag would hide a confirmed real-world breach.
+  // observed reality hasn't already disproved the cap. Cap is "disproved" for
+  // blow-past purposes when peak has reached or exceeded the current bucket's
+  // upper bound (i.e., the bet location is already on the verge of clearing
+  // the entire prediction range, regardless of what coastal stations show).
   const _peakF = (obsMaxToday != null) ? obsMaxToday
                 : (obsTemp    != null) ? obsTemp
                 : null;
   const _capDisproved = (
-    (_peakF != null && canonicalMlF != null && _peakF >= canonicalMlF) ||
-    (_peakF != null && mlF          != null && _peakF >= mlF)
+    _peakF != null && currBktUpper != null && _peakF >= currBktUpper - 0.5
   );
   if (capHoldPoints >= 4 && !_capDisproved) blowPoints = 0;
 
