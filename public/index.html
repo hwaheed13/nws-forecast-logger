@@ -4301,9 +4301,23 @@ function renderFlipRisk() {
     // e.g. "80-81 → 76-77 → 78-79 (×2 flips)" so intraday oscillations are visible
     displayFlipLevel   = 'OCCURRED';
     displayFlipLabel   = 'Prediction Shift';
-    const _activeHistory = _flipHistory.length > 0 ? _flipHistory : (currentBucket ? [currentBucket] : []);
+    // Append live current bucket as "(pending)" when the writer's 2-poll
+    // confirmation gate hasn't yet promoted it into history. Mirrors the
+    // small canonicalFlipNote in today's card.
+    let _occurredPendingTail = false;
+    const _activeHistory = (() => {
+      const _baseHist = _flipHistory.length > 0 ? [..._flipHistory] : [];
+      if (currentBucket && currentBucket !== canonBucket && _baseHist[_baseHist.length - 1] !== currentBucket) {
+        _occurredPendingTail = (_flipPendingBucket === _rawCurrentBucket);
+        _baseHist.push(currentBucket);
+      }
+      return _baseHist.length > 0 ? _baseHist : (currentBucket ? [currentBucket] : []);
+    })();
     const _countNote2    = _flipCountSuffix(_flipCount, _activeHistory);
-    displayFlipSummary = _buildFlipChain(canonBucket, _activeHistory) + _countNote2;
+    const _chainStr      = _buildFlipChain(canonBucket, _activeHistory);
+    displayFlipSummary = _occurredPendingTail
+      ? `${_chainStr} (pending)${_countNote2}`
+      : `${_chainStr}${_countNote2}`;
     displayFlipColor   = '#7c3aed';  // purple — informational, not warning
     displayFlipBg      = '#f5f3ff';
   } else if (flipReturnedToCanonical) {
