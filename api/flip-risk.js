@@ -24,7 +24,12 @@
 //   accu_f            float      (AccuWeather forecast)
 //   ensemble_range    float      (HRRR-ECMWF spread in °F)
 //   current_obs_temp  float      (latest observed temp, °F)
-//   canonical_hour    int        (hour of day canonical was written, local)
+//   canonical_hour    int        (current local hour — used as the >=10am gate
+//                                 for blow-past confirmation; named "canonical"
+//                                 for legacy compat but frontend sends current hour)
+//   canonical_ml_f    float      (the morning canonical ML center °F — used so
+//                                 blow-past fires against the original bet even
+//                                 after the model has walked up to match obs)
 //   t925_live         float      (live 925mb temp, °F)
 //   wind_dir_card     string     (e.g. "NNE")
 //   top2_confidence   float      (confidence of 2nd-best bucket, 0-1)
@@ -67,6 +72,7 @@ export default async function handler(req, res) {
   // catches brief temp spikes that happened between live polls.
   const obsMaxToday    = parseFloat(q.obs_max_today)   || null;
   const canonHour      = parseInt(q.canonical_hour)    || null;
+  const canonicalMlF   = q.canonical_ml_f != null && q.canonical_ml_f !== '' ? parseFloat(q.canonical_ml_f) : null;
   const t925Live       = parseFloat(q.t925_live)       || null;
   const windDir        = (q.wind_dir_card || "").toUpperCase();
   const top2Conf       = parseFloat(q.top2_confidence) || null;
@@ -211,26 +217,36 @@ export default async function handler(req, res) {
     const effTemp  = (obsMaxToday != null && obsMaxToday > obsTemp) ? obsMaxToday : obsTemp;
     const peakNote = (obsMaxToday != null && obsMaxToday > obsTemp + 0.5)
       ? ` (peak ${obsMaxToday.toFixed(1)}°F)` : '';
-    const gap = mlF - effTemp;
+    // Compare effTemp against BOTH the current ML center and the morning canonical
+    // ML center, then use whichever produces the worst (smallest/most negative) gap.
+    // Without canonical, as the model walks up to chase obs, gap converges to 0
+    // and the blow-past flag against the morning bet never fires.
+    const gapCurrent = mlF - effTemp;
+    const gapCanon   = (canonicalMlF != null) ? (canonicalMlF - effTemp) : null;
+    const gap        = (gapCanon != null && gapCanon < gapCurrent) ? gapCanon : gapCurrent;
+    const gapTarget  = (gapCanon != null && gapCanon < gapCurrent) ? "canonical" : "ML center";
+    const gapTargetF = (gapCanon != null && gapCanon < gapCurrent) ? canonicalMlF : mlF;
     if (gap > 8 && canonHour < 10) {
       // Very cold start, needs big warming to reach predicted high
       signals.push({ factor: "obs_trajectory", dir: "hold", weight: 0,
-        label: `${obsTemp.toFixed(1)}°F now${peakNote}, needs +${gap.toFixed(1)}°F to reach ML center — heating gap suppresses upside flips` });
+        label: `${obsTemp.toFixed(1)}°F now${peakNote}, needs +${gap.toFixed(1)}°F to reach ${gapTarget} — heating gap suppresses upside flips` });
     } else if (gap < 0 && canonHour >= 10) {
       // Already exceeded predicted high — blow-past CONFIRMED
       flipPoints += 2;
       blowPoints += 3;
+      const tgtNote = (gapTarget === "canonical") ? ` (canonical ${gapTargetF.toFixed(1)}°F)` : '';
       signals.push({ factor: "obs_trajectory", dir: "blow", weight: 3,
-        label: `${obsTemp.toFixed(1)}°F now${peakNote}, ${Math.abs(gap).toFixed(1)}°F ABOVE ML center — blow-past <strong style="color:#dc2626;font-weight:800;">CONFIRMED</strong>` });
+        label: `${obsTemp.toFixed(1)}°F now${peakNote}, ${Math.abs(gap).toFixed(1)}°F ABOVE ${gapTarget}${tgtNote} — blow-past <strong style="color:#dc2626;font-weight:800;">CONFIRMED</strong>` });
     } else if (gap < 2 && canonHour >= 10) {
       // Already near the predicted high — actual could exceed easily
       flipPoints += 1;
       blowPoints += 2;
+      const tgtNote = (gapTarget === "canonical") ? ` (canonical ${gapTargetF.toFixed(1)}°F)` : '';
       signals.push({ factor: "obs_trajectory", dir: "blow", weight: 2,
-        label: `${obsTemp.toFixed(1)}°F now${peakNote}, only ${gap.toFixed(1)}°F below ML center — blow-past risk elevated` });
+        label: `${obsTemp.toFixed(1)}°F now${peakNote}, only ${gap.toFixed(1)}°F below ${gapTarget}${tgtNote} — blow-past risk elevated` });
     } else {
       signals.push({ factor: "obs_trajectory", dir: "neutral", weight: 0,
-        label: `${obsTemp.toFixed(1)}°F now${peakNote}, ${gap.toFixed(1)}°F below ML center` });
+        label: `${obsTemp.toFixed(1)}°F now${peakNote}, ${gap.toFixed(1)}°F below ${gapTarget}` });
     }
   }
 
