@@ -4109,6 +4109,7 @@ async function fetchFlipRisk() {
     // means the bucket has already been blown past, even if "now" still reads 55.
     obs_max_today:    Number.isFinite(window._sixHourMaxF) ? window._sixHourMaxF : '',
     canonical_hour:   localHour,
+    canonical_ml_f:   ml.todayMLFCanonical != null ? ml.todayMLFCanonical : '',
     t925_live:        cur.temp_925hPa_now != null ? cur.temp_925hPa_now : (pk.temp_925hPa != null ? pk.temp_925hPa : ''),
     wind_dir_card:    cur.wind_dir_card_now || cur.wind_dir_card || '',
     top2_confidence:  top2 && top2.second  ? top2.second.prob : '',
@@ -6259,8 +6260,26 @@ window._predTomorrow = predTomorrow;
         });
         let canonicalFlipNote = '';
         if (_cfState.shifted) {
-          const _activeHist = _fHistory.length > 0 ? _fHistory : [_currBucket];
-          const _chain2     = [_canonBucket, ..._activeHist].map(_chainSteps).join(' → ');
+          // Build chain from confirmed history, then append the live current bucket
+          // if the writer's 2-consecutive-poll confirmation gate hasn't yet promoted
+          // it into history. Tag it as "(pending)" when it matches the pending bucket
+          // so the user sees the in-flight shift instead of waiting for the next poll.
+          let _appendedPending = false;
+          const _activeHist = (() => {
+            const _base = _fHistory.length > 0 ? [..._fHistory] : [];
+            if (_currBucket && _currBucket !== _canonBucket && _base[_base.length - 1] !== _currBucket) {
+              _appendedPending = (_fPendingBucket === _currBucket);
+              _base.push(_currBucket);
+            }
+            return _base.length > 0 ? _base : [_currBucket];
+          })();
+          const _chain2     = [_canonBucket, ..._activeHist].map((b, i, arr) => {
+            const _lbl = _chainSteps(b);
+            const _isLastAppendedPending = _appendedPending && i === arr.length - 1;
+            return _isLastAppendedPending
+              ? `${_lbl} <span style="font-size:11px;font-style:italic;opacity:0.85;">(pending)</span>`
+              : _lbl;
+          }).join(' → ');
           const _cNote2     = flipCountSuffix(_fCount, _activeHist);
           canonicalFlipNote = `<div style="font-size:12px;background:#fffbeb;border-left:3px solid #f59e0b;padding:6px 10px;margin-top:6px;border-radius:4px;color:#92400e;">
               🔄 <strong>Prediction shifted today</strong> — ${_chain2}${_cNote2}
