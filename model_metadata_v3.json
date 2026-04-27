@@ -1,57 +1,57 @@
 {
-  "trained_on": "2026-04-26T17:13:47.439916",
+  "trained_on": "2026-04-27T00:13:44.285910",
   "version": "v3_unified_regression",
-  "num_days": 1575,
-  "num_forecast_days": 280,
+  "num_days": 1576,
+  "num_forecast_days": 281,
   "num_multiyear_days": 1295,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-04-25"
+    "end": "2026-04-26"
   },
   "performance": {
     "cv_mae": 0.8,
-    "cv_bucket_accuracy_1f": 0.1175,
-    "residual_std": 2.78,
+    "cv_bucket_accuracy_1f": 0.1442,
+    "residual_std": 2.77,
     "per_fold_mae": [
-      0.54,
-      0.41,
-      0.33,
-      0.67,
-      2.06
+      0.56,
+      0.42,
+      0.31,
+      0.68,
+      2.01
     ],
     "per_fold_bucket_acc": [
-      0.0556,
-      0.1794
+      0.1053,
+      0.1832
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 1.3082
+      "importance": 1.3181
     },
     {
       "name": "intra_temp_5pm",
-      "importance": 0.0084
+      "importance": 0.0083
     },
     {
       "name": "intra_temp_noon",
-      "importance": 0.0061
+      "importance": 0.0057
     },
     {
       "name": "intra_temp_3pm",
-      "importance": 0.0032
+      "importance": 0.0039
     },
     {
       "name": "accu_last",
-      "importance": 0.0017
+      "importance": 0.0018
     },
     {
       "name": "atm_dewpoint_mean",
-      "importance": 0.0007
+      "importance": 0.0008
     },
     {
       "name": "intra_high_vs_noon",
-      "importance": 0.0003
+      "importance": 0.0004
     },
     {
       "name": "atm_temp_range",
@@ -59,11 +59,7 @@
     },
     {
       "name": "atm_vs_forecast_diff",
-      "importance": 0.0002
-    },
-    {
-      "name": "intra_temp_9am",
-      "importance": 0.0002
+      "importance": 0.0003
     },
     {
       "name": "accu_max",
@@ -74,15 +70,19 @@
       "importance": 0.0002
     },
     {
-      "name": "accu_post_9am_delta",
+      "name": "intra_temp_9am",
       "importance": 0.0002
     },
     {
-      "name": "atm_morning_temp_6am",
+      "name": "mm_mean",
       "importance": 0.0001
     },
     {
-      "name": "mm_mean",
+      "name": "accu_post_9am_delta",
+      "importance": 0.0001
+    },
+    {
+      "name": "intra_heating_rate_pm",
       "importance": 0.0001
     }
   ],
