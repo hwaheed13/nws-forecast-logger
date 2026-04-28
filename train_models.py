@@ -1107,6 +1107,103 @@ class NYCTemperatureModelTrainer:
 
         print(f"  Overwrote proxy obs features with real data for {dates_updated} dates")
 
+    def _load_intraday_snapshots(self) -> pd.DataFrame | None:
+        """Load historical_intraday_snapshots.csv if it exists.
+
+        These are per-hour synthetic obs snapshots for every historical
+        date, giving the trainer ~10x more rows per day so v14 blind-spot
+        features (which gate on obs_latest_hour) get signal across the
+        full IEM history rather than just the live-system days.
+        """
+        prefix = self.model_prefix
+        intraday_csv = f"{prefix}historical_intraday_snapshots.csv"
+        try:
+            df = pd.read_csv(intraday_csv)
+            df["target_date"] = df["target_date"].astype(str)
+            print(f"  Loaded {len(df)} intraday snapshot rows from {intraday_csv}")
+            return df
+        except FileNotFoundError:
+            print(f"  ⚠️ No intraday snapshot file: {intraday_csv} (skipping)")
+            return None
+
+    def _merge_intraday_snapshots(self, intraday_df: pd.DataFrame) -> None:
+        """Append intraday snapshot rows as additional rows in features_df.
+
+        Each intraday row clones the daily row for the same target_date,
+        then overwrites obs_* columns with the intraday-specific values
+        and sets lead_used to a synthetic sentinel. All non-obs features
+        (mm_*, atm_*, nws_last, actual_high) come from the daily row so
+        v13/v15 group-by-cli_date logic still works.
+        """
+        from model_config import OBSERVATION_COLS, REGIONAL_OBS_COLS
+
+        if intraday_df is None or intraday_df.empty:
+            return
+        if self.features_df is None or self.features_df.empty:
+            return
+
+        df = self.features_df.copy()
+        df["target_date"] = df["target_date"].astype(str)
+
+        # Index daily rows by target_date — keep first row per date as the donor.
+        # If multiple already exist (rare), use the one with the most non-null cols.
+        daily_donor = (
+            df.groupby("target_date", as_index=False)
+              .first()
+              .set_index("target_date")
+        )
+
+        all_obs_cols = set(OBSERVATION_COLS) | set(REGIONAL_OBS_COLS)
+        intraday_obs_cols = [
+            c for c in intraday_df.columns
+            if c in all_obs_cols and c != "target_date"
+        ]
+        if not intraday_obs_cols:
+            print(f"  ⚠️ No obs columns in intraday snapshot CSV — skipping merge")
+            return
+
+        new_rows = []
+        skipped_no_donor = 0
+        for _, snap in intraday_df.iterrows():
+            date_str = str(snap["target_date"])
+            if date_str not in daily_donor.index:
+                skipped_no_donor += 1
+                continue
+            # Clone the daily row
+            base = daily_donor.loc[date_str].to_dict()
+            base["target_date"] = date_str
+            # Overwrite obs_* with intraday snapshot values
+            for col in intraday_obs_cols:
+                v = snap[col]
+                if pd.notna(v):
+                    base[col] = v
+            # Mark these rows as synthetic so they don't contaminate the
+            # v13/v15 lead-aware logic that branches on lead_used values.
+            H = int(snap["hour_checkpoint"]) if pd.notna(snap.get("hour_checkpoint")) else -1
+            base["lead_used"] = f"historical_synthetic_h{H}"
+            new_rows.append(base)
+
+        if not new_rows:
+            print(f"  ⚠️ Intraday merge produced 0 rows (skipped {skipped_no_donor} with no donor)")
+            return
+
+        intraday_rows_df = pd.DataFrame(new_rows)
+        # Ensure column alignment with self.features_df
+        for col in df.columns:
+            if col not in intraday_rows_df.columns:
+                intraday_rows_df[col] = np.nan
+        intraday_rows_df = intraday_rows_df[df.columns.tolist() + [
+            c for c in intraday_rows_df.columns if c not in df.columns
+        ]]
+
+        before = len(df)
+        merged = pd.concat([df, intraday_rows_df], ignore_index=True)
+        merged = merged.sort_values("target_date").reset_index(drop=True)
+        self.features_df = merged
+        print(f"  Intraday snapshots: appended {len(new_rows)} synthetic rows "
+              f"(features_df: {before} → {len(merged)}; "
+              f"skipped {skipped_no_donor} no-donor)")
+
     def _compute_observation_proxy_features(self) -> None:
         """Fill observation proxy features for recent data rows after atmospheric merge.
 
@@ -1242,18 +1339,20 @@ class NYCTemperatureModelTrainer:
             "obs_kjfk_vs_knyc", "atm_bl_height_max",
             "obs_kteb_temp", "obs_kcdw_temp", "obs_ksmq_temp", "mm_mean",
         ] if c in df.columns]
-        if "cli_date" in df.columns and bl_input_cols:
-            _bl_tmp = df[["cli_date", *bl_input_cols]].copy()
-            _bl_tmp["cli_date"] = pd.to_datetime(_bl_tmp["cli_date"], errors="coerce")
+        # Note: training matrix uses `target_date` (not `cli_date`). cli_date
+        # exists only on raw nws_df, not on the merged features_df we operate on.
+        if "target_date" in df.columns and bl_input_cols:
+            _bl_tmp = df[["target_date", *bl_input_cols]].copy()
+            _bl_tmp["target_date"] = pd.to_datetime(_bl_tmp["target_date"], errors="coerce")
             for _c in bl_input_cols:
                 _bl_tmp[_c] = pd.to_numeric(_bl_tmp[_c], errors="coerce")
             bl_per_date = (
-                _bl_tmp.dropna(subset=["cli_date"])
-                .groupby("cli_date", as_index=False)[bl_input_cols]
+                _bl_tmp.dropna(subset=["target_date"])
+                .groupby("target_date", as_index=False)[bl_input_cols]
                 .max()
             )
         else:
-            bl_per_date = pd.DataFrame(columns=["cli_date"])
+            bl_per_date = pd.DataFrame(columns=["target_date"])
 
         def _bl_lookup_map(value_series):
             """Build {Timestamp(date): value} skipping NaN."""
@@ -1261,11 +1360,11 @@ class NYCTemperatureModelTrainer:
                 return {}
             return {
                 pd.Timestamp(d): v
-                for d, v in zip(bl_per_date["cli_date"], value_series)
+                for d, v in zip(bl_per_date["target_date"], value_series)
                 if pd.notna(v)
             }
 
-        df_dates = pd.to_datetime(df["cli_date"], errors="coerce") if "cli_date" in df.columns else None
+        df_dates = pd.to_datetime(df["target_date"], errors="coerce") if "target_date" in df.columns else None
 
         # 1) entrainment_temp_diff = 925mb - obs_latest_temp (per-date)
         if (
@@ -1831,6 +1930,11 @@ class NYCTemperatureModelTrainer:
         if obs_df is not None:
             self._merge_observation_features(obs_df)
 
+        # Append per-hour synthetic intraday snapshots (~10x rows/day for blind-spot features)
+        intraday_df = self._load_intraday_snapshots()
+        if intraday_df is not None:
+            self._merge_intraday_snapshots(intraday_df)
+
         # Supabase snapshot override (forecast-at-inference-time > archive actuals)
         sb_snap_df = self._load_supabase_snapshot_features()
         if sb_snap_df is not None:
@@ -2019,6 +2123,13 @@ class NYCTemperatureModelTrainer:
         obs_df = self._load_observation_features()
         if obs_df is not None:
             self._merge_observation_features(obs_df)
+
+        # Append per-hour synthetic intraday snapshots if not already merged
+        if "lead_used" not in self.features_df.columns or \
+           not self.features_df["lead_used"].astype(str).str.startswith("historical_synthetic_h").any():
+            intraday_df = self._load_intraday_snapshots()
+            if intraday_df is not None:
+                self._merge_intraday_snapshots(intraday_df)
 
         # ── Supabase snapshot override ─────────────────────────────────────
         # Load features-at-prediction-time from Supabase prediction_logs.
@@ -3552,27 +3663,29 @@ class NYCTemperatureModelTrainer:
         # because the cells we need are split across rows. We resolve this
         # by building a per-cli_date aggregate (max ignores NaN, and these
         # values shouldn't conflict within a date), then mapping back.
-        if "cli_date" in df.columns:
+        # Note: training matrix uses `target_date` (not `cli_date`). cli_date
+        # exists only on raw nws_df, not on the merged features_df we operate on.
+        if "target_date" in df.columns:
             agg_cols = [c for c in [
                 "nws_last", "actual_high",
                 "atm_925mb_temp_mean", "atm_925mb_hrrr_mean",
             ] if c in df.columns]
             if agg_cols:
-                _tmp = df[["cli_date", *agg_cols]].copy()
-                _tmp["cli_date"] = pd.to_datetime(_tmp["cli_date"], errors="coerce")
+                _tmp = df[["target_date", *agg_cols]].copy()
+                _tmp["target_date"] = pd.to_datetime(_tmp["target_date"], errors="coerce")
                 for c in agg_cols:
                     _tmp[c] = pd.to_numeric(_tmp[c], errors="coerce")
                 per_date = (
-                    _tmp.dropna(subset=["cli_date"])
-                    .groupby("cli_date", as_index=False)[agg_cols]
+                    _tmp.dropna(subset=["target_date"])
+                    .groupby("target_date", as_index=False)[agg_cols]
                     .max()
-                    .sort_values("cli_date")
+                    .sort_values("target_date")
                     .reset_index(drop=True)
                 )
             else:
-                per_date = pd.DataFrame(columns=["cli_date"])
+                per_date = pd.DataFrame(columns=["target_date"])
         else:
-            per_date = pd.DataFrame(columns=["cli_date"])
+            per_date = pd.DataFrame(columns=["target_date"])
 
         # 2) cap_violation_925 = max(0, nws_last - 925mb_temp - 14)
         # Use atm_925mb_temp_mean (GFS Open-Meteo) primary, fall back to
@@ -3589,8 +3702,8 @@ class NYCTemperatureModelTrainer:
             t925_hrrr = per_date["atm_925mb_hrrr_mean"] if "atm_925mb_hrrr_mean" in per_date.columns else pd.Series(np.nan, index=per_date.index)
             t925 = t925_gfs.where(t925_gfs.notna(), t925_hrrr)
             cap_per_date = (last_pd - t925 - 14.0).clip(lower=0).round(1)
-            cap_lookup = {pd.Timestamp(d): v for d, v in zip(per_date["cli_date"], cap_per_date) if pd.notna(v)}
-            df_dates = pd.to_datetime(df["cli_date"], errors="coerce")
+            cap_lookup = {pd.Timestamp(d): v for d, v in zip(per_date["target_date"], cap_per_date) if pd.notna(v)}
+            df_dates = pd.to_datetime(df["target_date"], errors="coerce")
             cap_vals = df_dates.map(cap_lookup)
             _coalesce("cap_violation_925", pd.Series(cap_vals, index=df.index))
         elif "cap_violation_925" not in df.columns:
@@ -3608,15 +3721,15 @@ class NYCTemperatureModelTrainer:
             and "actual_high" in per_date.columns
             and "nws_last" in per_date.columns
         ):
-            daily = per_date[["cli_date", "actual_high", "nws_last"]].copy()
+            daily = per_date[["target_date", "actual_high", "nws_last"]].copy()
             daily["signed_miss"] = daily["actual_high"] - daily["nws_last"]
-            daily = daily.dropna(subset=["signed_miss"]).sort_values("cli_date").reset_index(drop=True)
+            daily = daily.dropna(subset=["signed_miss"]).sort_values("target_date").reset_index(drop=True)
             if not daily.empty:
                 daily["yesterday"] = daily["signed_miss"].shift(1)
                 daily["roll3"] = daily["signed_miss"].shift(1).rolling(window=3, min_periods=2).mean()
-                lookup_y = {pd.Timestamp(d): v for d, v in zip(daily["cli_date"], daily["yesterday"])}
-                lookup_r = {pd.Timestamp(d): v for d, v in zip(daily["cli_date"], daily["roll3"])}
-                df_dates = pd.to_datetime(df["cli_date"], errors="coerce")
+                lookup_y = {pd.Timestamp(d): v for d, v in zip(daily["target_date"], daily["yesterday"])}
+                lookup_r = {pd.Timestamp(d): v for d, v in zip(daily["target_date"], daily["roll3"])}
+                df_dates = pd.to_datetime(df["target_date"], errors="coerce")
                 yesterday_vals = df_dates.map(lookup_y)
                 roll3_vals = df_dates.map(lookup_r)
                 _coalesce("yesterday_signed_miss", pd.Series(yesterday_vals, index=df.index).round(1))

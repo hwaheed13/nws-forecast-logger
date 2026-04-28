@@ -49,6 +49,11 @@ jobs:
           python prediction_writer.py --city nyc backfill_obs_historical
         continue-on-error: true
 
+      - name: Backfill per-hour intraday obs snapshots (~10x rows/day for blind-spot features)
+        run: |
+          python prediction_writer.py --city nyc backfill_obs_historical_intraday
+        continue-on-error: true
+
       - name: Patch live-API columns (HRRR, 925mb, solar — past 90 days)
         run: |
           python backfill_multiyear.py --all --patch-live-cols
