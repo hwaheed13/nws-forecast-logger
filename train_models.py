@@ -1232,32 +1232,85 @@ class NYCTemperatureModelTrainer:
             else:
                 df[col_name] = computed.where(computed.notna(), existing)
 
-        # 1) entrainment_temp_diff = 925mb - obs_latest_temp
-        if "atm_925mb_temp_mean" in df.columns and "obs_latest_temp" in df.columns:
+        # The training matrix splits forecast/observation rows from multi-year
+        # atmospheric rows by cli_date. Row-by-row computation produced
+        # 10–18 rows of coverage out of 1577 days because the inputs sit on
+        # different rows for the same cli_date. We resolve via per-cli_date
+        # max-aggregation, then map back. (Same fix as v15 — see PR #28.)
+        bl_input_cols = [c for c in [
+            "atm_925mb_temp_mean", "obs_latest_temp",
+            "obs_kjfk_vs_knyc", "atm_bl_height_max",
+            "obs_kteb_temp", "obs_kcdw_temp", "obs_ksmq_temp", "mm_mean",
+        ] if c in df.columns]
+        if "cli_date" in df.columns and bl_input_cols:
+            _bl_tmp = df[["cli_date", *bl_input_cols]].copy()
+            _bl_tmp["cli_date"] = pd.to_datetime(_bl_tmp["cli_date"], errors="coerce")
+            for _c in bl_input_cols:
+                _bl_tmp[_c] = pd.to_numeric(_bl_tmp[_c], errors="coerce")
+            bl_per_date = (
+                _bl_tmp.dropna(subset=["cli_date"])
+                .groupby("cli_date", as_index=False)[bl_input_cols]
+                .max()
+            )
+        else:
+            bl_per_date = pd.DataFrame(columns=["cli_date"])
+
+        def _bl_lookup_map(value_series):
+            """Build {Timestamp(date): value} skipping NaN."""
+            if bl_per_date.empty:
+                return {}
+            return {
+                pd.Timestamp(d): v
+                for d, v in zip(bl_per_date["cli_date"], value_series)
+                if pd.notna(v)
+            }
+
+        df_dates = pd.to_datetime(df["cli_date"], errors="coerce") if "cli_date" in df.columns else None
+
+        # 1) entrainment_temp_diff = 925mb - obs_latest_temp (per-date)
+        if (
+            not bl_per_date.empty
+            and "atm_925mb_temp_mean" in bl_per_date.columns
+            and "obs_latest_temp" in bl_per_date.columns
+        ):
+            _entr_per_date = (bl_per_date["atm_925mb_temp_mean"] - bl_per_date["obs_latest_temp"]).round(1)
+            _entr_lookup = _bl_lookup_map(_entr_per_date)
             _coalesce("entrainment_temp_diff",
-                      (df["atm_925mb_temp_mean"] - df["obs_latest_temp"]).round(1))
+                      pd.Series(df_dates.map(_entr_lookup), index=df.index))
         elif "entrainment_temp_diff" not in df.columns:
             df["entrainment_temp_diff"] = np.nan
 
-        # 2) marine_containment = obs_kjfk_vs_knyc / atm_bl_height_max
-        # Avoid division by zero and negative BL heights
-        if "obs_kjfk_vs_knyc" in df.columns and "atm_bl_height_max" in df.columns:
-            mask = (df["atm_bl_height_max"] > 0) & (df["atm_bl_height_max"].notna())
-            computed = pd.Series(
-                np.where(mask, (df["obs_kjfk_vs_knyc"] / df["atm_bl_height_max"]).round(6), np.nan),
-                index=df.index,
+        # 2) marine_containment = obs_kjfk_vs_knyc / atm_bl_height_max (per-date)
+        if (
+            not bl_per_date.empty
+            and "obs_kjfk_vs_knyc" in bl_per_date.columns
+            and "atm_bl_height_max" in bl_per_date.columns
+        ):
+            _bl_h = bl_per_date["atm_bl_height_max"]
+            _mc_per_date = pd.Series(
+                np.where(
+                    _bl_h.notna() & (_bl_h > 0),
+                    (bl_per_date["obs_kjfk_vs_knyc"] / _bl_h).round(6),
+                    np.nan,
+                ),
+                index=bl_per_date.index,
             )
-            _coalesce("marine_containment", computed)
+            _mc_lookup = _bl_lookup_map(_mc_per_date)
+            _coalesce("marine_containment",
+                      pd.Series(df_dates.map(_mc_lookup), index=df.index))
         elif "marine_containment" not in df.columns:
             df["marine_containment"] = np.nan
 
-        # 3) inland_strength = mean(kteb, kcdw, ksmq) - mm_mean
-        if "mm_mean" in df.columns:
-            inland_cols = ["obs_kteb_temp", "obs_kcdw_temp", "obs_ksmq_temp"]
-            available = [c for c in inland_cols if c in df.columns]
-            if available:
-                inland_mean = df[available].mean(axis=1, skipna=True)
-                _coalesce("inland_strength", (inland_mean - df["mm_mean"]).round(1))
+        # 3) inland_strength = mean(kteb, kcdw, ksmq) - mm_mean (per-date)
+        if not bl_per_date.empty and "mm_mean" in bl_per_date.columns:
+            _inland_cols = [c for c in ("obs_kteb_temp", "obs_kcdw_temp", "obs_ksmq_temp")
+                            if c in bl_per_date.columns]
+            if _inland_cols:
+                _inland_mean = bl_per_date[_inland_cols].mean(axis=1, skipna=True)
+                _is_per_date = (_inland_mean - bl_per_date["mm_mean"]).round(1)
+                _is_lookup = _bl_lookup_map(_is_per_date)
+                _coalesce("inland_strength",
+                          pd.Series(df_dates.map(_is_lookup), index=df.index))
             elif "inland_strength" not in df.columns:
                 df["inland_strength"] = np.nan
         elif "inland_strength" not in df.columns:

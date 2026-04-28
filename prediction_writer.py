@@ -3436,29 +3436,33 @@ def _compute_ml_prediction(
                     _url = os.environ.get("SUPABASE_URL", "")
                     _key = os.environ.get("SUPABASE_SERVICE_ROLE") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
                     if _url and _key:
+                        # obs_max_so_far / mm_hrrr_max are NOT top-level
+                        # columns on prediction_logs — they live inside the
+                        # atm_snapshot JSONB. Order by `timestamp` (not
+                        # created_at, which doesn't exist either).
                         _params = (
                             f"city=eq.{_CITY_KEY}"
                             f"&target_date=eq.{_today_iso_v15}"
-                            f"&select=obs_max_so_far,mm_hrrr_max,atm_snapshot"
-                            f"&order=created_at.desc&limit=1"
+                            f"&select=atm_snapshot"
+                            f"&order=timestamp.desc&limit=1"
                         )
                         _r = requests.get(
                             f"{_url}/rest/v1/prediction_logs?{_params}",
                             headers={"apikey": _key, "Authorization": f"Bearer {_key}"},
                             timeout=8,
                         )
+                        if _r.status_code != 200:
+                            print(
+                                f"⚠️ v15 today_realized_error: Supabase {_r.status_code} "
+                                f"for {_url}/rest/v1/prediction_logs?{_params} — "
+                                f"feature will be NaN this prediction"
+                            )
                         if _r.status_code == 200:
                             _rows = _r.json() or []
                             if _rows:
-                                _row = _rows[0]
-                                _omax = _row.get("obs_max_so_far")
-                                _hrrr = _row.get("mm_hrrr_max")
-                                if _omax is None or _hrrr is None:
-                                    _snap = _row.get("atm_snapshot") or {}
-                                    if _omax is None:
-                                        _omax = _snap.get("obs_max_so_far")
-                                    if _hrrr is None:
-                                        _hrrr = _snap.get("mm_hrrr_max")
+                                _snap = (_rows[0] or {}).get("atm_snapshot") or {}
+                                _omax = _snap.get("obs_max_so_far")
+                                _hrrr = _snap.get("mm_hrrr_max")
                                 if _omax is not None and _hrrr is not None:
                                     try:
                                         v2_features["today_realized_error"] = round(
@@ -3486,6 +3490,31 @@ def _compute_ml_prediction(
             _nl = v2_features.get("nws_last")
             if _nl is not None and not (isinstance(_nl, float) and math.isnan(_nl)):
                 result["nws_last_persist"] = float(_nl)
+
+            # ── v15 cascade gate ─────────────────────────────────────────────
+            # If we picked v15 but its distinguishing features are mostly NaN
+            # (typical during ramp-up before nws_last accumulates, or whenever
+            # autoreg/realized-error fetch fails), downgrade to v14. v15 with
+            # NaN features is just v14-with-noise; v14 is strictly better.
+            if active_version == "v15_morning_autoreg" and _loadable.get("bcp_v14"):
+                _v15_distinguishing = (
+                    "yesterday_signed_miss", "rolling_3day_bias",
+                    "today_realized_error", "cap_violation_925",
+                )
+                _filled = sum(
+                    1 for _f in _v15_distinguishing
+                    if v2_features.get(_f) is not None
+                    and not (isinstance(v2_features.get(_f), float) and math.isnan(v2_features.get(_f)))
+                )
+                if _filled == 0:
+                    print(
+                        f"⚠️ v15 cascade gate: 0/{len(_v15_distinguishing)} distinguishing "
+                        f"features populated — downgrading v15 → v14 for this prediction"
+                    )
+                    active_classifier = v14_classifier
+                    active_regressor  = v14_regressor
+                    active_feature_cols = v14_feature_cols
+                    active_version = "v14_blind_spot_interactions_(v15_gated)"
 
             # Build feature DataFrame (v4 or v2 depending on available model)
             X_v2 = pd.DataFrame([v2_features])
