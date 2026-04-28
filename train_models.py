@@ -4146,6 +4146,8 @@ if __name__ == "__main__":
                 v11=getattr(args, "v11", False),
                 v12=getattr(args, "v12", False),
                 v13=getattr(args, "v13", False),
+                v14=getattr(args, "v14", False),
+                v15=getattr(args, "v15", False),
             )
     else:
         trainer = NYCTemperatureModelTrainer(city_key=args.city)
