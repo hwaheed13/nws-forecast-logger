@@ -3492,10 +3492,19 @@ class NYCTemperatureModelTrainer:
         elif "forecast_revision" not in df.columns:
             df["forecast_revision"] = np.nan
 
-        # 2) cap_violation_925 = max(0, nws_last - atm_925mb_temp_mean - 14)
-        if "nws_last" in df.columns and "atm_925mb_temp_mean" in df.columns:
+        # 2) cap_violation_925 = max(0, nws_last - 925mb_temp - 14)
+        # Use atm_925mb_temp_mean (GFS Open-Meteo) primary, fall back to
+        # atm_925mb_hrrr_mean (HRRR 3km) when GFS is missing — multi-year
+        # historical data only has HRRR 925mb, not GFS.
+        if "nws_last" in df.columns and (
+            "atm_925mb_temp_mean" in df.columns or "atm_925mb_hrrr_mean" in df.columns
+        ):
             last = pd.to_numeric(df["nws_last"], errors="coerce")
-            t925 = pd.to_numeric(df["atm_925mb_temp_mean"], errors="coerce")
+            t925_gfs = pd.to_numeric(df["atm_925mb_temp_mean"], errors="coerce") \
+                if "atm_925mb_temp_mean" in df.columns else pd.Series(np.nan, index=df.index)
+            t925_hrrr = pd.to_numeric(df["atm_925mb_hrrr_mean"], errors="coerce") \
+                if "atm_925mb_hrrr_mean" in df.columns else pd.Series(np.nan, index=df.index)
+            t925 = t925_gfs.where(t925_gfs.notna(), t925_hrrr)
             mask = last.notna() & t925.notna()
             computed = pd.Series(np.nan, index=df.index)
             computed.loc[mask] = (last.loc[mask] - t925.loc[mask] - 14.0).clip(lower=0).round(1)
@@ -3507,31 +3516,41 @@ class NYCTemperatureModelTrainer:
         # signed_miss[d] = actual_high[d] - nws_last[d]
         # yesterday_signed_miss[d] = signed_miss[d-1]
         # rolling_3day_bias[d] = mean(signed_miss[d-1], signed_miss[d-2], signed_miss[d-3])
+        #
+        # Critical: drop rows with NaN signed_miss BEFORE groupby — otherwise
+        # multi-year rows (which have actual_high but no nws_last → NaN miss)
+        # win the .first() race against forecast rows for shared dates and
+        # poison the lookup table. This was the bug in the first v15 retrain
+        # (yesterday=0 in coverage report despite 282 valid forecast days).
         if "actual_high" in df.columns and "nws_last" in df.columns and "cli_date" in df.columns:
             tmp = df[["cli_date", "actual_high", "nws_last"]].copy()
             tmp["cli_date"] = pd.to_datetime(tmp["cli_date"], errors="coerce")
             tmp["actual_num"] = pd.to_numeric(tmp["actual_high"], errors="coerce")
             tmp["nws_num"] = pd.to_numeric(tmp["nws_last"], errors="coerce")
             tmp["signed_miss"] = tmp["actual_num"] - tmp["nws_num"]
-            # Sort by date and compute lags. Handle duplicate dates by taking
-            # the first valid signed_miss per date (training data shouldn't
-            # have dupes but be defensive).
             daily = (
-                tmp.dropna(subset=["cli_date"])
-                .groupby("cli_date", as_index=False)["signed_miss"]
-                .first()
+                tmp.dropna(subset=["cli_date", "signed_miss"])
+                .drop_duplicates(subset="cli_date", keep="first")
                 .sort_values("cli_date")
+                .reset_index(drop=True)
             )
-            daily["yesterday"] = daily["signed_miss"].shift(1)
-            daily["roll3"] = daily["signed_miss"].shift(1).rolling(window=3, min_periods=2).mean()
-            # Map back to df by cli_date
-            lookup_y = dict(zip(daily["cli_date"], daily["yesterday"]))
-            lookup_r = dict(zip(daily["cli_date"], daily["roll3"]))
-            df_dates = pd.to_datetime(df["cli_date"], errors="coerce")
-            yesterday_vals = df_dates.map(lookup_y)
-            roll3_vals = df_dates.map(lookup_r)
-            _coalesce("yesterday_signed_miss", pd.Series(yesterday_vals, index=df.index).round(1))
-            _coalesce("rolling_3day_bias", pd.Series(roll3_vals, index=df.index).round(2))
+            if not daily.empty:
+                daily["yesterday"] = daily["signed_miss"].shift(1)
+                daily["roll3"] = daily["signed_miss"].shift(1).rolling(window=3, min_periods=2).mean()
+                # Map back to df by cli_date. Convert keys to Timestamp explicitly
+                # to ensure type-match against df_dates.
+                lookup_y = {pd.Timestamp(d): v for d, v in zip(daily["cli_date"], daily["yesterday"])}
+                lookup_r = {pd.Timestamp(d): v for d, v in zip(daily["cli_date"], daily["roll3"])}
+                df_dates = pd.to_datetime(df["cli_date"], errors="coerce")
+                yesterday_vals = df_dates.map(lookup_y)
+                roll3_vals = df_dates.map(lookup_r)
+                _coalesce("yesterday_signed_miss", pd.Series(yesterday_vals, index=df.index).round(1))
+                _coalesce("rolling_3day_bias", pd.Series(roll3_vals, index=df.index).round(2))
+            else:
+                if "yesterday_signed_miss" not in df.columns:
+                    df["yesterday_signed_miss"] = np.nan
+                if "rolling_3day_bias" not in df.columns:
+                    df["rolling_3day_bias"] = np.nan
         else:
             if "yesterday_signed_miss" not in df.columns:
                 df["yesterday_signed_miss"] = np.nan
