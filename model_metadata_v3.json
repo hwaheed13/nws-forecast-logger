@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-04-28T21:39:19.778432",
+  "trained_on": "2026-04-28T22:24:34.570979",
   "version": "v3_unified_regression",
   "num_days": 1577,
   "num_forecast_days": 282,
@@ -10,48 +10,48 @@
   },
   "performance": {
     "cv_mae": 0.79,
-    "cv_bucket_accuracy_1f": 0.1473,
-    "residual_std": 2.72,
+    "cv_bucket_accuracy_1f": 0.1435,
+    "residual_std": 2.74,
     "per_fold_mae": [
-      0.57,
+      0.56,
       0.4,
-      0.34,
-      0.69,
-      1.94
+      0.33,
+      0.7,
+      1.95
     ],
     "per_fold_bucket_acc": [
       0.1,
-      0.1947
+      0.187
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 1.3443
+      "importance": 1.3069
     },
     {
       "name": "intra_temp_5pm",
-      "importance": 0.0095
-    },
-    {
-      "name": "intra_temp_3pm",
-      "importance": 0.0038
+      "importance": 0.0108
     },
     {
       "name": "intra_temp_noon",
-      "importance": 0.0029
+      "importance": 0.0045
+    },
+    {
+      "name": "intra_temp_3pm",
+      "importance": 0.0033
     },
     {
       "name": "accu_last",
-      "importance": 0.0017
+      "importance": 0.0019
     },
     {
       "name": "atm_dewpoint_mean",
-      "importance": 0.0006
+      "importance": 0.0007
     },
     {
       "name": "intra_high_vs_noon",
-      "importance": 0.0003
+      "importance": 0.0004
     },
     {
       "name": "atm_temp_range",
@@ -62,15 +62,7 @@
       "importance": 0.0002
     },
     {
-      "name": "mm_mean",
-      "importance": 0.0002
-    },
-    {
       "name": "accu_max",
-      "importance": 0.0002
-    },
-    {
-      "name": "accu_post_9am_delta",
       "importance": 0.0002
     },
     {
@@ -78,7 +70,15 @@
       "importance": 0.0002
     },
     {
-      "name": "intra_temp_9am",
+      "name": "accu_post_9am_delta",
+      "importance": 0.0002
+    },
+    {
+      "name": "mm_mean",
+      "importance": 0.0001
+    },
+    {
+      "name": "atm_morning_temp_6am",
       "importance": 0.0001
     },
     {
