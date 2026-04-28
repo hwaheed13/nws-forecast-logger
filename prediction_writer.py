@@ -888,7 +888,7 @@ def _fetch_recent_signed_miss(target_date_str, days_back: int = 5):
             f"&target_date=gte.{start_dt.strftime('%Y-%m-%d')}"
             f"&target_date=lte.{end_dt.strftime('%Y-%m-%d')}"
             f"&is_canonical=eq.true"
-            f"&select=target_date,actual_high,nws_last"
+            f"&select=target_date,ml_actual_high,nws_last"
             f"&order=target_date.asc"
         )
         resp = requests.get(
@@ -902,7 +902,7 @@ def _fetch_recent_signed_miss(target_date_str, days_back: int = 5):
         out = {}
         for r in rows:
             d = r.get("target_date")
-            ah = r.get("actual_high")
+            ah = r.get("ml_actual_high")
             nl = r.get("nws_last")
             if d and ah is not None and nl is not None:
                 try:
@@ -3480,6 +3480,12 @@ def _compute_ml_prediction(
                     _v15_cols[_c] = _v
             if _v15_cols:
                 result["morning_autoreg_cols"] = _v15_cols
+            # Stash nws_last so the canonical writer can persist it as a
+            # top-level column. Without this, _fetch_recent_signed_miss has
+            # no nws_last to compute prior-day signed_miss against.
+            _nl = v2_features.get("nws_last")
+            if _nl is not None and not (isinstance(_nl, float) and math.isnan(_nl)):
+                result["nws_last_persist"] = float(_nl)
 
             # Build feature DataFrame (v4 or v2 depending on available model)
             X_v2 = pd.DataFrame([v2_features])
@@ -7626,6 +7632,12 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         # Same for v15 morning + autoregressive features.
         for _bk, _bv in (ml.get("morning_autoreg_cols") or {}).items():
             payload[_bk] = _bv
+        # Persist nws_last so v15 autoregressive features (yesterday_signed_miss,
+        # rolling_3day_bias) can compute prior-day signed_miss = ml_actual_high
+        # - nws_last via _fetch_recent_signed_miss. Column was previously absent
+        # from the table → autoreg lookup returned empty for every prediction.
+        if ml.get("nws_last_persist") is not None:
+            payload["nws_last"] = ml["nws_last_persist"]
         if is_canonical_write:
             payload["ml_bucket_canonical"] = ml["ml_bucket"]
             payload["ml_f_canonical"] = ml["ml_f"]
