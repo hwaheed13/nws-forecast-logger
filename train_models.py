@@ -3365,7 +3365,494 @@ class NYCTemperatureModelTrainer:
         except Exception:
             pass
 
-    def run(self, v2: bool = False, v4: bool = False, v5: bool = False, v6: bool = False, v7: bool = False, v8: bool = False, v9: bool = False, v10: bool = False, v11: bool = False, v12: bool = False, v13: bool = False):
+    def _compute_blind_spot_features(self) -> None:
+        """
+        Derive v14 blind-spot interaction features from existing columns.
+
+        These encode regime conjunctions the model can't easily learn from
+        raw inputs alone given sparse training data (~281 rows, mostly
+        morning-run snapshots). By exposing the conjunctions as direct
+        features, a single tree split captures the pattern.
+
+        hours_to_heating_close = max(0, 16 - obs_latest_hour)
+        peak_to_hrrr_gap       = mm_hrrr_max - obs_max_so_far
+        late_obs_below_pred    = (obs_latest_hour>=13) * max(0, peak_to_hrrr_gap)
+        late_falling_signal    = (obs_latest_hour>=13) * obs_temp_falling_hrs
+        mm_spread_late         = mm_spread * (obs_latest_hour>=12)
+
+        All NaN-safe — when source columns are missing, derived columns are NaN
+        and HistGradientBoosting handles them natively.
+        """
+        df = self.features_df
+
+        def _coalesce(col_name, computed):
+            existing = df[col_name] if col_name in df.columns else None
+            if existing is None:
+                df[col_name] = computed
+            else:
+                df[col_name] = computed.where(computed.notna(), existing)
+
+        # 1) hours_to_heating_close
+        if "obs_latest_hour" in df.columns:
+            hr = pd.to_numeric(df["obs_latest_hour"], errors="coerce")
+            computed = (16 - hr).clip(lower=0)
+            _coalesce("hours_to_heating_close", computed)
+        elif "hours_to_heating_close" not in df.columns:
+            df["hours_to_heating_close"] = np.nan
+
+        # 2) peak_to_hrrr_gap
+        if "mm_hrrr_max" in df.columns and "obs_max_so_far" in df.columns:
+            hrrr = pd.to_numeric(df["mm_hrrr_max"], errors="coerce")
+            peak = pd.to_numeric(df["obs_max_so_far"], errors="coerce")
+            _coalesce("peak_to_hrrr_gap", (hrrr - peak).round(1))
+        elif "peak_to_hrrr_gap" not in df.columns:
+            df["peak_to_hrrr_gap"] = np.nan
+
+        # 3) late_obs_below_pred = (obs_latest_hour>=13) * max(0, peak_to_hrrr_gap)
+        if "obs_latest_hour" in df.columns and "peak_to_hrrr_gap" in df.columns:
+            hr = pd.to_numeric(df["obs_latest_hour"], errors="coerce")
+            gap = pd.to_numeric(df["peak_to_hrrr_gap"], errors="coerce")
+            late = (hr >= 13).astype(float)
+            # NaN where either source is NaN — preserve missingness
+            mask = hr.notna() & gap.notna()
+            computed = pd.Series(np.nan, index=df.index)
+            computed.loc[mask] = (late.loc[mask] * gap.loc[mask].clip(lower=0)).round(1)
+            _coalesce("late_obs_below_pred", computed)
+        elif "late_obs_below_pred" not in df.columns:
+            df["late_obs_below_pred"] = np.nan
+
+        # 4) late_falling_signal = (obs_latest_hour>=13) * obs_temp_falling_hrs
+        if "obs_latest_hour" in df.columns and "obs_temp_falling_hrs" in df.columns:
+            hr = pd.to_numeric(df["obs_latest_hour"], errors="coerce")
+            falling = pd.to_numeric(df["obs_temp_falling_hrs"], errors="coerce")
+            late = (hr >= 13).astype(float)
+            mask = hr.notna() & falling.notna()
+            computed = pd.Series(np.nan, index=df.index)
+            computed.loc[mask] = (late.loc[mask] * falling.loc[mask]).round(1)
+            _coalesce("late_falling_signal", computed)
+        elif "late_falling_signal" not in df.columns:
+            df["late_falling_signal"] = np.nan
+
+        # 5) mm_spread_late = mm_spread * (obs_latest_hour>=12)
+        if "obs_latest_hour" in df.columns and "mm_spread" in df.columns:
+            hr = pd.to_numeric(df["obs_latest_hour"], errors="coerce")
+            sp = pd.to_numeric(df["mm_spread"], errors="coerce")
+            late = (hr >= 12).astype(float)
+            mask = hr.notna() & sp.notna()
+            computed = pd.Series(np.nan, index=df.index)
+            computed.loc[mask] = (late.loc[mask] * sp.loc[mask]).round(2)
+            _coalesce("mm_spread_late", computed)
+        elif "mm_spread_late" not in df.columns:
+            df["mm_spread_late"] = np.nan
+
+        n_h2c = df["hours_to_heating_close"].notna().sum()
+        n_pg = df["peak_to_hrrr_gap"].notna().sum()
+        n_lobp = df["late_obs_below_pred"].notna().sum()
+        n_lfs = df["late_falling_signal"].notna().sum()
+        n_msl = df["mm_spread_late"].notna().sum()
+        print(f"  v14 blind-spot coverage: h2c={n_h2c}, pg={n_pg}, lobp={n_lobp}, lfs={n_lfs}, msl={n_msl}")
+        self.features_df = df
+
+    def _compute_v15_features(self) -> None:
+        """
+        Derive v15 morning-applicable + autoregressive features.
+
+        These features are NOT obs-gated, so they fire at the 7am canonical
+        write — fixing v14's morning blind spot (v14 features all gate on
+        hour >= 12/13).
+
+        forecast_revision    = nws_last - nws_first (within forecast lifecycle)
+        cap_violation_925    = max(0, nws_last - atm_925mb_temp_mean - 14)
+                               Adiabatic lapse rate ceiling (~14°F per 1km
+                               between surface and 925mb in dry air).
+        yesterday_signed_miss = (prev day's) actual_high - nws_last
+                               Autoregressive bias lag-1.
+        rolling_3day_bias    = mean(signed_miss) over prior 3 calendar days
+                               Smoothed short-horizon systematic miss.
+        today_realized_error = NaN at training time (only relevant at
+                               inference for cross-day tomorrow predictions).
+                               Set to NaN in training matrix.
+
+        All NaN-safe — HistGradientBoosting handles missing values natively.
+        """
+        df = self.features_df
+
+        def _coalesce(col_name, computed):
+            existing = df[col_name] if col_name in df.columns else None
+            if existing is None:
+                df[col_name] = computed
+            else:
+                df[col_name] = computed.where(computed.notna(), existing)
+
+        # 1) forecast_revision = nws_last - nws_first
+        if "nws_last" in df.columns and "nws_first" in df.columns:
+            last = pd.to_numeric(df["nws_last"], errors="coerce")
+            first = pd.to_numeric(df["nws_first"], errors="coerce")
+            _coalesce("forecast_revision", (last - first).round(1))
+        elif "forecast_revision" not in df.columns:
+            df["forecast_revision"] = np.nan
+
+        # 2) cap_violation_925 = max(0, nws_last - atm_925mb_temp_mean - 14)
+        if "nws_last" in df.columns and "atm_925mb_temp_mean" in df.columns:
+            last = pd.to_numeric(df["nws_last"], errors="coerce")
+            t925 = pd.to_numeric(df["atm_925mb_temp_mean"], errors="coerce")
+            mask = last.notna() & t925.notna()
+            computed = pd.Series(np.nan, index=df.index)
+            computed.loc[mask] = (last.loc[mask] - t925.loc[mask] - 14.0).clip(lower=0).round(1)
+            _coalesce("cap_violation_925", computed)
+        elif "cap_violation_925" not in df.columns:
+            df["cap_violation_925"] = np.nan
+
+        # 3+4) Autoregressive bias features — require date-sorted lag.
+        # signed_miss[d] = actual_high[d] - nws_last[d]
+        # yesterday_signed_miss[d] = signed_miss[d-1]
+        # rolling_3day_bias[d] = mean(signed_miss[d-1], signed_miss[d-2], signed_miss[d-3])
+        if "actual_high" in df.columns and "nws_last" in df.columns and "cli_date" in df.columns:
+            tmp = df[["cli_date", "actual_high", "nws_last"]].copy()
+            tmp["cli_date"] = pd.to_datetime(tmp["cli_date"], errors="coerce")
+            tmp["actual_num"] = pd.to_numeric(tmp["actual_high"], errors="coerce")
+            tmp["nws_num"] = pd.to_numeric(tmp["nws_last"], errors="coerce")
+            tmp["signed_miss"] = tmp["actual_num"] - tmp["nws_num"]
+            # Sort by date and compute lags. Handle duplicate dates by taking
+            # the first valid signed_miss per date (training data shouldn't
+            # have dupes but be defensive).
+            daily = (
+                tmp.dropna(subset=["cli_date"])
+                .groupby("cli_date", as_index=False)["signed_miss"]
+                .first()
+                .sort_values("cli_date")
+            )
+            daily["yesterday"] = daily["signed_miss"].shift(1)
+            daily["roll3"] = daily["signed_miss"].shift(1).rolling(window=3, min_periods=2).mean()
+            # Map back to df by cli_date
+            lookup_y = dict(zip(daily["cli_date"], daily["yesterday"]))
+            lookup_r = dict(zip(daily["cli_date"], daily["roll3"]))
+            df_dates = pd.to_datetime(df["cli_date"], errors="coerce")
+            yesterday_vals = df_dates.map(lookup_y)
+            roll3_vals = df_dates.map(lookup_r)
+            _coalesce("yesterday_signed_miss", pd.Series(yesterday_vals, index=df.index).round(1))
+            _coalesce("rolling_3day_bias", pd.Series(roll3_vals, index=df.index).round(2))
+        else:
+            if "yesterday_signed_miss" not in df.columns:
+                df["yesterday_signed_miss"] = np.nan
+            if "rolling_3day_bias" not in df.columns:
+                df["rolling_3day_bias"] = np.nan
+
+        # 5) today_realized_error — only meaningful for cross-day tomorrow
+        # predictions at inference. NaN at training time (we're training on
+        # same-day prediction targets). HistGB handles NaN; keeping the
+        # column ensures schema parity between train and inference.
+        if "today_realized_error" not in df.columns:
+            df["today_realized_error"] = np.nan
+
+        n_fr = df["forecast_revision"].notna().sum()
+        n_cap = df["cap_violation_925"].notna().sum()
+        n_ysm = df["yesterday_signed_miss"].notna().sum()
+        n_r3 = df["rolling_3day_bias"].notna().sum()
+        print(f"  v15 morning/autoreg coverage: revision={n_fr}, cap={n_cap}, "
+              f"yesterday={n_ysm}, rolling3={n_r3} (today_realized_error: inference-only)")
+        self.features_df = df
+
+    def train_v15(self) -> None:
+        """
+        Train v15 model: v14 (176 features) + 5 morning/autoreg features.
+
+        Motivation:
+          v14's blind-spot interactions all gate on obs_latest_hour >= 12/13,
+          so they're zero at the 7am canonical write — but that's exactly
+          when the bet recommendation gets locked in. v15 adds 5 features
+          that fire at canonical time:
+            - forecast_revision: NWS overnight revision direction
+            - cap_violation_925: physical ceiling violation flag
+            - yesterday_signed_miss: autoregressive lag-1 of NWS bias
+            - rolling_3day_bias: smoothed recent systematic miss
+            - today_realized_error: cross-day prior for tomorrow predictions
+
+          These work alongside v14's late-day features. At canonical time,
+          v15 features carry the load; at intraday override, v14 features
+          dominate.
+        """
+        from model_config import FEATURE_COLS_V15
+        from train_classifier import BucketClassifier
+        from sklearn.ensemble import HistGradientBoostingRegressor
+        from sklearn.model_selection import cross_val_score
+        import numpy as np
+
+        print(f"\n{'═'*60}")
+        print(f"v15 Training: v14 + morning/autoreg features ({len(FEATURE_COLS_V15)} total features)")
+        print(f"{'═'*60}")
+
+        # Ensure all upstream feature derivations have run
+        self._compute_bl_safeguard_features()
+        self._compute_model_vs_nws_features()
+        self._compute_blind_spot_features()
+        self._compute_v15_features()
+
+        if self.features_df.empty:
+            print("  ⚠️ No feature data — skipping v15.")
+            return
+
+        prefix = self.model_prefix
+        forecast_df = self.features_df[self.features_df["nws_last"].notna()].copy()
+        n_forecast = len(forecast_df)
+        if n_forecast < 30:
+            print(f"  ⚠️ Only {n_forecast} forecast rows (need 30+). Skipping v15.")
+            return
+
+        missing_v15 = [c for c in FEATURE_COLS_V15 if c not in self.features_df.columns]
+        if missing_v15:
+            print(f"  Missing v15 cols (NaN for historical rows): {missing_v15}")
+            for col in missing_v15:
+                self.features_df[col] = np.nan
+
+        forecast_df = self.features_df[self.features_df["nws_last"].notna()].copy()
+        X_v15    = forecast_df[FEATURE_COLS_V15]
+        nws_last = forecast_df["nws_last"]
+        y_actual = forecast_df["actual_high"]
+        y_bias   = y_actual - nws_last
+
+        v15_regressor = HistGradientBoostingRegressor(
+            max_iter=400, learning_rate=0.04, max_depth=4,
+            min_samples_leaf=6, l2_regularization=0.3,
+            random_state=42,
+        )
+
+        mae_scores = -cross_val_score(v15_regressor, X_v15, y_bias, cv=5, scoring="neg_mean_absolute_error")
+        bucket_acc = cross_val_score(
+            v15_regressor, X_v15, y_bias, cv=5,
+            scoring=lambda est, X, y: float(np.mean(
+                np.abs((est.predict(X) + nws_last.iloc[:len(X)]) - y_actual.iloc[:len(X)]) <= 1
+            )),
+        )
+        residual_std = float(np.std(y_bias))
+
+        print(f"  v15 CV MAE:        {np.mean(mae_scores):.2f}°F")
+        print(f"  v15 CV Bucket Acc: {np.mean(bucket_acc):.1%}")
+        print(f"  v15 Residual Std:  {residual_std:.2f}°F")
+        v15_regressor.fit(X_v15, y_bias)
+
+        try:
+            fi = dict(zip(FEATURE_COLS_V15, v15_regressor.feature_importances_))
+            print(f"  forecast_revision importance:    {fi.get('forecast_revision', 0):.4f}")
+            print(f"  cap_violation_925 importance:    {fi.get('cap_violation_925', 0):.4f}")
+            print(f"  yesterday_signed_miss imp:       {fi.get('yesterday_signed_miss', 0):.4f}")
+            print(f"  rolling_3day_bias importance:    {fi.get('rolling_3day_bias', 0):.4f}")
+            print(f"  late_obs_below_pred (v14) imp:   {fi.get('late_obs_below_pred', 0):.4f}")
+        except Exception:
+            pass
+
+        classifier = BucketClassifier()
+        classifier.train(
+            self.features_df.copy().reset_index(drop=True),
+            feature_cols=FEATURE_COLS_V15,
+            residual_std=residual_std,
+            forecast_weight=5.0,
+        )
+
+        with open(f"{prefix}bcp_v15_regressor.pkl", "wb") as f:
+            pickle.dump(v15_regressor, f)
+        with open(f"{prefix}bcp_v15_classifier.pkl", "wb") as f:
+            pickle.dump(classifier, f)
+        with open(f"{prefix}bcp_v15_feature_cols.pkl", "wb") as f:
+            pickle.dump(list(FEATURE_COLS_V15), f)
+
+        v15_meta = {
+            "trained_on": datetime.now().isoformat(),
+            "version": "v15_morning_autoreg",
+            "base_cascade": "HRRR > NBM > AccuWeather > NWS",
+            "new_features": ", ".join([
+                "forecast_revision", "cap_violation_925",
+                "yesterday_signed_miss", "rolling_3day_bias", "today_realized_error",
+            ]),
+            "motivation": (
+                "v14 fixed late-day overrides but didn't help the 7am canonical "
+                "write (where the bet gets locked). v15 adds morning-applicable + "
+                "autoregressive features that fire at canonical time: NWS revision "
+                "direction, adiabatic ceiling violation, yesterday's signed miss, "
+                "rolling 3-day bias, and cross-day realized HRRR error for "
+                "tomorrow predictions."
+            ),
+            "v15_regression": {
+                "cv_mae": float(np.mean(mae_scores)),
+                "cv_bucket_accuracy": float(np.mean(bucket_acc)),
+                "residual_std": residual_std,
+                "n_features": len(FEATURE_COLS_V15),
+                "n_training_rows": n_forecast,
+            },
+            "feature_columns_v15": list(FEATURE_COLS_V15),
+        }
+        import json as _json
+        with open(f"{prefix}model_metadata_v15.json", "w") as f:
+            _json.dump(v15_meta, f, indent=2)
+
+        print(f"\n  ✅ Saved v15 models: bcp_v15_regressor.pkl, bcp_v15_classifier.pkl")
+        print(f"  v15 Classifier Bucket Acc: {classifier.cv_bucket_accuracy:.1%}")
+
+        try:
+            import json as _j
+            with open(f"{prefix}model_metadata_v14.json") as f:
+                v14_meta = _j.load(f)
+            v14_mae = v14_meta.get("v14_regression", {}).get("cv_mae")
+            v14_bkt = v14_meta.get("v14_regression", {}).get("cv_bucket_accuracy")
+            print(f"\n{'─'*50}")
+            print(f"COMPARISON: v14 vs v15 (added: 5 morning/autoreg features)")
+            if v14_mae: print(f"  MAE:        v14={v14_mae:.2f}°F → v15={np.mean(mae_scores):.2f}°F")
+            if v14_bkt: print(f"  Bucket Acc: v14={v14_bkt:.1%} → v15={np.mean(bucket_acc):.1%}")
+            print(f"{'─'*50}")
+        except Exception:
+            pass
+
+    def train_v14(self) -> None:
+        """
+        Train v14 model: v13 (171 features) + 5 blind-spot interaction features.
+
+        Motivation (April 28, 2026):
+          v13 predicted "67° or more · STRONG BET 82%" at 3:36 PM with peak
+          observed = 65°F and current = 62°F (already declining). The model
+          had every raw signal it needed (obs_max_so_far, obs_latest_hour,
+          obs_temp_falling_hrs, mm_hrrr_max) but no explicit interaction term
+          tying them together. With ~281 sparse training rows, gradient
+          boosting can't reliably learn the conjunction from raw signals.
+
+          v14 makes the conjunction explicit:
+            late_obs_below_pred = (hour>=13) * max(0, mm_hrrr_max - obs_max)
+          This single feature would have flagged Apr 28 at hour=15 with
+          gap=3 → late_obs_below_pred=3.0, a strong downshift signal that
+          a single tree split captures cleanly.
+
+          Plus 4 supporting interaction features (hours_to_heating_close,
+          peak_to_hrrr_gap, late_falling_signal, mm_spread_late).
+        """
+        from model_config import FEATURE_COLS_V14
+        from train_classifier import BucketClassifier
+        from sklearn.ensemble import HistGradientBoostingRegressor
+        from sklearn.model_selection import cross_val_score
+        import numpy as np
+
+        print(f"\n{'═'*60}")
+        print(f"v14 Training: v13 + blind-spot features ({len(FEATURE_COLS_V14)} total features)")
+        print(f"{'═'*60}")
+
+        # Ensure v13's safeguards + v11's divergence + v14's blind-spots are derived
+        self._compute_bl_safeguard_features()
+        self._compute_model_vs_nws_features()
+        self._compute_blind_spot_features()
+
+        if self.features_df.empty:
+            print("  ⚠️ No feature data — skipping v14.")
+            return
+
+        prefix = self.model_prefix
+        forecast_df = self.features_df[self.features_df["nws_last"].notna()].copy()
+        n_forecast = len(forecast_df)
+        if n_forecast < 30:
+            print(f"  ⚠️ Only {n_forecast} forecast rows (need 30+). Skipping v14.")
+            return
+
+        missing_v14 = [c for c in FEATURE_COLS_V14 if c not in self.features_df.columns]
+        if missing_v14:
+            print(f"  Missing v14 cols (NaN for historical rows): {missing_v14}")
+            for col in missing_v14:
+                self.features_df[col] = np.nan
+
+        forecast_df = self.features_df[self.features_df["nws_last"].notna()].copy()
+        X_v14    = forecast_df[FEATURE_COLS_V14]
+        nws_last = forecast_df["nws_last"]
+        y_actual = forecast_df["actual_high"]
+        y_bias   = y_actual - nws_last
+
+        v14_regressor = HistGradientBoostingRegressor(
+            max_iter=400, learning_rate=0.04, max_depth=4,
+            min_samples_leaf=6, l2_regularization=0.3,
+            random_state=42,
+        )
+
+        mae_scores = -cross_val_score(v14_regressor, X_v14, y_bias, cv=5, scoring="neg_mean_absolute_error")
+        bucket_acc = cross_val_score(
+            v14_regressor, X_v14, y_bias, cv=5,
+            scoring=lambda est, X, y: float(np.mean(
+                np.abs((est.predict(X) + nws_last.iloc[:len(X)]) - y_actual.iloc[:len(X)]) <= 1
+            )),
+        )
+        residual_std = float(np.std(y_bias))
+
+        print(f"  v14 CV MAE:        {np.mean(mae_scores):.2f}°F")
+        print(f"  v14 CV Bucket Acc: {np.mean(bucket_acc):.1%}")
+        print(f"  v14 Residual Std:  {residual_std:.2f}°F")
+        v14_regressor.fit(X_v14, y_bias)
+
+        try:
+            fi = dict(zip(FEATURE_COLS_V14, v14_regressor.feature_importances_))
+            print(f"  late_obs_below_pred importance:    {fi.get('late_obs_below_pred', 0):.4f}")
+            print(f"  peak_to_hrrr_gap importance:       {fi.get('peak_to_hrrr_gap', 0):.4f}")
+            print(f"  hours_to_heating_close importance: {fi.get('hours_to_heating_close', 0):.4f}")
+            print(f"  late_falling_signal importance:    {fi.get('late_falling_signal', 0):.4f}")
+            print(f"  mm_spread_late importance:         {fi.get('mm_spread_late', 0):.4f}")
+        except Exception:
+            pass
+
+        classifier = BucketClassifier()
+        classifier.train(
+            self.features_df.copy().reset_index(drop=True),
+            feature_cols=FEATURE_COLS_V14,
+            residual_std=residual_std,
+            forecast_weight=5.0,
+        )
+
+        with open(f"{prefix}bcp_v14_regressor.pkl", "wb") as f:
+            pickle.dump(v14_regressor, f)
+        with open(f"{prefix}bcp_v14_classifier.pkl", "wb") as f:
+            pickle.dump(classifier, f)
+        with open(f"{prefix}bcp_v14_feature_cols.pkl", "wb") as f:
+            pickle.dump(list(FEATURE_COLS_V14), f)
+
+        v14_meta = {
+            "trained_on": datetime.now().isoformat(),
+            "version": "v14_blind_spot_features",
+            "base_cascade": "HRRR > NBM > AccuWeather > NWS",
+            "new_features": ", ".join([
+                "hours_to_heating_close", "peak_to_hrrr_gap",
+                "late_obs_below_pred", "late_falling_signal", "mm_spread_late",
+            ]),
+            "motivation": (
+                "April 28, 2026: v13 predicted '67° or more · STRONG BET' at 3:36 PM "
+                "with peak observed = 65°F and current = 62°F. Model had raw signals "
+                "but no explicit interaction terms tying late-hour + observed-deficit. "
+                "v14 adds 5 blind-spot interaction features so a single tree split "
+                "captures the conjunction. late_obs_below_pred is the headline feature: "
+                "(obs_latest_hour>=13) * max(0, mm_hrrr_max - obs_max_so_far)."
+            ),
+            "v14_regression": {
+                "cv_mae": float(np.mean(mae_scores)),
+                "cv_bucket_accuracy": float(np.mean(bucket_acc)),
+                "residual_std": residual_std,
+                "n_features": len(FEATURE_COLS_V14),
+                "n_training_rows": n_forecast,
+            },
+            "feature_columns_v14": list(FEATURE_COLS_V14),
+        }
+        import json as _json
+        with open(f"{prefix}model_metadata_v14.json", "w") as f:
+            _json.dump(v14_meta, f, indent=2)
+
+        print(f"\n  ✅ Saved v14 models: bcp_v14_regressor.pkl, bcp_v14_classifier.pkl")
+        print(f"  v14 Classifier Bucket Acc: {classifier.cv_bucket_accuracy:.1%}")
+
+        try:
+            import json as _j
+            with open(f"{prefix}model_metadata_v13.json") as f:
+                v13_meta = _j.load(f)
+            v13_mae = v13_meta.get("v13_regression", {}).get("cv_mae")
+            v13_bkt = v13_meta.get("v13_regression", {}).get("cv_bucket_accuracy")
+            print(f"\n{'─'*50}")
+            print(f"COMPARISON: v13 vs v14 (added: 5 blind-spot interaction features)")
+            if v13_mae: print(f"  MAE:        v13={v13_mae:.2f}°F → v14={np.mean(mae_scores):.2f}°F")
+            if v13_bkt: print(f"  Bucket Acc: v13={v13_bkt:.1%} → v14={np.mean(bucket_acc):.1%}")
+            print(f"{'─'*50}")
+        except Exception:
+            pass
+
+    def run(self, v2: bool = False, v4: bool = False, v5: bool = False, v6: bool = False, v7: bool = False, v8: bool = False, v9: bool = False, v10: bool = False, v11: bool = False, v12: bool = False, v13: bool = False, v14: bool = False, v15: bool = False):
         label = self.city_cfg["label"]
         print("=" * 60)
         print(f"{label} Temperature Model Training")
@@ -3549,6 +4036,60 @@ class NYCTemperatureModelTrainer:
                 self.train_v12()
             self.train_v13()
 
+        if v14:
+            if not v2:
+                self.train_v2()
+                self.train_v3()
+            if not v4:
+                self.train_v4()
+            if not v5:
+                self.train_v5()
+            if not v6:
+                self.train_v6()
+            if not v7:
+                self.train_v7()
+            if not v8:
+                self.train_v8()
+            if not v9:
+                self.train_v9()
+            if not v10:
+                self.train_v10()
+            if not v11:
+                self.train_v11()
+            if not v12:
+                self.train_v12()
+            if not v13:
+                self.train_v13()
+            self.train_v14()
+
+        if v15:
+            if not v2:
+                self.train_v2()
+                self.train_v3()
+            if not v4:
+                self.train_v4()
+            if not v5:
+                self.train_v5()
+            if not v6:
+                self.train_v6()
+            if not v7:
+                self.train_v7()
+            if not v8:
+                self.train_v8()
+            if not v9:
+                self.train_v9()
+            if not v10:
+                self.train_v10()
+            if not v11:
+                self.train_v11()
+            if not v12:
+                self.train_v12()
+            if not v13:
+                self.train_v13()
+            if not v14:
+                self.train_v14()
+            self.train_v15()
+
         print("\nTraining complete.")
 
 
@@ -3580,6 +4121,12 @@ if __name__ == "__main__":
                         help="Train v12 (v11 + deep NNJ inland stations: KCDW ~25mi, KSMQ ~35mi, obs_inland_gradient)")
     parser.add_argument("--v13", action="store_true",
                         help="Train v13 (v12 + BL safeguard features: entrainment_temp_diff, marine_containment, inland_strength)")
+    parser.add_argument("--v14", action="store_true",
+                        help="Train v14 (v13 + blind-spot interaction features: late_obs_below_pred, peak_to_hrrr_gap, "
+                             "hours_to_heating_close, late_falling_signal, mm_spread_late — explicit regime conjunctions)")
+    parser.add_argument("--v15", action="store_true",
+                        help="Train v15 (v14 + morning/autoreg features: forecast_revision, cap_violation_925, "
+                             "yesterday_signed_miss, rolling_3day_bias, today_realized_error — fires at canonical time)")
     args = parser.parse_args()
 
     if args.all:
@@ -3612,4 +4159,6 @@ if __name__ == "__main__":
             v11=getattr(args, "v11", False),
             v12=getattr(args, "v12", False),
             v13=getattr(args, "v13", False),
+            v14=getattr(args, "v14", False),
+            v15=getattr(args, "v15", False),
         )

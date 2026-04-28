@@ -554,6 +554,97 @@ BL_SAFEGUARD_COLS = [
 
 FEATURE_COLS_V13 = list(FEATURE_COLS_V12) + BL_SAFEGUARD_COLS
 
+# ═══════════════════════════════════════════════════════════════════════
+# v14 feature columns — v13 + intraday "blind-spot" interaction features
+# ═══════════════════════════════════════════════════════════════════════
+#
+# MOTIVATION (April 28, 2026):
+#   v13 predicted "67° or more · STRONG BET" at 3:36 PM with:
+#     obs_max_so_far  = 65.0°F   (peak observed today)
+#     obs_latest_temp = 62.1°F   (already declining)
+#     mm_hrrr_max     = 68°F     (HRRR's prediction)
+#     obs_latest_hour = 15
+#
+#   v13 has all of these as raw features. But it has NEVER seen an explicit
+#   "late afternoon AND obs is well below model prediction" interaction term —
+#   so even though the raw signals are there, the gradient boosting tree splits
+#   would need to learn the conjunction from sparse training data (281 rows,
+#   most morning-run snapshots). With <30 late-day-divergence cases in history,
+#   the model can't reliably learn the conjunction from raw features alone.
+#
+#   v14 makes the conjunction explicit so a single tree split captures it.
+#
+# Feature definitions:
+#   hours_to_heating_close = max(0, 16 - obs_latest_hour)
+#     → 0 means heating window over; high means lots of time left to climb
+#   peak_to_hrrr_gap = mm_hrrr_max - obs_max_so_far
+#     → How much room left between observed peak and HRRR's prediction
+#   late_obs_below_pred = (obs_latest_hour >= 13) * max(0, peak_to_hrrr_gap)
+#     → THE key signal: "in late afternoon, model is X°F above what we've hit"
+#       Apr 28 case: hour=15, gap=68-65=3 → late_obs_below_pred=3.0
+#   late_falling_signal = (obs_latest_hour >= 13) * obs_temp_falling_hrs
+#     → "we're past peak AND it's late in the day" combined into one feature
+#   mm_spread_late = mm_spread * (obs_latest_hour >= 12)
+#     → High model uncertainty AFTER noon (early-morning spread is normal noise)
+#
+# All derived from existing columns — no backfill needed beyond recomputing
+# at training time. HistGradientBoosting handles NaN natively for rows where
+# any source column is missing.
+#
+# Total: v13(171) + 5 = 176 features
+BLIND_SPOT_COLS = [
+    "hours_to_heating_close",   # max(0, 16 - obs_latest_hour)
+    "peak_to_hrrr_gap",         # mm_hrrr_max - obs_max_so_far
+    "late_obs_below_pred",      # (obs_latest_hour>=13) * max(0, peak_to_hrrr_gap)
+    "late_falling_signal",      # (obs_latest_hour>=13) * obs_temp_falling_hrs
+    "mm_spread_late",           # mm_spread * (obs_latest_hour>=12)
+]
+
+FEATURE_COLS_V14 = list(FEATURE_COLS_V13) + BLIND_SPOT_COLS
+
+# v15 — Morning-applicable + autoregressive features (canonical-time fixes)
+# ─────────────────────────────────────────────────────────────────────────
+# v14's blind-spot features all gate on obs_latest_hour >= 12/13, so they're
+# zero or NaN at the 7am canonical write — exactly the moment the bet
+# recommendation gets locked in. v15 adds five features that fire at
+# canonical time and across cross-day predictions:
+#
+#   forecast_revision    = nws_last - nws_first (within forecast lifecycle)
+#                          Positive = NWS revised upward overnight = warming
+#                          regime; negative = cooling regime.
+#
+#   cap_violation_925    = max(0, nws_last - atm_925mb_temp_mean - 14)
+#                          Adiabatic lapse: surface should be ≤14°F warmer
+#                          than 925mb in dry air. Positive value = forecast
+#                          exceeds physical ceiling = systemic over-forecast.
+#
+#   yesterday_signed_miss = prev_day_actual - prev_day_canonical_prediction
+#                          Autoregressive bias correction — yesterday's miss
+#                          direction is a leading indicator for today's.
+#                          Computed at write time via Supabase lookup; NaN
+#                          if no canonical row for prior day.
+#
+#   rolling_3day_bias    = mean(signed_miss) over prior 3 days
+#                          Short-horizon systematic bias. Smooths single-day
+#                          noise. NaN if <2 of last 3 days have canonicals.
+#
+#   today_realized_error = obs_max_so_far_today - mm_hrrr_max_today
+#                          For tomorrow predictions only: how is HRRR doing
+#                          on today's forecast right now? Strong prior for
+#                          tomorrow's same-regime error. NaN for today
+#                          predictions (collapses to 0 via gating in compute).
+#
+# Total: v14(176) + 5 = 181 features
+MORNING_AUTOREG_COLS = [
+    "forecast_revision",
+    "cap_violation_925",
+    "yesterday_signed_miss",
+    "rolling_3day_bias",
+    "today_realized_error",
+]
+
+FEATURE_COLS_V15 = list(FEATURE_COLS_V14) + MORNING_AUTOREG_COLS
+
 # Additional features added per-candidate-bucket during classification (4)
 BUCKET_POSITION_COLS = [
     "bucket_center",
