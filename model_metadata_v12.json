@@ -1,16 +1,19 @@
 {
-  "trained_on": "2026-04-28T13:26:12.182159",
-  "version": "v8_hrrr_anchored_stall_signal",
+  "trained_on": "2026-04-28T13:27:02.884144",
+  "version": "v12_deep_nj_inland_stations",
   "base_cascade": "HRRR > NBM > AccuWeather > NWS",
-  "new_feature": "obs_heating_rate_delta (stall = cap fingerprint)",
-  "v8_regression": {
-    "cv_mae": 1.195678200217961,
-    "cv_bucket_accuracy": 0.2978723404255319,
-    "residual_std": 1.6128186889227996,
-    "n_features": 150,
+  "new_features": "obs_kcdw_temp, obs_ksmq_temp, obs_inland_gradient (KSMQ-JFK)",
+  "motivation": "v11's obs_coastal_vs_inland uses EWR/TEB as the inland anchor (~20mi). KCDW (~25mi) and KSMQ (~35mi) push the reference into NJ interior where the sea breeze never reaches, making the full coast-to-inland gradient visible for the first time. On strong cap days the KSMQ-JFK spread is +15-20\u00b0F \u2014 a signal completely hidden from v11.",
+  "n_ksmq_rows": 15,
+  "n_kcdw_rows": 15,
+  "v12_regression": {
+    "cv_mae": 0.834572275002327,
+    "cv_bucket_accuracy": 0.40657894736842104,
+    "residual_std": 2.2711762452848125,
+    "n_features": 168,
     "n_training_rows": 282
   },
-  "feature_columns_v8": [
+  "feature_columns_v12": [
     "nws_first",
     "nws_last",
     "nws_max",
@@ -160,6 +163,24 @@
     "raob_700mb_temp",
     "raob_925mb_gfs_diff",
     "raob_925mb_hrrr_diff",
-    "obs_heating_rate_delta"
+    "obs_heating_rate_delta",
+    "obs_kjfk_temp",
+    "obs_klga_temp",
+    "obs_kewr_temp",
+    "obs_kteb_temp",
+    "obs_knyc_temp",
+    "obs_kjfk_vs_knyc",
+    "obs_klga_vs_knyc",
+    "obs_kewr_vs_knyc",
+    "obs_airport_spread",
+    "obs_coastal_vs_inland",
+    "obs_manh_temp",
+    "obs_manh_vs_knyc",
+    "mm_hrrr_vs_nws",
+    "mm_nbm_vs_nws",
+    "mm_mean_vs_nws",
+    "obs_kcdw_temp",
+    "obs_ksmq_temp",
+    "obs_inland_gradient"
   ]
 }
