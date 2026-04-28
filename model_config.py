@@ -554,6 +554,54 @@ BL_SAFEGUARD_COLS = [
 
 FEATURE_COLS_V13 = list(FEATURE_COLS_V12) + BL_SAFEGUARD_COLS
 
+# ═══════════════════════════════════════════════════════════════════════
+# v14 feature columns — v13 + intraday "blind-spot" interaction features
+# ═══════════════════════════════════════════════════════════════════════
+#
+# MOTIVATION (April 28, 2026):
+#   v13 predicted "67° or more · STRONG BET" at 3:36 PM with:
+#     obs_max_so_far  = 65.0°F   (peak observed today)
+#     obs_latest_temp = 62.1°F   (already declining)
+#     mm_hrrr_max     = 68°F     (HRRR's prediction)
+#     obs_latest_hour = 15
+#
+#   v13 has all of these as raw features. But it has NEVER seen an explicit
+#   "late afternoon AND obs is well below model prediction" interaction term —
+#   so even though the raw signals are there, the gradient boosting tree splits
+#   would need to learn the conjunction from sparse training data (281 rows,
+#   most morning-run snapshots). With <30 late-day-divergence cases in history,
+#   the model can't reliably learn the conjunction from raw features alone.
+#
+#   v14 makes the conjunction explicit so a single tree split captures it.
+#
+# Feature definitions:
+#   hours_to_heating_close = max(0, 16 - obs_latest_hour)
+#     → 0 means heating window over; high means lots of time left to climb
+#   peak_to_hrrr_gap = mm_hrrr_max - obs_max_so_far
+#     → How much room left between observed peak and HRRR's prediction
+#   late_obs_below_pred = (obs_latest_hour >= 13) * max(0, peak_to_hrrr_gap)
+#     → THE key signal: "in late afternoon, model is X°F above what we've hit"
+#       Apr 28 case: hour=15, gap=68-65=3 → late_obs_below_pred=3.0
+#   late_falling_signal = (obs_latest_hour >= 13) * obs_temp_falling_hrs
+#     → "we're past peak AND it's late in the day" combined into one feature
+#   mm_spread_late = mm_spread * (obs_latest_hour >= 12)
+#     → High model uncertainty AFTER noon (early-morning spread is normal noise)
+#
+# All derived from existing columns — no backfill needed beyond recomputing
+# at training time. HistGradientBoosting handles NaN natively for rows where
+# any source column is missing.
+#
+# Total: v13(171) + 5 = 176 features
+BLIND_SPOT_COLS = [
+    "hours_to_heating_close",   # max(0, 16 - obs_latest_hour)
+    "peak_to_hrrr_gap",         # mm_hrrr_max - obs_max_so_far
+    "late_obs_below_pred",      # (obs_latest_hour>=13) * max(0, peak_to_hrrr_gap)
+    "late_falling_signal",      # (obs_latest_hour>=13) * obs_temp_falling_hrs
+    "mm_spread_late",           # mm_spread * (obs_latest_hour>=12)
+]
+
+FEATURE_COLS_V14 = list(FEATURE_COLS_V13) + BLIND_SPOT_COLS
+
 # Additional features added per-candidate-bucket during classification (4)
 BUCKET_POSITION_COLS = [
     "bucket_center",

@@ -3365,7 +3365,245 @@ class NYCTemperatureModelTrainer:
         except Exception:
             pass
 
-    def run(self, v2: bool = False, v4: bool = False, v5: bool = False, v6: bool = False, v7: bool = False, v8: bool = False, v9: bool = False, v10: bool = False, v11: bool = False, v12: bool = False, v13: bool = False):
+    def _compute_blind_spot_features(self) -> None:
+        """
+        Derive v14 blind-spot interaction features from existing columns.
+
+        These encode regime conjunctions the model can't easily learn from
+        raw inputs alone given sparse training data (~281 rows, mostly
+        morning-run snapshots). By exposing the conjunctions as direct
+        features, a single tree split captures the pattern.
+
+        hours_to_heating_close = max(0, 16 - obs_latest_hour)
+        peak_to_hrrr_gap       = mm_hrrr_max - obs_max_so_far
+        late_obs_below_pred    = (obs_latest_hour>=13) * max(0, peak_to_hrrr_gap)
+        late_falling_signal    = (obs_latest_hour>=13) * obs_temp_falling_hrs
+        mm_spread_late         = mm_spread * (obs_latest_hour>=12)
+
+        All NaN-safe — when source columns are missing, derived columns are NaN
+        and HistGradientBoosting handles them natively.
+        """
+        df = self.features_df
+
+        def _coalesce(col_name, computed):
+            existing = df[col_name] if col_name in df.columns else None
+            if existing is None:
+                df[col_name] = computed
+            else:
+                df[col_name] = computed.where(computed.notna(), existing)
+
+        # 1) hours_to_heating_close
+        if "obs_latest_hour" in df.columns:
+            hr = pd.to_numeric(df["obs_latest_hour"], errors="coerce")
+            computed = (16 - hr).clip(lower=0)
+            _coalesce("hours_to_heating_close", computed)
+        elif "hours_to_heating_close" not in df.columns:
+            df["hours_to_heating_close"] = np.nan
+
+        # 2) peak_to_hrrr_gap
+        if "mm_hrrr_max" in df.columns and "obs_max_so_far" in df.columns:
+            hrrr = pd.to_numeric(df["mm_hrrr_max"], errors="coerce")
+            peak = pd.to_numeric(df["obs_max_so_far"], errors="coerce")
+            _coalesce("peak_to_hrrr_gap", (hrrr - peak).round(1))
+        elif "peak_to_hrrr_gap" not in df.columns:
+            df["peak_to_hrrr_gap"] = np.nan
+
+        # 3) late_obs_below_pred = (obs_latest_hour>=13) * max(0, peak_to_hrrr_gap)
+        if "obs_latest_hour" in df.columns and "peak_to_hrrr_gap" in df.columns:
+            hr = pd.to_numeric(df["obs_latest_hour"], errors="coerce")
+            gap = pd.to_numeric(df["peak_to_hrrr_gap"], errors="coerce")
+            late = (hr >= 13).astype(float)
+            # NaN where either source is NaN — preserve missingness
+            mask = hr.notna() & gap.notna()
+            computed = pd.Series(np.nan, index=df.index)
+            computed.loc[mask] = (late.loc[mask] * gap.loc[mask].clip(lower=0)).round(1)
+            _coalesce("late_obs_below_pred", computed)
+        elif "late_obs_below_pred" not in df.columns:
+            df["late_obs_below_pred"] = np.nan
+
+        # 4) late_falling_signal = (obs_latest_hour>=13) * obs_temp_falling_hrs
+        if "obs_latest_hour" in df.columns and "obs_temp_falling_hrs" in df.columns:
+            hr = pd.to_numeric(df["obs_latest_hour"], errors="coerce")
+            falling = pd.to_numeric(df["obs_temp_falling_hrs"], errors="coerce")
+            late = (hr >= 13).astype(float)
+            mask = hr.notna() & falling.notna()
+            computed = pd.Series(np.nan, index=df.index)
+            computed.loc[mask] = (late.loc[mask] * falling.loc[mask]).round(1)
+            _coalesce("late_falling_signal", computed)
+        elif "late_falling_signal" not in df.columns:
+            df["late_falling_signal"] = np.nan
+
+        # 5) mm_spread_late = mm_spread * (obs_latest_hour>=12)
+        if "obs_latest_hour" in df.columns and "mm_spread" in df.columns:
+            hr = pd.to_numeric(df["obs_latest_hour"], errors="coerce")
+            sp = pd.to_numeric(df["mm_spread"], errors="coerce")
+            late = (hr >= 12).astype(float)
+            mask = hr.notna() & sp.notna()
+            computed = pd.Series(np.nan, index=df.index)
+            computed.loc[mask] = (late.loc[mask] * sp.loc[mask]).round(2)
+            _coalesce("mm_spread_late", computed)
+        elif "mm_spread_late" not in df.columns:
+            df["mm_spread_late"] = np.nan
+
+        n_h2c = df["hours_to_heating_close"].notna().sum()
+        n_pg = df["peak_to_hrrr_gap"].notna().sum()
+        n_lobp = df["late_obs_below_pred"].notna().sum()
+        n_lfs = df["late_falling_signal"].notna().sum()
+        n_msl = df["mm_spread_late"].notna().sum()
+        print(f"  v14 blind-spot coverage: h2c={n_h2c}, pg={n_pg}, lobp={n_lobp}, lfs={n_lfs}, msl={n_msl}")
+        self.features_df = df
+
+    def train_v14(self) -> None:
+        """
+        Train v14 model: v13 (171 features) + 5 blind-spot interaction features.
+
+        Motivation (April 28, 2026):
+          v13 predicted "67° or more · STRONG BET 82%" at 3:36 PM with peak
+          observed = 65°F and current = 62°F (already declining). The model
+          had every raw signal it needed (obs_max_so_far, obs_latest_hour,
+          obs_temp_falling_hrs, mm_hrrr_max) but no explicit interaction term
+          tying them together. With ~281 sparse training rows, gradient
+          boosting can't reliably learn the conjunction from raw signals.
+
+          v14 makes the conjunction explicit:
+            late_obs_below_pred = (hour>=13) * max(0, mm_hrrr_max - obs_max)
+          This single feature would have flagged Apr 28 at hour=15 with
+          gap=3 → late_obs_below_pred=3.0, a strong downshift signal that
+          a single tree split captures cleanly.
+
+          Plus 4 supporting interaction features (hours_to_heating_close,
+          peak_to_hrrr_gap, late_falling_signal, mm_spread_late).
+        """
+        from model_config import FEATURE_COLS_V14
+        from train_classifier import BucketClassifier
+        from sklearn.ensemble import HistGradientBoostingRegressor
+        from sklearn.model_selection import cross_val_score
+        import numpy as np
+
+        print(f"\n{'═'*60}")
+        print(f"v14 Training: v13 + blind-spot features ({len(FEATURE_COLS_V14)} total features)")
+        print(f"{'═'*60}")
+
+        # Ensure v13's safeguards + v11's divergence + v14's blind-spots are derived
+        self._compute_bl_safeguard_features()
+        self._compute_model_vs_nws_features()
+        self._compute_blind_spot_features()
+
+        if self.features_df.empty:
+            print("  ⚠️ No feature data — skipping v14.")
+            return
+
+        prefix = self.model_prefix
+        forecast_df = self.features_df[self.features_df["nws_last"].notna()].copy()
+        n_forecast = len(forecast_df)
+        if n_forecast < 30:
+            print(f"  ⚠️ Only {n_forecast} forecast rows (need 30+). Skipping v14.")
+            return
+
+        missing_v14 = [c for c in FEATURE_COLS_V14 if c not in self.features_df.columns]
+        if missing_v14:
+            print(f"  Missing v14 cols (NaN for historical rows): {missing_v14}")
+            for col in missing_v14:
+                self.features_df[col] = np.nan
+
+        forecast_df = self.features_df[self.features_df["nws_last"].notna()].copy()
+        X_v14    = forecast_df[FEATURE_COLS_V14]
+        nws_last = forecast_df["nws_last"]
+        y_actual = forecast_df["actual_high"]
+        y_bias   = y_actual - nws_last
+
+        v14_regressor = HistGradientBoostingRegressor(
+            max_iter=400, learning_rate=0.04, max_depth=4,
+            min_samples_leaf=6, l2_regularization=0.3,
+            random_state=42,
+        )
+
+        mae_scores = -cross_val_score(v14_regressor, X_v14, y_bias, cv=5, scoring="neg_mean_absolute_error")
+        bucket_acc = cross_val_score(
+            v14_regressor, X_v14, y_bias, cv=5,
+            scoring=lambda est, X, y: float(np.mean(
+                np.abs((est.predict(X) + nws_last.iloc[:len(X)]) - y_actual.iloc[:len(X)]) <= 1
+            )),
+        )
+        residual_std = float(np.std(y_bias))
+
+        print(f"  v14 CV MAE:        {np.mean(mae_scores):.2f}°F")
+        print(f"  v14 CV Bucket Acc: {np.mean(bucket_acc):.1%}")
+        print(f"  v14 Residual Std:  {residual_std:.2f}°F")
+        v14_regressor.fit(X_v14, y_bias)
+
+        try:
+            fi = dict(zip(FEATURE_COLS_V14, v14_regressor.feature_importances_))
+            print(f"  late_obs_below_pred importance:    {fi.get('late_obs_below_pred', 0):.4f}")
+            print(f"  peak_to_hrrr_gap importance:       {fi.get('peak_to_hrrr_gap', 0):.4f}")
+            print(f"  hours_to_heating_close importance: {fi.get('hours_to_heating_close', 0):.4f}")
+            print(f"  late_falling_signal importance:    {fi.get('late_falling_signal', 0):.4f}")
+            print(f"  mm_spread_late importance:         {fi.get('mm_spread_late', 0):.4f}")
+        except Exception:
+            pass
+
+        classifier = BucketClassifier()
+        classifier.train(
+            self.features_df.copy().reset_index(drop=True),
+            feature_cols=FEATURE_COLS_V14,
+            residual_std=residual_std,
+            forecast_weight=5.0,
+        )
+
+        with open(f"{prefix}bcp_v14_regressor.pkl", "wb") as f:
+            pickle.dump(v14_regressor, f)
+        with open(f"{prefix}bcp_v14_classifier.pkl", "wb") as f:
+            pickle.dump(classifier, f)
+        with open(f"{prefix}bcp_v14_feature_cols.pkl", "wb") as f:
+            pickle.dump(list(FEATURE_COLS_V14), f)
+
+        v14_meta = {
+            "trained_on": datetime.now().isoformat(),
+            "version": "v14_blind_spot_features",
+            "base_cascade": "HRRR > NBM > AccuWeather > NWS",
+            "new_features": ", ".join([
+                "hours_to_heating_close", "peak_to_hrrr_gap",
+                "late_obs_below_pred", "late_falling_signal", "mm_spread_late",
+            ]),
+            "motivation": (
+                "April 28, 2026: v13 predicted '67° or more · STRONG BET' at 3:36 PM "
+                "with peak observed = 65°F and current = 62°F. Model had raw signals "
+                "but no explicit interaction terms tying late-hour + observed-deficit. "
+                "v14 adds 5 blind-spot interaction features so a single tree split "
+                "captures the conjunction. late_obs_below_pred is the headline feature: "
+                "(obs_latest_hour>=13) * max(0, mm_hrrr_max - obs_max_so_far)."
+            ),
+            "v14_regression": {
+                "cv_mae": float(np.mean(mae_scores)),
+                "cv_bucket_accuracy": float(np.mean(bucket_acc)),
+                "residual_std": residual_std,
+                "n_features": len(FEATURE_COLS_V14),
+                "n_training_rows": n_forecast,
+            },
+            "feature_columns_v14": list(FEATURE_COLS_V14),
+        }
+        import json as _json
+        with open(f"{prefix}model_metadata_v14.json", "w") as f:
+            _json.dump(v14_meta, f, indent=2)
+
+        print(f"\n  ✅ Saved v14 models: bcp_v14_regressor.pkl, bcp_v14_classifier.pkl")
+        print(f"  v14 Classifier Bucket Acc: {classifier.cv_bucket_accuracy:.1%}")
+
+        try:
+            import json as _j
+            with open(f"{prefix}model_metadata_v13.json") as f:
+                v13_meta = _j.load(f)
+            v13_mae = v13_meta.get("v13_regression", {}).get("cv_mae")
+            v13_bkt = v13_meta.get("v13_regression", {}).get("cv_bucket_accuracy")
+            print(f"\n{'─'*50}")
+            print(f"COMPARISON: v13 vs v14 (added: 5 blind-spot interaction features)")
+            if v13_mae: print(f"  MAE:        v13={v13_mae:.2f}°F → v14={np.mean(mae_scores):.2f}°F")
+            if v13_bkt: print(f"  Bucket Acc: v13={v13_bkt:.1%} → v14={np.mean(bucket_acc):.1%}")
+            print(f"{'─'*50}")
+        except Exception:
+            pass
+
+    def run(self, v2: bool = False, v4: bool = False, v5: bool = False, v6: bool = False, v7: bool = False, v8: bool = False, v9: bool = False, v10: bool = False, v11: bool = False, v12: bool = False, v13: bool = False, v14: bool = False):
         label = self.city_cfg["label"]
         print("=" * 60)
         print(f"{label} Temperature Model Training")
@@ -3549,6 +3787,32 @@ class NYCTemperatureModelTrainer:
                 self.train_v12()
             self.train_v13()
 
+        if v14:
+            if not v2:
+                self.train_v2()
+                self.train_v3()
+            if not v4:
+                self.train_v4()
+            if not v5:
+                self.train_v5()
+            if not v6:
+                self.train_v6()
+            if not v7:
+                self.train_v7()
+            if not v8:
+                self.train_v8()
+            if not v9:
+                self.train_v9()
+            if not v10:
+                self.train_v10()
+            if not v11:
+                self.train_v11()
+            if not v12:
+                self.train_v12()
+            if not v13:
+                self.train_v13()
+            self.train_v14()
+
         print("\nTraining complete.")
 
 
@@ -3580,6 +3844,9 @@ if __name__ == "__main__":
                         help="Train v12 (v11 + deep NNJ inland stations: KCDW ~25mi, KSMQ ~35mi, obs_inland_gradient)")
     parser.add_argument("--v13", action="store_true",
                         help="Train v13 (v12 + BL safeguard features: entrainment_temp_diff, marine_containment, inland_strength)")
+    parser.add_argument("--v14", action="store_true",
+                        help="Train v14 (v13 + blind-spot interaction features: late_obs_below_pred, peak_to_hrrr_gap, "
+                             "hours_to_heating_close, late_falling_signal, mm_spread_late — explicit regime conjunctions)")
     args = parser.parse_args()
 
     if args.all:
@@ -3612,4 +3879,5 @@ if __name__ == "__main__":
             v11=getattr(args, "v11", False),
             v12=getattr(args, "v12", False),
             v13=getattr(args, "v13", False),
+            v14=getattr(args, "v14", False),
         )

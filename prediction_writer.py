@@ -815,6 +815,57 @@ def _load_v10_models():
     )
 
 
+def _load_v14_models():
+    """Load v14 models: bcp_v14 regressor + classifier + feature cols (cached).
+    v14 = v13 (160 features) + 5 blind-spot interaction features (165 total):
+    hours_to_heating_close, peak_to_hrrr_gap, late_obs_below_pred,
+    late_falling_signal, mm_spread_late. These encode regime conjunctions
+    (late hour + obs deficit) explicitly so a single tree split captures them
+    instead of relying on gradient boosting to learn the AND of raw signals
+    from sparse training data. Computed at inference; missing pkl falls
+    through to v13 in the cascade.
+    """
+    import nws_auto_logger as _nal
+    prefix = _nal._CITY_CFG.get("model_prefix", "")
+    cache_key = f"{prefix}v14_regressor"
+    if cache_key not in _ML_MODEL_CACHE:
+        _ML_MODEL_CACHE[cache_key] = None
+        _ML_MODEL_CACHE[f"{prefix}v14_classifier"] = None
+        _ML_MODEL_CACHE[f"{prefix}v14_feature_cols"] = None
+
+        try:
+            with open(f"{prefix}bcp_v14_regressor.pkl", "rb") as f:
+                _ML_MODEL_CACHE[cache_key] = pickle.load(f)
+            print(f"✅ Loaded v14 regression model [blind-spot interactions] (prefix='{prefix}')")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            print(f"⚠️ v14 regression load error: {e}")
+
+        try:
+            from train_classifier import BucketClassifier
+            if os.path.exists(f"{prefix}bcp_v14_classifier.pkl"):
+                _ML_MODEL_CACHE[f"{prefix}v14_classifier"] = BucketClassifier.load(
+                    f"{prefix}bcp_v14_classifier.pkl"
+                )
+                print(f"✅ Loaded v14 bucket classifier (prefix='{prefix}')")
+        except Exception as e:
+            print(f"⚠️ v14 classifier load error: {e}")
+
+        try:
+            if os.path.exists(f"{prefix}bcp_v14_feature_cols.pkl"):
+                with open(f"{prefix}bcp_v14_feature_cols.pkl", "rb") as f:
+                    _ML_MODEL_CACHE[f"{prefix}v14_feature_cols"] = pickle.load(f)
+        except Exception as e:
+            print(f"⚠️ v14 feature cols load error: {e}")
+
+    return (
+        _ML_MODEL_CACHE.get(cache_key),
+        _ML_MODEL_CACHE.get(f"{prefix}v14_classifier"),
+        _ML_MODEL_CACHE.get(f"{prefix}v14_feature_cols"),
+    )
+
+
 def _load_v13_models():
     """Load v13 models: bcp_v13 regressor + classifier + feature cols (cached).
     v13 = v11 (154 features) + 3 BL-safeguard features (entrainment_temp_diff,
@@ -2665,6 +2716,7 @@ def _compute_ml_prediction(
     # v6: AccuWeather/NWS base + NBM, GEM HRDPS, HRRR 925mb, OKX radiosonde (138 features)
     # v5: AccuWeather/NWS base + high-timing features (122 features)
     # v4+: older architectures (backward compat)
+    v14_regressor, v14_classifier, v14_feature_cols = _load_v14_models()
     v13_regressor, v13_classifier, v13_feature_cols = _load_v13_models()
     v11_regressor, v11_classifier, v11_feature_cols = _load_v11_models()
     v10_regressor, v10_classifier, v10_feature_cols = _load_v10_models()
@@ -2685,6 +2737,7 @@ def _compute_ml_prediction(
     _pin_raw = os.environ.get("PREDICTION_MODEL_VERSION", "").strip().lower()
     _pin = _pin_raw if _pin_raw and _pin_raw != "bcp_v1" else None
     _loadable = {
+        "bcp_v14": v14_classifier is not None and v14_feature_cols is not None,
         "bcp_v13": v13_classifier is not None and v13_feature_cols is not None,
         "bcp_v11": v11_classifier is not None and v11_feature_cols is not None,
         "bcp_v10": v10_classifier is not None and v10_feature_cols is not None,
@@ -2714,17 +2767,23 @@ def _compute_ml_prediction(
             return (version == _pin) and loaded
         return loaded
 
-    use_v13 = _ok("bcp_v13", _loadable["bcp_v13"])
-    use_v11 = not use_v13 and _ok("bcp_v11", _loadable["bcp_v11"])
-    use_v10 = not use_v13 and not use_v11 and _ok("bcp_v10", _loadable["bcp_v10"])
-    use_v9  = not use_v13 and not use_v11 and not use_v10 and _ok("bcp_v9",  _loadable["bcp_v9"])
-    use_v8  = not use_v13 and not use_v11 and not use_v10 and not use_v9 and _ok("bcp_v8", _loadable["bcp_v8"])
-    use_v7  = not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and _ok("bcp_v7", _loadable["bcp_v7"])
-    use_v6  = not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and _ok("bcp_v6", _loadable["bcp_v6"])
-    use_v5  = not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and not use_v6 and _ok("bcp_v5", _loadable["bcp_v5"])
-    use_v4  = not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and not use_v6 and not use_v5 and _ok("bcp_v4", _loadable["bcp_v4"])
+    use_v14 = _ok("bcp_v14", _loadable["bcp_v14"])
+    use_v13 = not use_v14 and _ok("bcp_v13", _loadable["bcp_v13"])
+    use_v11 = not use_v14 and not use_v13 and _ok("bcp_v11", _loadable["bcp_v11"])
+    use_v10 = not use_v14 and not use_v13 and not use_v11 and _ok("bcp_v10", _loadable["bcp_v10"])
+    use_v9  = not use_v14 and not use_v13 and not use_v11 and not use_v10 and _ok("bcp_v9",  _loadable["bcp_v9"])
+    use_v8  = not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and _ok("bcp_v8", _loadable["bcp_v8"])
+    use_v7  = not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and _ok("bcp_v7", _loadable["bcp_v7"])
+    use_v6  = not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and _ok("bcp_v6", _loadable["bcp_v6"])
+    use_v5  = not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and not use_v6 and _ok("bcp_v5", _loadable["bcp_v5"])
+    use_v4  = not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and not use_v6 and not use_v5 and _ok("bcp_v4", _loadable["bcp_v4"])
 
-    if use_v13:
+    if use_v14:
+        active_classifier = v14_classifier
+        active_regressor  = v14_regressor
+        active_feature_cols = v14_feature_cols
+        active_version = "v14_blind_spot_interactions"
+    elif use_v13:
         active_classifier = v13_classifier
         active_regressor  = v13_regressor
         active_feature_cols = v13_feature_cols
@@ -2779,7 +2838,7 @@ def _compute_ml_prediction(
         active_feature_cols = FEATURE_COLS_V2
         active_version = "v2_atm_classifier"
 
-    active_bucket_info = v4_bucket_info if (use_v13 or use_v11 or use_v10 or use_v9 or use_v8 or use_v7 or use_v6 or use_v5 or use_v4) else v2_bucket_info
+    active_bucket_info = v4_bucket_info if (use_v14 or use_v13 or use_v11 or use_v10 or use_v9 or use_v8 or use_v7 or use_v6 or use_v5 or use_v4) else v2_bucket_info
 
     # One-line provenance log per prediction cycle (per city, per lead).
     # Captures both regressor and classifier types so incomplete retrains
@@ -3150,6 +3209,72 @@ def _compute_ml_prediction(
                     _bl_cols[_c] = _v
             if _bl_cols:
                 result["bl_safeguard_cols"] = _bl_cols
+
+            # v14: derive blind-spot interaction features BEFORE building X_v2.
+            # These encode regime conjunctions explicitly so a single tree split
+            # captures them — without these, gradient boosting needs a chain of
+            # splits across raw signals (obs_latest_hour, obs_max_so_far,
+            # mm_hrrr_max, mm_spread, obs_temp_falling_hrs) which is unreliable
+            # with sparse training data (~281 rows).
+            #
+            # 1. hours_to_heating_close: max(0, 16 - obs_latest_hour) — explicit
+            #    "time remaining for heating" so model sees scarcity, not raw hour.
+            # 2. peak_to_hrrr_gap: mm_hrrr_max - obs_max_so_far — gap between what
+            #    HRRR forecasts vs what we've actually hit so far.
+            # 3. late_obs_below_pred: (obs_latest_hour>=13) * max(0, peak_to_hrrr_gap)
+            #    — the headline blind-spot feature: "it's late AND obs is below
+            #    forecast" → strongly negative bias signal.
+            # 4. late_falling_signal: (obs_latest_hour>=13) * obs_temp_falling_hrs
+            #    — falling temps after 1pm = peak likely already past.
+            # 5. mm_spread_late: mm_spread * (obs_latest_hour>=12) — model
+            #    disagreement matters more after noon when paths diverge.
+            def _f(key):
+                v = v2_features.get(key)
+                if v is None:
+                    return None
+                if isinstance(v, float) and math.isnan(v):
+                    return None
+                try:
+                    return float(v)
+                except (TypeError, ValueError):
+                    return None
+
+            _obs_hr = _f("obs_latest_hour")
+            _obs_max_so_far = _f("obs_max_so_far")
+            _mm_hrrr_max = _f("mm_hrrr_max")
+            _mm_spread = _f("mm_spread")
+            _obs_falling = _f("obs_temp_falling_hrs")
+
+            if _obs_hr is not None:
+                v2_features["hours_to_heating_close"] = round(max(0.0, 16.0 - _obs_hr), 2)
+
+            _peak_gap = None
+            if _mm_hrrr_max is not None and _obs_max_so_far is not None:
+                _peak_gap = round(_mm_hrrr_max - _obs_max_so_far, 2)
+                v2_features["peak_to_hrrr_gap"] = _peak_gap
+
+            if _obs_hr is not None and _peak_gap is not None:
+                _gate_late = 1.0 if _obs_hr >= 13.0 else 0.0
+                v2_features["late_obs_below_pred"] = round(_gate_late * max(0.0, _peak_gap), 2)
+
+            if _obs_hr is not None and _obs_falling is not None:
+                _gate_late = 1.0 if _obs_hr >= 13.0 else 0.0
+                v2_features["late_falling_signal"] = round(_gate_late * _obs_falling, 2)
+
+            if _obs_hr is not None and _mm_spread is not None:
+                _gate_noon = 1.0 if _obs_hr >= 12.0 else 0.0
+                v2_features["mm_spread_late"] = round(_gate_noon * _mm_spread, 2)
+
+            # Stash blind-spot features into result for Supabase persistence so
+            # historical rows can train v14 without recomputing from atm_snapshot.
+            _bs_cols = {}
+            for _c in ("hours_to_heating_close", "peak_to_hrrr_gap", "late_obs_below_pred",
+                       "late_falling_signal", "mm_spread_late"):
+                _v = v2_features.get(_c)
+                if _v is not None and not (isinstance(_v, float) and math.isnan(_v)):
+                    _bs_cols[_c] = _v
+            if _bs_cols:
+                result["blind_spot_cols"] = _bs_cols
 
             # Build feature DataFrame (v4 or v2 depending on available model)
             X_v2 = pd.DataFrame([v2_features])
@@ -7290,6 +7415,9 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         # read them directly (instead of parsing atm_snapshot JSONB).
         for _bk, _bv in (ml.get("bl_safeguard_cols") or {}).items():
             payload[_bk] = _bv
+        # Same for v14 blind-spot interaction features.
+        for _bk, _bv in (ml.get("blind_spot_cols") or {}).items():
+            payload[_bk] = _bv
         if is_canonical_write:
             payload["ml_bucket_canonical"] = ml["ml_bucket"]
             payload["ml_f_canonical"] = ml["ml_f"]
@@ -7855,6 +7983,9 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
         # Persist BL-safeguard features as top-level cols so v13 training can
         # read them directly (instead of parsing atm_snapshot JSONB).
         for _bk, _bv in (ml.get("bl_safeguard_cols") or {}).items():
+            payload[_bk] = _bv
+        # Same for v14 blind-spot interaction features.
+        for _bk, _bv in (ml.get("blind_spot_cols") or {}).items():
             payload[_bk] = _bv
         if is_canonical_write:
             payload["ml_bucket_canonical"] = ml["ml_bucket"]

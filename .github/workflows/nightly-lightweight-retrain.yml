@@ -70,13 +70,14 @@ jobs:
           python train_models.py --all --v7
           python train_models.py --all --v8
 
-      - name: Retrain v9–v13 (station + gradient + BL safeguard features — skip if insufficient rows)
+      - name: Retrain v9–v14 (station + gradient + BL safeguard + blind-spot features — skip if insufficient rows)
         run: |
           python train_models.py --all --v9
           python train_models.py --all --v10
           python train_models.py --all --v11
           python train_models.py --all --v12
           python train_models.py --all --v13
+          python train_models.py --all --v14
         continue-on-error: true
 
       - name: Commit updated model files and heating windows

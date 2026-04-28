@@ -103,6 +103,11 @@ jobs:
           python train_models.py --all --v13
         continue-on-error: true  # graceful skip until BL features accumulate
 
+      - name: Run v14 training (blind-spot interactions — late_obs_below_pred + peak_to_hrrr_gap)
+        run: |
+          python train_models.py --all --v14
+        continue-on-error: true  # graceful skip until blind-spot features accumulate
+
       - name: Show training results
         run: |
           for meta in model_metadata*.json lax_model_metadata*.json; do
