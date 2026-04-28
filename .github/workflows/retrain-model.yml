@@ -108,6 +108,11 @@ jobs:
           python train_models.py --all --v14
         continue-on-error: true  # graceful skip until blind-spot features accumulate
 
+      - name: Run v15 training (morning + autoreg — forecast_revision, cap_violation_925, autoreg bias)
+        run: |
+          python train_models.py --all --v15
+        continue-on-error: true  # graceful skip until features accumulate
+
       - name: Show training results
         run: |
           for meta in model_metadata*.json lax_model_metadata*.json; do

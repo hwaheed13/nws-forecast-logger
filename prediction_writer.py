@@ -815,6 +815,106 @@ def _load_v10_models():
     )
 
 
+def _load_v15_models():
+    """Load v15 models: bcp_v15 regressor + classifier + feature cols (cached).
+    v15 = v14 (176 features) + 5 morning/autoregressive features (181 total):
+    forecast_revision, cap_violation_925, yesterday_signed_miss,
+    rolling_3day_bias, today_realized_error. These fire at canonical 7am
+    write time (unlike v14's blind-spots which gate on hour >= 12/13),
+    fixing v14's morning blind spot.
+    """
+    import nws_auto_logger as _nal
+    prefix = _nal._CITY_CFG.get("model_prefix", "")
+    cache_key = f"{prefix}v15_regressor"
+    if cache_key not in _ML_MODEL_CACHE:
+        _ML_MODEL_CACHE[cache_key] = None
+        _ML_MODEL_CACHE[f"{prefix}v15_classifier"] = None
+        _ML_MODEL_CACHE[f"{prefix}v15_feature_cols"] = None
+
+        try:
+            with open(f"{prefix}bcp_v15_regressor.pkl", "rb") as f:
+                _ML_MODEL_CACHE[cache_key] = pickle.load(f)
+            print(f"✅ Loaded v15 regression model [morning/autoreg] (prefix='{prefix}')")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            print(f"⚠️ v15 regression load error: {e}")
+
+        try:
+            from train_classifier import BucketClassifier
+            if os.path.exists(f"{prefix}bcp_v15_classifier.pkl"):
+                _ML_MODEL_CACHE[f"{prefix}v15_classifier"] = BucketClassifier.load(
+                    f"{prefix}bcp_v15_classifier.pkl"
+                )
+                print(f"✅ Loaded v15 bucket classifier (prefix='{prefix}')")
+        except Exception as e:
+            print(f"⚠️ v15 classifier load error: {e}")
+
+        try:
+            if os.path.exists(f"{prefix}bcp_v15_feature_cols.pkl"):
+                with open(f"{prefix}bcp_v15_feature_cols.pkl", "rb") as f:
+                    _ML_MODEL_CACHE[f"{prefix}v15_feature_cols"] = pickle.load(f)
+        except Exception as e:
+            print(f"⚠️ v15 feature cols load error: {e}")
+
+    return (
+        _ML_MODEL_CACHE.get(cache_key),
+        _ML_MODEL_CACHE.get(f"{prefix}v15_classifier"),
+        _ML_MODEL_CACHE.get(f"{prefix}v15_feature_cols"),
+    )
+
+
+def _fetch_recent_signed_miss(target_date_str, days_back: int = 5):
+    """Fetch the prior N days of (cli_date, actual_high - nws_last) from
+    Supabase prediction_logs. Used for v15 autoregressive features
+    (yesterday_signed_miss, rolling_3day_bias).
+
+    Returns: dict {date_str: signed_miss} for completed prior days.
+    Empty dict on any error — autoregressive features become NaN, which
+    HistGB handles natively.
+    """
+    try:
+        from datetime import datetime as _dt, timedelta as _td
+        target_dt = _dt.strptime(target_date_str, "%Y-%m-%d")
+        # Look back days_back days, but not including target_date itself.
+        start_dt = target_dt - _td(days=days_back)
+        end_dt = target_dt - _td(days=1)
+        url = os.environ.get("SUPABASE_URL", "")
+        key = os.environ.get("SUPABASE_SERVICE_ROLE") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        if not url or not key:
+            return {}
+        params = (
+            f"city=eq.{_CITY_KEY}"
+            f"&target_date=gte.{start_dt.strftime('%Y-%m-%d')}"
+            f"&target_date=lte.{end_dt.strftime('%Y-%m-%d')}"
+            f"&is_canonical=eq.true"
+            f"&select=target_date,actual_high,nws_last"
+            f"&order=target_date.asc"
+        )
+        resp = requests.get(
+            f"{url}/rest/v1/prediction_logs?{params}",
+            headers={"apikey": key, "Authorization": f"Bearer {key}"},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return {}
+        rows = resp.json() or []
+        out = {}
+        for r in rows:
+            d = r.get("target_date")
+            ah = r.get("actual_high")
+            nl = r.get("nws_last")
+            if d and ah is not None and nl is not None:
+                try:
+                    out[d] = float(ah) - float(nl)
+                except (TypeError, ValueError):
+                    pass
+        return out
+    except Exception as e:
+        print(f"⚠️ v15 autoregressive fetch failed (non-fatal): {e}")
+        return {}
+
+
 def _load_v14_models():
     """Load v14 models: bcp_v14 regressor + classifier + feature cols (cached).
     v14 = v13 (160 features) + 5 blind-spot interaction features (165 total):
@@ -2716,6 +2816,7 @@ def _compute_ml_prediction(
     # v6: AccuWeather/NWS base + NBM, GEM HRDPS, HRRR 925mb, OKX radiosonde (138 features)
     # v5: AccuWeather/NWS base + high-timing features (122 features)
     # v4+: older architectures (backward compat)
+    v15_regressor, v15_classifier, v15_feature_cols = _load_v15_models()
     v14_regressor, v14_classifier, v14_feature_cols = _load_v14_models()
     v13_regressor, v13_classifier, v13_feature_cols = _load_v13_models()
     v11_regressor, v11_classifier, v11_feature_cols = _load_v11_models()
@@ -2737,6 +2838,7 @@ def _compute_ml_prediction(
     _pin_raw = os.environ.get("PREDICTION_MODEL_VERSION", "").strip().lower()
     _pin = _pin_raw if _pin_raw and _pin_raw != "bcp_v1" else None
     _loadable = {
+        "bcp_v15": v15_classifier is not None and v15_feature_cols is not None,
         "bcp_v14": v14_classifier is not None and v14_feature_cols is not None,
         "bcp_v13": v13_classifier is not None and v13_feature_cols is not None,
         "bcp_v11": v11_classifier is not None and v11_feature_cols is not None,
@@ -2767,18 +2869,24 @@ def _compute_ml_prediction(
             return (version == _pin) and loaded
         return loaded
 
-    use_v14 = _ok("bcp_v14", _loadable["bcp_v14"])
-    use_v13 = not use_v14 and _ok("bcp_v13", _loadable["bcp_v13"])
-    use_v11 = not use_v14 and not use_v13 and _ok("bcp_v11", _loadable["bcp_v11"])
-    use_v10 = not use_v14 and not use_v13 and not use_v11 and _ok("bcp_v10", _loadable["bcp_v10"])
-    use_v9  = not use_v14 and not use_v13 and not use_v11 and not use_v10 and _ok("bcp_v9",  _loadable["bcp_v9"])
-    use_v8  = not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and _ok("bcp_v8", _loadable["bcp_v8"])
-    use_v7  = not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and _ok("bcp_v7", _loadable["bcp_v7"])
-    use_v6  = not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and _ok("bcp_v6", _loadable["bcp_v6"])
-    use_v5  = not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and not use_v6 and _ok("bcp_v5", _loadable["bcp_v5"])
-    use_v4  = not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and not use_v6 and not use_v5 and _ok("bcp_v4", _loadable["bcp_v4"])
+    use_v15 = _ok("bcp_v15", _loadable["bcp_v15"])
+    use_v14 = not use_v15 and _ok("bcp_v14", _loadable["bcp_v14"])
+    use_v13 = not use_v15 and not use_v14 and _ok("bcp_v13", _loadable["bcp_v13"])
+    use_v11 = not use_v15 and not use_v14 and not use_v13 and _ok("bcp_v11", _loadable["bcp_v11"])
+    use_v10 = not use_v15 and not use_v14 and not use_v13 and not use_v11 and _ok("bcp_v10", _loadable["bcp_v10"])
+    use_v9  = not use_v15 and not use_v14 and not use_v13 and not use_v11 and not use_v10 and _ok("bcp_v9",  _loadable["bcp_v9"])
+    use_v8  = not use_v15 and not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and _ok("bcp_v8", _loadable["bcp_v8"])
+    use_v7  = not use_v15 and not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and _ok("bcp_v7", _loadable["bcp_v7"])
+    use_v6  = not use_v15 and not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and _ok("bcp_v6", _loadable["bcp_v6"])
+    use_v5  = not use_v15 and not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and not use_v6 and _ok("bcp_v5", _loadable["bcp_v5"])
+    use_v4  = not use_v15 and not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and not use_v6 and not use_v5 and _ok("bcp_v4", _loadable["bcp_v4"])
 
-    if use_v14:
+    if use_v15:
+        active_classifier = v15_classifier
+        active_regressor  = v15_regressor
+        active_feature_cols = v15_feature_cols
+        active_version = "v15_morning_autoreg"
+    elif use_v14:
         active_classifier = v14_classifier
         active_regressor  = v14_regressor
         active_feature_cols = v14_feature_cols
@@ -2838,7 +2946,7 @@ def _compute_ml_prediction(
         active_feature_cols = FEATURE_COLS_V2
         active_version = "v2_atm_classifier"
 
-    active_bucket_info = v4_bucket_info if (use_v14 or use_v13 or use_v11 or use_v10 or use_v9 or use_v8 or use_v7 or use_v6 or use_v5 or use_v4) else v2_bucket_info
+    active_bucket_info = v4_bucket_info if (use_v15 or use_v14 or use_v13 or use_v11 or use_v10 or use_v9 or use_v8 or use_v7 or use_v6 or use_v5 or use_v4) else v2_bucket_info
 
     # One-line provenance log per prediction cycle (per city, per lead).
     # Captures both regressor and classifier types so incomplete retrains
@@ -3275,6 +3383,103 @@ def _compute_ml_prediction(
                     _bs_cols[_c] = _v
             if _bs_cols:
                 result["blind_spot_cols"] = _bs_cols
+
+            # v15: derive morning-applicable + autoregressive features.
+            # Unlike v14, these fire at canonical 7am write time (no hour
+            # gating), fixing the morning blind spot.
+            #
+            # 1. forecast_revision = nws_last - nws_first
+            # 2. cap_violation_925 = max(0, nws_last - atm_925mb_temp_mean - 14)
+            # 3. yesterday_signed_miss = prior day's actual_high - nws_last
+            # 4. rolling_3day_bias = mean of signed miss over prior 3 days
+            # 5. today_realized_error = (tomorrow predictions only) today's
+            #    obs_max_so_far - today's mm_hrrr_max — cross-day prior.
+            _nws_last_v = _f("nws_last")
+            _nws_first_v = _f("nws_first")
+            _t925 = _f("atm_925mb_temp_mean")
+
+            if _nws_last_v is not None and _nws_first_v is not None:
+                v2_features["forecast_revision"] = round(_nws_last_v - _nws_first_v, 1)
+
+            if _nws_last_v is not None and _t925 is not None:
+                v2_features["cap_violation_925"] = round(max(0.0, _nws_last_v - _t925 - 14.0), 1)
+
+            # Autoregressive: fetch prior days' (actual - nws_last) from
+            # Supabase. Graceful skip if unavailable — features become NaN.
+            try:
+                _miss_lookup = _fetch_recent_signed_miss(target_date_iso, days_back=5)
+                if _miss_lookup:
+                    from datetime import datetime as _dt, timedelta as _td
+                    _td_dt = _dt.strptime(target_date_iso, "%Y-%m-%d")
+                    # yesterday_signed_miss
+                    _yest = (_td_dt - _td(days=1)).strftime("%Y-%m-%d")
+                    if _yest in _miss_lookup:
+                        v2_features["yesterday_signed_miss"] = round(_miss_lookup[_yest], 1)
+                    # rolling_3day_bias: mean over last 3 days that have data
+                    _vals = []
+                    for _i in range(1, 4):
+                        _d = (_td_dt - _td(days=_i)).strftime("%Y-%m-%d")
+                        if _d in _miss_lookup:
+                            _vals.append(_miss_lookup[_d])
+                    if len(_vals) >= 2:  # require at least 2 of last 3
+                        v2_features["rolling_3day_bias"] = round(sum(_vals) / len(_vals), 2)
+            except Exception as _e:
+                print(f"⚠️ v15 autoreg derivation skipped: {_e}")
+
+            # today_realized_error: cross-day prior for tomorrow predictions.
+            # When predicting tomorrow, fetch today's current obs_max vs HRRR.
+            try:
+                _today_iso_v15 = today_nyc().isoformat()
+                if target_date_iso != _today_iso_v15:
+                    # This is a tomorrow (or later) prediction — fetch today's
+                    # latest snapshot to compute realized HRRR error.
+                    _url = os.environ.get("SUPABASE_URL", "")
+                    _key = os.environ.get("SUPABASE_SERVICE_ROLE") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+                    if _url and _key:
+                        _params = (
+                            f"city=eq.{_CITY_KEY}"
+                            f"&target_date=eq.{_today_iso_v15}"
+                            f"&select=obs_max_so_far,mm_hrrr_max,atm_snapshot"
+                            f"&order=created_at.desc&limit=1"
+                        )
+                        _r = requests.get(
+                            f"{_url}/rest/v1/prediction_logs?{_params}",
+                            headers={"apikey": _key, "Authorization": f"Bearer {_key}"},
+                            timeout=8,
+                        )
+                        if _r.status_code == 200:
+                            _rows = _r.json() or []
+                            if _rows:
+                                _row = _rows[0]
+                                _omax = _row.get("obs_max_so_far")
+                                _hrrr = _row.get("mm_hrrr_max")
+                                if _omax is None or _hrrr is None:
+                                    _snap = _row.get("atm_snapshot") or {}
+                                    if _omax is None:
+                                        _omax = _snap.get("obs_max_so_far")
+                                    if _hrrr is None:
+                                        _hrrr = _snap.get("mm_hrrr_max")
+                                if _omax is not None and _hrrr is not None:
+                                    try:
+                                        v2_features["today_realized_error"] = round(
+                                            float(_omax) - float(_hrrr), 1
+                                        )
+                                    except (TypeError, ValueError):
+                                        pass
+            except Exception as _e:
+                print(f"⚠️ v15 today_realized_error fetch skipped: {_e}")
+
+            # Stash v15 features into result for Supabase persistence so
+            # historical rows can train v15 without recomputing.
+            _v15_cols = {}
+            for _c in ("forecast_revision", "cap_violation_925",
+                       "yesterday_signed_miss", "rolling_3day_bias",
+                       "today_realized_error"):
+                _v = v2_features.get(_c)
+                if _v is not None and not (isinstance(_v, float) and math.isnan(_v)):
+                    _v15_cols[_c] = _v
+            if _v15_cols:
+                result["morning_autoreg_cols"] = _v15_cols
 
             # Build feature DataFrame (v4 or v2 depending on available model)
             X_v2 = pd.DataFrame([v2_features])
@@ -7418,6 +7623,9 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         # Same for v14 blind-spot interaction features.
         for _bk, _bv in (ml.get("blind_spot_cols") or {}).items():
             payload[_bk] = _bv
+        # Same for v15 morning + autoregressive features.
+        for _bk, _bv in (ml.get("morning_autoreg_cols") or {}).items():
+            payload[_bk] = _bv
         if is_canonical_write:
             payload["ml_bucket_canonical"] = ml["ml_bucket"]
             payload["ml_f_canonical"] = ml["ml_f"]
@@ -7986,6 +8194,9 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
             payload[_bk] = _bv
         # Same for v14 blind-spot interaction features.
         for _bk, _bv in (ml.get("blind_spot_cols") or {}).items():
+            payload[_bk] = _bv
+        # Same for v15 morning + autoregressive features.
+        for _bk, _bv in (ml.get("morning_autoreg_cols") or {}).items():
             payload[_bk] = _bv
         if is_canonical_write:
             payload["ml_bucket_canonical"] = ml["ml_bucket"]

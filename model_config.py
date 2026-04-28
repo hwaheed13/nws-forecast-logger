@@ -602,6 +602,49 @@ BLIND_SPOT_COLS = [
 
 FEATURE_COLS_V14 = list(FEATURE_COLS_V13) + BLIND_SPOT_COLS
 
+# v15 — Morning-applicable + autoregressive features (canonical-time fixes)
+# ─────────────────────────────────────────────────────────────────────────
+# v14's blind-spot features all gate on obs_latest_hour >= 12/13, so they're
+# zero or NaN at the 7am canonical write — exactly the moment the bet
+# recommendation gets locked in. v15 adds five features that fire at
+# canonical time and across cross-day predictions:
+#
+#   forecast_revision    = nws_last - nws_first (within forecast lifecycle)
+#                          Positive = NWS revised upward overnight = warming
+#                          regime; negative = cooling regime.
+#
+#   cap_violation_925    = max(0, nws_last - atm_925mb_temp_mean - 14)
+#                          Adiabatic lapse: surface should be ≤14°F warmer
+#                          than 925mb in dry air. Positive value = forecast
+#                          exceeds physical ceiling = systemic over-forecast.
+#
+#   yesterday_signed_miss = prev_day_actual - prev_day_canonical_prediction
+#                          Autoregressive bias correction — yesterday's miss
+#                          direction is a leading indicator for today's.
+#                          Computed at write time via Supabase lookup; NaN
+#                          if no canonical row for prior day.
+#
+#   rolling_3day_bias    = mean(signed_miss) over prior 3 days
+#                          Short-horizon systematic bias. Smooths single-day
+#                          noise. NaN if <2 of last 3 days have canonicals.
+#
+#   today_realized_error = obs_max_so_far_today - mm_hrrr_max_today
+#                          For tomorrow predictions only: how is HRRR doing
+#                          on today's forecast right now? Strong prior for
+#                          tomorrow's same-regime error. NaN for today
+#                          predictions (collapses to 0 via gating in compute).
+#
+# Total: v14(176) + 5 = 181 features
+MORNING_AUTOREG_COLS = [
+    "forecast_revision",
+    "cap_violation_925",
+    "yesterday_signed_miss",
+    "rolling_3day_bias",
+    "today_realized_error",
+]
+
+FEATURE_COLS_V15 = list(FEATURE_COLS_V14) + MORNING_AUTOREG_COLS
+
 # Additional features added per-candidate-bucket during classification (4)
 BUCKET_POSITION_COLS = [
     "bucket_center",
