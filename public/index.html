@@ -6294,6 +6294,29 @@ window._predTomorrow = predTomorrow;
              </div>`
           : '';
 
+        // ── Soft-downgrade ladder ────────────────────────────────────────────
+        // Catches the medium-divergence band that hard blocks let through:
+        // gap 3-5°F + weak accuracy, mm_spread >=6°F, mm_spread >=4°F + gap >=2°F,
+        // or >=5 flips today. Steps STRONG_BET / BET / HEDGE → LEAN.
+        // Skipped when any hard block is already firing (no double-downgrade).
+        const _hardBlockedTd = !!(_liveInvalidatedEarly || _predictionUnreachableEarly || _consOutlierTd);
+        const _flipCountTd = parseInt(ml.todayAtmSnapshot?.ml_flip_count) || 0;
+        const _softDownTd = !_hardBlockedTd
+          ? window._softDowngradeBet({
+              mlF: mlVal, nwsF: _nwsTdVal, mmSpread: _mmSpreadTd,
+              flipCount: _flipCountTd, signal,
+            })
+          : { downgrade: false, reasons: [] };
+        if (_softDownTd.downgrade) {
+          const _sd = _mlSignalStyle(_softDownTd.toSignal);
+          signalBadge = `<span class="signal-badge" style="background:${_sd.bg};color:${_sd.color};padding:3px 9px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid ${_sd.border};">${_sd.icon} ${_sd.label}</span>`;
+        }
+        const softDowngradeNoteTd = _softDownTd.downgrade
+          ? `<div style="font-size:12px;background:#fffbeb;border-left:3px solid #f59e0b;padding:6px 10px;margin-top:6px;border-radius:4px;color:#92400e;">
+              ⚠️ <strong>Bet downgraded to ${_mlSignalStyle(_softDownTd.toSignal).label}</strong> — ${_softDownTd.reasons.join(' · ')}.
+             </div>`
+          : '';
+
         // Boundary warning
         const warningHTML = todayWarning
           ? `<div class="boundary-warning ${todayWarning.level}">
@@ -6477,6 +6500,7 @@ window._predTomorrow = predTomorrow;
           <div style="font-size:12px;color:var(--text-muted);margin-top:5px;" title="${ml.todayMLVersion ? `Model: ${ml.todayMLVersion.replace(/_/g, ' ')}` : ''}">ML: ${mlVal.toFixed(1)}°F${supportHTML ? ` · ${supportHTML}` : ''}</div>
           ${moatRiskHTMLTd}
           ${consOutlierNoteTd}
+          ${softDowngradeNoteTd}
           ${canonicalFlipNote}
           ${bucketRevisedNote}
           ${overnightHighNote}
@@ -6628,6 +6652,24 @@ window._predTomorrow = predTomorrow;
              </div>`
           : '';
 
+        // ── Soft-downgrade ladder (same rules as today card) ─────────────────
+        const _flipCountTm = parseInt(ml.tomorrowAtmSnapshot?.ml_flip_count) || 0;
+        const _softDownTm = !_consOutlierTm
+          ? window._softDowngradeBet({
+              mlF: mlVal, nwsF: _nwsTmVal, mmSpread: _mmSpreadTm,
+              flipCount: _flipCountTm, signal,
+            })
+          : { downgrade: false, reasons: [] };
+        if (_softDownTm.downgrade) {
+          const _sdTm = _mlSignalStyle(_softDownTm.toSignal);
+          signalBadgeTm = `<span class="signal-badge" style="background:${_sdTm.bg};color:${_sdTm.color};padding:3px 9px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid ${_sdTm.border};">${_sdTm.icon} ${_sdTm.label}</span>`;
+        }
+        const softDowngradeNoteTm = _softDownTm.downgrade
+          ? `<div style="font-size:12px;background:#fffbeb;border-left:3px solid #f59e0b;padding:6px 10px;margin-top:6px;border-radius:4px;color:#92400e;">
+              ⚠️ <strong>Bet downgraded to ${_mlSignalStyle(_softDownTm.toSignal).label}</strong> — ${_softDownTm.reasons.join(' · ')}.
+             </div>`
+          : '';
+
         // Boundary warning
         const warningHTML = tomorrowWarning
           ? `<div class="boundary-warning ${tomorrowWarning.level}">
@@ -6687,6 +6729,7 @@ window._predTomorrow = predTomorrow;
           <div style="font-size:12px;color:var(--text-muted);margin-top:5px;" title="${ml.tomorrowMLVersion ? `Model: ${ml.tomorrowMLVersion.replace(/_/g, ' ')}` : ''}">ML: ${mlVal.toFixed(1)}°F${supportHTML ? ` · ${supportHTML}` : ''}</div>
           ${moatRiskHTMLTm}
           ${consOutlierNoteTm}
+          ${softDowngradeNoteTm}
           ${d1FlipNote}
           ${warningHTML}
           ${historyHTML}
@@ -7877,6 +7920,62 @@ async function loadMLDivergenceStats() {
     console.debug("loadMLDivergenceStats error:", e?.message);
   }
 }
+
+// Soft-downgrade evaluator: returns reasons to step a STRONG/BET signal down
+// to LEAN/SKIP without hard-blocking. Catches the medium-divergence band that
+// the consensus-outlier hard-block (>=5°F + <30% acc) lets through. The model
+// is wrong frequently enough at gap 3-5°F + weak accuracy, or under high model
+// spread, that a STRONG BET label is misleading even when not catastrophic.
+//
+// Hard blocks (live invalidated, prediction unreachable, consensus outlier)
+// are evaluated separately upstream and short-circuit this check.
+//
+// Returns { downgrade: bool, toSignal: string, reasons: string[] }
+window._softDowngradeBet = function _softDowngradeBet({ mlF, nwsF, mmSpread, flipCount, signal }) {
+  if (!signal || signal === 'SKIP' || signal === 'LEAN') return { downgrade: false, reasons: [] };
+  const reasons = [];
+  // 1. Medium NWS divergence (3-5°F) with weak historical accuracy
+  if (mlF != null && nwsF != null) {
+    const ml = Number(mlF), nws = Number(nwsF);
+    if (Number.isFinite(ml) && Number.isFinite(nws)) {
+      const gap = Math.abs(ml - nws);
+      if (gap >= 3 && gap < 5) {
+        const ds = window.mlDivergenceStats;
+        const bktKey = gap < 4 ? '3-4' : '4+';
+        const rate = ds?.[bktKey]?.rate ?? null;
+        if (rate != null && rate < 50) {
+          reasons.push(`ML ${gap.toFixed(0)}°F from NWS · ${rate}% historical accuracy at this gap`);
+        }
+      }
+    }
+  }
+  // 2. High multi-model spread alone signals input uncertainty even when ML
+  //    happens to align with NWS — the underlying atmosphere is unsettled.
+  if (mmSpread != null) {
+    const sp = Number(mmSpread);
+    if (Number.isFinite(sp)) {
+      if (sp >= 6) {
+        reasons.push(`Multi-model spread ${sp.toFixed(1)}°F — input uncertainty high`);
+      } else if (sp >= 4 && mlF != null && nwsF != null) {
+        const gap = Math.abs(Number(mlF) - Number(nwsF));
+        if (Number.isFinite(gap) && gap >= 2) {
+          reasons.push(`${sp.toFixed(1)}°F model spread + ${gap.toFixed(0)}°F NWS gap`);
+        }
+      }
+    }
+  }
+  // 3. Excessive intraday flips = model is reacting to noise
+  if (flipCount != null) {
+    const fc = Number(flipCount);
+    if (Number.isFinite(fc) && fc >= 5) {
+      reasons.push(`${fc} bucket flips today — model unstable`);
+    }
+  }
+  if (reasons.length === 0) return { downgrade: false, reasons: [] };
+  // Step the signal down one tier: STRONG_BET → LEAN, BET → LEAN, HEDGE → LEAN
+  let toSignal = 'LEAN';
+  return { downgrade: true, toSignal, reasons };
+};
 
 // Helper: detect when ML is a consensus outlier vs NWS such that the bet
 // should be hard-blocked regardless of the model's headline confidence.
