@@ -3492,53 +3492,75 @@ class NYCTemperatureModelTrainer:
         elif "forecast_revision" not in df.columns:
             df["forecast_revision"] = np.nan
 
+        # The training matrix has multiple rows per cli_date — typically a
+        # forecast row (with nws_first/nws_last but no actual_high) and a
+        # multi-year atmospheric/actuals row (with actual_high + 925mb but
+        # no nws_last). Earlier row-by-row computation produced ~0 coverage
+        # because the cells we need are split across rows. We resolve this
+        # by building a per-cli_date aggregate (max ignores NaN, and these
+        # values shouldn't conflict within a date), then mapping back.
+        if "cli_date" in df.columns:
+            agg_cols = [c for c in [
+                "nws_last", "actual_high",
+                "atm_925mb_temp_mean", "atm_925mb_hrrr_mean",
+            ] if c in df.columns]
+            if agg_cols:
+                _tmp = df[["cli_date", *agg_cols]].copy()
+                _tmp["cli_date"] = pd.to_datetime(_tmp["cli_date"], errors="coerce")
+                for c in agg_cols:
+                    _tmp[c] = pd.to_numeric(_tmp[c], errors="coerce")
+                per_date = (
+                    _tmp.dropna(subset=["cli_date"])
+                    .groupby("cli_date", as_index=False)[agg_cols]
+                    .max()
+                    .sort_values("cli_date")
+                    .reset_index(drop=True)
+                )
+            else:
+                per_date = pd.DataFrame(columns=["cli_date"])
+        else:
+            per_date = pd.DataFrame(columns=["cli_date"])
+
         # 2) cap_violation_925 = max(0, nws_last - 925mb_temp - 14)
         # Use atm_925mb_temp_mean (GFS Open-Meteo) primary, fall back to
-        # atm_925mb_hrrr_mean (HRRR 3km) when GFS is missing — multi-year
-        # historical data only has HRRR 925mb, not GFS.
-        if "nws_last" in df.columns and (
-            "atm_925mb_temp_mean" in df.columns or "atm_925mb_hrrr_mean" in df.columns
+        # atm_925mb_hrrr_mean (HRRR 3km) when GFS is missing.
+        # Compute per-date so nws_last (forecast row) and 925mb (multi-year
+        # row) line up via cli_date even when they live in different rows.
+        if (
+            not per_date.empty
+            and "nws_last" in per_date.columns
+            and ("atm_925mb_temp_mean" in per_date.columns or "atm_925mb_hrrr_mean" in per_date.columns)
         ):
-            last = pd.to_numeric(df["nws_last"], errors="coerce")
-            t925_gfs = pd.to_numeric(df["atm_925mb_temp_mean"], errors="coerce") \
-                if "atm_925mb_temp_mean" in df.columns else pd.Series(np.nan, index=df.index)
-            t925_hrrr = pd.to_numeric(df["atm_925mb_hrrr_mean"], errors="coerce") \
-                if "atm_925mb_hrrr_mean" in df.columns else pd.Series(np.nan, index=df.index)
+            last_pd = per_date["nws_last"]
+            t925_gfs = per_date["atm_925mb_temp_mean"] if "atm_925mb_temp_mean" in per_date.columns else pd.Series(np.nan, index=per_date.index)
+            t925_hrrr = per_date["atm_925mb_hrrr_mean"] if "atm_925mb_hrrr_mean" in per_date.columns else pd.Series(np.nan, index=per_date.index)
             t925 = t925_gfs.where(t925_gfs.notna(), t925_hrrr)
-            mask = last.notna() & t925.notna()
-            computed = pd.Series(np.nan, index=df.index)
-            computed.loc[mask] = (last.loc[mask] - t925.loc[mask] - 14.0).clip(lower=0).round(1)
-            _coalesce("cap_violation_925", computed)
+            cap_per_date = (last_pd - t925 - 14.0).clip(lower=0).round(1)
+            cap_lookup = {pd.Timestamp(d): v for d, v in zip(per_date["cli_date"], cap_per_date) if pd.notna(v)}
+            df_dates = pd.to_datetime(df["cli_date"], errors="coerce")
+            cap_vals = df_dates.map(cap_lookup)
+            _coalesce("cap_violation_925", pd.Series(cap_vals, index=df.index))
         elif "cap_violation_925" not in df.columns:
             df["cap_violation_925"] = np.nan
 
-        # 3+4) Autoregressive bias features — require date-sorted lag.
+        # 3+4) Autoregressive bias features — date-sorted lag.
         # signed_miss[d] = actual_high[d] - nws_last[d]
         # yesterday_signed_miss[d] = signed_miss[d-1]
-        # rolling_3day_bias[d] = mean(signed_miss[d-1], signed_miss[d-2], signed_miss[d-3])
-        #
-        # Critical: drop rows with NaN signed_miss BEFORE groupby — otherwise
-        # multi-year rows (which have actual_high but no nws_last → NaN miss)
-        # win the .first() race against forecast rows for shared dates and
-        # poison the lookup table. This was the bug in the first v15 retrain
-        # (yesterday=0 in coverage report despite 282 valid forecast days).
-        if "actual_high" in df.columns and "nws_last" in df.columns and "cli_date" in df.columns:
-            tmp = df[["cli_date", "actual_high", "nws_last"]].copy()
-            tmp["cli_date"] = pd.to_datetime(tmp["cli_date"], errors="coerce")
-            tmp["actual_num"] = pd.to_numeric(tmp["actual_high"], errors="coerce")
-            tmp["nws_num"] = pd.to_numeric(tmp["nws_last"], errors="coerce")
-            tmp["signed_miss"] = tmp["actual_num"] - tmp["nws_num"]
-            daily = (
-                tmp.dropna(subset=["cli_date", "signed_miss"])
-                .drop_duplicates(subset="cli_date", keep="first")
-                .sort_values("cli_date")
-                .reset_index(drop=True)
-            )
+        # rolling_3day_bias[d]     = mean(signed_miss[d-1..d-3])
+        # Compute per-date so actual_high (multi-year row) and nws_last
+        # (forecast row) for the SAME cli_date can produce signed_miss
+        # even though they live in different rows of the training matrix.
+        if (
+            not per_date.empty
+            and "actual_high" in per_date.columns
+            and "nws_last" in per_date.columns
+        ):
+            daily = per_date[["cli_date", "actual_high", "nws_last"]].copy()
+            daily["signed_miss"] = daily["actual_high"] - daily["nws_last"]
+            daily = daily.dropna(subset=["signed_miss"]).sort_values("cli_date").reset_index(drop=True)
             if not daily.empty:
                 daily["yesterday"] = daily["signed_miss"].shift(1)
                 daily["roll3"] = daily["signed_miss"].shift(1).rolling(window=3, min_periods=2).mean()
-                # Map back to df by cli_date. Convert keys to Timestamp explicitly
-                # to ensure type-match against df_dates.
                 lookup_y = {pd.Timestamp(d): v for d, v in zip(daily["cli_date"], daily["yesterday"])}
                 lookup_r = {pd.Timestamp(d): v for d, v in zip(daily["cli_date"], daily["roll3"])}
                 df_dates = pd.to_datetime(df["cli_date"], errors="coerce")
