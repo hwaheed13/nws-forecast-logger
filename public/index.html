@@ -6117,12 +6117,74 @@ window._predTomorrow = predTomorrow;
           _liveObsMaxEarly > _mlBucketUpperEarly + 0.5
         );
 
+        // ── Mirror image: prediction is unreachable from below ────────────────
+        // _liveInvalidatedEarly catches "obs already exceeds bucket". This catches
+        // the symmetric case: it's past peak heating, the day's observed peak is
+        // meaningfully below the ML bucket's LOWER bound, and it's physically
+        // implausible the high will still land in-bucket. Without this, the today
+        // card kept showing "67° or more · ✅ BET 82%" at 3:36 PM with peak=65°F
+        // and current=62.1°F (already declining, solar fading) — a logical
+        // contradiction the user has no way to act on.
+        const _mlBucketLowerEarly = (() => {
+          if (!bucket) return null;
+          const b = String(bucket)
+            .replace(/[°\s]/g, '')
+            .replace(/[–—−]/g, '-')
+            .replace(/≤/g, '<=')
+            .replace(/≥/g, '>=')
+            .replace(/to/gi, '-')
+            .toLowerCase();
+          if (b.startsWith('<=')) return -Infinity;
+          if (b.startsWith('>=')) {
+            const n = parseFloat(b.slice(2));
+            return Number.isFinite(n) ? n : null;
+          }
+          const parts = b.split('-').filter(p => p.length > 0);
+          if (parts.length === 2) {
+            const n = parseFloat(parts[0]);
+            if (Number.isFinite(n)) return n;
+          }
+          if (parts.length === 1) {
+            const n = parseFloat(parts[0]);
+            if (Number.isFinite(n)) return n;
+          }
+          return null;
+        })();
+        // Time-of-day-aware threshold: peak heating in NYC is typically 14-16
+        // local. The later it gets, the smaller a deficit needs to be to mean
+        // "unreachable." 14:00 → 1.5°F gap, 15:00 → 1.0°F, 16:00 → 0.5°F,
+        // 17:00+ → any deficit.
+        const _unreachableMargin = (
+          _nowHourLocal >= 17 ? 0.0 :
+          _nowHourLocal >= 16 ? 0.5 :
+          _nowHourLocal >= 15 ? 1.0 :
+          _nowHourLocal >= 14 ? 1.5 :
+          null  // before 2pm — don't fire (could still rally)
+        );
+        // Also require the temp trace to be confirming: current observed temp
+        // must be at-or-below the day's peak (i.e. we've passed the peak), AND
+        // current temp must itself be below the bucket lower bound. Otherwise a
+        // brief mid-afternoon dip in a still-rising day would falsely fire.
+        const _curObsForGate = window._recentObservedF != null ? Number(window._recentObservedF) : null;
+        const _pastPeakConfirmed = (
+          _liveObsMaxEarly != null && _curObsForGate != null &&
+          _curObsForGate <= _liveObsMaxEarly  // not still climbing
+        );
+        const _predictionUnreachableEarly = (
+          _unreachableMargin != null &&
+          _liveObsMaxEarly != null &&
+          _mlBucketLowerEarly != null &&
+          _mlBucketLowerEarly !== -Infinity &&
+          _liveObsMaxEarly < _mlBucketLowerEarly - _unreachableMargin &&
+          _pastPeakConfirmed
+        );
+
         // Override the bet signal badge when reality has already exceeded the
         // predicted bucket. Otherwise the card displays a logical contradiction
         // ("STRONG BET 55-56" sitting next to the LIVE EXCEEDS banner because
         // observed max is 57). The banner explains the situation; this badge
         // makes the action recommendation match it.
-        if (_liveInvalidatedEarly) {
+        if (_liveInvalidatedEarly || _predictionUnreachableEarly) {
           signalBadge = `<span class="signal-badge" style="background:#fef2f2;color:#b91c1c;padding:3px 9px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid #dc2626;">⛔ DO NOT BET</span>`;
         }
 
@@ -6307,6 +6369,32 @@ window._predTomorrow = predTomorrow;
             </div>`;
         }
 
+        // ── Unreachable banner (mirror image of LIVE EXCEEDS) ────────────────
+        // Past peak heating, observed peak is below ML bucket lower bound, and
+        // current temp is no longer climbing. Surface the same kind of red call-
+        // out so users see why the bet was downgraded.
+        let unreachableBanner = '';
+        if (_predictionUnreachableEarly && !_liveInvalidatedEarly) {
+          const _hourStr = `${_nowHourLocal}:00`;
+          const _peakStr = _liveObsMaxEarly.toFixed(1);
+          const _curStr  = _curObsForGate != null ? _curObsForGate.toFixed(1) : '—';
+          const _lowerStr = _mlBucketLowerEarly.toFixed(0);
+          const _gap = (_mlBucketLowerEarly - _liveObsMaxEarly).toFixed(1);
+          unreachableBanner = `
+            <div style="background:#fef2f2;border-left:4px solid #dc2626;padding:8px 12px;margin-bottom:6px;border-radius:4px;font-size:12px;">
+              <div style="font-weight:700;color:#b91c1c;margin-bottom:3px;">
+                ⛔ PREDICTION UNREACHABLE
+              </div>
+              <div style="color:#374151;">
+                ML predicted <strong>${cleanKalshiLabel(bucket) || bucket}</strong> · Peak so far: <strong>${_peakStr}°F</strong> · Now: <strong>${_curStr}°F</strong>
+              </div>
+              <div style="color:#374151;margin-top:2px;">
+                Need <strong>${_gap}°F more</strong> to reach ${_lowerStr}°F bucket floor — past peak heating (${_hourStr}), temp falling.
+              </div>
+              <div style="color:#6b7280;margin-top:3px;font-style:italic;">Do not act on this prediction.</div>
+            </div>`;
+        }
+
         // Show amber "Prediction revised" note when bucket shifted this session
         const bucketRevisedNote = _bucketRevisedRecently
           ? `<div style="font-size:12px;background:#fffbeb;border-left:3px solid #d97706;padding:6px 10px;margin-top:6px;border-radius:4px;color:#92400e;">
@@ -6378,6 +6466,7 @@ window._predTomorrow = predTomorrow;
 
         el0.innerHTML = `
           ${liveInvalidationBanner}
+          ${unreachableBanner}
           ${limitedDataHTML}
           ${top2b1 ? `<div style="font-size:32px;font-weight:800;line-height:1.1;color:var(--text-primary);">${top2b1}</div>` : `<div class="prediction-value">${mlVal.toFixed(1)}°F</div>`}
           <div style="margin:6px 0 3px;display:flex;flex-wrap:wrap;align-items:center;gap:6px;">
