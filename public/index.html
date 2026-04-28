@@ -4262,8 +4262,15 @@ function renderFlipRisk() {
     history: _flipHistory, occurred: _flipOccurred, pendingRaw: _flipPendingBucket,
     mktSnap: _mktSnap,
   });
-  const canonBucket             = _flipState.canonK || _rawCanonBucket;
-  const currentBucket           = _flipState.currK  || _rawCurrentBucket;
+  // Display labels: always use raw bucket labels so the chain matches the
+  // writer's stored history (which is in raw labels) and stays consistent with
+  // the smaller canonicalFlipNote in today's prediction card. Kalshi-mapped
+  // values are still used internally by _computeFlipState for shift detection,
+  // but mixing canonK ("65-66") with raw history items ("63-64") in a single
+  // displayed chain produces apparently-disagreeing chains across the two
+  // sites — this guarantees they always match.
+  const canonBucket             = _rawCanonBucket;
+  const currentBucket           = _rawCurrentBucket;
   const flipAlreadyOccurred     = _flipState.shifted;
   const flipReturnedToCanonical = _flipState.returned;
   const flipWatching            = _flipState.watching;
@@ -6207,6 +6214,24 @@ window._predTomorrow = predTomorrow;
         const _mmSpreadTd = ml.todayAtmSnapshot?.mm_spread ?? null;
         const moatRiskHTMLTd = _buildMoatRiskHTML(mlVal, _nwsTdVal, _mmSpreadTd);
 
+        // Consensus-outlier guardrail: if ML disagrees with NWS by 5°F+ and the
+        // historical hit rate at that gap is < 30%, the model is in a regime
+        // where it is far more often wrong than right — hard-block the bet.
+        // Mirrors the _liveInvalidatedEarly pattern used for the LIVE-EXCEEDS
+        // banner: signal becomes ⛔ DO NOT BET + an explanatory note rendered
+        // alongside the existing prediction-revised / canonical-flip notes.
+        const _consOutlierTd = (typeof window._checkConsensusOutlier === 'function')
+          ? window._checkConsensusOutlier(mlVal, _nwsTdVal)
+          : null;
+        if (_consOutlierTd && !_liveInvalidatedEarly) {
+          signalBadge = `<span class="signal-badge" style="background:#fef2f2;color:#b91c1c;padding:3px 9px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid #dc2626;">⛔ DO NOT BET</span>`;
+        }
+        const consOutlierNoteTd = _consOutlierTd
+          ? `<div style="font-size:12px;background:#fef2f2;border-left:3px solid #dc2626;padding:6px 10px;margin-top:6px;border-radius:4px;color:#991b1b;">
+              ⛔ <strong>ML is a consensus outlier</strong> — disagrees with NWS by ${_consOutlierTd.gap.toFixed(0)}°F${_consOutlierTd.accuracy != null ? `, historical accuracy at this gap: <strong>${_consOutlierTd.accuracy}%</strong>` : ''}. Bet downgraded.
+             </div>`
+          : '';
+
         // Boundary warning
         const warningHTML = todayWarning
           ? `<div class="boundary-warning ${todayWarning.level}">
@@ -6362,6 +6387,7 @@ window._predTomorrow = predTomorrow;
           ${kellyLine}
           <div style="font-size:12px;color:var(--text-muted);margin-top:5px;" title="${ml.todayMLVersion ? `Model: ${ml.todayMLVersion.replace(/_/g, ' ')}` : ''}">ML: ${mlVal.toFixed(1)}°F${supportHTML ? ` · ${supportHTML}` : ''}</div>
           ${moatRiskHTMLTd}
+          ${consOutlierNoteTd}
           ${canonicalFlipNote}
           ${bucketRevisedNote}
           ${overnightHighNote}
@@ -6441,7 +6467,7 @@ window._predTomorrow = predTomorrow;
 
         // ── Build card HTML — bucket is the hero ──────────────────────────────
         const top2b1tm = top2 ? cleanKalshiLabel(top2.first.bucket) : (bucket ? cleanKalshiLabel(bucket) : null);
-        const signalBadgeTm = signal
+        let signalBadgeTm = signal
           ? `<span class="signal-badge" style="background:${s.bg};color:${s.color};padding:3px 9px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid ${s.border};">${s.icon} ${s.label}</span>`
           : '';
 
@@ -6499,6 +6525,19 @@ window._predTomorrow = predTomorrow;
         })();
         const _mmSpreadTm = ml.tomorrowAtmSnapshot?.mm_spread ?? null;
         const moatRiskHTMLTm = _buildMoatRiskHTML(mlVal, _nwsTmVal, _mmSpreadTm);
+
+        // Consensus-outlier guardrail (see today card for rationale).
+        const _consOutlierTm = (typeof window._checkConsensusOutlier === 'function')
+          ? window._checkConsensusOutlier(mlVal, _nwsTmVal)
+          : null;
+        if (_consOutlierTm) {
+          signalBadgeTm = `<span class="signal-badge" style="background:#fef2f2;color:#b91c1c;padding:3px 9px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid #dc2626;">⛔ DO NOT BET</span>`;
+        }
+        const consOutlierNoteTm = _consOutlierTm
+          ? `<div style="font-size:12px;background:#fef2f2;border-left:3px solid #dc2626;padding:6px 10px;margin-top:6px;border-radius:4px;color:#991b1b;">
+              ⛔ <strong>ML is a consensus outlier</strong> — disagrees with NWS by ${_consOutlierTm.gap.toFixed(0)}°F${_consOutlierTm.accuracy != null ? `, historical accuracy at this gap: <strong>${_consOutlierTm.accuracy}%</strong>` : ''}. Bet downgraded.
+             </div>`
+          : '';
 
         // Boundary warning
         const warningHTML = tomorrowWarning
@@ -6558,6 +6597,7 @@ window._predTomorrow = predTomorrow;
           ${kellyLineTm}
           <div style="font-size:12px;color:var(--text-muted);margin-top:5px;" title="${ml.tomorrowMLVersion ? `Model: ${ml.tomorrowMLVersion.replace(/_/g, ' ')}` : ''}">ML: ${mlVal.toFixed(1)}°F${supportHTML ? ` · ${supportHTML}` : ''}</div>
           ${moatRiskHTMLTm}
+          ${consOutlierNoteTm}
           ${d1FlipNote}
           ${warningHTML}
           ${historyHTML}
@@ -7748,6 +7788,32 @@ async function loadMLDivergenceStats() {
     console.debug("loadMLDivergenceStats error:", e?.message);
   }
 }
+
+// Helper: detect when ML is a consensus outlier vs NWS such that the bet
+// should be hard-blocked regardless of the model's headline confidence.
+//
+// Trigger: |ml - nws| >= 5°F AND historical accuracy at that divergence < 30%
+// (or, if we don't have stats yet, gap >= 7°F treated as an automatic block).
+// Returns { gap, accuracy } when the bet should be blocked, null otherwise.
+//
+// Rationale: when the model disagrees with the agencies by 5°+, historical
+// performance shows the model wins <30% of the time at that gap — a "STRONG
+// BET" badge is actively misleading. We mirror the existing _liveInvalidatedEarly
+// override pattern: replace the signal with ⛔ DO NOT BET + an explanatory note.
+window._checkConsensusOutlier = function _checkConsensusOutlier(mlF, nwsF) {
+  if (mlF == null || nwsF == null) return null;
+  const ml = Number(mlF), nws = Number(nwsF);
+  if (!Number.isFinite(ml) || !Number.isFinite(nws)) return null;
+  const gap = Math.abs(ml - nws);
+  if (gap < 5) return null;
+  const ds = window.mlDivergenceStats;
+  const bktKey = gap < 1 ? '<1' : gap < 2 ? '1-2' : gap < 3 ? '2-3' : gap < 4 ? '3-4' : '4+';
+  const bktStats = ds ? ds[bktKey] : null;
+  const rate = bktStats?.rate ?? null;
+  if (rate != null && rate < 30) return { gap, accuracy: rate };
+  if (rate == null && gap >= 7) return { gap, accuracy: null };
+  return null;
+};
 
 // Helper: given |ml - nws| divergence °F, return the MOAT risk line HTML
 // Assigned to window so it's accessible from updateCorrectionBoxes (script block 1)
