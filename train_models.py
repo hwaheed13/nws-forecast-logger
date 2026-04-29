@@ -3505,6 +3505,10 @@ class NYCTemperatureModelTrainer:
         print(f"\n  ✅ Saved v11 models: bcp_v11_regressor.pkl, bcp_v11_classifier.pkl")
         print(f"  v11 Classifier Bucket Acc: {classifier.cv_bucket_accuracy:.1%}")
 
+        # Quality gate: if v11 is materially worse than v10, roll back so the
+        # cascade falls through to v10 instead of deploying a regression.
+        self._quality_gate_or_skip("v11", float(np.mean(mae_scores)), "v10")
+
         try:
             import json as _j
             with open(f"{prefix}model_metadata_v10.json") as f:
@@ -3674,6 +3678,8 @@ class NYCTemperatureModelTrainer:
 
         print(f"\n  ✅ Saved v12 models: bcp_v12_regressor.pkl, bcp_v12_classifier.pkl")
         print(f"  v12 Classifier Bucket Acc: {classifier.cv_bucket_accuracy:.1%}")
+
+        self._quality_gate_or_skip("v12", float(np.mean(mae_scores)), "v11")
 
         try:
             import json as _j
@@ -3849,6 +3855,8 @@ class NYCTemperatureModelTrainer:
 
         print(f"\n  ✅ Saved v13 models: bcp_v13_regressor.pkl, bcp_v13_classifier.pkl")
         print(f"  v13 Classifier Bucket Acc: {classifier.cv_bucket_accuracy:.1%}")
+
+        self._quality_gate_or_skip("v13", float(np.mean(mae_scores)), "v12")
 
         try:
             import json as _j
@@ -4256,6 +4264,8 @@ class NYCTemperatureModelTrainer:
         print(f"\n  ✅ Saved v15 models: bcp_v15_regressor.pkl, bcp_v15_classifier.pkl")
         print(f"  v15 Classifier Bucket Acc: {classifier.cv_bucket_accuracy:.1%}")
 
+        self._quality_gate_or_skip("v15", float(np.mean(mae_scores)), "v14")
+
         try:
             import json as _j
             with open(f"{prefix}model_metadata_v14.json") as f:
@@ -4424,6 +4434,8 @@ class NYCTemperatureModelTrainer:
 
         print(f"\n  ✅ Saved v14 models: bcp_v14_regressor.pkl, bcp_v14_classifier.pkl")
         print(f"  v14 Classifier Bucket Acc: {classifier.cv_bucket_accuracy:.1%}")
+
+        self._quality_gate_or_skip("v14", float(np.mean(mae_scores)), "v13")
 
         try:
             import json as _j
