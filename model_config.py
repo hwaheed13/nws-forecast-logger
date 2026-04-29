@@ -487,10 +487,24 @@ MM_VS_NWS_COLS = [
     "mm_mean_vs_nws",     # 7-model consensus mean - nws_last: unanimous fast-model signal
 ]
 
-FEATURE_COLS_V11 = list(FEATURE_COLS_V10) + MM_VS_NWS_COLS
+# Model-vs-model divergence — anchored on 4+ years of historical multi-model forecasts
+# (NWS forecast log only goes back ~10 months, capping mm_*_vs_nws coverage at ~144 rows).
+# These swap the NWS anchor for HRRR (already 4yr in multiyear CSV); after backfill of
+# GFS/ECMWF/NBM via open-meteo historical-forecast-api, all three diffs have 4+ years
+# of populated history.
+#   mm_hrrr_vs_gfs    — high-res mesoscale vs synoptic global (real signal)
+#   mm_hrrr_vs_ecmwf  — HRRR vs the #1 global deterministic model
+#   mm_hrrr_vs_nbm    — HRRR vs the 50-model blend (high conviction when small)
+MM_VS_MM_COLS = [
+    "mm_hrrr_vs_gfs",
+    "mm_hrrr_vs_ecmwf",
+    "mm_hrrr_vs_nbm",
+]
+
+FEATURE_COLS_V11 = list(FEATURE_COLS_V10) + MM_VS_NWS_COLS + MM_VS_MM_COLS
 
 # v11 LAX equivalent — same divergence features apply
-FEATURE_COLS_V11_LAX = list(FEATURE_COLS_V10_LAX) + MM_VS_NWS_COLS
+FEATURE_COLS_V11_LAX = list(FEATURE_COLS_V10_LAX) + MM_VS_NWS_COLS + MM_VS_MM_COLS
 
 # ═══════════════════════════════════════════════════════════════════════
 # v12 feature columns — v11 + deep NNJ inland stations (KCDW + KSMQ)

@@ -1496,7 +1496,10 @@ class NYCTemperatureModelTrainer:
         # subtraction gives only ~4/273 coverage. Aggregate by target_date so
         # nws_last from the forecast row pairs with mm_* from any other row
         # for the same date.
-        mm_cols = [c for c in ["mm_hrrr_max", "mm_nbm_max", "mm_mean"] if c in df.columns]
+        mm_cols = [c for c in [
+            "mm_hrrr_max", "mm_nbm_max", "mm_mean",
+            "mm_gfs_max", "mm_ecmwf_max",
+        ] if c in df.columns]
         agg_cols = mm_cols + (["nws_last"] if "nws_last" in df.columns else [])
         if "target_date" in df.columns and agg_cols:
             _tmp = df[["target_date", *agg_cols]].copy()
@@ -1537,12 +1540,38 @@ class NYCTemperatureModelTrainer:
             for out in ["mm_hrrr_vs_nws", "mm_nbm_vs_nws", "mm_mean_vs_nws"]:
                 df[out] = np.nan
 
+        # Model-vs-model divergence (4yr coverage anchored on HRRR, not NWS).
+        # Same per-target-date aggregation: pair HRRR's max for the date with
+        # the other model's max for the same date.
+        if not mm_per_date.empty and "mm_hrrr_max" in mm_per_date.columns:
+            hrrr_pd = mm_per_date["mm_hrrr_max"]
+            for src, out in [("mm_gfs_max",   "mm_hrrr_vs_gfs"),
+                             ("mm_ecmwf_max", "mm_hrrr_vs_ecmwf"),
+                             ("mm_nbm_max",   "mm_hrrr_vs_nbm")]:
+                if src in mm_per_date.columns:
+                    diff_pd = (hrrr_pd - mm_per_date[src]).round(1)
+                    lookup = _mm_lookup(diff_pd)
+                    if df_dates is not None and lookup:
+                        df[out] = df_dates.map(lookup)
+                    else:
+                        df[out] = np.nan
+                else:
+                    df[out] = np.nan
+        else:
+            for out in ["mm_hrrr_vs_gfs", "mm_hrrr_vs_ecmwf", "mm_hrrr_vs_nbm"]:
+                df[out] = np.nan
+
         n_hrrr = df["mm_hrrr_vs_nws"].notna().sum() if "mm_hrrr_vs_nws" in df.columns else 0
         n_nbm  = df["mm_nbm_vs_nws"].notna().sum() if "mm_nbm_vs_nws" in df.columns else 0
         n_mean = df["mm_mean_vs_nws"].notna().sum() if "mm_mean_vs_nws" in df.columns else 0
-        print(f"  v11 divergence features: mm_hrrr_vs_nws={n_hrrr} rows, mm_nbm_vs_nws={n_nbm} rows")
+        n_gfs   = df["mm_hrrr_vs_gfs"].notna().sum()   if "mm_hrrr_vs_gfs"   in df.columns else 0
+        n_ecmwf = df["mm_hrrr_vs_ecmwf"].notna().sum() if "mm_hrrr_vs_ecmwf" in df.columns else 0
+        n_nbm_m = df["mm_hrrr_vs_nbm"].notna().sum()   if "mm_hrrr_vs_nbm"   in df.columns else 0
+        print(f"  v11 divergence features: mm_hrrr_vs_nws={n_hrrr} rows, mm_nbm_vs_nws={n_nbm} rows, "
+              f"mm_hrrr_vs_gfs={n_gfs} rows, mm_hrrr_vs_ecmwf={n_ecmwf} rows, mm_hrrr_vs_nbm={n_nbm_m} rows")
         _record_coverage(self.model_prefix, "v11", {
             "mm_hrrr_vs_nws": n_hrrr, "mm_nbm_vs_nws": n_nbm, "mm_mean_vs_nws": n_mean,
+            "mm_hrrr_vs_gfs": int(n_gfs), "mm_hrrr_vs_ecmwf": int(n_ecmwf), "mm_hrrr_vs_nbm": int(n_nbm_m),
         })
         self.features_df = df
 
@@ -3386,9 +3415,15 @@ class NYCTemperatureModelTrainer:
         # 100 — populated-and-real on 144 rows is far better than NaN-on-95%.
         # Cap will lift naturally as calendar fills, or via NOMADS HRRR archive
         # backfill (deferred — heavy multi-day project).
+        # Anchor on mm_hrrr_vs_gfs — this has 4+ years of populated history
+        # (after backfill_multimodel_history.py runs both HRRR + GFS via
+        # open-meteo historical-forecast-api). The original mm_*_vs_nws
+        # features cap at ~144 rows because the NWS forecast log only goes
+        # back ~10 months. Switching to model-vs-model anchoring lifts the
+        # gate from 144 → ~1500 rows of real divergence signal.
         gated = self._gate_and_filter_for_version(
             "v11",
-            ["mm_hrrr_vs_nws", "mm_mean_vs_nws"],
+            ["mm_hrrr_vs_gfs"],
             forecast_df,
             min_rows=100,
         )
