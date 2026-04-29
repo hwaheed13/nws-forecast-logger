@@ -109,6 +109,97 @@ class NYCTemperatureModelTrainer:
         if missing:
             raise ValueError(f"{name} missing columns: {', '.join(missing)}")
 
+    # ---------------------------------------------------------------- #
+    # Airtight version-deployment gate                                  #
+    #                                                                   #
+    # A version's model can only deploy if it has enough forecast rows  #
+    # where ALL of its new features are simultaneously populated.       #
+    # If not, training is skipped (no .pkl written) and the cascade     #
+    # in prediction_writer.py falls back to the previous version.       #
+    #                                                                   #
+    # WHY: HistGradientBoosting tolerates NaN natively. A version       #
+    # whose new features are populated on <X% of training rows will     #
+    # learn an aggressive split rule from the rare populated subset     #
+    # and then over-fire that rule at inference (where features are     #
+    # always live-computed and present). This is the documented cause   #
+    # of the 2026-04 D+1 cold-bias regression on tomorrow predictions.  #
+    # ---------------------------------------------------------------- #
+    def _gate_and_filter_for_version(
+        self,
+        version: str,
+        key_features: "list[str]",
+        forecast_df: "pd.DataFrame",
+        min_rows: int = 500,
+    ):
+        """Gate v_n training on coverage of key_features.
+
+        Returns a filtered forecast_df (rows where ALL key_features are
+        populated) on success, or None if below the min_rows threshold —
+        in which case the caller MUST `return` early without writing any
+        .pkl files. The cascade auto-falls-back to v_{n-1}.
+
+        Filtering (not just gating) is intentional: it ensures the model
+        trains on the same feature distribution it will see at inference
+        time, eliminating the NaN-branch overfit pattern.
+        """
+        available = [c for c in key_features if c in forecast_df.columns]
+        if not available:
+            print(f"  ⛔ {version} GATE: none of {key_features} present in dataframe — SKIPPING.")
+            print(f"     Cascade will fall back to prior version.")
+            return None
+        counts = {c: int(forecast_df[c].notna().sum()) for c in available}
+        populated_mask = forecast_df[available].notna().all(axis=1)
+        n_populated = int(populated_mask.sum())
+        print(f"  {version} key-feature populated counts: {counts}")
+        print(f"  {version} forecast rows with ALL key features populated: {n_populated}")
+        if n_populated < min_rows:
+            print(f"  ⛔ {version} GATE FAILED: only {n_populated} fully-populated rows "
+                  f"< {min_rows} threshold.")
+            print(f"     SKIPPING training. Cascade falls back to prior version.")
+            print(f"     To deploy {version}: backfill or accumulate more rows where ALL "
+                  f"{available} fire simultaneously.")
+            # CRITICAL: remove any stale .pkl from a previous retrain so the
+            # cascade in prediction_writer.py actually falls back. Without this,
+            # FileNotFoundError can't fire because the old broken model still
+            # sits on disk and gets loaded.
+            import os as _os
+            prefix = self.model_prefix
+            for stale in (
+                f"{prefix}bcp_{version}_regressor.pkl",
+                f"{prefix}bcp_{version}_classifier.pkl",
+                f"{prefix}bcp_{version}_feature_cols.pkl",
+            ):
+                try:
+                    if _os.path.exists(stale):
+                        _os.remove(stale)
+                        print(f"     removed stale {stale}")
+                except OSError as _exc:
+                    print(f"     warning: could not remove {stale}: {_exc}")
+            # Replace metadata with a skipped-marker so the audit trail is
+            # clear and check_coverage_regression knows this version is
+            # intentionally absent (not a regression).
+            try:
+                import json as _json
+                from datetime import datetime as _dt
+                with open(f"{prefix}model_metadata_{version}.json", "w") as _f:
+                    _json.dump({
+                        "trained_on": _dt.now().isoformat(),
+                        "version": version,
+                        "skipped": True,
+                        "reason": (
+                            f"airtight gate failed: only {n_populated} forecast rows "
+                            f"have all of {available} populated (need ≥{min_rows})"
+                        ),
+                        "key_feature_counts": counts,
+                        "min_rows_required": min_rows,
+                    }, _f, indent=2)
+            except OSError as _exc:
+                print(f"     warning: could not write skipped-marker metadata: {_exc}")
+            return None
+        print(f"  ✓ {version} gate PASSED: training on {n_populated} fully-populated rows "
+              f"(eliminates NaN-branch overfit).")
+        return forecast_df[populated_mask].copy()
+
     def load_data(self):
         print(f"Loading CSV files for {self.city_cfg['label']}...")
         # NWS file required
@@ -3199,6 +3290,20 @@ class NYCTemperatureModelTrainer:
                 self.features_df[col] = np.nan
 
         forecast_df = self.features_df[self.features_df["nws_last"].notna()].copy()
+
+        # Airtight gate: v11's model-vs-NWS divergence features need
+        # populated multi-model data (HRRR/NBM/etc.). Sparse coverage
+        # of mm_*_vs_nws drives the same overfit pattern as v13/v15.
+        gated = self._gate_and_filter_for_version(
+            "v11",
+            ["mm_hrrr_vs_nws", "mm_mean_vs_nws"],
+            forecast_df,
+            min_rows=500,
+        )
+        if gated is None:
+            return
+        forecast_df = gated
+
         X_v11    = forecast_df[FEATURE_COLS_V11]
         nws_last = forecast_df["nws_last"]
         y_actual = forecast_df["actual_high"]
@@ -3350,6 +3455,19 @@ class NYCTemperatureModelTrainer:
         self._compute_model_vs_nws_features()
 
         forecast_df = self.features_df[self.features_df["nws_last"].notna()].copy()
+
+        # Airtight gate: v12's deep-NJ inland features (KCDW/KSMQ) are
+        # sparse — these are small airports with limited IEM history.
+        gated = self._gate_and_filter_for_version(
+            "v12",
+            ["obs_kcdw_temp", "obs_ksmq_temp"],
+            forecast_df,
+            min_rows=500,
+        )
+        if gated is None:
+            return
+        forecast_df = gated
+
         X_v12    = forecast_df[FEATURE_COLS_V12]
         nws_last = forecast_df["nws_last"]
         y_actual = forecast_df["actual_high"]
@@ -3507,6 +3625,18 @@ class NYCTemperatureModelTrainer:
         self._compute_model_vs_nws_features()
 
         forecast_df = self.features_df[self.features_df["nws_last"].notna()].copy()
+
+        # Airtight gate: v13's BL safeguard features must have enough populated rows.
+        gated = self._gate_and_filter_for_version(
+            "v13",
+            ["entrainment_temp_diff", "marine_containment", "inland_strength"],
+            forecast_df,
+            min_rows=500,
+        )
+        if gated is None:
+            return
+        forecast_df = gated
+
         X_v13    = forecast_df[FEATURE_COLS_V13]
         nws_last = forecast_df["nws_last"]
         y_actual = forecast_df["actual_high"]
@@ -3895,6 +4025,20 @@ class NYCTemperatureModelTrainer:
                 self.features_df[col] = np.nan
 
         forecast_df = self.features_df[self.features_df["nws_last"].notna()].copy()
+
+        # Airtight gate: v15's autoreg/cap features must have enough populated rows.
+        # cap_violation_925 is the binding constraint (depends on 925mb GFS coverage).
+        gated = self._gate_and_filter_for_version(
+            "v15",
+            ["cap_violation_925", "forecast_revision",
+             "yesterday_signed_miss", "rolling_3day_bias"],
+            forecast_df,
+            min_rows=500,
+        )
+        if gated is None:
+            return
+        forecast_df = gated
+
         X_v15    = forecast_df[FEATURE_COLS_V15]
         nws_last = forecast_df["nws_last"]
         y_actual = forecast_df["actual_high"]
@@ -4045,6 +4189,20 @@ class NYCTemperatureModelTrainer:
                 self.features_df[col] = np.nan
 
         forecast_df = self.features_df[self.features_df["nws_last"].notna()].copy()
+
+        # Airtight gate: v14's blind-spot interaction features must have
+        # enough populated rows. These are obs+forecast products; sparse
+        # populated coverage causes the same NaN-branch overfit pattern.
+        gated = self._gate_and_filter_for_version(
+            "v14",
+            ["peak_to_hrrr_gap", "late_obs_below_pred", "late_falling_signal"],
+            forecast_df,
+            min_rows=500,
+        )
+        if gated is None:
+            return
+        forecast_df = gated
+
         X_v14    = forecast_df[FEATURE_COLS_V14]
         nws_last = forecast_df["nws_last"]
         y_actual = forecast_df["actual_high"]
