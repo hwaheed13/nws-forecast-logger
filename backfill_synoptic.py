@@ -451,6 +451,21 @@ def backfill(
         cutoff = (date.today() - timedelta(days=days)).isoformat()
         dates_to_process = [(d, r) for d, r in dates_to_process if d >= cutoff]
 
+    # Filter out future + bogus dates (target_date may be 9999-12-31 or
+    # tomorrow's forecast row — neither is a valid backfill target since
+    # Synoptic obs only exist for the past).
+    today_str = date.today().isoformat()
+    bogus_dropped = 0
+    filtered: list[tuple[str, dict]] = []
+    for d, r in dates_to_process:
+        if not d or d > today_str or d.startswith("9999"):
+            bogus_dropped += 1
+            continue
+        filtered.append((d, r))
+    if bogus_dropped:
+        print(f"  (skipped {bogus_dropped} future/bogus target_date rows)")
+    dates_to_process = filtered
+
     print(f"Dates to backfill: {len(dates_to_process)}  "
           f"(already filled: {already_filled})\n")
 
