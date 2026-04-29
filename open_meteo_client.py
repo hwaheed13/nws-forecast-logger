@@ -205,16 +205,20 @@ def fetch_multimodel_forecast(
         "icon_seamless",         # ICON (German DWD)
         "gem_seamless",          # GEM global (Canadian CMC)
         "ncep_hrrr_conus",       # HRRR — #1 accuracy, runs hourly, best boundary layer
-        "nbm_conus",             # NBM — blends 50+ models, faster than NWS, top-3 accuracy
+        "ncep_nbm_conus",        # NBM — blends 50+ models, faster than NWS, top-3 accuracy
         "gem_hrdps_continental", # GEM HRDPS — Canadian high-res, top-5 accuracy
     ]
+    # Open-Meteo renamed nbm_conus → ncep_nbm_conus at some point; the old
+    # identifier returns HTTP 400 ("invalid String value nbm_conus"). Until
+    # this fix, every NBM fetch failed silently (caught by the try/except
+    # in the loop below) → mm_nbm_max stayed NaN forever, blocking v11.
     model_short = {
         "ecmwf_ifs025": "ecmwf",
         "gfs_seamless": "gfs",
         "icon_seamless": "icon",
         "gem_seamless": "gem",
         "ncep_hrrr_conus": "hrrr",
-        "nbm_conus": "nbm",
+        "ncep_nbm_conus": "nbm",
         "gem_hrdps_continental": "gem_hrdps",
     }
 
