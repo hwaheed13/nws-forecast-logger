@@ -200,6 +200,93 @@ class NYCTemperatureModelTrainer:
               f"(eliminates NaN-branch overfit).")
         return forecast_df[populated_mask].copy()
 
+    def _quality_gate_or_skip(
+        self,
+        version: str,
+        new_cv_mae: float,
+        prior_version: str,
+        tolerance: float = 0.05,
+    ) -> bool:
+        """Post-training quality check: if the just-trained model is more
+        than `tolerance` (5% default) WORSE than the prior version's CV MAE,
+        delete its .pkl files and write a skipped-marker so the cascade
+        falls back. Returns True if quality OK, False if rolled back.
+
+        Without this, the coverage gate alone can't distinguish "thin but
+        better" from "thin and worse than fallback." A 144-row v14 with
+        cv_mae=2.5 should not displace a v10 with cv_mae=1.8.
+        """
+        import json as _json
+        import os as _os
+        from datetime import datetime as _dt
+
+        prefix = self.model_prefix
+        prior_meta_path = f"{prefix}model_metadata_{prior_version}.json"
+        if not _os.path.exists(prior_meta_path):
+            print(f"  ℹ️ {version} quality check skipped: no prior {prior_version} metadata.")
+            return True
+        try:
+            with open(prior_meta_path) as _f:
+                prior = _json.load(_f)
+        except (OSError, _json.JSONDecodeError) as _exc:
+            print(f"  ⚠️ {version} quality check skipped: cannot read {prior_meta_path}: {_exc}")
+            return True
+        if prior.get("skipped"):
+            print(f"  ℹ️ {version} quality check skipped: prior {prior_version} also skipped.")
+            return True
+        # Pull CV MAE from prior version's regression block.
+        prior_cv_mae = None
+        for k, v in prior.items():
+            if isinstance(v, dict) and "cv_mae" in v:
+                prior_cv_mae = float(v["cv_mae"])
+                break
+        if prior_cv_mae is None:
+            print(f"  ℹ️ {version} quality check skipped: no cv_mae in prior {prior_version}.")
+            return True
+
+        threshold = prior_cv_mae * (1.0 + tolerance)
+        print(f"  {version} quality check: cv_mae={new_cv_mae:.4f} vs "
+              f"{prior_version} cv_mae={prior_cv_mae:.4f} (threshold {threshold:.4f}).")
+        if new_cv_mae <= threshold:
+            print(f"  ✓ {version} QUALITY GATE PASSED.")
+            return True
+
+        # Quality fail: roll back.
+        print(f"  ⛔ {version} QUALITY GATE FAILED: cv_mae {new_cv_mae:.4f} > "
+              f"{threshold:.4f} ({tolerance:.0%} worse than {prior_version}).")
+        print(f"     Rolling back: deleting just-trained .pkls so cascade "
+              f"falls back to {prior_version}.")
+        for stale in (
+            f"{prefix}bcp_{version}_regressor.pkl",
+            f"{prefix}bcp_{version}_classifier.pkl",
+            f"{prefix}bcp_{version}_feature_cols.pkl",
+        ):
+            try:
+                if _os.path.exists(stale):
+                    _os.remove(stale)
+                    print(f"     removed {stale}")
+            except OSError as _exc:
+                print(f"     warning: could not remove {stale}: {_exc}")
+        try:
+            with open(f"{prefix}model_metadata_{version}.json", "w") as _f:
+                _json.dump({
+                    "trained_on": _dt.now().isoformat(),
+                    "version": version,
+                    "skipped": True,
+                    "reason": (
+                        f"quality gate failed: cv_mae {new_cv_mae:.4f} > "
+                        f"{threshold:.4f} ({tolerance:.0%} worse than {prior_version} "
+                        f"cv_mae={prior_cv_mae:.4f})"
+                    ),
+                    "new_cv_mae": new_cv_mae,
+                    "prior_version": prior_version,
+                    "prior_cv_mae": prior_cv_mae,
+                    "tolerance": tolerance,
+                }, _f, indent=2)
+        except OSError as _exc:
+            print(f"     warning: could not write skipped-marker metadata: {_exc}")
+        return False
+
     def load_data(self):
         print(f"Loading CSV files for {self.city_cfg['label']}...")
         # NWS file required
