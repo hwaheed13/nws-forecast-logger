@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-04-29T07:40:08.447084",
+  "trained_on": "2026-04-29T15:42:30.538864",
   "num_days": 283,
   "date_range": {
     "start": "2025-07-03",
@@ -38,7 +38,7 @@
     "rolling_ml_error_7d",
     "has_accu_data"
   ],
-  "residual_std": 1.962628020624312,
+  "residual_std": 1.963880625940214,
   "bucket_method": "gaussian_from_regression",
   "base_source": "accu_last (fallback: nws_last)",
   "model_type": "HistGradientBoostingRegressor",
@@ -70,7 +70,7 @@
   "top_features": [
     {
       "name": "day_of_year_cos",
-      "importance": 0.2669
+      "importance": 0.2668
     },
     {
       "name": "accu_std",
@@ -78,7 +78,7 @@
     },
     {
       "name": "rolling_bias_21d",
-      "importance": 0.1458
+      "importance": 0.1459
     },
     {
       "name": "accu_trend",

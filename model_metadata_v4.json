@@ -1,30 +1,30 @@
 {
-  "trained_on": "2026-04-29T07:40:49.703023",
+  "trained_on": "2026-04-29T15:45:50.905440",
   "version": "v4_observation_features",
-  "num_days": 1578,
+  "num_days": 18936,
   "date_range": {
     "start": "2022-01-02",
     "end": "2026-04-28"
   },
   "v4_regression": {
-    "cv_mae": 1.16,
-    "cv_bucket_accuracy": 0.3617,
-    "residual_std": 1.59,
+    "cv_mae": 0.91,
+    "cv_bucket_accuracy": 0.4124,
+    "residual_std": 1.31,
     "num_features": 130
   },
   "v4_classifier": {
-    "cv_bucket_accuracy": 0.2674,
-    "cv_log_loss": 0.4026,
-    "insample_bucket_accuracy": 0.2868,
-    "num_training_days": 1578,
-    "num_forecast_days": 283,
-    "num_persistence_days": 1295,
+    "cv_bucket_accuracy": 0.2544,
+    "cv_log_loss": 0.3844,
+    "insample_bucket_accuracy": 0.3348,
+    "num_training_days": 18936,
+    "num_forecast_days": 3396,
+    "num_persistence_days": 15540,
     "forecast_weight": 5.0,
-    "num_classification_rows": 13401,
+    "num_classification_rows": 160896,
     "n_candidate_buckets": 7,
     "feature_cols_used": 134,
-    "positive_rate": 0.0866,
-    "residual_std": 1.592
+    "positive_rate": 0.0867,
+    "residual_std": 1.309
   },
   "observation_features": [
     "obs_latest_temp",

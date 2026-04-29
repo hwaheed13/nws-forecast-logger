@@ -1,16 +1,16 @@
 {
-  "trained_on": "2026-04-29T07:42:20.278943",
+  "trained_on": "2026-04-29T16:04:08.644755",
   "version": "v11_model_vs_nws_divergence",
   "base_cascade": "HRRR > NBM > AccuWeather > NWS",
   "new_features": "mm_hrrr_vs_nws, mm_nbm_vs_nws, mm_mean_vs_nws",
   "motivation": "NWS is #11-16 accuracy; explicit model-vs-NWS divergence replaces implicit inference from separate mm_hrrr_max + nws_last columns",
-  "n_divergence_rows": 12,
+  "n_divergence_rows": 144,
   "v11_regression": {
-    "cv_mae": 0.8400238416487189,
-    "cv_bucket_accuracy": 0.4023809523809524,
+    "cv_mae": 0.8251022465792653,
+    "cv_bucket_accuracy": 0.40215541886857836,
     "residual_std": 2.2695417407638065,
     "n_features": 165,
-    "n_training_rows": 283
+    "n_training_rows": 3396
   },
   "feature_columns_v11": [
     "nws_first",
