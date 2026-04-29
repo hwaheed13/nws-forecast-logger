@@ -1,6 +1,6 @@
 # prediction_writer.py
 from __future__ import annotations
-import os, json, argparse, pickle, math, urllib.request
+import os, json, argparse, pickle, math, time, urllib.request
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -4872,6 +4872,49 @@ def backfill_observation_features(city_key: str = None) -> str:
     return csv_path
 
 
+def _iem_fetch_with_retry(url: str, label: str, timeout: int = 90,
+                          max_attempts: int = 4, base_backoff: float = 30.0) -> str:
+    """
+    Fetch from IEM ASOS with backoff on 429 / transient errors.
+
+    IEM rate-limits requests bursting in succession (we hit this on
+    KJFK/KLGA right after KNYC). Retry up to max_attempts with
+    exponential backoff: 30s, 60s, 120s. Returns the raw response body
+    on success or "" on permanent failure.
+    """
+    req = urllib.request.Request(url, headers={"User-Agent": "nws-forecast-logger/1.0"})
+    last_err: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as e:
+            last_err = e
+            if e.code == 429 and attempt < max_attempts:
+                wait = base_backoff * (2 ** (attempt - 1))
+                print(f"  ⚠️  {label}: HTTP 429 (rate-limited) — retry {attempt}/{max_attempts} in {wait:.0f}s")
+                time.sleep(wait)
+                continue
+            if 500 <= e.code < 600 and attempt < max_attempts:
+                wait = base_backoff
+                print(f"  ⚠️  {label}: HTTP {e.code} — retry {attempt}/{max_attempts} in {wait:.0f}s")
+                time.sleep(wait)
+                continue
+            print(f"  ⚠️  {label}: HTTP {e.code} (giving up)")
+            return ""
+        except Exception as e:
+            last_err = e
+            if attempt < max_attempts:
+                wait = base_backoff
+                print(f"  ⚠️  {label}: {e} — retry {attempt}/{max_attempts} in {wait:.0f}s")
+                time.sleep(wait)
+                continue
+            print(f"  ⚠️  {label}: {e} (giving up)")
+            return ""
+    print(f"  ⚠️  {label}: all retries exhausted ({last_err})")
+    return ""
+
+
 def backfill_obs_historical(city_key: str = None) -> str:
     """
     Pull 4+ years of KJFK, KLGA, and KNYC hourly observations from the
@@ -4932,12 +4975,8 @@ def backfill_obs_historical(city_key: str = None) -> str:
             "&format=comma&latlon=no&direct=no"
         )
         print(f"  Fetching {station} from IEM ({start_date} → {end_date})…")
-        req = urllib.request.Request(url, headers={"User-Agent": "nws-forecast-logger/1.0"})
-        try:
-            with urllib.request.urlopen(req, timeout=90) as resp:
-                raw = resp.read().decode("utf-8", errors="replace")
-        except Exception as exc:
-            print(f"  ⚠️  Failed to fetch {station}: {exc}")
+        raw = _iem_fetch_with_retry(url, label=station, timeout=90)
+        if not raw:
             return []
 
         # IEM prepends comment lines starting with '#' — strip them before parsing CSV
@@ -4987,7 +5026,9 @@ def backfill_obs_historical(city_key: str = None) -> str:
 
     # ── Fetch all three stations ───────────────────────────────────────────
     all_station_data: dict[str, list[dict]] = {}
-    for station in IEM_STATIONS:
+    for i, station in enumerate(IEM_STATIONS):
+        if i > 0:
+            time.sleep(5)  # IEM rate-limits bursts; space station fetches
         all_station_data[station] = _fetch_iem(station)
 
     if not any(all_station_data.values()):
@@ -5220,12 +5261,8 @@ def backfill_obs_historical_intraday(city_key: str = None) -> str:
             "&format=comma&latlon=no&direct=no"
         )
         print(f"  Fetching {station} from IEM ({start_date} → {end_date})…")
-        req = urllib.request.Request(url, headers={"User-Agent": "nws-forecast-logger/1.0"})
-        try:
-            with urllib.request.urlopen(req, timeout=90) as resp:
-                raw = resp.read().decode("utf-8", errors="replace")
-        except Exception as exc:
-            print(f"  ⚠️  Failed to fetch {station}: {exc}")
+        raw = _iem_fetch_with_retry(url, label=station, timeout=90)
+        if not raw:
             return []
 
         clean_lines = [ln for ln in raw.splitlines() if not ln.startswith("#")]
@@ -5268,7 +5305,9 @@ def backfill_obs_historical_intraday(city_key: str = None) -> str:
         return rows
 
     all_station_data: dict[str, list[dict]] = {}
-    for station in IEM_STATIONS:
+    for i, station in enumerate(IEM_STATIONS):
+        if i > 0:
+            time.sleep(5)  # IEM rate-limits bursts; space station fetches
         all_station_data[station] = _fetch_iem(station)
 
     if not any(all_station_data.values()):
