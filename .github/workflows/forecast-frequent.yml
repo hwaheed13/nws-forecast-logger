@@ -10,6 +10,12 @@ on:
     - cron: "*/10 0-4 * * *"   # 0:00-4:50 UTC = 7:00 PM EST - 11:50 PM EST (previous day)
     # Ensures fresh snapshot at midnight for next day's data
   workflow_dispatch: {}
+  # External trigger: GitHub schedule cron throttles `*/10` to ~hourly under
+  # repo load. Use repository_dispatch with event_type=forecast-frequent-tick
+  # from cron-job.org / Cloudflare Worker / etc. to get reliable 10-min cadence.
+  # See docs/external-triggers.md for the curl recipe.
+  repository_dispatch:
+    types: [forecast-frequent-tick]
 
 permissions:
   contents: write

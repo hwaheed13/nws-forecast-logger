@@ -62,6 +62,32 @@ def _normalize_date_col(df: pd.DataFrame, col: str):
 MIN_DAYS_FOR_TRAINING = 60  # minimum days with actual data before training is viable
 
 
+def _record_coverage(model_prefix: str, version: str, counts: dict) -> None:
+    """
+    Append per-version feature-coverage counts to {prefix}coverage_report.json.
+
+    Each --vN training invocation runs in a fresh Python process, so we
+    accumulate via the JSON file. The retrain workflow reads this file
+    after training and fails the run if any tracked feature regressed
+    from non-zero on `main` to zero in this run (e.g. the cli_date bug
+    that silently dropped v13 entrainment from 1225 → 0).
+
+    counts:  {feature_name: int_count}
+    """
+    path = f"{model_prefix}coverage_report.json"
+    try:
+        with open(path) as f:
+            report = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        report = {}
+    # Coerce to int (numpy int64 → int) so json is happy
+    report[version] = {k: int(v) for k, v in counts.items()}
+    report["_updated_at"] = datetime.utcnow().isoformat() + "Z"
+    with open(path, "w") as f:
+        json.dump(report, f, indent=2, sort_keys=True)
+    print(f"  ↳ recorded coverage[{version}] → {path}")
+
+
 class NYCTemperatureModelTrainer:
     def __init__(self, city_key: str = "nyc"):
         from city_config import get_city_config
@@ -854,8 +880,21 @@ class NYCTemperatureModelTrainer:
         url = os.environ.get("SUPABASE_URL")
         key = os.environ.get("SUPABASE_SERVICE_ROLE") or os.environ.get("SUPABASE_KEY")
         if not url or not key:
-            print("  ⚠️ Supabase creds not set — skipping snapshot training path")
-            return None
+            # Previously this returned None and silently fell back to the CSV
+            # path, which doesn't extract atm_snapshot JSONB-derived features.
+            # That meant production retrains during a creds outage would
+            # silently train on a narrower feature set than inference uses.
+            # Hard-fail instead — if the workflow doesn't have creds, the
+            # workflow is broken, not the model.
+            if os.environ.get("ALLOW_SUPABASE_FALLBACK") == "1":
+                print("  ⚠️ Supabase creds not set — ALLOW_SUPABASE_FALLBACK=1, "
+                      "skipping snapshot path (CSV-only training, narrower features)")
+                return None
+            raise RuntimeError(
+                "SUPABASE_URL / SUPABASE_SERVICE_ROLE not set. Refusing to "
+                "train silently from CSVs without atm_snapshot features. "
+                "Set ALLOW_SUPABASE_FALLBACK=1 to override."
+            )
         try:
             from supabase import create_client
             sb = create_client(url, key)
@@ -1273,31 +1312,60 @@ class NYCTemperatureModelTrainer:
         HistGradientBoosting handles NaN natively, so no data is lost.
         """
         df = self.features_df
-        nws = df["nws_last"] if "nws_last" in df.columns else None
-        if nws is None:
-            for col in ["mm_hrrr_vs_nws", "mm_nbm_vs_nws", "mm_mean_vs_nws"]:
-                df[col] = np.nan
-            self.features_df = df
-            return
-
-        if "mm_hrrr_max" in df.columns:
-            df["mm_hrrr_vs_nws"] = (df["mm_hrrr_max"] - nws).round(1)
+        # Per-target-date aggregation (same fix pattern as v13/v15):
+        # the training matrix has SPLIT rows per target_date — the forecast
+        # row holds nws_last and the multi-year/atm row holds mm_*. Row-by-row
+        # subtraction gives only ~4/273 coverage. Aggregate by target_date so
+        # nws_last from the forecast row pairs with mm_* from any other row
+        # for the same date.
+        mm_cols = [c for c in ["mm_hrrr_max", "mm_nbm_max", "mm_mean"] if c in df.columns]
+        agg_cols = mm_cols + (["nws_last"] if "nws_last" in df.columns else [])
+        if "target_date" in df.columns and agg_cols:
+            _tmp = df[["target_date", *agg_cols]].copy()
+            _tmp["target_date"] = pd.to_datetime(_tmp["target_date"], errors="coerce")
+            for _c in agg_cols:
+                _tmp[_c] = pd.to_numeric(_tmp[_c], errors="coerce")
+            mm_per_date = (
+                _tmp.dropna(subset=["target_date"])
+                .groupby("target_date", as_index=False)[agg_cols]
+                .max()
+            )
         else:
-            df["mm_hrrr_vs_nws"] = np.nan
+            mm_per_date = pd.DataFrame(columns=["target_date"])
 
-        if "mm_nbm_max" in df.columns:
-            df["mm_nbm_vs_nws"] = (df["mm_nbm_max"] - nws).round(1)
+        def _mm_lookup(value_series):
+            if mm_per_date.empty:
+                return {}
+            return {pd.Timestamp(d): v for d, v in zip(mm_per_date["target_date"], value_series)
+                    if pd.notna(v)}
+
+        df_dates = pd.to_datetime(df["target_date"], errors="coerce") if "target_date" in df.columns else None
+
+        if not mm_per_date.empty and "nws_last" in mm_per_date.columns:
+            nws_pd = mm_per_date["nws_last"]
+            for src, out in [("mm_hrrr_max", "mm_hrrr_vs_nws"),
+                             ("mm_nbm_max",  "mm_nbm_vs_nws"),
+                             ("mm_mean",     "mm_mean_vs_nws")]:
+                if src in mm_per_date.columns:
+                    diff_pd = (mm_per_date[src] - nws_pd).round(1)
+                    lookup = _mm_lookup(diff_pd)
+                    if df_dates is not None and lookup:
+                        df[out] = df_dates.map(lookup)
+                    else:
+                        df[out] = np.nan
+                else:
+                    df[out] = np.nan
         else:
-            df["mm_nbm_vs_nws"] = np.nan
+            for out in ["mm_hrrr_vs_nws", "mm_nbm_vs_nws", "mm_mean_vs_nws"]:
+                df[out] = np.nan
 
-        if "mm_mean" in df.columns:
-            df["mm_mean_vs_nws"] = (df["mm_mean"] - nws).round(1)
-        else:
-            df["mm_mean_vs_nws"] = np.nan
-
-        n_hrrr = df["mm_hrrr_vs_nws"].notna().sum()
-        n_nbm  = df["mm_nbm_vs_nws"].notna().sum()
+        n_hrrr = df["mm_hrrr_vs_nws"].notna().sum() if "mm_hrrr_vs_nws" in df.columns else 0
+        n_nbm  = df["mm_nbm_vs_nws"].notna().sum() if "mm_nbm_vs_nws" in df.columns else 0
+        n_mean = df["mm_mean_vs_nws"].notna().sum() if "mm_mean_vs_nws" in df.columns else 0
         print(f"  v11 divergence features: mm_hrrr_vs_nws={n_hrrr} rows, mm_nbm_vs_nws={n_nbm} rows")
+        _record_coverage(self.model_prefix, "v11", {
+            "mm_hrrr_vs_nws": n_hrrr, "mm_nbm_vs_nws": n_nbm, "mm_mean_vs_nws": n_mean,
+        })
         self.features_df = df
 
     def _compute_bl_safeguard_features(self) -> None:
@@ -1421,6 +1489,11 @@ class NYCTemperatureModelTrainer:
         n_inland = df["inland_strength"].notna().sum()
         print(f"  v13 BL safeguard features: entrainment={n_entrainment} rows, "
               f"marine_containment={n_marine} rows, inland_strength={n_inland} rows")
+        _record_coverage(self.model_prefix, "v13", {
+            "entrainment_temp_diff": n_entrainment,
+            "marine_containment": n_marine,
+            "inland_strength": n_inland,
+        })
         self.features_df = df
 
 
@@ -3615,6 +3688,11 @@ class NYCTemperatureModelTrainer:
         n_lfs = df["late_falling_signal"].notna().sum()
         n_msl = df["mm_spread_late"].notna().sum()
         print(f"  v14 blind-spot coverage: h2c={n_h2c}, pg={n_pg}, lobp={n_lobp}, lfs={n_lfs}, msl={n_msl}")
+        _record_coverage(self.model_prefix, "v14", {
+            "hours_to_close": n_h2c, "peak_to_hrrr_gap": n_pg,
+            "late_obs_below_pred": n_lobp, "late_falling_signal": n_lfs,
+            "morning_signal_late": n_msl,
+        })
         self.features_df = df
 
     def _compute_v15_features(self) -> None:
@@ -3758,6 +3836,10 @@ class NYCTemperatureModelTrainer:
         n_r3 = df["rolling_3day_bias"].notna().sum()
         print(f"  v15 morning/autoreg coverage: revision={n_fr}, cap={n_cap}, "
               f"yesterday={n_ysm}, rolling3={n_r3} (today_realized_error: inference-only)")
+        _record_coverage(self.model_prefix, "v15", {
+            "forecast_revision": n_fr, "cap_violation_925": n_cap,
+            "yesterday_signed_miss": n_ysm, "rolling_3day_bias": n_r3,
+        })
         self.features_df = df
 
     def train_v15(self) -> None:
