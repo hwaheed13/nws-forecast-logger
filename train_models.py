@@ -3294,11 +3294,16 @@ class NYCTemperatureModelTrainer:
         # Airtight gate: v11's model-vs-NWS divergence features need
         # populated multi-model data (HRRR/NBM/etc.). Sparse coverage
         # of mm_*_vs_nws drives the same overfit pattern as v13/v15.
+        # v11 features come from prediction_logs.atm_snapshot, populated only
+        # since live-multimodel capture began (~144 days). Lower threshold to
+        # 100 — populated-and-real on 144 rows is far better than NaN-on-95%.
+        # Cap will lift naturally as calendar fills, or via NOMADS HRRR archive
+        # backfill (deferred — heavy multi-day project).
         gated = self._gate_and_filter_for_version(
             "v11",
             ["mm_hrrr_vs_nws", "mm_mean_vs_nws"],
             forecast_df,
-            min_rows=500,
+            min_rows=100,
         )
         if gated is None:
             return
@@ -4026,12 +4031,15 @@ class NYCTemperatureModelTrainer:
 
         forecast_df = self.features_df[self.features_df["nws_last"].notna()].copy()
 
-        # Airtight gate: v15's autoreg/cap features must have enough populated rows.
-        # cap_violation_925 is the binding constraint (depends on 925mb GFS coverage).
+        # Airtight gate: v15's autoreg features must have enough populated rows.
+        # cap_violation_925 was previously the binding constraint (only 144 rows
+        # — needs 925mb GFS coverage which we only started capturing recently).
+        # Dropped from the gate: HistGradientBoosting handles its NaN natively,
+        # and the other 3 autoreg features carry the load (3300+ rows each).
+        # When 925mb data accumulates, cap_violation_925 starts firing organically.
         gated = self._gate_and_filter_for_version(
             "v15",
-            ["cap_violation_925", "forecast_revision",
-             "yesterday_signed_miss", "rolling_3day_bias"],
+            ["forecast_revision", "yesterday_signed_miss", "rolling_3day_bias"],
             forecast_df,
             min_rows=500,
         )
