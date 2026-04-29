@@ -41,9 +41,9 @@ def main() -> int:
     cutoff_7d = (now - timedelta(days=7)).date().isoformat()
     cutoff_14d = (now - timedelta(days=14)).date().isoformat()
 
-    # 1) recent rows
+    # 1) recent rows — ALL writes (catches "data pipeline broken" if zero)
     resp = (sb.table("prediction_logs")
-            .select("target_date,atm_snapshot,ml_actual_high")
+            .select("target_date,atm_snapshot,ml_actual_high,is_canonical")
             .gte("target_date", cutoff_7d)
             .execute())
     rows = resp.data or []
@@ -52,19 +52,28 @@ def main() -> int:
     else:
         print(f"✓ prediction_logs: {len(rows)} rows in last 7 days")
 
-    # 2) atm_snapshot coverage
-    if rows:
-        with_snap = sum(1 for r in rows if r.get("atm_snapshot") is not None)
-        pct = with_snap / len(rows)
+    # 2) atm_snapshot coverage — only canonical rows train the model.
+    # Non-canonical rows (intraday refreshes, overnight updates) are
+    # writes from forecast-frequent and don't carry the full snapshot
+    # blob, by design. Threshold against canonical only.
+    canonical_rows = [r for r in rows if r.get("is_canonical")]
+    if canonical_rows:
+        with_snap = sum(1 for r in canonical_rows if r.get("atm_snapshot") is not None)
+        pct = with_snap / len(canonical_rows)
         if pct < 0.80:
-            failures.append(f"prediction_logs.atm_snapshot: only {with_snap}/{len(rows)} "
-                            f"({pct:.0%}) of last-7d rows have snapshots (expected ≥80%)")
+            failures.append(f"prediction_logs.atm_snapshot: only {with_snap}/{len(canonical_rows)} "
+                            f"({pct:.0%}) of last-7d CANONICAL rows have snapshots (expected ≥80%)")
         else:
-            print(f"✓ atm_snapshot present on {with_snap}/{len(rows)} ({pct:.0%}) recent rows")
+            print(f"✓ atm_snapshot present on {with_snap}/{len(canonical_rows)} "
+                  f"({pct:.0%}) canonical rows in last 7d")
+    else:
+        # No canonical rows in last 7d is itself a problem
+        failures.append("prediction_logs: 0 canonical rows in last 7d "
+                        "(canonical 7am write may be broken)")
 
     # 3) scored days
     resp14 = (sb.table("prediction_logs")
-              .select("target_date,ml_actual_high")
+              .select("target_date,ml_actual_high,atm_snapshot,is_canonical")
               .gte("target_date", cutoff_14d)
               .not_.is_("ml_actual_high", "null")
               .execute())
