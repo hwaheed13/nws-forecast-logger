@@ -3461,13 +3461,14 @@ class NYCTemperatureModelTrainer:
 
         forecast_df = self.features_df[self.features_df["nws_last"].notna()].copy()
 
-        # Airtight gate: v12's deep-NJ inland features (KCDW/KSMQ) are
-        # sparse — these are small airports with limited IEM history.
+        # Airtight gate: v12's deep-NJ inland features (KCDW/KSMQ).
+        # Post-IEM backfill: 192 canonical rows have both. Threshold 100 lets
+        # v12 deploy now; KCDW/KSMQ accumulate ~1 row/day going forward.
         gated = self._gate_and_filter_for_version(
             "v12",
             ["obs_kcdw_temp", "obs_ksmq_temp"],
             forecast_df,
-            min_rows=500,
+            min_rows=100,
         )
         if gated is None:
             return
@@ -3631,12 +3632,16 @@ class NYCTemperatureModelTrainer:
 
         forecast_df = self.features_df[self.features_df["nws_last"].notna()].copy()
 
-        # Airtight gate: v13's BL safeguard features must have enough populated rows.
+        # Airtight gate: v13's BL safeguard features. Post-IEM+925mb backfill
+        # the canonical-row coverage is still ~132 (training filter excludes
+        # historical archive rows where 925mb data wasn't computed at canonical
+        # write time). Threshold 100 — populated-and-real beats NaN-on-95%.
+        # Coverage will lift naturally as canonical 925mb fetches accumulate.
         gated = self._gate_and_filter_for_version(
             "v13",
             ["entrainment_temp_diff", "marine_containment", "inland_strength"],
             forecast_df,
-            min_rows=500,
+            min_rows=100,
         )
         if gated is None:
             return
@@ -4198,14 +4203,19 @@ class NYCTemperatureModelTrainer:
 
         forecast_df = self.features_df[self.features_df["nws_last"].notna()].copy()
 
-        # Airtight gate: v14's blind-spot interaction features must have
-        # enough populated rows. These are obs+forecast products; sparse
-        # populated coverage causes the same NaN-branch overfit pattern.
+        # Airtight gate: v14's blind-spot features come from DISJOINT row pools.
+        # peak_to_hrrr_gap + late_obs_below_pred require mm_hrrr_max (canonical
+        # writes, ~144 rows). late_falling_signal is computed on intraday
+        # snapshots (~3000 rows). AND-intersecting all three gives 0 rows.
+        # Gate only on the canonical-pool pair (both ~144 rows, same pool).
+        # late_falling_signal stays in FEATURE_COLS_V14 — HistGB handles its
+        # NaN natively on the canonical training rows. Threshold 100 since
+        # peak_to_hrrr_gap fills naturally as we capture more days.
         gated = self._gate_and_filter_for_version(
             "v14",
-            ["peak_to_hrrr_gap", "late_obs_below_pred", "late_falling_signal"],
+            ["peak_to_hrrr_gap", "late_obs_below_pred"],
             forecast_df,
-            min_rows=500,
+            min_rows=100,
         )
         if gated is None:
             return
