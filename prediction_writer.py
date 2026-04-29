@@ -3274,6 +3274,33 @@ def _compute_ml_prediction(
                 if _mm_mean is not None and not (isinstance(_mm_mean, float) and math.isnan(_mm_mean)):
                     v2_features["mm_mean_vs_nws"] = round(float(_mm_mean) - float(_nws_ref), 1)
 
+            # v11 part 2: model-vs-model divergence (4yr-anchored).
+            # The NWS-anchored features above cap at ~144 rows of training history
+            # because the NWS forecast log only goes back ~10 months. The v11 gate
+            # was switched to anchor on mm_hrrr_vs_gfs (4+ years populated via
+            # backfill_multimodel_history.py). At inference time these are already
+            # available as same-snapshot diffs from open_meteo_client — just alias:
+            #   mm_hrrr_vs_gfs   = HRRR - GFS   = mm_hrrr_gfs_diff   (same sign)
+            #   mm_hrrr_vs_ecmwf = HRRR - ECMWF = mm_hrrr_ecmwf_diff (same sign)
+            #   mm_hrrr_vs_nbm   = HRRR - NBM   = -mm_nbm_hrrr_diff  (sign flip)
+            def _v(k):
+                x = v2_features.get(k)
+                if x is None:
+                    return None
+                if isinstance(x, float) and math.isnan(x):
+                    return None
+                return float(x)
+
+            _hg = _v("mm_hrrr_gfs_diff")
+            if _hg is not None:
+                v2_features["mm_hrrr_vs_gfs"] = round(_hg, 1)
+            _he = _v("mm_hrrr_ecmwf_diff")
+            if _he is not None:
+                v2_features["mm_hrrr_vs_ecmwf"] = round(_he, 1)
+            _nh = _v("mm_nbm_hrrr_diff")
+            if _nh is not None:
+                v2_features["mm_hrrr_vs_nbm"] = round(-_nh, 1)
+
             # v13: derive BL safeguard features BEFORE building X_v2.
             # These guard against BL-triggered reductions when atmospheric state doesn't align.
             # entrainment_temp_diff = 925mb - obs_latest_temp (negative = cool aloft)
