@@ -32,6 +32,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install numpy==1.24.3 pandas==2.2.3 scikit-learn==1.3.0 requests beautifulsoup4 pytz supabase python-dotenv
 
+      # PREFLIGHT: hard-fail before training if the Supabase schema doesn't
+      # match what the trainer/inference expect. Caught the actual_high
+      # phantom-column bug after PR #29; should have been there from day 1.
+      - name: Verify Supabase schema (preflight)
+        run: python verify_supabase_schema.py
+
       - name: Backfill atmospheric data through yesterday
         run: |
           YESTERDAY=$(date -u -d "yesterday" +%Y-%m-%d 2>/dev/null || date -u -v-1d +%Y-%m-%d)
@@ -72,6 +78,13 @@ jobs:
         run: |
           python backfill_synoptic.py --days 7
         continue-on-error: true
+
+      # GATE: every backfill above is continue-on-error, which means a
+      # silent 500 or 0-row return passes. Verify the resulting Supabase
+      # state actually has plausible data before we commit ~30min of
+      # training compute. NOT continue-on-error — fail fast.
+      - name: Verify backfill health
+        run: python verify_backfill_health.py
 
       - name: Run model training (v1 + v2 + v4 + v5 + v6 + v7 + v8)
         run: |
@@ -118,6 +131,12 @@ jobs:
           python train_models.py --all --v15
         continue-on-error: true  # graceful skip until features accumulate
 
+      # POSTFLIGHT: fail loudly if any tracked feature regressed from
+      # non-zero on main to zero in this run (the cli_date bug pattern).
+      # NOT continue-on-error: regressions block the commit.
+      - name: Coverage regression guard
+        run: python check_coverage_regression.py
+
       - name: Show training results
         run: |
           for meta in model_metadata*.json lax_model_metadata*.json; do
@@ -134,7 +153,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add *.pkl *model_metadata*.json *multiyear_atmospheric.csv \
+          git add *.pkl *model_metadata*.json *coverage_report.json *multiyear_atmospheric.csv \
                   *observation_data.csv *atmospheric_data.csv *high_timing_data.csv 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "No model changes to commit"
