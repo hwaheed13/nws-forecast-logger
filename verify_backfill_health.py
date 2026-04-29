@@ -52,24 +52,21 @@ def main() -> int:
     else:
         print(f"✓ prediction_logs: {len(rows)} rows in last 7 days")
 
-    # 2) atm_snapshot coverage — only canonical rows train the model.
-    # Non-canonical rows (intraday refreshes, overnight updates) are
-    # writes from forecast-frequent and don't carry the full snapshot
-    # blob, by design. Threshold against canonical only.
-    canonical_rows = [r for r in rows if r.get("is_canonical")]
-    if canonical_rows:
-        with_snap = sum(1 for r in canonical_rows if r.get("atm_snapshot") is not None)
-        pct = with_snap / len(canonical_rows)
-        if pct < 0.80:
-            failures.append(f"prediction_logs.atm_snapshot: only {with_snap}/{len(canonical_rows)} "
-                            f"({pct:.0%}) of last-7d CANONICAL rows have snapshots (expected ≥80%)")
-        else:
-            print(f"✓ atm_snapshot present on {with_snap}/{len(canonical_rows)} "
-                  f"({pct:.0%}) canonical rows in last 7d")
+    # 2) atm_snapshot presence — the actual signal that matters.
+    # A row is trainable iff it has atm_snapshot. The is_canonical column
+    # is unreliable as a proxy (not backfilled on older rows, returns falsy
+    # via r.get() even when canonical writes happened). Count snapshot
+    # presence directly: expect ~4 canonical writes/day × 2 cities × 7 days
+    # ≈ 56 rows with snapshot in last 7d. Floor at 30 to allow for outages.
+    with_snap = sum(1 for r in rows if r.get("atm_snapshot") is not None)
+    MIN_SNAP_ROWS_7D = 30
+    if with_snap < MIN_SNAP_ROWS_7D:
+        failures.append(
+            f"prediction_logs.atm_snapshot: only {with_snap} rows with snapshot in last 7d "
+            f"(expected ≥{MIN_SNAP_ROWS_7D} — canonical write or atm_snapshot persist may be broken)"
+        )
     else:
-        # No canonical rows in last 7d is itself a problem
-        failures.append("prediction_logs: 0 canonical rows in last 7d "
-                        "(canonical 7am write may be broken)")
+        print(f"✓ atm_snapshot present on {with_snap} rows in last 7d (≥{MIN_SNAP_ROWS_7D})")
 
     # 3) scored days
     resp14 = (sb.table("prediction_logs")
