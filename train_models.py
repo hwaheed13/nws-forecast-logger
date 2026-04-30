@@ -205,16 +205,25 @@ class NYCTemperatureModelTrainer:
         version: str,
         new_cv_mae: float,
         prior_version: str,
-        tolerance: float = 0.05,
+        tolerance: float = 0.50,
     ) -> bool:
         """Post-training quality check: if the just-trained model is more
-        than `tolerance` (5% default) WORSE than the prior version's CV MAE,
+        than `tolerance` (50% default) WORSE than the prior version's CV MAE,
         delete its .pkl files and write a skipped-marker so the cascade
         falls back. Returns True if quality OK, False if rolled back.
 
-        Without this, the coverage gate alone can't distinguish "thin but
-        better" from "thin and worse than fallback." A 144-row v14 with
-        cv_mae=2.5 should not displace a v10 with cv_mae=1.8.
+        Tolerance is intentionally loose (50%, not 5%) because each version
+        trains on a DIFFERENT row pool — v12 on KCDW/KSMQ-populated rows,
+        v13 on BL-feature rows, etc. CV MAE on different pools is not
+        directly comparable. The gate's purpose is catching catastrophic
+        regressions (e.g. cv_mae 0.8 → 3.5), not ranking versions.
+        For a same-pool comparison we'd need to evaluate every version on
+        a common holdout set, which would require running CV folds at
+        meta-level — deferred.
+
+        Without this gate, the coverage filter alone can't distinguish
+        "thin but better" from "thin and broken" — a 144-row v14 with
+        cv_mae=10 should not displace a v10 with cv_mae=1.8.
         """
         import json as _json
         import os as _os
