@@ -815,6 +815,54 @@ def _load_v10_models():
     )
 
 
+def _load_v16_models():
+    """Load v16 models: bcp_v16 regressor + classifier + feature cols (cached).
+    v16 = UNIFIED. Trained on every labeled row (4yr multiyear + NWS-log +
+    intraday) on the full FEATURE_COLS_V16 superset, predicting actual_high
+    DIRECTLY (no bias-from-reference indirection). One model. Replaces the
+    v1→v15 cascade.
+    """
+    import nws_auto_logger as _nal
+    prefix = _nal._CITY_CFG.get("model_prefix", "")
+    cache_key = f"{prefix}v16_regressor"
+    if cache_key not in _ML_MODEL_CACHE:
+        _ML_MODEL_CACHE[cache_key] = None
+        _ML_MODEL_CACHE[f"{prefix}v16_classifier"] = None
+        _ML_MODEL_CACHE[f"{prefix}v16_feature_cols"] = None
+
+        try:
+            with open(f"{prefix}bcp_v16_regressor.pkl", "rb") as f:
+                _ML_MODEL_CACHE[cache_key] = pickle.load(f)
+            print(f"✅ Loaded v16 regression model [unified] (prefix='{prefix}')")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            print(f"⚠️ v16 regression load error: {e}")
+
+        try:
+            from train_classifier import BucketClassifier
+            if os.path.exists(f"{prefix}bcp_v16_classifier.pkl"):
+                _ML_MODEL_CACHE[f"{prefix}v16_classifier"] = BucketClassifier.load(
+                    f"{prefix}bcp_v16_classifier.pkl"
+                )
+                print(f"✅ Loaded v16 bucket classifier (prefix='{prefix}')")
+        except Exception as e:
+            print(f"⚠️ v16 classifier load error: {e}")
+
+        try:
+            if os.path.exists(f"{prefix}bcp_v16_feature_cols.pkl"):
+                with open(f"{prefix}bcp_v16_feature_cols.pkl", "rb") as f:
+                    _ML_MODEL_CACHE[f"{prefix}v16_feature_cols"] = pickle.load(f)
+        except Exception as e:
+            print(f"⚠️ v16 feature cols load error: {e}")
+
+    return (
+        _ML_MODEL_CACHE.get(cache_key),
+        _ML_MODEL_CACHE.get(f"{prefix}v16_classifier"),
+        _ML_MODEL_CACHE.get(f"{prefix}v16_feature_cols"),
+    )
+
+
 def _load_v15_models():
     """Load v15 models: bcp_v15 regressor + classifier + feature cols (cached).
     v15 = v14 (176 features) + 5 morning/autoregressive features (181 total):
@@ -2817,6 +2865,7 @@ def _compute_ml_prediction(
     # v5: AccuWeather/NWS base + high-timing features (122 features)
     # v4+: older architectures (backward compat)
     v15_regressor, v15_classifier, v15_feature_cols = _load_v15_models()
+    v16_regressor, v16_classifier, v16_feature_cols = _load_v16_models()
     v14_regressor, v14_classifier, v14_feature_cols = _load_v14_models()
     v13_regressor, v13_classifier, v13_feature_cols = _load_v13_models()
     v11_regressor, v11_classifier, v11_feature_cols = _load_v11_models()
@@ -2838,6 +2887,9 @@ def _compute_ml_prediction(
     _pin_raw = os.environ.get("PREDICTION_MODEL_VERSION", "").strip().lower()
     _pin = _pin_raw if _pin_raw and _pin_raw != "bcp_v1" else None
     _loadable = {
+        "bcp_v16": (v16_regressor is not None
+                    and v16_classifier is not None
+                    and v16_feature_cols is not None),
         "bcp_v15": v15_classifier is not None and v15_feature_cols is not None,
         "bcp_v14": v14_classifier is not None and v14_feature_cols is not None,
         "bcp_v13": v13_classifier is not None and v13_feature_cols is not None,
@@ -2869,19 +2921,25 @@ def _compute_ml_prediction(
             return (version == _pin) and loaded
         return loaded
 
-    use_v15 = _ok("bcp_v15", _loadable["bcp_v15"])
-    use_v14 = not use_v15 and _ok("bcp_v14", _loadable["bcp_v14"])
-    use_v13 = not use_v15 and not use_v14 and _ok("bcp_v13", _loadable["bcp_v13"])
-    use_v11 = not use_v15 and not use_v14 and not use_v13 and _ok("bcp_v11", _loadable["bcp_v11"])
-    use_v10 = not use_v15 and not use_v14 and not use_v13 and not use_v11 and _ok("bcp_v10", _loadable["bcp_v10"])
-    use_v9  = not use_v15 and not use_v14 and not use_v13 and not use_v11 and not use_v10 and _ok("bcp_v9",  _loadable["bcp_v9"])
-    use_v8  = not use_v15 and not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and _ok("bcp_v8", _loadable["bcp_v8"])
-    use_v7  = not use_v15 and not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and _ok("bcp_v7", _loadable["bcp_v7"])
-    use_v6  = not use_v15 and not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and _ok("bcp_v6", _loadable["bcp_v6"])
-    use_v5  = not use_v15 and not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and not use_v6 and _ok("bcp_v5", _loadable["bcp_v5"])
-    use_v4  = not use_v15 and not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and not use_v6 and not use_v5 and _ok("bcp_v4", _loadable["bcp_v4"])
+    use_v16 = _ok("bcp_v16", _loadable["bcp_v16"])
+    use_v15 = not use_v16 and _ok("bcp_v15", _loadable["bcp_v15"])
+    use_v14 = not use_v16 and not use_v15 and _ok("bcp_v14", _loadable["bcp_v14"])
+    use_v13 = not use_v16 and not use_v15 and not use_v14 and _ok("bcp_v13", _loadable["bcp_v13"])
+    use_v11 = not use_v16 and not use_v15 and not use_v14 and not use_v13 and _ok("bcp_v11", _loadable["bcp_v11"])
+    use_v10 = not use_v16 and not use_v15 and not use_v14 and not use_v13 and not use_v11 and _ok("bcp_v10", _loadable["bcp_v10"])
+    use_v9  = not use_v16 and not use_v15 and not use_v14 and not use_v13 and not use_v11 and not use_v10 and _ok("bcp_v9",  _loadable["bcp_v9"])
+    use_v8  = not use_v16 and not use_v15 and not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and _ok("bcp_v8", _loadable["bcp_v8"])
+    use_v7  = not use_v16 and not use_v15 and not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and _ok("bcp_v7", _loadable["bcp_v7"])
+    use_v6  = not use_v16 and not use_v15 and not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and _ok("bcp_v6", _loadable["bcp_v6"])
+    use_v5  = not use_v16 and not use_v15 and not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and not use_v6 and _ok("bcp_v5", _loadable["bcp_v5"])
+    use_v4  = not use_v16 and not use_v15 and not use_v14 and not use_v13 and not use_v11 and not use_v10 and not use_v9 and not use_v8 and not use_v7 and not use_v6 and not use_v5 and _ok("bcp_v4", _loadable["bcp_v4"])
 
-    if use_v15:
+    if use_v16:
+        active_classifier = v16_classifier  # may be None — handled in pred path
+        active_regressor  = v16_regressor
+        active_feature_cols = v16_feature_cols
+        active_version = "v16_unified"
+    elif use_v15:
         active_classifier = v15_classifier
         active_regressor  = v15_regressor
         active_feature_cols = v15_feature_cols
@@ -2946,7 +3004,7 @@ def _compute_ml_prediction(
         active_feature_cols = FEATURE_COLS_V2
         active_version = "v2_atm_classifier"
 
-    active_bucket_info = v4_bucket_info if (use_v15 or use_v14 or use_v13 or use_v11 or use_v10 or use_v9 or use_v8 or use_v7 or use_v6 or use_v5 or use_v4) else v2_bucket_info
+    active_bucket_info = v4_bucket_info if (use_v16 or use_v15 or use_v14 or use_v13 or use_v11 or use_v10 or use_v9 or use_v8 or use_v7 or use_v6 or use_v5 or use_v4) else v2_bucket_info
 
     # One-line provenance log per prediction cycle (per city, per lead).
     # Captures both regressor and classifier types so incomplete retrains
@@ -3591,7 +3649,22 @@ def _compute_ml_prediction(
             _nbm_base  = _valid_temp(v2_features.get("mm_nbm_max"))
 
             _use_hrrr_anchor = (use_v8 or use_v7) and active_regressor is not None
-            if _use_hrrr_anchor and _hrrr_base is not None:
+
+            if use_v16 and active_regressor is not None:
+                # TIER 0 (v16 UNIFIED): regressor predicts actual_high directly.
+                # No anchor + bias indirection. The model has learned to weight
+                # HRRR/NBM/obs/cap/season/autoreg internally across 4yr of data.
+                v2_temp = float(active_regressor.predict(X_v2)[0])
+                _hrrr_note = (f" | HRRR={_hrrr_base:.0f}" if _hrrr_base is not None else "")
+                _nbm_note  = (f" | NBM={_nbm_base:.0f}"  if _nbm_base  is not None else "")
+                _atm_note  = (f" | atm={float(atm_pred_val):.1f}" if has_atm else "")
+                _nws_v = v2_features.get("nws_last")
+                _nws_note = (f" | NWS={float(_nws_v):.0f}" if _nws_v is not None
+                             and not (isinstance(_nws_v, float) and math.isnan(_nws_v)) else "")
+                print(f"   Center temp: {v2_temp:.1f}°F "
+                      f"({active_version}: direct prediction){_hrrr_note}{_nbm_note}{_nws_note}{_atm_note}")
+
+            elif _use_hrrr_anchor and _hrrr_base is not None:
                 # TIER 1 (v7/v8): HRRR anchor + regressor bias correction
                 # v7/v8 regressor trained on y_bias = actual - HRRR_max.
                 _bias = float(active_regressor.predict(X_v2)[0])

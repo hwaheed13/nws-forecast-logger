@@ -4488,7 +4488,204 @@ class NYCTemperatureModelTrainer:
         except Exception:
             pass
 
-    def run(self, v2: bool = False, v4: bool = False, v5: bool = False, v6: bool = False, v7: bool = False, v8: bool = False, v9: bool = False, v10: bool = False, v11: bool = False, v12: bool = False, v13: bool = False, v14: bool = False, v15: bool = False):
+    def train_v16(self) -> None:
+        """
+        Train v16 — UNIFIED model. ONE model, ALL data, ALL features.
+
+        The moat:
+          v1→v15 is a cascade — each layer trains on a different sparse
+          row pool (v15 only sees rows where nws_last is populated, which
+          is ~10 months of NWS-log data). The 4-year multiyear historical
+          rows have no NWS forecast and are silently dropped from every
+          v11+ training.
+
+          v16 throws away the cascade premise. Train on EVERY row where
+          actual_high is known — that's the full multiyear corpus PLUS
+          the NWS-log window PLUS every intraday snapshot we have logged.
+          Predict actual_high directly (no bias-from-reference indirection,
+          since not every row has a reference). HistGradientBoosting handles
+          missing features per-row natively, so a row missing NWS, missing
+          NBM, or missing 925mb cap data still contributes whatever signal
+          it has.
+
+          That gives v16 ~4 years of (features → actual_high) pairs across
+          every regime we've ever seen. It learns:
+            • day-after-day from new actuals
+            • early in the day from intraday obs snapshots
+            • the conjunction of HRRR + obs + cap + season → tomorrow's high
+
+          One model. Trained nightly on everything. Ship it.
+        """
+        from model_config import FEATURE_COLS_V16
+        from train_classifier import BucketClassifier
+        from sklearn.ensemble import HistGradientBoostingRegressor
+        from sklearn.model_selection import cross_val_score
+        import numpy as np
+
+        print(f"\n{'═'*60}")
+        print(f"v16 Training: UNIFIED — all labeled rows, {len(FEATURE_COLS_V16)} features")
+        print(f"{'═'*60}")
+
+        # Make sure every derived feature column exists across full df
+        # (these are idempotent — they fill where data is present, NaN where not)
+        self._compute_bl_safeguard_features()
+        self._compute_model_vs_nws_features()
+        self._compute_blind_spot_features()
+        self._compute_v15_features()
+
+        if self.features_df.empty:
+            print("  ⚠️ No feature data — skipping v16.")
+            return
+
+        prefix = self.model_prefix
+
+        # Ensure all v16 columns exist (NaN-fill if missing — HistGB handles it)
+        missing = [c for c in FEATURE_COLS_V16 if c not in self.features_df.columns]
+        if missing:
+            print(f"  Missing cols (NaN-filled): {missing}")
+            for col in missing:
+                self.features_df[col] = np.nan
+
+        # The unification: ALL labeled rows. Not "rows with NWS forecast" —
+        # every row where we know what the high actually was.
+        train_df = self.features_df[self.features_df["actual_high"].notna()].copy()
+        n_total = len(train_df)
+        print(f"  Training pool: {n_total} labeled rows "
+              f"(vs v15's {self.features_df['nws_last'].notna().sum()} NWS-anchored rows)")
+
+        if n_total < 100:
+            print(f"  ⚠️ Only {n_total} labeled rows (need 100+). Skipping v16.")
+            return
+
+        # Per-row feature populations diagnostic
+        print(f"  Feature coverage on training pool:")
+        key_cols = ["nws_last", "predicted_high_hrrr", "mm_hrrr_max",
+                    "mm_gfs_max", "mm_ecmwf_max", "yesterday_signed_miss",
+                    "rolling_3day_bias", "obs_max_so_far"]
+        for col in key_cols:
+            if col in train_df.columns:
+                n = train_df[col].notna().sum()
+                print(f"    {col:30s} {n:5d}/{n_total} ({100*n/n_total:.0f}%)")
+
+        X        = train_df[FEATURE_COLS_V16]
+        y_actual = train_df["actual_high"].astype(float)
+
+        v16_regressor = HistGradientBoostingRegressor(
+            max_iter=500, learning_rate=0.04, max_depth=5,
+            min_samples_leaf=8, l2_regularization=0.3,
+            random_state=42,
+        )
+
+        mae_scores = -cross_val_score(
+            v16_regressor, X, y_actual, cv=5, scoring="neg_mean_absolute_error"
+        )
+        bucket_acc = cross_val_score(
+            v16_regressor, X, y_actual, cv=5,
+            scoring=lambda est, X_, y_: float(np.mean(np.abs(est.predict(X_) - y_) <= 1)),
+        )
+        residual_std = float(np.std(y_actual - y_actual.mean()))
+
+        print(f"  v16 CV MAE:        {np.mean(mae_scores):.2f}°F")
+        print(f"  v16 CV Bucket Acc: {np.mean(bucket_acc):.1%}")
+        print(f"  v16 Target Std:    {residual_std:.2f}°F")
+        v16_regressor.fit(X, y_actual)
+
+        # Top-15 feature importances for transparency
+        try:
+            fi_pairs = sorted(
+                zip(FEATURE_COLS_V16, v16_regressor.feature_importances_),
+                key=lambda kv: -kv[1],
+            )[:15]
+            print(f"\n  Top 15 feature importances:")
+            for name, imp in fi_pairs:
+                print(f"    {name:35s} {imp:.4f}")
+        except Exception as e:
+            print(f"  (couldn't extract importances: {e})")
+            fi_pairs = []
+
+        # Bucket classifier — same target (actual_high), trained on the
+        # same unified pool. It still expects a "reference forecast" to
+        # bucket against; pass nws_last where available, else persistence.
+        cls_train_df = train_df.copy().reset_index(drop=True)
+        # BucketClassifier reads "nws_last" off rows internally; fill any
+        # NaN nws_last with persistence (prev day high) so every row buckets.
+        if "nws_last" not in cls_train_df.columns:
+            cls_train_df["nws_last"] = np.nan
+        if "_persistence_ref" not in cls_train_df.columns:
+            cls_train_df["_persistence_ref"] = np.nan
+        cls_train_df["nws_last"] = cls_train_df["nws_last"].where(
+            cls_train_df["nws_last"].notna(), cls_train_df.get("_persistence_ref", np.nan)
+        )
+
+        classifier = BucketClassifier()
+        try:
+            classifier.train(
+                cls_train_df,
+                feature_cols=FEATURE_COLS_V16,
+                residual_std=residual_std,
+                forecast_weight=5.0,
+            )
+        except Exception as e:
+            print(f"  ⚠️ Classifier training failed: {e} — saving regressor-only.")
+            classifier = None
+
+        with open(f"{prefix}bcp_v16_regressor.pkl", "wb") as f:
+            pickle.dump(v16_regressor, f)
+        if classifier is not None:
+            with open(f"{prefix}bcp_v16_classifier.pkl", "wb") as f:
+                pickle.dump(classifier, f)
+        with open(f"{prefix}bcp_v16_feature_cols.pkl", "wb") as f:
+            pickle.dump(list(FEATURE_COLS_V16), f)
+
+        v16_meta = {
+            "trained_on": datetime.now().isoformat(),
+            "version": "v16_unified",
+            "design": "ONE model, ALL labeled rows, ALL features, predicts actual_high directly",
+            "training_pool": "every row where actual_high is known (multiyear + NWS-log + intraday)",
+            "target": "actual_high (no bias indirection)",
+            "model": "HistGradientBoostingRegressor — handles per-row missing features natively",
+            "v16_regression": {
+                "cv_mae": float(np.mean(mae_scores)),
+                "cv_bucket_accuracy": float(np.mean(bucket_acc)),
+                "target_std": residual_std,
+                "n_features": len(FEATURE_COLS_V16),
+                "n_training_rows": n_total,
+            },
+            "feature_columns_v16": list(FEATURE_COLS_V16),
+            "top_feature_importances": [
+                {"feature": n, "importance": float(i)} for n, i in fi_pairs
+            ],
+        }
+        import json as _json
+        with open(f"{prefix}model_metadata_v16.json", "w") as f:
+            _json.dump(v16_meta, f, indent=2)
+
+        print(f"\n  ✅ Saved v16 models: bcp_v16_regressor.pkl"
+              f"{', bcp_v16_classifier.pkl' if classifier is not None else ''}")
+        if classifier is not None:
+            print(f"  v16 Classifier Bucket Acc: {classifier.cv_bucket_accuracy:.1%}")
+
+        # Quality gate vs v15 — v16 predicts actual_high directly,
+        # but v15 predicts bias on a different (smaller, NWS-only) pool;
+        # MAE comparison is approximate but still informative.
+        self._quality_gate_or_skip("v16", float(np.mean(mae_scores)), "v15")
+
+        try:
+            import json as _j
+            with open(f"{prefix}model_metadata_v15.json") as f:
+                v15_meta = _j.load(f)
+            v15_mae = v15_meta.get("v15_regression", {}).get("cv_mae")
+            v15_bkt = v15_meta.get("v15_regression", {}).get("cv_bucket_accuracy")
+            print(f"\n{'─'*50}")
+            print(f"COMPARISON: v15 (cascade-final) vs v16 (unified)")
+            if v15_mae: print(f"  MAE:        v15={v15_mae:.2f}°F → v16={np.mean(mae_scores):.2f}°F")
+            if v15_bkt: print(f"  Bucket Acc: v15={v15_bkt:.1%} → v16={np.mean(bucket_acc):.1%}")
+            print(f"  Pool size:  v15={v15_meta.get('v15_regression', {}).get('n_training_rows')} → v16={n_total}")
+            print(f"{'─'*50}")
+        except Exception:
+            pass
+
+    def run(self, v2: bool = False, v4: bool = False, v5: bool = False, v6: bool = False, v7: bool = False, v8: bool = False, v9: bool = False, v10: bool = False, v11: bool = False, v12: bool = False, v13: bool = False, v14: bool = False, v15: bool = False, v16: bool = False):
         label = self.city_cfg["label"]
         print("=" * 60)
         print(f"{label} Temperature Model Training")
@@ -4726,6 +4923,15 @@ class NYCTemperatureModelTrainer:
                 self.train_v14()
             self.train_v15()
 
+        if v16:
+            # v16 is the unified replacement — it does NOT depend on the
+            # cascade. Still train the cascade if requested by other flags,
+            # but v16 stands alone on the full labeled corpus.
+            if not v2:
+                self.train_v2()
+                self.train_v3()
+            self.train_v16()
+
         print("\nTraining complete.")
 
 
@@ -4763,6 +4969,9 @@ if __name__ == "__main__":
     parser.add_argument("--v15", action="store_true",
                         help="Train v15 (v14 + morning/autoreg features: forecast_revision, cap_violation_925, "
                              "yesterday_signed_miss, rolling_3day_bias, today_realized_error — fires at canonical time)")
+    parser.add_argument("--v16", action="store_true",
+                        help="Train v16 UNIFIED (one model, all labeled rows incl. 4yr historical, "
+                             "all features, predicts actual_high directly — replaces the cascade)")
     args = parser.parse_args()
 
     if args.all:
@@ -4784,6 +4993,7 @@ if __name__ == "__main__":
                 v13=getattr(args, "v13", False),
                 v14=getattr(args, "v14", False),
                 v15=getattr(args, "v15", False),
+                v16=getattr(args, "v16", False),
             )
     else:
         trainer = NYCTemperatureModelTrainer(city_key=args.city)
@@ -4799,4 +5009,5 @@ if __name__ == "__main__":
             v13=getattr(args, "v13", False),
             v14=getattr(args, "v14", False),
             v15=getattr(args, "v15", False),
+            v16=getattr(args, "v16", False),
         )
