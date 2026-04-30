@@ -131,6 +131,11 @@ jobs:
           python train_models.py --all --v15
         continue-on-error: true  # graceful skip until features accumulate
 
+      - name: Run v16 training (UNIFIED — one model, all 4yr labeled rows, all features, predicts actual_high directly)
+        run: |
+          python train_models.py --all --v16
+        continue-on-error: true  # graceful skip if classifier training fails on sparse rows
+
       # POSTFLIGHT: fail loudly if any tracked feature regressed from
       # non-zero on main to zero in this run (the cli_date bug pattern).
       # NOT continue-on-error: regressions block the commit.

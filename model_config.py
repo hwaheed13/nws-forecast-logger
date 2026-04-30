@@ -659,6 +659,39 @@ MORNING_AUTOREG_COLS = [
 
 FEATURE_COLS_V15 = list(FEATURE_COLS_V14) + MORNING_AUTOREG_COLS
 
+# ═══════════════════════════════════════════════════════════════════════
+# v16 — UNIFIED MODEL: ALL features, ALL labeled rows (4yr + live)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Design intent:
+#   ONE model. Trained on the union of every labeled row we have:
+#     - 4 years of multiyear atmospheric history (~1577 rows)
+#     - 10 months of NWS-log forecast rows (~1258 rows)
+#     - Per-hour intraday snapshots (10x per day, populates obs_*)
+#   ALL features active. HistGradientBoosting handles NaN per-feature
+#   per-row, so missing fields are fine — the model learns which features
+#   matter under which conditions.
+#
+# Target:
+#   actual_high — direct regression on tomorrow's high.
+#   No bias-from-reference indirection. Eliminates the cascade's "v15
+#   trained on a 3300-row pool" sparsity problem.
+#
+# Why this beats the cascade:
+#   The cascade was incremental scaffolding. Each v_n trained on rows
+#   where v_n's distinctive features were populated → narrow pools,
+#   sparse training, NaN-falls-back-to-prior-version fragility. A
+#   single model on the union pool is what predictive ML is supposed
+#   to be.
+#
+# Intraday moat:
+#   When obs roll in mid-day, v16 sees the updated obs_max_so_far,
+#   obs_heating_rate, obs_heating_rate_delta etc. and re-predicts. The
+#   per-hour intraday snapshots (~10x/day in training) teach v16 to
+#   recognize early signals of bucket flips before they manifest.
+FEATURE_COLS_V16 = list(FEATURE_COLS_V15)
+FEATURE_COLS_V16_LAX = list(FEATURE_COLS_V15)  # same superset
+
 # Additional features added per-candidate-bucket during classification (4)
 BUCKET_POSITION_COLS = [
     "bucket_center",

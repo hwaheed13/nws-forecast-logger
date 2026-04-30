@@ -73,7 +73,7 @@ jobs:
           python train_models.py --all --v7
           python train_models.py --all --v8
 
-      - name: Retrain v9–v15 (station + gradient + BL safeguard + blind-spot + morning/autoreg features — skip if insufficient rows)
+      - name: Retrain v9–v16 (cascade through v15 + v16 unified — skip if insufficient rows)
         run: |
           python train_models.py --all --v9
           python train_models.py --all --v10
@@ -82,6 +82,7 @@ jobs:
           python train_models.py --all --v13
           python train_models.py --all --v14
           python train_models.py --all --v15
+          python train_models.py --all --v16
         continue-on-error: true
 
       - name: Coverage regression guard
