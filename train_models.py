@@ -3397,38 +3397,56 @@ class NYCTemperatureModelTrainer:
             return
 
         prefix = self.model_prefix
-        forecast_df = self.features_df[self.features_df["nws_last"].notna()].copy()
+        # v11 unified training pool: NWS-log forecast rows (~1258, 10mo) UNION
+        # multiyear rows where _persistence_forecast is available (~1577, 4yr).
+        # The training target is `y_actual - reference`, where reference is
+        # nws_last when present and _persistence_forecast otherwise. This is
+        # the same persistence-as-proxy pattern v3 / atm_predictor already use:
+        # the model learns "given features, the forecast (whatever its source)
+        # misses by X." At inference nws_last is always available, so the
+        # learned bias-from-features mapping applies.
+        df_all = self.features_df.copy()
+        # Build the unified reference column.
+        if "nws_last" not in df_all.columns:
+            df_all["nws_last"] = np.nan
+        if "_persistence_forecast" not in df_all.columns:
+            df_all["_persistence_forecast"] = np.nan
+        ref = df_all["nws_last"].where(
+            df_all["nws_last"].notna(), df_all["_persistence_forecast"]
+        )
+        df_all["_v11_ref"] = ref
+        # Track which rows are NWS-anchored vs persistence-anchored, so we can
+        # report and so the model can optionally see the source.
+        df_all["_v11_ref_is_nws"] = df_all["nws_last"].notna().astype(int)
+
+        # Training pool: any labeled row with a reference forecast.
+        labeled_mask = df_all["_v11_ref"].notna() & df_all["actual_high"].notna()
+        forecast_df = df_all[labeled_mask].copy()
         n_forecast = len(forecast_df)
+        n_nws_anchored = int(forecast_df["_v11_ref_is_nws"].sum())
+        n_pers_anchored = n_forecast - n_nws_anchored
+        print(f"  v11 training pool: {n_forecast} rows "
+              f"({n_nws_anchored} NWS-anchored, {n_pers_anchored} persistence-anchored)")
         if n_forecast < 30:
-            print(f"  ⚠️ Only {n_forecast} forecast rows (need 30+). Skipping v11.")
+            print(f"  ⚠️ Only {n_forecast} labeled rows (need 30+). Skipping v11.")
             return
 
         # Check how many rows have the new divergence features populated
         n_div = forecast_df["mm_hrrr_vs_nws"].notna().sum() if "mm_hrrr_vs_nws" in forecast_df.columns else 0
-        print(f"  mm_hrrr_vs_nws: {n_div} non-null rows (of {n_forecast} forecast rows)")
+        n_div_gfs = forecast_df["mm_hrrr_vs_gfs"].notna().sum() if "mm_hrrr_vs_gfs" in forecast_df.columns else 0
+        print(f"  mm_hrrr_vs_nws: {n_div} rows / mm_hrrr_vs_gfs: {n_div_gfs} rows "
+              f"(of {n_forecast} training rows)")
 
-        missing_v11 = [c for c in FEATURE_COLS_V11 if c not in self.features_df.columns]
+        missing_v11 = [c for c in FEATURE_COLS_V11 if c not in forecast_df.columns]
         if missing_v11:
             print(f"  Missing v11 cols (NaN for historical rows): {missing_v11}")
             for col in missing_v11:
-                self.features_df[col] = np.nan
+                forecast_df[col] = np.nan
 
-        forecast_df = self.features_df[self.features_df["nws_last"].notna()].copy()
-
-        # Airtight gate: v11's model-vs-NWS divergence features need
-        # populated multi-model data (HRRR/NBM/etc.). Sparse coverage
-        # of mm_*_vs_nws drives the same overfit pattern as v13/v15.
-        # v11 features come from prediction_logs.atm_snapshot, populated only
-        # since live-multimodel capture began (~144 days). Lower threshold to
-        # 100 — populated-and-real on 144 rows is far better than NaN-on-95%.
-        # Cap will lift naturally as calendar fills, or via NOMADS HRRR archive
-        # backfill (deferred — heavy multi-day project).
-        # Anchor on mm_hrrr_vs_gfs — this has 4+ years of populated history
-        # (after backfill_multimodel_history.py runs both HRRR + GFS via
-        # open-meteo historical-forecast-api). The original mm_*_vs_nws
-        # features cap at ~144 rows because the NWS forecast log only goes
-        # back ~10 months. Switching to model-vs-model anchoring lifts the
-        # gate from 144 → ~1500 rows of real divergence signal.
+        # Airtight gate: anchor on mm_hrrr_vs_gfs which has 4+ years of populated
+        # history (after backfill_multimodel_history.py runs HRRR/GFS via the
+        # open-meteo historical-forecast-api). Combined with the persistence-
+        # anchored training pool above, v11 now sees the full 4yr signal.
         gated = self._gate_and_filter_for_version(
             "v11",
             ["mm_hrrr_vs_gfs"],
@@ -3440,9 +3458,11 @@ class NYCTemperatureModelTrainer:
         forecast_df = gated
 
         X_v11    = forecast_df[FEATURE_COLS_V11]
-        nws_last = forecast_df["nws_last"]
+        ref_v    = forecast_df["_v11_ref"]
         y_actual = forecast_df["actual_high"]
-        y_bias   = y_actual - nws_last   # train residual vs NWS (same target as v7-v10)
+        y_bias   = y_actual - ref_v   # bias vs unified reference (NWS or persistence)
+        # Keep the alias for the bucket-acc closure below — it expects nws_last.
+        nws_last = ref_v
 
         v11_regressor = HistGradientBoostingRegressor(
             max_iter=400, learning_rate=0.04, max_depth=4,
