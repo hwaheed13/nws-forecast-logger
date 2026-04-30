@@ -960,6 +960,14 @@ class NYCTemperatureModelTrainer:
             for col in MULTIMODEL_COLS:
                 features[col] = row.get(col, np.nan)
 
+            # v11 raw inputs: mm_gfs_max + mm_ecmwf_max are populated by
+            # backfill_multimodel_history.py but NOT in MULTIMODEL_COLS (adding
+            # would shift v2-v10 feature counts and invalidate their pkls).
+            # Pull them explicitly so _compute_model_vs_nws_features can derive
+            # mm_hrrr_vs_gfs / mm_hrrr_vs_ecmwf from 4yr CSV history.
+            features["mm_gfs_max"]   = row.get("mm_gfs_max",   np.nan)
+            features["mm_ecmwf_max"] = row.get("mm_ecmwf_max", np.nan)
+
             # MOS — NaN for historical (not available in archive)
             for col in MOS_COLS:
                 features[col] = np.nan
