@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-04-29T19:49:50.092579",
+  "trained_on": "2026-04-30T00:45:31.487604",
   "version": "v3_unified_regression",
   "num_days": 1578,
   "num_forecast_days": 283,
@@ -9,29 +9,29 @@
     "end": "2026-04-28"
   },
   "performance": {
-    "cv_mae": 0.78,
-    "cv_bucket_accuracy_1f": 0.147,
-    "residual_std": 2.71,
+    "cv_mae": 0.79,
+    "cv_bucket_accuracy_1f": 0.1413,
+    "residual_std": 2.73,
     "per_fold_mae": [
       0.56,
       0.41,
       0.33,
-      0.69,
-      1.94
+      0.7,
+      1.95
     ],
     "per_fold_bucket_acc": [
       0.1,
-      0.1939
+      0.1825
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 1.3749
+      "importance": 1.3742
     },
     {
       "name": "intra_temp_noon",
-      "importance": 0.0062
+      "importance": 0.006
     },
     {
       "name": "intra_temp_5pm",
@@ -71,7 +71,7 @@
     },
     {
       "name": "accu_post_9am_delta",
-      "importance": 0.0001
+      "importance": 0.0002
     },
     {
       "name": "accu_max",
