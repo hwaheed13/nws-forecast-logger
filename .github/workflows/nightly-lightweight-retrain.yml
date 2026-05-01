@@ -61,6 +61,13 @@ jobs:
           python update_heating_windows.py
         continue-on-error: true
 
+      # Reset coverage_report.json so the regression guard compares THIS
+      # run's max-wins accumulation against main's prior committed counts.
+      - name: Reset coverage report (so max-wins accumulates from scratch)
+        run: |
+          rm -f coverage_report.json lax_coverage_report.json
+          echo "Coverage reports reset for fresh accumulation."
+
       # Lightweight: only re-run train_models.py — no backfill.
       # HistGradientBoosting handles NaN natively so new/missing rows are fine.
       - name: Retrain v1–v8 (core models)

@@ -86,6 +86,14 @@ jobs:
       - name: Verify backfill health
         run: python verify_backfill_health.py
 
+      # Reset coverage_report.json before training so this run's
+      # accumulated counts reflect THIS run only (not main's prior values).
+      # Required for the regression guard's compare-vs-main to be accurate.
+      - name: Reset coverage report (so max-wins accumulates from scratch)
+        run: |
+          rm -f coverage_report.json lax_coverage_report.json
+          echo "Coverage reports reset for fresh accumulation."
+
       - name: Run model training (v1 + v2 + v4 + v5 + v6 + v7 + v8)
         run: |
           python train_models.py --all

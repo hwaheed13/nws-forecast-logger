@@ -66,11 +66,25 @@ def _record_coverage(model_prefix: str, version: str, counts: dict) -> None:
     """
     Append per-version feature-coverage counts to {prefix}coverage_report.json.
 
-    Each --vN training invocation runs in a fresh Python process, so we
-    accumulate via the JSON file. The retrain workflow reads this file
-    after training and fails the run if any tracked feature regressed
-    from non-zero on `main` to zero in this run (e.g. the cli_date bug
-    that silently dropped v13 entrainment from 1225 → 0).
+    Each --vN training invocation runs in a fresh Python process, and within
+    a process the same `_compute_*` helper may be called multiple times
+    (full df, then filtered forecast_df, then post-gate df). The downstream
+    `_record_coverage` calls would otherwise overwrite the file with whatever
+    happened to be the LAST (smallest) view.
+
+    Worse: shared `_compute_*` helpers (e.g. `_compute_model_vs_nws_features`)
+    are called from train_v11, train_v12, train_v13, train_v15, AND train_v16.
+    train_v16 in particular operates on a smaller features_df (no multiyear
+    merge chain), so its view of v11's columns is much reduced. Without
+    max-wins the v16 process can stomp v11's correct count → 0 → regression
+    guard fails the run.
+
+    Resolution: max-wins per (version, feature). We only update an entry if
+    the new count exceeds the existing one. The largest view of the data
+    within this run wins, which is the right measurement to compare against
+    main's prior committed coverage_report.json. A genuine regression (e.g.
+    backfill bug) still surfaces because the largest observable count in
+    this run will be lower than main's — caught by check_coverage_regression.
 
     counts:  {feature_name: int_count}
     """
@@ -80,8 +94,26 @@ def _record_coverage(model_prefix: str, version: str, counts: dict) -> None:
             report = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         report = {}
-    # Coerce to int (numpy int64 → int) so json is happy
-    report[version] = {k: int(v) for k, v in counts.items()}
+    existing = report.get(version, {})
+    merged = dict(existing)
+    updated = False
+    for k, v in counts.items():
+        v_int = int(v)
+        prior = int(existing.get(k, 0))
+        if v_int > prior:
+            merged[k] = v_int
+            updated = True
+        elif k not in existing:
+            # First write for this feature — record even if zero so the
+            # column appears in the report (regression guard scans keys).
+            merged[k] = v_int
+            updated = True
+    if not updated:
+        # Smaller-than-existing count for every feature — keep prior values.
+        # Print so logs reflect what the trainer actually observed locally.
+        print(f"  ↳ coverage[{version}] unchanged (this view ≤ prior max)")
+        return
+    report[version] = merged
     report["_updated_at"] = datetime.utcnow().isoformat() + "Z"
     with open(path, "w") as f:
         json.dump(report, f, indent=2, sort_keys=True)
