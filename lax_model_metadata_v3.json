@@ -1,71 +1,75 @@
 {
-  "trained_on": "2026-05-01T04:41:28.113349",
+  "trained_on": "2026-05-01T15:30:02.870437",
   "version": "v3_unified_regression",
   "num_days": 1580,
-  "num_forecast_days": 59,
-  "num_multiyear_days": 1521,
+  "num_forecast_days": 60,
+  "num_multiyear_days": 1520,
   "date_range": {
     "start": "2022-01-02",
     "end": "2026-04-30"
   },
   "performance": {
-    "cv_mae": 0.7,
-    "cv_bucket_accuracy_1f": 0.1017,
-    "residual_std": 2.61,
+    "cv_mae": 0.71,
+    "cv_bucket_accuracy_1f": 0.2,
+    "residual_std": 2.59,
     "per_fold_mae": [
-      1.0,
-      0.57,
-      0.52,
+      1.01,
+      0.58,
+      0.51,
       0.52,
       0.91
     ],
     "per_fold_bucket_acc": [
-      0.1017
+      0.2
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 1.7088
-    },
-    {
-      "name": "atm_temp_range",
-      "importance": 0.0045
+      "importance": 1.7381
     },
     {
       "name": "intra_temp_noon",
-      "importance": 0.0036
+      "importance": 0.0039
+    },
+    {
+      "name": "atm_temp_range",
+      "importance": 0.0037
     },
     {
       "name": "atm_dewpoint_mean",
-      "importance": 0.0019
+      "importance": 0.0016
     },
     {
       "name": "prev_day_high",
-      "importance": 0.0013
-    },
-    {
-      "name": "atm_overnight_min",
-      "importance": 0.0008
-    },
-    {
-      "name": "atm_pressure_change",
       "importance": 0.0007
     },
     {
       "name": "accu_last",
+      "importance": 0.0007
+    },
+    {
+      "name": "atm_overnight_min",
+      "importance": 0.0007
+    },
+    {
+      "name": "atm_pressure_change",
       "importance": 0.0006
     },
     {
-      "name": "day_of_year_cos",
+      "name": "atm_wind_max",
       "importance": 0.0005
+    },
+    {
+      "name": "atm_pressure_mean",
+      "importance": 0.0004
     },
     {
       "name": "mm_icon_max",
       "importance": 0.0004
     },
     {
-      "name": "day_of_year_sin",
+      "name": "atm_925mb_temp_mean",
       "importance": 0.0004
     },
     {
@@ -73,15 +77,11 @@
       "importance": 0.0004
     },
     {
-      "name": "intra_rise_from_overnight",
+      "name": "mm_ecmwf_gfs_diff",
       "importance": 0.0004
     },
     {
-      "name": "atm_wind_max",
-      "importance": 0.0003
-    },
-    {
-      "name": "atm_pressure_mean",
+      "name": "intra_temp_5pm",
       "importance": 0.0003
     }
   ],

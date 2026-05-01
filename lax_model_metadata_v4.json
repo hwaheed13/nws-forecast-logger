@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-05-01T04:39:56.631355",
+  "trained_on": "2026-05-01T15:26:55.249207",
   "version": "v4_observation_features",
   "num_days": 1580,
   "date_range": {
@@ -7,24 +7,24 @@
     "end": "2026-04-30"
   },
   "v4_regression": {
-    "cv_mae": null,
-    "cv_bucket_accuracy": null,
-    "residual_std": 2.0,
+    "cv_mae": 2.84,
+    "cv_bucket_accuracy": 0.1,
+    "residual_std": 2.71,
     "num_features": 130
   },
   "v4_classifier": {
-    "cv_bucket_accuracy": 0.2115,
-    "cv_log_loss": 0.3831,
-    "insample_bucket_accuracy": 0.1911,
+    "cv_bucket_accuracy": 0.2082,
+    "cv_log_loss": 0.3843,
+    "insample_bucket_accuracy": 0.1828,
     "num_training_days": 1580,
-    "num_forecast_days": 59,
-    "num_persistence_days": 1521,
+    "num_forecast_days": 60,
+    "num_persistence_days": 1520,
     "forecast_weight": 5.0,
-    "num_classification_rows": 18674,
+    "num_classification_rows": 18710,
     "n_candidate_buckets": 7,
     "feature_cols_used": 134,
-    "positive_rate": 0.0782,
-    "residual_std": 2.0
+    "positive_rate": 0.0784,
+    "residual_std": 2.713
   },
   "observation_features": [
     "obs_latest_temp",

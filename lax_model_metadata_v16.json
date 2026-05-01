@@ -1,14 +1,14 @@
 {
-  "trained_on": "2026-05-01T04:42:02.238169",
+  "trained_on": "2026-05-01T15:30:38.905688",
   "version": "v16_unified",
   "design": "ONE model, ALL labeled rows, ALL features, predicts actual_high directly",
   "training_pool": "every row where actual_high is known (multiyear + NWS-log + intraday)",
   "target": "actual_high (no bias indirection)",
   "model": "HistGradientBoostingRegressor \u2014 handles per-row missing features natively",
   "v16_regression": {
-    "cv_mae": 0.7341407515776238,
-    "cv_bucket_accuracy": 0.7924050632911392,
-    "target_std": 7.191844738609959,
+    "cv_mae": 0.7378441777730056,
+    "cv_bucket_accuracy": 0.7955696202531646,
+    "target_std": 7.1918702945478925,
     "n_features": 184,
     "n_training_rows": 1580
   },
