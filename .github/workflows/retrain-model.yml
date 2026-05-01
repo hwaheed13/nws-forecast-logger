@@ -166,8 +166,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # IMPORTANT: include *historical_intraday_snapshots.csv. Without it,
+          # the lightweight nightly retrain (which skips backfill) checks out
+          # main with no intraday CSV → features_df ~1500 rows instead of
+          # ~18000 → coverage regression guard fails (-92% drops).
           git add *.pkl *model_metadata*.json *coverage_report.json *multiyear_atmospheric.csv \
-                  *observation_data.csv *atmospheric_data.csv *high_timing_data.csv 2>/dev/null || true
+                  *observation_data.csv *atmospheric_data.csv *high_timing_data.csv \
+                  *historical_intraday_snapshots.csv 2>/dev/null || true
           # Also stage DELETIONS of tracked .pkl/metadata files (e.g. when the
           # airtight gate skips a version and removes its stale pkl). Without
           # this, deletions made by train_models.py are invisible to commit.

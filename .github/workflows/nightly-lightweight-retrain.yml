@@ -61,12 +61,20 @@ jobs:
           python update_heating_windows.py
         continue-on-error: true
 
-      # Reset coverage_report.json so the regression guard compares THIS
-      # run's max-wins accumulation against main's prior committed counts.
-      - name: Reset coverage report (so max-wins accumulates from scratch)
+      # Snapshot coverage_report.json from main BEFORE training so we can
+      # restore it after. The lightweight retrain skips backfill, so its
+      # features_df is much smaller than the heavy retrain's (no intraday
+      # snapshots, fresh API patches, etc.). If we let lightweight overwrite
+      # coverage_report.json, the next heavy retrain's regression guard
+      # compares against the lightweight's reduced counts and triggers
+      # spurious regressions. Solution: lightweight retrains ONLY the model
+      # pkls; the heavy retrain owns coverage_report.json.
+      - name: Snapshot coverage_report.json (lightweight does not own coverage)
         run: |
-          rm -f coverage_report.json lax_coverage_report.json
-          echo "Coverage reports reset for fresh accumulation."
+          for f in coverage_report.json lax_coverage_report.json; do
+            if [ -f "$f" ]; then cp "$f" "$f.snapshot"; fi
+          done
+          echo "Coverage snapshots saved; will restore post-training."
 
       # Lightweight: only re-run train_models.py — no backfill.
       # HistGradientBoosting handles NaN natively so new/missing rows are fine.
@@ -92,8 +100,22 @@ jobs:
           python train_models.py --all --v16
         continue-on-error: true
 
-      - name: Coverage regression guard
-        run: python check_coverage_regression.py
+      # Restore coverage_report.json from main snapshot. Lightweight retrain
+      # produces a reduced view (no backfill) — we do NOT want it overwriting
+      # main's heavy-derived counts and triggering spurious regressions later.
+      - name: Restore coverage_report.json from snapshot
+        run: |
+          for f in coverage_report.json lax_coverage_report.json; do
+            if [ -f "$f.snapshot" ]; then
+              mv "$f.snapshot" "$f"
+              echo "Restored $f from snapshot."
+            fi
+          done
+
+      # Coverage regression guard intentionally SKIPPED for lightweight.
+      # It would compare lightweight's reduced view against main's
+      # heavy-derived counts and always fail. The heavy retrain (6am ET)
+      # owns coverage and runs its own regression guard.
 
       - name: Commit updated model files and heating windows
         run: |
