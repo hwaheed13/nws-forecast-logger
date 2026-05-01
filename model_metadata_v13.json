@@ -1,18 +1,18 @@
 {
-  "trained_on": "2026-04-30T01:10:11.879894",
+  "trained_on": "2026-05-01T04:32:45.502737",
   "version": "v13_bl_safeguard_features",
   "base_cascade": "HRRR > NBM > AccuWeather > NWS",
   "new_features": "entrainment_temp_diff, marine_containment, inland_strength",
   "motivation": "April 15, 2026: v12 BL spike triggered downward revision (89-90 \u2192 87-88) even though actual high was 90\u00b0F. Root cause: BL height increase was conditional on other atmospheric state not being explicitly modeled. These 3 features encode the guard rails directly, letting the model learn: 'BL trigger matters only if entrainment is cooling, marine penetrates inland, and inland underperforms forecast. Otherwise, don't reduce.' This prevents the April 15 miss while still catching actual cap days.",
-  "n_entrainment_rows": 132,
-  "n_marine_rows": 228,
-  "n_inland_rows": 132,
+  "n_entrainment_rows": 144,
+  "n_marine_rows": 240,
+  "n_inland_rows": 144,
   "v13_regression": {
-    "cv_mae": 1.7044243516243196,
-    "cv_bucket_accuracy": 0.7,
-    "residual_std": 1.5620499351813308,
+    "cv_mae": 0.7859983630326657,
+    "cv_bucket_accuracy": 0.7376068376068377,
+    "residual_std": 1.4937887931959075,
     "n_features": 174,
-    "n_training_rows": 3396
+    "n_training_rows": 3420
   },
   "feature_columns_v13": [
     "nws_first",

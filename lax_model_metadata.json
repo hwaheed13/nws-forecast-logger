@@ -1,0 +1,109 @@
+{
+  "trained_on": "2026-05-01T04:41:02.639353",
+  "num_days": 59,
+  "date_range": {
+    "start": "2026-03-02",
+    "end": "2026-04-29"
+  },
+  "feature_columns": [
+    "nws_first",
+    "nws_last",
+    "nws_max",
+    "nws_min",
+    "nws_mean",
+    "nws_spread",
+    "nws_std",
+    "nws_trend",
+    "nws_count",
+    "forecast_velocity",
+    "forecast_acceleration",
+    "accu_first",
+    "accu_last",
+    "accu_max",
+    "accu_min",
+    "accu_mean",
+    "accu_spread",
+    "accu_std",
+    "accu_trend",
+    "accu_count",
+    "nws_accu_spread",
+    "nws_accu_mean_diff",
+    "day_of_year_sin",
+    "day_of_year_cos",
+    "month",
+    "is_summer",
+    "is_winter",
+    "rolling_bias_7d",
+    "rolling_bias_21d",
+    "rolling_ml_error_7d",
+    "has_accu_data"
+  ],
+  "residual_std": 2.8222622109712527,
+  "bucket_method": "gaussian_from_regression",
+  "base_source": "accu_last (fallback: nws_last)",
+  "model_type": "HistGradientBoostingRegressor",
+  "model_performance": {
+    "cv_temperature_mae": 2.71,
+    "cv_bucket_accuracy": 0.0667,
+    "insample_temperature_mae": 1.57,
+    "insample_bucket_accuracy": 0.1864,
+    "residual_std": 2.82
+  },
+  "seasonal_performance": {
+    "spring": {
+      "days": 59,
+      "insample_mae": 1.57
+    }
+  },
+  "top_features": [
+    {
+      "name": "nws_mean",
+      "importance": 0.223
+    },
+    {
+      "name": "day_of_year_cos",
+      "importance": 0.1394
+    },
+    {
+      "name": "accu_last",
+      "importance": 0.1337
+    },
+    {
+      "name": "rolling_bias_7d",
+      "importance": 0.1001
+    },
+    {
+      "name": "accu_spread",
+      "importance": 0.0711
+    },
+    {
+      "name": "rolling_bias_21d",
+      "importance": 0.0516
+    },
+    {
+      "name": "accu_min",
+      "importance": 0.0337
+    },
+    {
+      "name": "accu_std",
+      "importance": 0.0229
+    },
+    {
+      "name": "nws_accu_mean_diff",
+      "importance": 0.0176
+    },
+    {
+      "name": "nws_first",
+      "importance": 0.0118
+    }
+  ],
+  "hyperparameters": {
+    "max_iter": 300,
+    "max_depth": 3,
+    "learning_rate": 0.03,
+    "min_samples_leaf": 20,
+    "l2_regularization": 1.0,
+    "max_leaf_nodes": 15,
+    "cv_splits": 5
+  }
+}

@@ -1,15 +1,15 @@
 {
-  "trained_on": "2026-04-30T01:13:33.040811",
+  "trained_on": "2026-05-01T04:35:52.591876",
   "version": "v14_blind_spot_features",
   "base_cascade": "HRRR > NBM > AccuWeather > NWS",
   "new_features": "hours_to_heating_close, peak_to_hrrr_gap, late_obs_below_pred, late_falling_signal, mm_spread_late",
   "motivation": "April 28, 2026: v13 predicted '67\u00b0 or more \u00b7 STRONG BET' at 3:36 PM with peak observed = 65\u00b0F and current = 62\u00b0F. Model had raw signals but no explicit interaction terms tying late-hour + observed-deficit. v14 adds 5 blind-spot interaction features so a single tree split captures the conjunction. late_obs_below_pred is the headline feature: (obs_latest_hour>=13) * max(0, mm_hrrr_max - obs_max_so_far).",
   "v14_regression": {
-    "cv_mae": 1.2037360872330911,
-    "cv_bucket_accuracy": 0.8177339901477833,
-    "residual_std": 1.4409680388158819,
+    "cv_mae": 1.0933548162305056,
+    "cv_bucket_accuracy": 0.864516129032258,
+    "residual_std": 1.3888823142513682,
     "n_features": 179,
-    "n_training_rows": 3396
+    "n_training_rows": 3420
   },
   "feature_columns_v14": [
     "nws_first",
