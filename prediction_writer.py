@@ -817,10 +817,11 @@ def _load_v10_models():
 
 def _load_v16_models():
     """Load v16 models: bcp_v16 regressor + classifier + feature cols (cached).
-    v16 = UNIFIED. Trained on every labeled row (4yr multiyear + NWS-log +
-    intraday) on the full FEATURE_COLS_V16 superset, predicting actual_high
-    DIRECTLY (no bias-from-reference indirection). One model. Replaces the
-    v1→v15 cascade.
+    Reads model_metadata_v16.json to detect whether the loaded pkl was trained
+    as a RESIDUAL model (target = actual_high - HRRR, post-PR-#42) or as a
+    DIRECT model (target = actual_high, pre-PR-#42). Inference path branches
+    on that flag — without it, mixing old pkls with new code produced
+    +60°F predictions in production (HRRR + actual_high doubled the value).
     """
     import nws_auto_logger as _nal
     prefix = _nal._CITY_CFG.get("model_prefix", "")
@@ -829,6 +830,7 @@ def _load_v16_models():
         _ML_MODEL_CACHE[cache_key] = None
         _ML_MODEL_CACHE[f"{prefix}v16_classifier"] = None
         _ML_MODEL_CACHE[f"{prefix}v16_feature_cols"] = None
+        _ML_MODEL_CACHE[f"{prefix}v16_is_residual"] = False  # safe default
 
         try:
             with open(f"{prefix}bcp_v16_regressor.pkl", "rb") as f:
@@ -838,6 +840,29 @@ def _load_v16_models():
             pass
         except Exception as e:
             print(f"⚠️ v16 regression load error: {e}")
+
+        # Detect architecture from metadata. Residual models predict
+        # (actual_high - HRRR); direct models predict actual_high. Inference
+        # MUST branch on this — adding HRRR to a direct-model output gives
+        # +60°F predictions (the bug that motivated this guard).
+        try:
+            import json as _json
+            meta_path = f"{prefix}model_metadata_v16.json"
+            if os.path.exists(meta_path):
+                with open(meta_path) as f:
+                    _meta = _json.load(f)
+                _ver = (_meta.get("version") or "").lower()
+                _target = (_meta.get("target") or "").lower()
+                _is_residual = (
+                    "residual" in _ver
+                    or "residual" in _target
+                    or "- mm_hrrr_max" in _target
+                    or "actual_high - mm_hrrr_max" in _target
+                )
+                _ML_MODEL_CACHE[f"{prefix}v16_is_residual"] = _is_residual
+                print(f"   v16 architecture: {'RESIDUAL (HRRR + bias)' if _is_residual else 'DIRECT (actual_high)'}")
+        except Exception as e:
+            print(f"⚠️ v16 metadata read error (defaulting to DIRECT): {e}")
 
         try:
             from train_classifier import BucketClassifier
@@ -861,6 +886,17 @@ def _load_v16_models():
         _ML_MODEL_CACHE.get(f"{prefix}v16_classifier"),
         _ML_MODEL_CACHE.get(f"{prefix}v16_feature_cols"),
     )
+
+
+def _v16_is_residual() -> bool:
+    """True iff currently-loaded v16 was trained as a residual model
+    (target = actual_high - HRRR). Used to decide whether to add HRRR
+    back at inference time. Direct-target v16 pkls must NOT have HRRR
+    added (gives +60°F predictions).
+    """
+    import nws_auto_logger as _nal
+    prefix = _nal._CITY_CFG.get("model_prefix", "")
+    return bool(_ML_MODEL_CACHE.get(f"{prefix}v16_is_residual", False))
 
 
 def _load_v15_models():
@@ -3648,17 +3684,30 @@ def _compute_ml_prediction(
             _hrrr_base = _valid_temp(v2_features.get("mm_hrrr_max"))
             _nbm_base  = _valid_temp(v2_features.get("mm_nbm_max"))
 
-            # v16 (residual) uses the SAME HRRR-anchor inference path as v7/v8.
-            # v16's regressor.predict(X) returns a residual (actual − HRRR);
-            # we add HRRR back exactly like v7/v8. No more direct-prediction
-            # tier — that was the over-reactive design that tracked HRRR.
-            _use_hrrr_anchor = (use_v16 or use_v8 or use_v7) and active_regressor is not None
+            # v7/v8 always use HRRR-anchor + bias path.
+            # v16 inference depends on which architecture the loaded pkl was
+            # trained with — residual (post-PR #42) adds HRRR; direct (legacy)
+            # uses regressor output as final. The metadata-driven flag prevents
+            # the +60°F bug from mixing old pkls with new inference code.
+            _v16_residual = use_v16 and _v16_is_residual()
+            _v16_direct   = use_v16 and not _v16_residual
+            _use_hrrr_anchor = (_v16_residual or use_v8 or use_v7) and active_regressor is not None
 
-            if _use_hrrr_anchor and _hrrr_base is not None:
-                # TIER 1 (v7/v8/v16): HRRR anchor + regressor residual.
+            if _v16_direct and active_regressor is not None:
+                # v16 DIRECT (legacy pkl, target = actual_high):
+                # regressor output IS the final prediction. Do NOT add HRRR.
+                v2_temp = float(active_regressor.predict(X_v2)[0])
+                _hrrr_note = (f" | HRRR={_hrrr_base:.0f}" if _hrrr_base is not None else "")
+                _nbm_note  = (f" | NBM={_nbm_base:.0f}"  if _nbm_base  is not None else "")
+                _atm_note  = (f" | atm={float(atm_pred_val):.1f}" if has_atm else "")
+                print(f"   Center temp: {v2_temp:.1f}°F "
+                      f"({active_version} DIRECT: regressor output){_hrrr_note}{_nbm_note}{_atm_note}")
+
+            elif _use_hrrr_anchor and _hrrr_base is not None:
+                # TIER 1 (v7/v8/v16-residual): HRRR anchor + regressor residual.
                 # v7/v8 regressors trained on y_bias = actual - HRRR_max.
-                # v16 regressor trained on the same residual but on the unified
-                # ALL-labeled-rows pool with the full feature superset (184 cols).
+                # v16 (post-PR #42) regressor trained on the same residual on
+                # the unified ALL-labeled-rows pool with the 184-feature superset.
                 _bias = float(active_regressor.predict(X_v2)[0])
                 v2_temp = _hrrr_base + _bias
                 _atm_note = (f" | atm={float(atm_pred_val):.1f}°F (delta={v2_temp - float(atm_pred_val):+.1f}°F)"
@@ -3666,8 +3715,9 @@ def _compute_ml_prediction(
                 _stall = v2_features.get("obs_heating_rate_delta")
                 _stall_note = (f" | stall={_stall:+.1f}°F/hr" if _stall is not None
                                and not (isinstance(_stall, float) and math.isnan(_stall)) else "")
+                _arch_tag = " RESIDUAL" if use_v16 else ""
                 print(f"   Center temp: {v2_temp:.1f}°F "
-                      f"({active_version}: HRRR={_hrrr_base:.0f} + bias={_bias:+.1f})"
+                      f"({active_version}{_arch_tag}: HRRR={_hrrr_base:.0f} + bias={_bias:+.1f})"
                       f"{_stall_note}{_atm_note}")
 
             elif _use_hrrr_anchor and _nbm_base is not None:
