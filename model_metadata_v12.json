@@ -1,10 +1,11 @@
 {
-  "trained_on": "2026-05-01T15:15:54.549436",
+  "trained_on": "2026-05-02T07:46:14.544960",
   "version": "v12",
   "skipped": true,
-  "reason": "quality gate failed: cv_mae 0.7945 > 0.5981 (50% worse than v11 cv_mae=0.3988)",
-  "new_cv_mae": 0.7945321467738103,
-  "prior_version": "v11",
-  "prior_cv_mae": 0.39875959344125256,
-  "tolerance": 0.5
+  "reason": "airtight gate failed: only 17 forecast rows have all of ['obs_kcdw_temp', 'obs_ksmq_temp'] populated (need \u2265100)",
+  "key_feature_counts": {
+    "obs_kcdw_temp": 17,
+    "obs_ksmq_temp": 17
+  },
+  "min_rows_required": 100
 }
