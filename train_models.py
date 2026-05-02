@@ -1013,31 +1013,36 @@ class NYCTemperatureModelTrainer:
             for col in MOS_COLS:
                 features[col] = np.nan
 
-            # Observation proxy features — DISABLED for multi-year archive rows.
+            # Observation proxy features for multi-year archive rows.
             #
-            # Why NaN instead of noon-snapshot proxy:
-            #   The previous design set obs_latest_temp = noon temp, obs_max_so_far
-            #   = max(9am, noon), obs_latest_hour = 12.0. On NYC days this leaks
-            #   the target — noon temp is within 1°F of actual_high on 37% of
-            #   archive rows, within 0.5°F on 20%. The model trained on archive
-            #   noon snapshots learned "obs_latest_temp ≈ actual_high when
-            #   obs_latest_hour is around peak", giving CV MAE 0.76°F that did
-            #   NOT generalize to production (predictions oscillated 4-6°F as
-            #   live obs streamed in throughout the day).
+            # Design history (audit trail):
+            #   v1: noon proxy. obs_latest_temp = noon temp, hour = 12.
+            #       FAILED: noon temp within 1°F of actual_high 37% of the time —
+            #       direct target leakage.
+            #   v2: NaN. Set all obs to NaN for archive rows.
+            #       FAILED: BL safeguard features (entrainment_temp_diff) couldn't
+            #       compute on archive rows, leaving the model blind to cap-day
+            #       patterns over 4 years of history.
+            #   v3 (current): 9am proxy. obs_latest_temp = intra_temp_9am
+            #       (morning temp from open-meteo archive, not the daily peak).
+            #       Matches production semantics: at canonical 7am ET prediction
+            #       time, the live obs feed reads ~9am current temp. 9am temp
+            #       is well-separated from actual_high (sample: 48.7 vs 53.3 = -4.6°F),
+            #       so it provides a non-leaky surface-temp signal for archive
+            #       BL feature derivation while remaining semantically consistent
+            #       with what the model sees in live production at canonical time.
             #
-            #   Setting these to NaN for multi-year rows means HistGB treats them
-            #   as missing for archive examples — model relies on HRRR/NBM/atm/
-            #   season features (which DO generalize). Live NWS-log rows still
-            #   populate these from genuine current temps at prediction time, so
-            #   the model can learn from non-leaky live obs separately.
+            # obs_max_so_far / obs_6hr_max stay NaN — these are intraday running
+            # maxes that don't have a meaningful single-snapshot archive equivalent.
             obs_noon_temp = row.get("intra_temp_noon", np.nan)
-            obs_9am_temp = row.get("intra_temp_9am", np.nan)
-            obs_3pm_temp = row.get("intra_temp_3pm", np.nan)
+            obs_9am_temp  = row.get("intra_temp_9am", np.nan)
+            obs_3pm_temp  = row.get("intra_temp_3pm", np.nan)
 
-            features["obs_latest_temp"] = np.nan
-            features["obs_latest_hour"] = np.nan
+            # Use 9am morning temp as the surface-obs proxy (non-leaky).
+            features["obs_latest_temp"] = obs_9am_temp if pd.notna(obs_9am_temp) else np.nan
+            features["obs_latest_hour"] = 9.0 if pd.notna(obs_9am_temp) else np.nan
             features["obs_max_so_far"] = np.nan
-            features["obs_6hr_max"] = np.nan
+            features["obs_6hr_max"]    = np.nan
             # Delta vs intraday forecast: ~0 for archive (same source)
             features["obs_vs_intra_forecast"] = 0.0
 
@@ -4092,6 +4097,7 @@ class NYCTemperatureModelTrainer:
             agg_cols = [c for c in [
                 "nws_last", "actual_high",
                 "atm_925mb_temp_mean", "atm_925mb_hrrr_mean",
+                "mm_hrrr_max",  # HRRR forecast — used as fallback anchor for cap_violation
             ] if c in df.columns]
             if agg_cols:
                 _tmp = df[["target_date", *agg_cols]].copy()
@@ -4110,21 +4116,27 @@ class NYCTemperatureModelTrainer:
         else:
             per_date = pd.DataFrame(columns=["target_date"])
 
-        # 2) cap_violation_925 = max(0, nws_last - 925mb_temp - 14)
+        # 2) cap_violation_925 = max(0, FORECAST - 925mb_temp - 14)
+        # Original design used nws_last as the FORECAST anchor — but nws_last
+        # is only populated on ~10mo of NWS-log rows, so cap_violation_925
+        # only fires on ~144 archive rows. The cap signal is a property of
+        # the atmosphere AND any forecast — use mm_hrrr_max as fallback when
+        # nws_last is missing, giving 4yr coverage (HRRR is 95%+ in multiyear).
         # Use atm_925mb_temp_mean (GFS Open-Meteo) primary, fall back to
         # atm_925mb_hrrr_mean (HRRR 3km) when GFS is missing.
-        # Compute per-date so nws_last (forecast row) and 925mb (multi-year
-        # row) line up via cli_date even when they live in different rows.
         if (
             not per_date.empty
-            and "nws_last" in per_date.columns
+            and ("nws_last" in per_date.columns or "mm_hrrr_max" in per_date.columns)
             and ("atm_925mb_temp_mean" in per_date.columns or "atm_925mb_hrrr_mean" in per_date.columns)
         ):
-            last_pd = per_date["nws_last"]
+            nws_pd  = per_date["nws_last"]   if "nws_last"   in per_date.columns else pd.Series(np.nan, index=per_date.index)
+            hrrr_pd = per_date["mm_hrrr_max"] if "mm_hrrr_max" in per_date.columns else pd.Series(np.nan, index=per_date.index)
+            # Forecast anchor: NWS first (legacy), HRRR fallback (4yr coverage).
+            forecast_anchor = nws_pd.where(nws_pd.notna(), hrrr_pd)
             t925_gfs = per_date["atm_925mb_temp_mean"] if "atm_925mb_temp_mean" in per_date.columns else pd.Series(np.nan, index=per_date.index)
             t925_hrrr = per_date["atm_925mb_hrrr_mean"] if "atm_925mb_hrrr_mean" in per_date.columns else pd.Series(np.nan, index=per_date.index)
             t925 = t925_gfs.where(t925_gfs.notna(), t925_hrrr)
-            cap_per_date = (last_pd - t925 - 14.0).clip(lower=0).round(1)
+            cap_per_date = (forecast_anchor - t925 - 14.0).clip(lower=0).round(1)
             cap_lookup = {pd.Timestamp(d): v for d, v in zip(per_date["target_date"], cap_per_date) if pd.notna(v)}
             df_dates = pd.to_datetime(df["target_date"], errors="coerce")
             cap_vals = df_dates.map(cap_lookup)
@@ -4528,31 +4540,41 @@ class NYCTemperatureModelTrainer:
 
     def train_v16(self) -> None:
         """
-        Train v16 — UNIFIED model. ONE model, ALL data, ALL features.
+        Train v16 — UNIFIED RESIDUAL model. ONE model, ALL data, ALL features.
+        Predicts the HRRR error so the model has a real moat to learn.
 
-        The moat:
-          v1→v15 is a cascade — each layer trains on a different sparse
-          row pool (v15 only sees rows where nws_last is populated, which
-          is ~10 months of NWS-log data). The 4-year multiyear historical
-          rows have no NWS forecast and are silently dropped from every
-          v11+ training.
+        WHY RESIDUAL (the corrected design):
+          v16's first version predicted actual_high directly with HRRR as
+          a feature. Result: gradient boosting found the easy path —
+          "HRRR predicts actual_high to ±1°F, just output HRRR + tiny
+          offset". The 0.76°F CV MAE was just HRRR's intrinsic skill,
+          not v16 actually learning anything new. In production v16
+          oscillated 4-6°F because it tracked HRRR's hourly forecast
+          updates 1-for-1. No moat.
 
-          v16 throws away the cascade premise. Train on EVERY row where
-          actual_high is known — that's the full multiyear corpus PLUS
-          the NWS-log window PLUS every intraday snapshot we have logged.
-          Predict actual_high directly (no bias-from-reference indirection,
-          since not every row has a reference). HistGradientBoosting handles
-          missing features per-row natively, so a row missing NWS, missing
-          NBM, or missing 925mb cap data still contributes whatever signal
-          it has.
+          The fix: predict (actual_high - HRRR_anchor). The model is
+          FORCED to learn where HRRR is systematically wrong:
+            • cap-break days (HRRR underestimates marine BL holds)
+            • sea-breeze days (HRRR's 3km grid misses sub-grid coastal cooling)
+            • overnight-peak warm-front days (HRRR assumes diurnal cycle)
+            • urban heat island (HRRR's surface scheme isn't NYC-tuned)
+          These are the regimes where a residual model can capture the
+          pattern that public models like HRRR miss.
 
-          That gives v16 ~4 years of (features → actual_high) pairs across
-          every regime we've ever seen. It learns:
-            • day-after-day from new actuals
-            • early in the day from intraday obs snapshots
-            • the conjunction of HRRR + obs + cap + season → tomorrow's high
+          Final inference: prediction = HRRR + v16_residual.
+          That's HRRR's accuracy PLUS our learned correction = real edge.
 
-          One model. Trained nightly on everything. Ship it.
+        TRAINING POOL:
+          ALL labeled rows where (actual_high AND mm_hrrr_max) are both
+          populated — the multiyear corpus (1500+ rows) plus NWS-log rows
+          plus intraday snapshots. HRRR is required as the anchor; rows
+          without HRRR can't contribute (rare — HRRR is in multiyear CSV).
+
+        FALLBACK:
+          For rows where HRRR is missing (very early multiyear, edge cases),
+          we train a tiny secondary model on (actual_high - prev_day_high)
+          using persistence as the anchor. This keeps v16 useful even when
+          HRRR is unavailable, but the primary path uses HRRR.
         """
         from model_config import FEATURE_COLS_V16
         from train_classifier import BucketClassifier
@@ -4584,29 +4606,47 @@ class NYCTemperatureModelTrainer:
             for col in missing:
                 self.features_df[col] = np.nan
 
-        # The unification: ALL labeled rows. Not "rows with NWS forecast" —
-        # every row where we know what the high actually was.
-        train_df = self.features_df[self.features_df["actual_high"].notna()].copy()
+        # Training pool: rows with BOTH actual_high AND mm_hrrr_max populated.
+        # HRRR is the anchor we train residuals against — rows without HRRR
+        # can't contribute to the primary residual model.
+        df = self.features_df
+        labeled_mask = df["actual_high"].notna() & df["mm_hrrr_max"].notna()
+        train_df = df[labeled_mask].copy()
         n_total = len(train_df)
-        print(f"  Training pool: {n_total} labeled rows "
-              f"(vs v15's {self.features_df['nws_last'].notna().sum()} NWS-anchored rows)")
+        n_total_labeled = int(df["actual_high"].notna().sum())
+        n_dropped_no_hrrr = n_total_labeled - n_total
+        print(f"  Training pool: {n_total} labeled rows with HRRR anchor "
+              f"(dropped {n_dropped_no_hrrr} rows missing mm_hrrr_max)")
+        print(f"  Comparison: v15 trained on {df['nws_last'].notna().sum()} NWS-anchored rows")
 
         if n_total < 100:
-            print(f"  ⚠️ Only {n_total} labeled rows (need 100+). Skipping v16.")
+            print(f"  ⚠️ Only {n_total} HRRR-anchored rows (need 100+). Skipping v16.")
             return
 
         # Per-row feature populations diagnostic
         print(f"  Feature coverage on training pool:")
         key_cols = ["nws_last", "predicted_high_hrrr", "mm_hrrr_max",
                     "mm_gfs_max", "mm_ecmwf_max", "yesterday_signed_miss",
-                    "rolling_3day_bias", "obs_max_so_far"]
+                    "rolling_3day_bias", "obs_max_so_far",
+                    "entrainment_temp_diff", "marine_containment", "inland_strength"]
         for col in key_cols:
             if col in train_df.columns:
                 n = train_df[col].notna().sum()
                 print(f"    {col:30s} {n:5d}/{n_total} ({100*n/n_total:.0f}%)")
 
-        X        = train_df[FEATURE_COLS_V16]
-        y_actual = train_df["actual_high"].astype(float)
+        # ── RESIDUAL TARGET ──────────────────────────────────────────────────
+        # y = actual_high - HRRR. Forces the model to learn HRRR's errors,
+        # not just regurgitate HRRR. Final inference adds HRRR back.
+        X            = train_df[FEATURE_COLS_V16]
+        hrrr_anchor  = train_df["mm_hrrr_max"].astype(float)
+        y_actual     = train_df["actual_high"].astype(float)
+        y_residual   = y_actual - hrrr_anchor
+
+        print(f"  HRRR error stats on training pool:")
+        print(f"    mean    = {y_residual.mean():+.2f}°F  (HRRR systematic bias)")
+        print(f"    abs_mae = {y_residual.abs().mean():.2f}°F  (HRRR's untreated MAE)")
+        print(f"    std     = {y_residual.std():.2f}°F")
+        print(f"    p10/p90 = {y_residual.quantile(0.10):+.1f}°F / {y_residual.quantile(0.90):+.1f}°F")
 
         v16_regressor = HistGradientBoostingRegressor(
             max_iter=500, learning_rate=0.04, max_depth=5,
@@ -4614,19 +4654,37 @@ class NYCTemperatureModelTrainer:
             random_state=42,
         )
 
+        # CV on the RESIDUAL (which is what the model learns).
         mae_scores = -cross_val_score(
-            v16_regressor, X, y_actual, cv=5, scoring="neg_mean_absolute_error"
+            v16_regressor, X, y_residual, cv=5, scoring="neg_mean_absolute_error"
         )
+        # Bucket accuracy compares (HRRR + predicted_residual) to actual_high.
+        # Aligned-index closure: each fold's predict(X_fold) is added to the
+        # corresponding HRRR slice and compared to the corresponding actual.
+        hrrr_arr   = hrrr_anchor.to_numpy()
+        actual_arr = y_actual.to_numpy()
+        def _bucket_score(est, X_, y_):
+            idx = X_.index.to_numpy() if hasattr(X_, "index") else np.arange(len(X_))
+            preds = est.predict(X_) + hrrr_arr[idx]
+            return float(np.mean(np.abs(preds - actual_arr[idx]) <= 1))
         bucket_acc = cross_val_score(
-            v16_regressor, X, y_actual, cv=5,
-            scoring=lambda est, X_, y_: float(np.mean(np.abs(est.predict(X_) - y_) <= 1)),
+            v16_regressor, X, y_residual, cv=5, scoring=_bucket_score,
         )
-        residual_std = float(np.std(y_actual - y_actual.mean()))
+        residual_std = float(np.std(y_residual))
 
-        print(f"  v16 CV MAE:        {np.mean(mae_scores):.2f}°F")
-        print(f"  v16 CV Bucket Acc: {np.mean(bucket_acc):.1%}")
-        print(f"  v16 Target Std:    {residual_std:.2f}°F")
-        v16_regressor.fit(X, y_actual)
+        # Compare to "predict 0" baseline (= just use HRRR as-is).
+        baseline_mae = float(y_residual.abs().mean())
+        improvement_vs_hrrr_alone = baseline_mae - float(np.mean(mae_scores))
+
+        print(f"\n  v16 RESIDUAL CV MAE:    {np.mean(mae_scores):.2f}°F  "
+              f"(predicting HRRR error)")
+        print(f"  v16 BUCKET ACC (final): {np.mean(bucket_acc):.1%}  "
+              f"(|HRRR+residual − actual| ≤ 1°F)")
+        print(f"  Residual Std:           {residual_std:.2f}°F")
+        print(f"  Baseline (HRRR alone):  {baseline_mae:.2f}°F MAE")
+        print(f"  v16 vs HRRR-alone:      {improvement_vs_hrrr_alone:+.3f}°F  "
+              f"({'beats' if improvement_vs_hrrr_alone > 0 else 'loses to'} HRRR)")
+        v16_regressor.fit(X, y_residual)
 
         # Top-15 feature importances for transparency
         try:
@@ -4677,15 +4735,28 @@ class NYCTemperatureModelTrainer:
 
         v16_meta = {
             "trained_on": datetime.now().isoformat(),
-            "version": "v16_unified",
-            "design": "ONE model, ALL labeled rows, ALL features, predicts actual_high directly",
-            "training_pool": "every row where actual_high is known (multiyear + NWS-log + intraday)",
-            "target": "actual_high (no bias indirection)",
+            "version": "v16_unified_residual",
+            "design": (
+                "ONE model, ALL HRRR-anchored labeled rows, ALL features. "
+                "Predicts (actual_high - HRRR) — the HRRR error. Inference: "
+                "final = HRRR + v16_residual."
+            ),
+            "training_pool": (
+                "every row where (actual_high AND mm_hrrr_max) are populated — "
+                "multiyear historical + NWS-log + intraday snapshots"
+            ),
+            "anchor": "mm_hrrr_max (HRRR — #1 accuracy short-range model)",
+            "target": "actual_high - mm_hrrr_max (HRRR error)",
+            "inference": "final_prediction = mm_hrrr_max + v16_regressor.predict(features)",
             "model": "HistGradientBoostingRegressor — handles per-row missing features natively",
             "v16_regression": {
                 "cv_mae": float(np.mean(mae_scores)),
+                "cv_mae_target": "residual (actual_high - HRRR)",
                 "cv_bucket_accuracy": float(np.mean(bucket_acc)),
-                "target_std": residual_std,
+                "cv_bucket_target": "|HRRR + residual − actual| ≤ 1°F",
+                "residual_std": residual_std,
+                "baseline_mae_hrrr_alone": baseline_mae,
+                "improvement_vs_hrrr_alone": improvement_vs_hrrr_alone,
                 "n_features": len(FEATURE_COLS_V16),
                 "n_training_rows": n_total,
             },

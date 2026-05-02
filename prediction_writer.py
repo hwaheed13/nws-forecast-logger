@@ -3648,25 +3648,17 @@ def _compute_ml_prediction(
             _hrrr_base = _valid_temp(v2_features.get("mm_hrrr_max"))
             _nbm_base  = _valid_temp(v2_features.get("mm_nbm_max"))
 
-            _use_hrrr_anchor = (use_v8 or use_v7) and active_regressor is not None
+            # v16 (residual) uses the SAME HRRR-anchor inference path as v7/v8.
+            # v16's regressor.predict(X) returns a residual (actual − HRRR);
+            # we add HRRR back exactly like v7/v8. No more direct-prediction
+            # tier — that was the over-reactive design that tracked HRRR.
+            _use_hrrr_anchor = (use_v16 or use_v8 or use_v7) and active_regressor is not None
 
-            if use_v16 and active_regressor is not None:
-                # TIER 0 (v16 UNIFIED): regressor predicts actual_high directly.
-                # No anchor + bias indirection. The model has learned to weight
-                # HRRR/NBM/obs/cap/season/autoreg internally across 4yr of data.
-                v2_temp = float(active_regressor.predict(X_v2)[0])
-                _hrrr_note = (f" | HRRR={_hrrr_base:.0f}" if _hrrr_base is not None else "")
-                _nbm_note  = (f" | NBM={_nbm_base:.0f}"  if _nbm_base  is not None else "")
-                _atm_note  = (f" | atm={float(atm_pred_val):.1f}" if has_atm else "")
-                _nws_v = v2_features.get("nws_last")
-                _nws_note = (f" | NWS={float(_nws_v):.0f}" if _nws_v is not None
-                             and not (isinstance(_nws_v, float) and math.isnan(_nws_v)) else "")
-                print(f"   Center temp: {v2_temp:.1f}°F "
-                      f"({active_version}: direct prediction){_hrrr_note}{_nbm_note}{_nws_note}{_atm_note}")
-
-            elif _use_hrrr_anchor and _hrrr_base is not None:
-                # TIER 1 (v7/v8): HRRR anchor + regressor bias correction
-                # v7/v8 regressor trained on y_bias = actual - HRRR_max.
+            if _use_hrrr_anchor and _hrrr_base is not None:
+                # TIER 1 (v7/v8/v16): HRRR anchor + regressor residual.
+                # v7/v8 regressors trained on y_bias = actual - HRRR_max.
+                # v16 regressor trained on the same residual but on the unified
+                # ALL-labeled-rows pool with the full feature superset (184 cols).
                 _bias = float(active_regressor.predict(X_v2)[0])
                 v2_temp = _hrrr_base + _bias
                 _atm_note = (f" | atm={float(atm_pred_val):.1f}°F (delta={v2_temp - float(atm_pred_val):+.1f}°F)"
