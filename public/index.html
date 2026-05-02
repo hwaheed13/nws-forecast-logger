@@ -6243,12 +6243,24 @@ window._predTomorrow = predTomorrow;
 
         // Suppress overnight note if live data already invalidates the prediction —
         // the two messages are contradictory and the banner takes priority.
+        // GUARD: "past peak" fired at 8:30 AM saying overnight 1 AM was the
+        // peak — false positive for normal afternoon-peaking days. Require
+        // current ET hour >= 13 (1 PM) before flagging falling-from-peak,
+        // unless overnight flag is set (which has its own dedicated branch).
+        const _currentEtHour = (() => {
+          try {
+            const fmt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false });
+            return Number(fmt.format(new Date()));
+          } catch { return null; }
+        })();
+        const _allowFallingNote = _currentEtHour == null || _currentEtHour >= 13;
+
         const overnightHighNote = (_overnightFlag == 1 && _peakHour != null && !_overnightSuppressed && !_liveInvalidatedEarly)
           ? `<div style="font-size:12px;background:#eff6ff;border-left:3px solid #3b82f6;padding:6px 10px;margin-top:6px;border-radius:4px;">
               🌙 <strong>Overnight high detected</strong> — peak ${_snap.obs_snap_max_so_far != null ? `${Number(_snap.obs_snap_max_so_far).toFixed(1)}°F ` : ''}at ${Math.round(_peakHour)}:00.
               Day's high likely already in the books. Prediction locked.
              </div>`
-          : (_fallingHrs != null && Number(_fallingHrs) >= 3)
+          : (_fallingHrs != null && Number(_fallingHrs) >= 3 && _allowFallingNote)
           ? `<div style="font-size:12px;background:#fefce8;border-left:3px solid #eab308;padding:6px 10px;margin-top:6px;border-radius:4px;">
               📉 Temp falling for ${Math.round(_fallingHrs)}h — high likely past its peak.
              </div>`
