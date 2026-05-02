@@ -65,6 +65,24 @@ jobs:
           python backfill_multiyear.py --all --patch-live-cols
         continue-on-error: true
 
+      # 4yr atmospheric BL height + 925mb temp from open-meteo historical-forecast-api.
+      # Without this, atm_bl_height_max sits at ~38% coverage in multiyear CSV,
+      # which gates v13's marine_containment feature. Fill-only — never overwrites
+      # values from higher-quality live forecast snapshots.
+      - name: Backfill 4yr atm_bl_height + atm_925mb (gates v13 BL safeguard moat)
+        run: |
+          python backfill_bl_925.py --city nyc
+          python backfill_bl_925.py --city lax
+        continue-on-error: true
+
+      # 4yr multi-model history (GFS / ECMWF / NBM / ICON / GEM) for v11
+      # divergence features anchored on HRRR (mm_hrrr_vs_gfs etc).
+      - name: Backfill 4yr multi-model forecast history (gates v11 model-vs-model)
+        run: |
+          python backfill_multimodel_history.py --city nyc
+          python backfill_multimodel_history.py --city lax
+        continue-on-error: true
+
       - name: Backfill current-season atmospheric data (NWS-logged days)
         run: |
           python backfill_atmospheric.py --all
