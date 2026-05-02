@@ -1013,20 +1013,31 @@ class NYCTemperatureModelTrainer:
             for col in MOS_COLS:
                 features[col] = np.nan
 
-            # Observation proxy features — computed from archive intraday data
-            # Simulates what the model would see at noon during live inference.
-            # For archive data, intraday features ARE real observations.
+            # Observation proxy features — DISABLED for multi-year archive rows.
+            #
+            # Why NaN instead of noon-snapshot proxy:
+            #   The previous design set obs_latest_temp = noon temp, obs_max_so_far
+            #   = max(9am, noon), obs_latest_hour = 12.0. On NYC days this leaks
+            #   the target — noon temp is within 1°F of actual_high on 37% of
+            #   archive rows, within 0.5°F on 20%. The model trained on archive
+            #   noon snapshots learned "obs_latest_temp ≈ actual_high when
+            #   obs_latest_hour is around peak", giving CV MAE 0.76°F that did
+            #   NOT generalize to production (predictions oscillated 4-6°F as
+            #   live obs streamed in throughout the day).
+            #
+            #   Setting these to NaN for multi-year rows means HistGB treats them
+            #   as missing for archive examples — model relies on HRRR/NBM/atm/
+            #   season features (which DO generalize). Live NWS-log rows still
+            #   populate these from genuine current temps at prediction time, so
+            #   the model can learn from non-leaky live obs separately.
             obs_noon_temp = row.get("intra_temp_noon", np.nan)
             obs_9am_temp = row.get("intra_temp_9am", np.nan)
             obs_3pm_temp = row.get("intra_temp_3pm", np.nan)
 
-            features["obs_latest_temp"] = obs_noon_temp if pd.notna(obs_noon_temp) else np.nan
-            features["obs_latest_hour"] = 12.0  # fixed as-of hour for training
-            # Running max up to noon: max of 9am and noon
-            obs_temps = [t for t in [obs_9am_temp, obs_noon_temp] if pd.notna(t)]
-            features["obs_max_so_far"] = max(obs_temps) if obs_temps else np.nan
-            # 6hr max: max of morning observations (same as max_so_far for noon cutoff)
-            features["obs_6hr_max"] = features["obs_max_so_far"]
+            features["obs_latest_temp"] = np.nan
+            features["obs_latest_hour"] = np.nan
+            features["obs_max_so_far"] = np.nan
+            features["obs_6hr_max"] = np.nan
             # Delta vs intraday forecast: ~0 for archive (same source)
             features["obs_vs_intra_forecast"] = 0.0
 
@@ -1040,17 +1051,12 @@ class NYCTemperatureModelTrainer:
             cloud_mean = row.get("atm_cloud_cover_mean", np.nan)
             features["obs_cloud_cover"] = round(cloud_mean / 100.0, 2) if pd.notna(cloud_mean) else np.nan
 
-            # Heating rate: (noon - 9am) / 3 hours
-            if pd.notna(obs_noon_temp) and pd.notna(obs_9am_temp):
-                features["obs_heating_rate"] = round((obs_noon_temp - obs_9am_temp) / 3.0, 2)
-            else:
-                features["obs_heating_rate"] = np.nan
-
-            # Obs max vs persistence forecast (our proxy "NWS" forecast)
-            if persistence is not None and features["obs_max_so_far"] is not None and not np.isnan(features["obs_max_so_far"]):
-                features["obs_temp_vs_forecast_max"] = round(features["obs_max_so_far"] - persistence, 1)
-            else:
-                features["obs_temp_vs_forecast_max"] = np.nan
+            # Heating rate / temp_vs_forecast — also leakage-adjacent for archive
+            # rows because their "obs" inputs are noon proxies. NaN them so the
+            # model can only learn these from live NWS-log rows where they
+            # represent genuine prediction-time observations.
+            features["obs_heating_rate"] = np.nan
+            features["obs_temp_vs_forecast_max"] = np.nan
 
             rows.append(features)
 
