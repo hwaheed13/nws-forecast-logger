@@ -1,16 +1,22 @@
 {
-  "trained_on": "2026-05-02T07:49:49.711562",
-  "version": "v16_unified",
-  "design": "ONE model, ALL labeled rows, ALL features, predicts actual_high directly",
-  "training_pool": "every row where actual_high is known (multiyear + NWS-log + intraday)",
-  "target": "actual_high (no bias indirection)",
+  "trained_on": "2026-05-03T03:13:34.923205",
+  "version": "v16_unified_residual",
+  "design": "ONE model, ALL HRRR-anchored labeled rows, ALL features. Predicts (actual_high - HRRR) \u2014 the HRRR error. Inference: final = HRRR + v16_residual.",
+  "training_pool": "every row where (actual_high AND mm_hrrr_max) are populated \u2014 multiyear historical + NWS-log + intraday snapshots",
+  "anchor": "mm_hrrr_max (HRRR \u2014 #1 accuracy short-range model)",
+  "target": "actual_high - mm_hrrr_max (HRRR error)",
+  "inference": "final_prediction = mm_hrrr_max + v16_regressor.predict(features)",
   "model": "HistGradientBoostingRegressor \u2014 handles per-row missing features natively",
   "v16_regression": {
-    "cv_mae": 4.355559543952545,
-    "cv_bucket_accuracy": 0.6541169188994929,
-    "target_std": 18.237824733582617,
+    "cv_mae": 1.0873845492737761,
+    "cv_mae_target": "residual (actual_high - HRRR)",
+    "cv_bucket_accuracy": NaN,
+    "cv_bucket_target": "|HRRR + residual \u2212 actual| \u2264 1\u00b0F",
+    "residual_std": 2.1902245786162715,
+    "baseline_mae_hrrr_alone": 1.9350579150579148,
+    "improvement_vs_hrrr_alone": 0.8476733657841387,
     "n_features": 184,
-    "n_training_rows": 1581
+    "n_training_rows": 1295
   },
   "feature_columns_v16": [
     "nws_first",
