@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-05-03T08:03:47.667268",
+  "trained_on": "2026-05-03T15:59:43.536338",
   "version": "v16_unified_residual",
   "design": "ONE model, ALL HRRR-anchored labeled rows, ALL features. Predicts (actual_high - HRRR) \u2014 the HRRR error. Inference: final = HRRR + v16_residual.",
   "training_pool": "every row where (actual_high AND mm_hrrr_max) are populated \u2014 multiyear historical + NWS-log + intraday snapshots",
