@@ -689,8 +689,16 @@ FEATURE_COLS_V15 = list(FEATURE_COLS_V14) + MORNING_AUTOREG_COLS
 #   obs_heating_rate, obs_heating_rate_delta etc. and re-predicts. The
 #   per-hour intraday snapshots (~10x/day in training) teach v16 to
 #   recognize early signals of bucket flips before they manifest.
-FEATURE_COLS_V16 = list(FEATURE_COLS_V15)
-FEATURE_COLS_V16_LAX = list(FEATURE_COLS_V15)  # same superset
+# v16 adds cap_with_clearing — explicit interaction between entrainment
+# (cold cap signal) and clearing sky (cloud_cover_max). Captures the
+# May 3 2026 pattern: cold morning + clearing afternoon → afternoon sun
+# fights the cap → HRRR overshoots LESS than pure stall heuristic suggests.
+# All inputs are in 100% of multi-year archive rows so the 4yr corpus
+# teaches it. Without this interaction the residual model overcorrected
+# HRRR by 4°F (predicted 55.5°F when actual was ~59°F).
+V16_INTERACTION_COLS = ["cap_with_clearing"]
+FEATURE_COLS_V16 = list(FEATURE_COLS_V15) + V16_INTERACTION_COLS
+FEATURE_COLS_V16_LAX = list(FEATURE_COLS_V15) + V16_INTERACTION_COLS  # same superset
 
 # Additional features added per-candidate-bucket during classification (4)
 BUCKET_POSITION_COLS = [
