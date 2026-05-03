@@ -1,14 +1,14 @@
 {
-  "trained_on": "2026-05-03T03:12:08.852379",
+  "trained_on": "2026-05-03T08:02:22.918242",
   "version": "v8_hrrr_anchored_stall_signal",
   "base_cascade": "HRRR > NBM > AccuWeather > NWS",
   "new_feature": "obs_heating_rate_delta (stall = cap fingerprint)",
   "v8_regression": {
-    "cv_mae": 2.5845224776943345,
-    "cv_bucket_accuracy": 0.12,
-    "residual_std": 2.7987075415173823,
+    "cv_mae": 2.5668731448822286,
+    "cv_bucket_accuracy": 0.1,
+    "residual_std": 2.6888686603352285,
     "n_features": 150,
-    "n_training_rows": 61
+    "n_training_rows": 62
   },
   "feature_columns_v8": [
     "nws_first",

@@ -1,10 +1,11 @@
 {
-  "trained_on": "2026-05-03T03:06:25.866919",
+  "trained_on": "2026-05-03T08:00:17.984890",
   "version": "v14",
   "skipped": true,
-  "reason": "quality gate failed: cv_mae 1.4894 > 1.4856 (50% worse than v13 cv_mae=0.9904)",
-  "new_cv_mae": 1.4894328776305734,
-  "prior_version": "v13",
-  "prior_cv_mae": 0.9903869855356561,
-  "tolerance": 0.5
+  "reason": "airtight gate failed: only 16 forecast rows have all of ['peak_to_hrrr_gap', 'late_obs_below_pred'] populated (need \u2265100)",
+  "key_feature_counts": {
+    "peak_to_hrrr_gap": 16,
+    "late_obs_below_pred": 16
+  },
+  "min_rows_required": 100
 }
