@@ -6859,7 +6859,40 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
     atm_cutoff_hour = _get_atm_cutoff_hour(_CITY_KEY)
     agency_cutoff = now_nyc().hour >= agency_cutoff_hour
     atm_cutoff    = now_nyc().hour >= atm_cutoff_hour
-    past_cutoff   = atm_cutoff  # full freeze = atm cutoff (used for canonical write gate)
+
+    # ── Market-lock based freeze (replaces 3pm hard time cutoff) ────────────
+    # OLD: past_cutoff = atm_cutoff (3pm ET hard freeze).
+    #      Problem: today (5/3) ML froze at 57.4°F at 3pm. Live obs climbed
+    #      to 59°F by 4:51pm. Bucket "58 or less" busted. Model couldn't update.
+    # NEW: past_cutoff = Kalshi market locked OR very-late-evening fallback.
+    #      Allows the model to keep updating through afternoon while the Kalshi
+    #      market is still uncertain (top bucket < 80%). Once the market has
+    #      effectively decided (top ≥ 80%), further model updates would be
+    #      chasing a known outcome — freeze.
+    # Canonical write attribution is unaffected: ml_f_canonical is set ONCE
+    # at the morning canonical write and preserved on every subsequent intraday
+    # write. The "moat" predictions for win/loss attribution remain
+    # what was locked in at canonical time.
+    _kalshi_top_prob: Optional[float] = None
+    _kalshi_locked = False
+    try:
+        _kalshi_probs_for_lock = _fetch_kalshi_market_probs(target_date_iso)
+        if _kalshi_probs_for_lock:
+            _kalshi_top_prob = max(_kalshi_probs_for_lock.values())
+            _kalshi_locked = _kalshi_top_prob >= 0.80
+    except Exception as _kelock_e:
+        print(f"⚠️ Kalshi lock-check failed (non-fatal, will use late-evening fallback): {_kelock_e}")
+
+    # Late-evening hard fallback: 7pm ET. Even if Kalshi API failed, after 7pm
+    # peak heating is done and any further model update is chasing.
+    _late_evening_fallback = now_nyc().hour >= 19
+    past_cutoff = bool(_kalshi_locked or _late_evening_fallback)
+    if _kalshi_locked:
+        print(f"🔒 Freeze: Kalshi market locked (top bucket prob {_kalshi_top_prob*100:.0f}% ≥ 80%)")
+    elif _late_evening_fallback and atm_cutoff:
+        print(f"🔒 Freeze: late-evening fallback (≥7pm ET, peak heating done)")
+    elif atm_cutoff and not past_cutoff:
+        print(f"🔓 Past atm cutoff but Kalshi market still uncertain (top {_kalshi_top_prob*100 if _kalshi_top_prob else '?'}%) — model continues updating")
     live_atm: Optional[dict] = None
 
     # Initialize live_atm / live_obs here so they're always defined regardless
