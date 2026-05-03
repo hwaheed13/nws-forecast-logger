@@ -4835,16 +4835,28 @@ function renderAtmSignals() {
       </div>`;
     };
 
-    // Blow-past pill — use peak (strongest level seen today) as primary,
-    // current level if peak not set yet.
-    const _bpShow = _bpPeak || _bpLevel || 'NONE';
+    // Blow-past pill (Option C: current state primary, peak as suffix when
+    // peak ever exceeded current). Old design showed sticky-peak only, which
+    // misled when an early-day spike (e.g., 2026-05-03 122°F bug) made the
+    // pill stay MEDIUM all day even after current cycles had no risk.
+    const _bpRank = (lvl) => lvl === 'HIGH' ? 3 : lvl === 'MEDIUM' ? 2 : lvl === 'LOW' ? 1 : 0;
+    const _bpCurrent      = _bpLevel || 'NONE';
+    const _bpPeakLvl      = _bpPeak  || 'NONE';
+    const _bpShow         = _bpCurrent;  // pill color/active reflects CURRENT state
+    const _bpPeakedHigher = _bpRank(_bpPeakLvl) > _bpRank(_bpCurrent);
+    const _bpLabel        = _bpPeakedHigher
+      ? `Blow-past: ${_bpShow} (peaked: ${_bpPeakLvl})`
+      : `Blow-past: ${_bpShow}`;
     const _bpColor = _bpShow === 'HIGH' ? '#dc2626'
                    : _bpShow === 'MEDIUM' ? '#d97706'
                    : '#6b7280';
     const _bpActive = _bpShow !== 'NONE';
     const _bpTip = _bpShow === 'NONE'
-      ? 'No blow-past signal triggered today'
-      : `Dashboard-peak blow-past warning: ${_bpShow}`;
+      ? (_bpPeakedHigher
+          ? `Currently no blow-past risk; peaked at ${_bpPeakLvl} earlier today`
+          : 'No blow-past signal triggered today')
+      : `Current blow-past warning: ${_bpShow}` +
+        (_bpPeakedHigher ? ` (peaked at ${_bpPeakLvl} earlier)` : '');
 
     const signalsRow = `
       <div id="community-signals-row" style="margin-top:12px;padding:10px 12px;background:var(--bg-secondary);
@@ -4857,7 +4869,7 @@ function renderAtmSignals() {
           </span>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:6px;">
-          ${pill(`Blow-past: ${_bpShow}`, _bpActive, _bpColor, _bpTip)}
+          ${pill(_bpLabel, _bpActive, _bpColor, _bpTip)}
           ${pill('HRRR warm bias', _hrrrBias, '#b45309',
               _hrrrBias ? 'HRRR forecast cloud <30% but observed cloud >50% — HRRR probably 1-3°F warm'
                        : 'HRRR cloud forecast aligns with observation')}
