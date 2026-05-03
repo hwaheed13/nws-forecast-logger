@@ -4968,11 +4968,18 @@ function renderLiveSourcesPanel() {
   // obs_snap_max_so_far comes from _fetch_observation_features() which uses a live
   // API that can lag behind the hourly NWS CSV. _sixHourMaxF is the authoritative
   // 6-hour max from NWS and is always current.
+  // Include LIVE knyc reading as a third KNYC source. Without it, when the
+  // freshest live read exceeds the stored snapshot/6hr max (e.g., live=59
+  // but snapshot/6hr lag at 58), the displayed Max stayed artificially
+  // low and the user saw inconsistent values (live=59, Max=58).
   const _snapMaxRaw = s.obs_snap_max_so_far;
   const _sixHrMax   = Number.isFinite(window._sixHourMaxF) ? window._sixHourMaxF : null;
-  const knyc_max    = (_snapMaxRaw != null && _sixHrMax != null)
-    ? Math.max(Number(_snapMaxRaw), _sixHrMax)
-    : (_sixHrMax ?? (_snapMaxRaw != null ? Number(_snapMaxRaw) : null));
+  const _maxCands   = [
+    (_snapMaxRaw != null ? Number(_snapMaxRaw) : null),
+    _sixHrMax,
+    (knyc_live != null ? Number(knyc_live) : null),
+  ].filter(v => v != null && Number.isFinite(v));
+  const knyc_max    = _maxCands.length ? Math.max(..._maxCands) : null;
   const knyc_display = knyc_live ?? knyc_snap_temp;
   // KNYC staleness: reports on the hour (ASOS), so could be up to ~59 min stale.
   // Show "X min ago" so the user knows if it's a fresh read or a stale hour-old obs.
@@ -6074,10 +6081,17 @@ window._predTomorrow = predTomorrow;
           ) ? Number(window._sixHourMaxF) : null;
           const _dsmSource = Number.isFinite(window._dsmHighF)
             ? Number(window._dsmHighF) : null;
-          if (_sixHrSource == null && _dsmSource == null) return null;
-          if (_sixHrSource == null) return _dsmSource;
-          if (_dsmSource == null)   return _sixHrSource;
-          return Math.max(_sixHrSource, _dsmSource);
+          // Include live KNYC reading (KNYC-pure, Kalshi-aligned). Without
+          // this, when live climbs above 6hr/DSM (live=59, 6hr=58, bucket
+          // upper=58), invalidation didn't fire and the bucket-busted state
+          // wasn't surfaced to the user.
+          const _liveKnycSource = (
+            window._recentObservedF != null && Number.isFinite(Number(window._recentObservedF))
+          ) ? Number(window._recentObservedF) : null;
+          const _candidates = [_sixHrSource, _dsmSource, _liveKnycSource]
+            .filter(v => v != null && Number.isFinite(v));
+          if (_candidates.length === 0) return null;
+          return Math.max(..._candidates);
         })();
         const _mlBucketUpperEarly = (() => {
           if (!bucket) return null;
@@ -6187,6 +6201,22 @@ window._predTomorrow = predTomorrow;
         if (_liveInvalidatedEarly || _predictionUnreachableEarly) {
           signalBadge = `<span class="signal-badge" style="background:#fef2f2;color:#b91c1c;padding:3px 9px;border-radius:999px;font-weight:800;font-size:13px;border:1px solid #dc2626;">⛔ DO NOT BET</span>`;
         }
+
+        // User-visible banner: surface WHY the bet badge says DO NOT BET
+        // when live obs has already exceeded the predicted bucket. Without
+        // this, the user sees DO NOT BET with no context, then a separate
+        // KNYC live=59 reading on the obs panel below — but no explicit
+        // acknowledgment that those two are the same story.
+        const liveExceedsNoteTd = _liveInvalidatedEarly
+          ? `<div style="font-size:12px;background:#fef2f2;border-left:3px solid #dc2626;padding:6px 10px;margin-top:6px;border-radius:4px;color:#991b1b;">
+              🚨 <strong>Live obs ALREADY exceeded predicted bucket</strong> — KNYC ${_liveObsMaxEarly != null ? _liveObsMaxEarly.toFixed(1) : '?'}°F is above the bucket upper bound (${_mlBucketUpperEarly != null && _mlBucketUpperEarly !== Infinity ? _mlBucketUpperEarly.toFixed(0) + '°F' : '?'}). The bet is already losing — no edge in placing it now.
+             </div>`
+          : '';
+        const predictionUnreachableNoteTd = (!_liveInvalidatedEarly && _predictionUnreachableEarly)
+          ? `<div style="font-size:12px;background:#fef2f2;border-left:3px solid #dc2626;padding:6px 10px;margin-top:6px;border-radius:4px;color:#991b1b;">
+              🚨 <strong>Predicted bucket unreachable from current observations</strong> — peak heating is past, observed peak is meaningfully below the predicted bucket lower bound. No physical path to land in this bucket.
+             </div>`
+          : '';
 
         const _overnightSuppressed = (
           // NWS D0 confirmed high is ≥2°F above overnight peak — regardless of
@@ -6511,6 +6541,8 @@ window._predTomorrow = predTomorrow;
           ${kellyLine}
           <div style="font-size:12px;color:var(--text-muted);margin-top:5px;" title="${ml.todayMLVersion ? `Model: ${ml.todayMLVersion.replace(/_/g, ' ')}` : ''}">ML: ${mlVal.toFixed(1)}°F${supportHTML ? ` · ${supportHTML}` : ''}</div>
           ${moatRiskHTMLTd}
+          ${liveExceedsNoteTd}
+          ${predictionUnreachableNoteTd}
           ${consOutlierNoteTd}
           ${softDowngradeNoteTd}
           ${canonicalFlipNote}
