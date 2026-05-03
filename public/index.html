@@ -5949,13 +5949,29 @@ window._predTomorrow = predTomorrow;
         const actualHighF = actualRow ? Number(actualRow.actual_high) : null;
 
         if (hasML && ml.todayMLBucket && actualHighF != null && !isNaN(actualHighF)) {
-          const result = _buildWinMissResult(ml.todayMLBucket, ml.today, actualHighF, ml.todayMarketSnapshot);
+          // WIN/MISS attribution MUST use the canonical bucket (the one
+          // locked at 7am ET that represented the actual bet), not the
+          // latest live-updated bucket. Otherwise late-day model updates
+          // could "earn" fake WINs for predictions the user never bet on.
+          // ml_result_canonical in the database is computed from
+          // ml_bucket_canonical — the dashboard display now matches.
+          const attributionBucket = ml.todayMLBucketCanonical || ml.todayMLBucket;
+          const attributionMlF    = ml.todayMLFCanonical != null ? ml.todayMLFCanonical : ml.today;
+          const result = _buildWinMissResult(attributionBucket, attributionMlF, actualHighF, ml.todayMarketSnapshot);
           const card = document.getElementById("ml-signal-today-card");
           if (card) card.style.borderLeftColor = result.borderColor;
+          const _canonicalDifferedNote = (
+            ml.todayMLBucketCanonical &&
+            ml.todayMLBucket &&
+            ml.todayMLBucketCanonical !== ml.todayMLBucket
+          ) ? `<div style="font-size:11px;color:#9ca3af;margin-top:4px;font-style:italic;">
+              Late update: ${ml.todayMLBucket}${ml.today != null ? ` (${Number(ml.today).toFixed(1)}°F)` : ''} — informational only, bet attribution uses 7am canonical call above.
+             </div>` : '';
           el0.innerHTML = `
             <div style="font-size:32px;font-weight:800;line-height:1.1;color:var(--text-primary);">${result.bucketDisplay}</div>
             <div style="margin:6px 0 4px;">${result.resultBadgeHTML}</div>
-            <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">ML: ${Number(ml.today).toFixed(1)}°F · ${result.resultDetailHTML}</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">ML: ${Number(attributionMlF).toFixed(1)}°F · ${result.resultDetailHTML}</div>
+            ${_canonicalDifferedNote}
           `;
         } else {
           // No bucket or no actual high yet — generic settled display
