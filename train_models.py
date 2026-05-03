@@ -1750,16 +1750,39 @@ class NYCTemperatureModelTrainer:
         elif "inland_strength" not in df.columns:
             df["inland_strength"] = np.nan
 
+        # 4) cap_with_clearing = entrainment_temp_diff × (100 - cloud_max) / 100
+        #
+        # Captures the May 3 2026 pattern: cold cap (negative entrainment)
+        # PLUS clearing afternoon (low cloud_max) → afternoon sun fights the
+        # cap → HRRR overshoots LESS than pure stall would suggest. Without
+        # this interaction, residual v16 over-corrects HRRR by 4°F when the
+        # real correction is 1-2°F. Inputs are 100% on multi-year archive
+        # rows so the 4yr corpus teaches the interaction.
+        if (
+            "entrainment_temp_diff" in df.columns
+            and "atm_cloud_cover_max" in df.columns
+        ):
+            cloud_max = pd.to_numeric(df["atm_cloud_cover_max"], errors="coerce")
+            entr = pd.to_numeric(df["entrainment_temp_diff"], errors="coerce")
+            clearing = (100.0 - cloud_max).clip(lower=0, upper=100) / 100.0
+            cap_with_clearing = (entr * clearing).round(2)
+            _coalesce("cap_with_clearing", cap_with_clearing)
+        elif "cap_with_clearing" not in df.columns:
+            df["cap_with_clearing"] = np.nan
+
         # Log coverage
         n_entrainment = df["entrainment_temp_diff"].notna().sum()
         n_marine = df["marine_containment"].notna().sum()
         n_inland = df["inland_strength"].notna().sum()
+        n_cap_clear = df["cap_with_clearing"].notna().sum()
         print(f"  v13 BL safeguard features: entrainment={n_entrainment} rows, "
-              f"marine_containment={n_marine} rows, inland_strength={n_inland} rows")
+              f"marine_containment={n_marine} rows, inland_strength={n_inland} rows, "
+              f"cap_with_clearing={n_cap_clear} rows")
         _record_coverage(self.model_prefix, "v13", {
             "entrainment_temp_diff": n_entrainment,
             "marine_containment": n_marine,
             "inland_strength": n_inland,
+            "cap_with_clearing": n_cap_clear,
         })
         self.features_df = df
 
@@ -4611,7 +4634,10 @@ class NYCTemperatureModelTrainer:
         # can't contribute to the primary residual model.
         df = self.features_df
         labeled_mask = df["actual_high"].notna() & df["mm_hrrr_max"].notna()
-        train_df = df[labeled_mask].copy()
+        # reset_index so positional indexing of helper arrays (hrrr_arr, actual_arr)
+        # aligns with sklearn CV folds' .index. Without this, _bucket_score
+        # closure indexed hrrr_arr with original df indices → bucket_acc=NaN.
+        train_df = df[labeled_mask].copy().reset_index(drop=True)
         n_total = len(train_df)
         n_total_labeled = int(df["actual_high"].notna().sum())
         n_dropped_no_hrrr = n_total_labeled - n_total
