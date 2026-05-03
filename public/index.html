@@ -7978,45 +7978,35 @@ async function loadMLDivergenceStats() {
 window._softDowngradeBet = function _softDowngradeBet({ mlF, nwsF, mmSpread, flipCount, signal }) {
   if (!signal || signal === 'SKIP' || signal === 'LEAN') return { downgrade: false, reasons: [] };
   const reasons = [];
-  // 1. Medium NWS divergence (3-5°F) with weak historical accuracy
-  if (mlF != null && nwsF != null) {
-    const ml = Number(mlF), nws = Number(nwsF);
-    if (Number.isFinite(ml) && Number.isFinite(nws)) {
-      const gap = Math.abs(ml - nws);
-      if (gap >= 3 && gap < 5) {
-        const ds = window.mlDivergenceStats;
-        const bktKey = gap < 4 ? '3-4' : '4+';
-        const rate = ds?.[bktKey]?.rate ?? null;
-        if (rate != null && rate < 50) {
-          reasons.push(`ML ${gap.toFixed(0)}°F from NWS · ${rate}% historical accuracy at this gap`);
-        }
-      }
-    }
-  }
-  // 2. High multi-model spread alone signals input uncertainty even when ML
-  //    happens to align with NWS — the underlying atmosphere is unsettled.
+  // ── HEURISTICS REMOVED (2026-05-03) ──────────────────────────────────────
+  // Production data over 35 days proved the model has dramatically MORE edge
+  // when it disagrees with the reference forecast, not less:
+  //   NYC: when |ML - ref| ≥ 3°F, ML MAE = 2.98°F vs ref MAE = 11.25°F
+  //   LAX: when |ML - ref| ≥ 3°F, ML MAE = 3.67°F vs ref MAE = 4.93°F
+  // The "downgrade on NWS divergence" rule was suppressing exactly the signal
+  // with the biggest edge. Removed:
+  //   ✗ NWS divergence 3-5°F + weak historical hit-rate → soft downgrade
+  //   ✗ Multi-model spread ≥4°F + NWS gap ≥2°F combo (overlap with rule 1)
+  // Kept (still legitimate):
+  //   ✓ mm_spread ≥6°F alone — at that level, the inputs themselves disagree
+  //     so much that no model can pick reliably. The skepticism is about the
+  //     INPUT data, not about the model's ability to interpret it.
   if (mmSpread != null) {
     const sp = Number(mmSpread);
-    if (Number.isFinite(sp)) {
-      if (sp >= 6) {
-        reasons.push(`Multi-model spread ${sp.toFixed(1)}°F — input uncertainty high`);
-      } else if (sp >= 4 && mlF != null && nwsF != null) {
-        const gap = Math.abs(Number(mlF) - Number(nwsF));
-        if (Number.isFinite(gap) && gap >= 2) {
-          reasons.push(`${sp.toFixed(1)}°F model spread + ${gap.toFixed(0)}°F NWS gap`);
-        }
-      }
+    if (Number.isFinite(sp) && sp >= 6) {
+      reasons.push(`Multi-model spread ${sp.toFixed(1)}°F — input uncertainty high`);
     }
   }
-  // 3. Excessive intraday flips = model is reacting to noise
+  // Bucket-flip threshold raised from 5 → 8. Live obs updates throughout the
+  // day can produce 5-7 legitimate bucket transitions as conditions evolve;
+  // 8+ flips genuinely signals instability worth flagging.
   if (flipCount != null) {
     const fc = Number(flipCount);
-    if (Number.isFinite(fc) && fc >= 5) {
+    if (Number.isFinite(fc) && fc >= 8) {
       reasons.push(`${fc} bucket flips today — model unstable`);
     }
   }
   if (reasons.length === 0) return { downgrade: false, reasons: [] };
-  // Step the signal down one tier: STRONG_BET → LEAN, BET → LEAN, HEDGE → LEAN
   let toSignal = 'LEAN';
   return { downgrade: true, toSignal, reasons };
 };
@@ -8033,18 +8023,22 @@ window._softDowngradeBet = function _softDowngradeBet({ mlF, nwsF, mmSpread, fli
 // BET" badge is actively misleading. We mirror the existing _liveInvalidatedEarly
 // override pattern: replace the signal with ⛔ DO NOT BET + an explanatory note.
 window._checkConsensusOutlier = function _checkConsensusOutlier(mlF, nwsF) {
+  // ── REVISED 2026-05-03: only block CATASTROPHIC disagreements ─────────────
+  // Production data over 35 days: when ML disagrees with ref by ≥3°F, ML wins
+  // (NYC: 2.98°F MAE vs 11.25°F MAE for reference). The OLD threshold (gap≥5°F
+  // → block) was suppressing the model's biggest edge. Old rule incorrectly
+  // assumed "big disagreement = model is wrong" — the data says the opposite.
+  //
+  // New threshold: gap ≥ 10°F → block. At 10°F+ the model is almost certainly
+  // broken (our 122°F bug yesterday produced gaps of 60°F+). Below that, trust
+  // the model's call. The user still sees a moat-risk warning for moderate
+  // gaps via _buildMoatRiskHTML — this only governs HARD blocking.
   if (mlF == null || nwsF == null) return null;
   const ml = Number(mlF), nws = Number(nwsF);
   if (!Number.isFinite(ml) || !Number.isFinite(nws)) return null;
   const gap = Math.abs(ml - nws);
-  if (gap < 5) return null;
-  const ds = window.mlDivergenceStats;
-  const bktKey = gap < 1 ? '<1' : gap < 2 ? '1-2' : gap < 3 ? '2-3' : gap < 4 ? '3-4' : '4+';
-  const bktStats = ds ? ds[bktKey] : null;
-  const rate = bktStats?.rate ?? null;
-  if (rate != null && rate < 30) return { gap, accuracy: rate };
-  if (rate == null && gap >= 7) return { gap, accuracy: null };
-  return null;
+  if (gap < 10) return null;
+  return { gap, accuracy: null };
 };
 
 // Helper: given |ml - nws| divergence °F, return the MOAT risk line HTML
