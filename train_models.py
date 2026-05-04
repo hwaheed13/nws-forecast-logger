@@ -4700,9 +4700,40 @@ class NYCTemperatureModelTrainer:
                 n = train_df[col].notna().sum()
                 print(f"    {col:30s} {n:5d}/{n_total} ({100*n/n_total:.0f}%)")
 
-        # ── RESIDUAL TARGET ──────────────────────────────────────────────────
-        # y = actual_high - HRRR. Forces the model to learn HRRR's errors,
-        # not just regurgitate HRRR. Final inference adds HRRR back.
+        # ── ROOT-CAUSE FIX (2026-05-04): regularize + time-series CV ─────────
+        #
+        # Production v16 had been making catastrophic ±4°F misses (5/3 stall,
+        # 5/4 sea breeze) despite CV MAE of 1.09°F looking good. Audit found:
+        #
+        #   1. Random K-fold CV leaks adjacent-day autocorrelation. May 2 in
+        #      test fold while May 1 & 3 in train means the model implicitly
+        #      sees neighbor-day weather. Production has no such adjacency
+        #      info — the 1.09°F CV MAE was inflated by leakage.
+        #
+        #   2. HistGB params were aggressive for 1,580-row × 186-feature data.
+        #      max_depth=5 + min_samples_leaf=8 → trees deep enough to memorize
+        #      regime conjunctions that don't generalize.
+        #
+        #   3. No early stopping. 500 iterations regardless of plateau.
+        #
+        # Fixes (training-level, no inference clamps, no bandaids):
+        #   - Sort training data chronologically (TimeSeriesSplit needs order)
+        #   - TimeSeriesSplit instead of random K-fold (no future leakage)
+        #   - max_depth 5 → 3 (limit interaction depth)
+        #   - min_samples_leaf 8 → 25 (require real support per leaf)
+        #   - l2_regularization 0.3 → 1.5 (stronger shrinkage)
+        #   - learning_rate 0.04 → 0.03 (smaller steps)
+        #   - max_iter 500 → 800 with early_stopping=True (stop when held-out
+        #     plateau reached, not at fixed iteration count)
+        #
+        # Expected: CV MAE goes UP (probably 1.5-1.8°F vs old 1.09°F) because
+        # the new number is HONEST. Production accuracy stable or improved.
+        # Worst-case ±4°F misses become ±2-2.5°F because model no longer makes
+        # over-confident regime calls.
+
+        # Sort chronologically for time-series CV. reset_index keeps positional
+        # alignment of helper arrays (hrrr_arr, actual_arr) below.
+        train_df = train_df.sort_values("target_date").reset_index(drop=True)
         X            = train_df[FEATURE_COLS_V16]
         hrrr_anchor  = train_df["mm_hrrr_max"].astype(float)
         y_actual     = train_df["actual_high"].astype(float)
@@ -4715,18 +4746,26 @@ class NYCTemperatureModelTrainer:
         print(f"    p10/p90 = {y_residual.quantile(0.10):+.1f}°F / {y_residual.quantile(0.90):+.1f}°F")
 
         v16_regressor = HistGradientBoostingRegressor(
-            max_iter=500, learning_rate=0.04, max_depth=5,
-            min_samples_leaf=8, l2_regularization=0.3,
+            max_iter=800,
+            learning_rate=0.03,
+            max_depth=3,
+            min_samples_leaf=25,
+            l2_regularization=1.5,
+            early_stopping=True,
+            validation_fraction=0.15,
+            n_iter_no_change=20,
             random_state=42,
         )
 
-        # CV on the RESIDUAL (which is what the model learns).
+        from sklearn.model_selection import TimeSeriesSplit
+        tscv = TimeSeriesSplit(n_splits=5)
+
+        # CV on the RESIDUAL with TimeSeriesSplit (train < test chronologically,
+        # no future leakage, honest production-realistic MAE estimate).
         mae_scores = -cross_val_score(
-            v16_regressor, X, y_residual, cv=5, scoring="neg_mean_absolute_error"
+            v16_regressor, X, y_residual, cv=tscv, scoring="neg_mean_absolute_error"
         )
         # Bucket accuracy compares (HRRR + predicted_residual) to actual_high.
-        # Aligned-index closure: each fold's predict(X_fold) is added to the
-        # corresponding HRRR slice and compared to the corresponding actual.
         hrrr_arr   = hrrr_anchor.to_numpy()
         actual_arr = y_actual.to_numpy()
         def _bucket_score(est, X_, y_):
@@ -4734,7 +4773,7 @@ class NYCTemperatureModelTrainer:
             preds = est.predict(X_) + hrrr_arr[idx]
             return float(np.mean(np.abs(preds - actual_arr[idx]) <= 1))
         bucket_acc = cross_val_score(
-            v16_regressor, X, y_residual, cv=5, scoring=_bucket_score,
+            v16_regressor, X, y_residual, cv=tscv, scoring=_bucket_score,
         )
         residual_std = float(np.std(y_residual))
 
