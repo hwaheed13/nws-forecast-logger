@@ -696,7 +696,15 @@ FEATURE_COLS_V15 = list(FEATURE_COLS_V14) + MORNING_AUTOREG_COLS
 # All inputs are in 100% of multi-year archive rows so the 4yr corpus
 # teaches it. Without this interaction the residual model overcorrected
 # HRRR by 4°F (predicted 55.5°F when actual was ~59°F).
-V16_INTERACTION_COLS = ["cap_with_clearing"]
+V16_INTERACTION_COLS = ["cap_with_clearing", "sea_breeze_risk_score"]
+# sea_breeze_risk_score (added 2026-05-04)
+#   = warm_airmass × onshore_wind × warm_season
+#   Captures warm-airmass + onshore-wind + spring-summer days where
+#   sea breeze caps KNYC while inland heats normally. Without it,
+#   residual v16 overpredicted HRRR by 4°F (predicted 77.3°F when
+#   KNYC capped at 72°F via sea breeze on 5/4 — inland TEB/CDW/SMQ
+#   DID hit 73-74°F as the warm-airmass signal predicted, but Central
+#   Park itself was suppressed).
 FEATURE_COLS_V16 = list(FEATURE_COLS_V15) + V16_INTERACTION_COLS
 FEATURE_COLS_V16_LAX = list(FEATURE_COLS_V15) + V16_INTERACTION_COLS  # same superset
 

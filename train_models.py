@@ -1770,19 +1770,59 @@ class NYCTemperatureModelTrainer:
         elif "cap_with_clearing" not in df.columns:
             df["cap_with_clearing"] = np.nan
 
+        # 5) sea_breeze_risk_score = warm_airmass × onshore_wind × warm_season
+        #
+        # Captures the May 4 2026 pattern: warm airmass aloft (925mb=57.6°F),
+        # onshore S/SE wind, warm season → sea breeze develops, KNYC capped
+        # while inland (TEB/CDW/SMQ) heats normally. Without this feature,
+        # residual v16 over-predicts HRRR by 4°F on warm-airmass days because
+        # training sees plenty of warm-airmass days that ended hot at KNYC
+        # interleaved with sea-breeze-suppressed days — model couldn't
+        # distinguish without an explicit interaction. All inputs at
+        # 95-100% archive coverage.
+        if (
+            "atm_925mb_temp_mean" in df.columns
+            and "atm_wind_dir_sin" in df.columns
+            and "atm_wind_dir_cos" in df.columns
+            and "month" in df.columns
+        ):
+            t925 = pd.to_numeric(df["atm_925mb_temp_mean"], errors="coerce")
+            wsin = pd.to_numeric(df["atm_wind_dir_sin"], errors="coerce")
+            wcos = pd.to_numeric(df["atm_wind_dir_cos"], errors="coerce")
+            month = pd.to_numeric(df["month"], errors="coerce")
+
+            # Warm airmass: 0 below 50°F, ramps to 1 at 80°F
+            warm_score = ((t925 - 50.0) / 30.0).clip(lower=0.0, upper=1.0)
+            # Onshore wind for NYC: peaks at SE (~135°) where (sin - cos) = 1.4
+            # Negative for offshore W/NW winds.
+            onshore_score = ((wsin - wcos) / 2.0).clip(lower=0.0, upper=1.0)
+            # Sea breeze season: water-cooler-than-land window (May-Sep peak)
+            season_score = month.map(
+                lambda m: (1.0 if (5 <= m <= 9) else
+                           (0.7 if m in (4, 10) else 0.0))
+                          if pd.notna(m) else np.nan
+            )
+            sea_breeze_risk = (warm_score * onshore_score * season_score).round(3)
+            _coalesce("sea_breeze_risk_score", sea_breeze_risk)
+        elif "sea_breeze_risk_score" not in df.columns:
+            df["sea_breeze_risk_score"] = np.nan
+
         # Log coverage
         n_entrainment = df["entrainment_temp_diff"].notna().sum()
         n_marine = df["marine_containment"].notna().sum()
         n_inland = df["inland_strength"].notna().sum()
         n_cap_clear = df["cap_with_clearing"].notna().sum()
+        n_sea_breeze = df["sea_breeze_risk_score"].notna().sum()
         print(f"  v13 BL safeguard features: entrainment={n_entrainment} rows, "
               f"marine_containment={n_marine} rows, inland_strength={n_inland} rows, "
-              f"cap_with_clearing={n_cap_clear} rows")
+              f"cap_with_clearing={n_cap_clear} rows, "
+              f"sea_breeze_risk_score={n_sea_breeze} rows")
         _record_coverage(self.model_prefix, "v13", {
             "entrainment_temp_diff": n_entrainment,
             "marine_containment": n_marine,
             "inland_strength": n_inland,
             "cap_with_clearing": n_cap_clear,
+            "sea_breeze_risk_score": n_sea_breeze,
         })
         self.features_df = df
 
