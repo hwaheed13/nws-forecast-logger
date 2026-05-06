@@ -2,9 +2,11 @@ name: Daily ML Model Retrain
 
 on:
   schedule:
-    # Every day at 6am ET (10am UTC) — after finalize-yesterday (5am ET)
-    # and before first prediction run (7am ET)
-    - cron: "0 10 * * *"
+    # 1 AM ET (5 UTC during EDT, 6 UTC during EST) — just after midnight,
+    # so yesterday's data is fully scored. With ~4h runtime, finishes
+    # ~5 AM ET, before 7 AM ET canonical write. APIs (Open-Meteo, Synoptic,
+    # IEM ASOS, NWS) all run 24/7 with stable rate limits at this hour.
+    - cron: "0 5 * * *"
   workflow_dispatch:  # manual trigger
 
 # Concurrency lock — only one retrain at a time. Two ran simultaneously on
