@@ -156,12 +156,35 @@ def run(city: str, dry_run: bool = False) -> int:
         n = df[c].notna().sum()
         print(f"  before: {c}: {n}/{len(df)}")
 
-    start = df["target_date"].min()
-    end = df["target_date"].max()
-    # historical-forecast-api coverage begins 2022-03-23
-    if start < "2022-03-23":
-        start = "2022-03-23"
-    print(f"\nFetching {cfg['lat']},{cfg['lon']} from {start} → {end}")
+    # ── INCREMENTAL FETCH (2026-05-04) ───────────────────────────────────
+    # Fetch only dates where ALL target columns are still NaN, plus a 7-day
+    # rolling overlap (catches cases where API was incomplete on prior runs).
+    # Without this, each run re-fetched 2022→today (4yr × 90-day chunks =
+    # ~16 API calls × 8s each = ~2 min per run; with 6 cities and other
+    # backfills compounding, this drives daily retrain runtime to 4-8 hours).
+    target_csv_max = df["target_date"].max()
+    # Find the latest date where ANY target col is populated (proxy for
+    # "we already have data through here"). Take min across cols so we
+    # re-fetch any column that started later or has gaps.
+    populated_dates = []
+    for c in cols:
+        d = df.loc[df[c].notna(), "target_date"].max() if df[c].notna().any() else None
+        if d is not None:
+            populated_dates.append(d)
+    if populated_dates:
+        existing_max = min(populated_dates)
+        # Start from existing_max - 7 days for overlap (catches partial fills).
+        existing_max_dt = datetime.strptime(existing_max, "%Y-%m-%d").date()
+        incremental_start_dt = existing_max_dt - timedelta(days=7)
+        start = max("2022-03-23", incremental_start_dt.isoformat())
+    else:
+        # First run / column doesn't exist yet — full range.
+        start = df["target_date"].min()
+        if start < "2022-03-23":
+            start = "2022-03-23"
+    end = target_csv_max
+    print(f"\nIncremental fetch {cfg['lat']},{cfg['lon']} from {start} → {end} "
+          f"(was {df['target_date'].min()} → {end} pre-incremental)")
 
     hourly = fetch_range(cfg["lat"], cfg["lon"], start, end, cfg["tz"])
     if hourly.empty:
