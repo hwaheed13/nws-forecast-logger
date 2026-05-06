@@ -7104,9 +7104,20 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
             "ml_version": existing.get("ml_version"),
         }
 
-    elif isinstance(existing, dict) and existing.get("ml_f") is not None and past_cutoff:
-        # Past the full freeze point (atm cutoff OR dynamic lock).
-        # All signal types (agency, atmospheric, obs) are now stale or contaminated.
+    elif (
+        isinstance(existing, dict)
+        and existing.get("ml_f") is not None
+        and past_cutoff
+        and existing.get("ml_f_canonical") is None
+    ):
+        # Pre-canonical freeze: if past_cutoff fires before any canonical
+        # write happened (e.g., overnight high day), hold existing ml_f.
+        # After canonical exists, fall through to the recompute branch so
+        # the model runs every cron with fresh live features. Canonical
+        # bet attribution is preserved separately via ml_f_canonical (set
+        # once at 7am, immutable). This was the missing piece on bust days
+        # like 2026-05-06 — model only ran once, freeze blocked recompute
+        # for the rest of the day even when live obs diverged hard.
         lock_label = _dlock["reason"] if _dlock["locked"] else f"atm cutoff ({atm_cutoff_hour}:00 local)"
         held_ml_f = existing["ml_f"]
         held_ml_bucket = existing["ml_bucket"]
