@@ -323,13 +323,43 @@ def run(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Backfill IEM ASOS obs into multiyear CSV for v13 BL-safeguard training")
     parser.add_argument("--city", default="nyc", choices=["nyc", "lax"])
-    parser.add_argument("--start", default="2022-01-01", help="YYYY-MM-DD")
+    parser.add_argument("--start", default=None, help="YYYY-MM-DD (default: incremental from CSV)")
     parser.add_argument("--end", default=None, help="YYYY-MM-DD (default: today)")
+    parser.add_argument("--full", action="store_true", help="Force full re-fetch from 2022-01-01 (slow)")
     parser.add_argument("--dry-run", action="store_true", help="7-day sample only, no writes")
     args = parser.parse_args()
 
-    start = datetime.strptime(args.start, "%Y-%m-%d").date()
+    # ── INCREMENTAL FETCH (2026-05-04) ───────────────────────────────────
+    # Default: read CSV, find latest date with populated KNYC temp, fetch
+    # from that date - 7 days (overlap window) → today. Without this, every
+    # run re-pulled 4yr × 7 stations × per-station IEM ASOS = ~40min/run.
     end = datetime.strptime(args.end, "%Y-%m-%d").date() if args.end else date.today()
+    if args.start:
+        start = datetime.strptime(args.start, "%Y-%m-%d").date()
+    elif args.full:
+        start = datetime.strptime("2022-01-01", "%Y-%m-%d").date()
+    else:
+        # Incremental: find max date with primary station temp populated
+        try:
+            from pathlib import Path
+            csv_path = Path(f"{'lax_' if args.city == 'lax' else ''}multiyear_atmospheric.csv")
+            if csv_path.exists():
+                _df = pd.read_csv(csv_path, usecols=lambda c: c in ("target_date", "obs_knyc_temp", "obs_klax_temp"))
+                primary_col = "obs_klax_temp" if args.city == "lax" else "obs_knyc_temp"
+                if primary_col in _df.columns and _df[primary_col].notna().any():
+                    last_pop = _df.loc[_df[primary_col].notna(), "target_date"].max()
+                    last_pop_dt = datetime.strptime(str(last_pop)[:10], "%Y-%m-%d").date()
+                    start = last_pop_dt - timedelta(days=7)  # 7-day overlap
+                    print(f"Incremental: last populated {last_pop_dt}, fetching from {start}")
+                else:
+                    start = datetime.strptime("2022-01-01", "%Y-%m-%d").date()
+                    print(f"Incremental fallback: no populated rows, full fetch from {start}")
+            else:
+                start = datetime.strptime("2022-01-01", "%Y-%m-%d").date()
+                print(f"Incremental fallback: CSV missing, full fetch from {start}")
+        except Exception as _e:
+            start = datetime.strptime("2022-01-01", "%Y-%m-%d").date()
+            print(f"Incremental fallback ({_e}): full fetch from {start}")
 
     if args.dry_run:
         # Dry-run uses a 7-day window ending at `end` to keep IEM responses tiny.

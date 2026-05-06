@@ -180,11 +180,31 @@ def run(city: str, dry_run: bool = False, start_override: str | None = None) -> 
         n = df[col].notna().sum()
         print(f"  before: {col}: {n}/{len(df)}")
 
-    start = start_override or df["target_date"].min()
+    # ── INCREMENTAL FETCH (2026-05-04) ───────────────────────────────────
+    # Fetch only since latest already-populated date, with 7-day overlap.
+    # Without this, every run re-pulled 4yr × 6 models × 90-day chunks =
+    # ~96 API calls × ~8s each = ~13 min per city. Two cities = 26 min
+    # just on this backfill alone.
     end = df["target_date"].max()
+    if start_override:
+        start = start_override
+    else:
+        populated_dates = []
+        for col in MODELS.values():
+            if col in df.columns and df[col].notna().any():
+                d = df.loc[df[col].notna(), "target_date"].max()
+                populated_dates.append(d)
+        if populated_dates:
+            existing_max = min(populated_dates)
+            existing_max_dt = datetime.strptime(existing_max, "%Y-%m-%d").date()
+            incremental_start_dt = existing_max_dt - timedelta(days=7)
+            start = max("2022-03-23", incremental_start_dt.isoformat())
+        else:
+            start = df["target_date"].min()
     if start < "2022-03-23":  # historical-forecast-api coverage limit
         start = "2022-03-23"
-    print(f"\nFetching {cfg['lat']},{cfg['lon']} from {start} → {end}")
+    print(f"\nIncremental fetch {cfg['lat']},{cfg['lon']} from {start} → {end} "
+          f"(was {df['target_date'].min()} → {end} pre-incremental)")
     print(f"Models: {list(MODELS.keys())}")
 
     fill_summary = {}
