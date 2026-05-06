@@ -7108,11 +7108,46 @@ def write_today_for_today(target_date_iso: Optional[str] = None) -> None:
         # Past the full freeze point (atm cutoff OR dynamic lock).
         # All signal types (agency, atmospheric, obs) are now stale or contaminated.
         lock_label = _dlock["reason"] if _dlock["locked"] else f"atm cutoff ({atm_cutoff_hour}:00 local)"
+        held_ml_f = existing["ml_f"]
+        held_ml_bucket = existing["ml_bucket"]
+
+        # Physical cap on held value: even in freeze branch, bound the held
+        # ml_f to what's physically reachable from current obs. Without this,
+        # a stale morning canonical (e.g., today's 73.7°F when reality is
+        # capped at ~71°F by clouds + rain + sea breeze) sits frozen all day.
+        # IMPORTANT: only updates live ml_f / ml_bucket. ml_f_canonical and
+        # ml_bucket_canonical are preserved separately (bet attribution stays
+        # locked to the 7am canonical call).
+        try:
+            held_features = dict(features) if isinstance(features, dict) else {}
+            try:
+                _live_obs_for_cap = _fetch_observation_features(target_date_iso) or {}
+                for k, v in _live_obs_for_cap.items():
+                    if v is not None and not (isinstance(v, float) and math.isnan(v)):
+                        held_features[k] = v
+            except Exception:
+                pass
+            _phys_cap_held = _compute_physical_ceiling(held_features)
+            if _phys_cap_held is not None and float(held_ml_f) > _phys_cap_held + 1.0:
+                _orig_ml_f = held_ml_f
+                _orig_bucket = held_ml_bucket
+                held_ml_f = _phys_cap_held
+                try:
+                    _cap_int = int(round(held_ml_f))
+                    held_ml_bucket = f"{_cap_int}-{_cap_int + 1}"
+                except Exception:
+                    held_ml_bucket = _orig_bucket
+                print(f"   🚧 PHYSICAL CAP (freeze branch): held value "
+                      f"{_orig_ml_f}°F→{held_ml_f:.1f}°F, bucket "
+                      f"{_orig_bucket}→{held_ml_bucket}")
+        except Exception as _capf_e:
+            print(f"   ⚠️ Freeze-branch cap check skipped: {_capf_e}")
+
         print(f"⏸️ Full freeze [{lock_label}] — ML held: "
-              f"{existing['ml_f']}°F → {existing.get('ml_bucket')}")
+              f"{held_ml_f}°F → {held_ml_bucket}")
         ml = {
-            "ml_f": existing["ml_f"],
-            "ml_bucket": existing["ml_bucket"],
+            "ml_f": held_ml_f,
+            "ml_bucket": held_ml_bucket,
             "ml_confidence": existing["ml_confidence"],
             "ml_bucket_probs": existing.get("ml_bucket_probs"),
             "ml_version": existing.get("ml_version"),
