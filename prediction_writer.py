@@ -1541,6 +1541,102 @@ def _project_expected_peak(
     return obs_max + remaining
 
 
+def _compute_physical_ceiling(features: dict) -> Optional[float]:
+    """
+    Compute the physically-reachable max temp ceiling given current observed
+    state and remaining heating window. Returns None if insufficient inputs
+    (then no cap fires — model output passes through).
+
+    Logic:
+      ceiling = max(obs_so_far, current_temp) + (hours_to_peak × heating_rate_ceiling)
+
+    where heating_rate_ceiling is set conservatively based on live conditions:
+      - clear sky + dry + good solar: up to 1.5°F/hr (peak heating)
+      - partly cloudy: 0.8°F/hr
+      - overcast: 0.3°F/hr
+      - active rain: 0.0°F/hr (no further heating)
+      - already past peak (hour >= 16): 0°F/hr (no more heating possible)
+
+    Used as a constraint AFTER ML prediction. Cap fires only when ML
+    exceeds this by >1°F (giving 1°F slack so we don't suppress every
+    prediction — only physically-impossible ones).
+    """
+    try:
+        obs_max = features.get("obs_max_so_far")
+        obs_now = features.get("obs_latest_temp")
+        obs_hour = features.get("obs_latest_hour")
+        cloud_now = features.get("obs_cloud_cover")  # 0-1 scale
+        atm_cloud_max = features.get("atm_cloud_cover_max")  # 0-100 scale
+        precip = features.get("atm_precip_total") or 0
+        rate = features.get("obs_heating_rate")
+    except Exception:
+        return None
+
+    if obs_max is None or obs_hour is None:
+        return None
+    try:
+        obs_max_f = float(obs_max)
+        obs_hour_i = int(float(obs_hour))
+    except (TypeError, ValueError):
+        return None
+    if not (0 <= obs_hour_i <= 23):
+        return None
+
+    current_peak = obs_max_f
+    if obs_now is not None:
+        try:
+            obs_now_f = float(obs_now)
+            current_peak = max(current_peak, obs_now_f)
+        except (TypeError, ValueError):
+            pass
+
+    PEAK_HOUR = 15
+    hours_remaining = max(0, PEAK_HOUR - obs_hour_i)
+    if hours_remaining == 0:
+        return current_peak + 1.0
+
+    try:
+        precip_f = float(precip)
+    except (TypeError, ValueError):
+        precip_f = 0
+    if precip_f > 0.05:
+        return current_peak + 1.0
+
+    cloud_pct = None
+    if cloud_now is not None:
+        try:
+            cloud_pct = float(cloud_now) * 100
+        except (TypeError, ValueError):
+            cloud_pct = None
+    if cloud_pct is None and atm_cloud_max is not None:
+        try:
+            cloud_pct = float(atm_cloud_max)
+        except (TypeError, ValueError):
+            cloud_pct = None
+
+    if cloud_pct is None:
+        rate_ceiling = 1.0
+    elif cloud_pct >= 90:
+        rate_ceiling = 0.3
+    elif cloud_pct >= 60:
+        rate_ceiling = 0.7
+    elif cloud_pct >= 30:
+        rate_ceiling = 1.1
+    else:
+        rate_ceiling = 1.5
+
+    if rate is not None:
+        try:
+            rate_f = float(rate)
+            if rate_f < -0.5:
+                rate_ceiling = rate_ceiling * 0.5
+        except (TypeError, ValueError):
+            pass
+
+    physical_ceiling = current_peak + (hours_remaining * rate_ceiling)
+    return float(round(physical_ceiling, 1))
+
+
 def _check_prediction_divergence(
     dlock_result: dict,
     existing_ml_f: float | None,
@@ -3766,13 +3862,32 @@ def _compute_ml_prediction(
                       f"(forecast avg fallback: NWS={features['nws_last']:.0f}{accu_note}) "
                       f"[no models available]")
 
-            # Exceedance adjustment DISABLED — it chases observed temps after
-            # the market already sees them, producing fake WINs with no edge.
-            # The v4 model with observation features will learn to make
-            # legitimate early adjustments from training data over time.
-            # obs_high, obs_hour = _fetch_observed_high_so_far(target_date_iso)
-            # if obs_high is not None:
-            #     v2_temp = _adjust_center_for_exceedance(v2_temp, obs_high, obs_hour)
+            # ── PHYSICAL REASONABLENESS CAP (2026-05-06) ─────────────────────
+            #
+            # Constraint, not a feature. Bounds the model's prediction to what's
+            # PHYSICALLY REACHABLE from current observed state given the
+            # remaining heating window and current sky/precip conditions.
+            #
+            # Why this exists: on 2026-05-06 NYC, model trained at 7am with
+            # forecasted 60% cloud cover predicted 73.9°F. Reality at 10:25 AM
+            # was 100% cloud + active rain + temp falling at -2.9°F/hr from a
+            # max of 68°F. Physical ceiling (current_max + remaining_possible_
+            # heating in current conditions) was ~70°F. Model couldn\'t see this
+            # because forecasted features (cloud max, solar peak) were stale.
+            #
+            # Cap fires ONLY when prediction exceeds physical ceiling by >1°F.
+            # On clearing days where conditions are favorable, ceiling stays
+            # high and prediction passes through unchanged.
+            try:
+                v2_temp_pre_cap = v2_temp
+                _phys_cap = _compute_physical_ceiling(v2_features)
+                if _phys_cap is not None and v2_temp > _phys_cap + 1.0:
+                    v2_temp = _phys_cap
+                    print(f"   🚧 PHYSICAL CAP: ML wanted {v2_temp_pre_cap:.1f}°F, "
+                          f"capped to {v2_temp:.1f}°F (current_max + max possible "
+                          f"remaining heating given live conditions)")
+            except Exception as _cap_e:
+                print(f"   ⚠️ Physical cap check skipped: {_cap_e}")
 
             # v2 classifier bucket prediction
             # Use 15 candidates (±7) to cover full Kalshi range and handle
