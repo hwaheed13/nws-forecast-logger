@@ -7,6 +7,13 @@ on:
     - cron: "0 10 * * *"
   workflow_dispatch:  # manual trigger
 
+# Concurrency lock — only one retrain at a time. Two ran simultaneously on
+# 5/5 (cron + manual dispatch overlap), the second hit massive metadata-file
+# rebase conflicts. cancel-in-progress=false: let in-flight finish, queue.
+concurrency:
+  group: retrain-model
+  cancel-in-progress: false
+
 jobs:
   retrain:
     runs-on: ubuntu-latest
