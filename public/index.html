@@ -3324,6 +3324,22 @@ window.fetchAccuWeatherForecasts = fetchAccuWeatherForecasts;
         if (parsed && parsed.value != null && isToday) {
          el.textContent = `${parsed.value}°F`;
         window._sixHourMaxF = Number(parsed.value);
+        // Track issuance time so consumers can filter values whose 6-hour
+        // rolling window spans midnight (still parsed.date=today but covers
+        // yesterday late evening). Parse parsed.time (e.g. "7:51 AM") to hour.
+        try {
+          const _t = String(parsed.time || "");
+          const _m = _t.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+          if (_m) {
+            let _h = parseInt(_m[1], 10);
+            const _ampm = _m[3].toUpperCase();
+            if (_ampm === "PM" && _h < 12) _h += 12;
+            if (_ampm === "AM" && _h === 12) _h = 0;
+            window._sixHourTimeHour = _h;
+          } else {
+            window._sixHourTimeHour = null;
+          }
+        } catch { window._sixHourTimeHour = null; }
         try { window._persistLiveCache && window._persistLiveCache(); } catch {}
           note.textContent = parsed.time ? `as of ${parsed.time} • 6-hr max` : "Latest 6-hr max";
         } else if (parsed && parsed.value != null) {
@@ -6104,8 +6120,19 @@ window._predTomorrow = predTomorrow;
           // DSM captures peaks that occurred between hourly polls — exactly why
           // a card showing 55-56 with DSM=57 still looked like a "BET" without
           // this. Take whichever is higher: 6-hr max OR DSM.
+          // 6hr-max is a rolling window. At 1:51 AM the value covers
+          // 7:51 PM yesterday → 1:51 AM today and includes yesterday late
+          // evening even though parsed.date is today. Only trust the cached
+          // value if issuance hour >= 7 AM (rolling window starts after
+          // midnight). 5/7 case: cached 66°F at 1 AM passed previous gate
+          // (current hour >= 6) and falsely fired LIVE EXCEEDS banner.
+          const _sixHrIssueHour = Number.isFinite(window._sixHourTimeHour)
+            ? Number(window._sixHourTimeHour) : null;
           const _sixHrSource = (
-            Number.isFinite(window._sixHourMaxF) && _nowHourLocal >= 6
+            Number.isFinite(window._sixHourMaxF) &&
+            _nowHourLocal >= 6 &&
+            _sixHrIssueHour !== null &&
+            _sixHrIssueHour >= 7
           ) ? Number(window._sixHourMaxF) : null;
           const _dsmSource = Number.isFinite(window._dsmHighF)
             ? Number(window._dsmHighF) : null;
