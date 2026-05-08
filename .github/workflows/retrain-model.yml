@@ -193,6 +193,17 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Pre-stage rebase: today (5/7) hit modify/delete pkl conflicts
+          # because main moved during the ~30 min training window. Pull
+          # with -X ours so binary-pkl conflicts resolve in our favor (we
+          # just produced fresh pkls, keep them).
+          git fetch origin main || true
+          git pull --rebase --autostash -X ours origin main 2>&1 || {
+            echo "Pre-stage rebase failed — continuing anyway, push may still work"
+            git rebase --abort 2>/dev/null || true
+          }
+
           # IMPORTANT: include *historical_intraday_snapshots.csv. Without it,
           # the lightweight nightly retrain (which skips backfill) checks out
           # main with no intraday CSV → features_df ~1500 rows instead of
