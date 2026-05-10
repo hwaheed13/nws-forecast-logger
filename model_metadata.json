@@ -1,5 +1,9 @@
 {
+<<<<<<< Updated upstream
   "trained_on": "2026-05-10T07:59:39.046991",
+=======
+  "trained_on": "2026-05-10T11:40:33.539213",
+>>>>>>> Stashed changes
   "num_days": 294,
   "date_range": {
     "start": "2025-07-03",
@@ -38,16 +42,27 @@
     "rolling_ml_error_7d",
     "has_accu_data"
   ],
+<<<<<<< Updated upstream
   "residual_std": 1.929282423700165,
+=======
+  "residual_std": 1.9365105127367557,
+>>>>>>> Stashed changes
   "bucket_method": "gaussian_from_regression",
   "base_source": "accu_last (fallback: nws_last)",
   "model_type": "HistGradientBoostingRegressor",
   "model_performance": {
     "cv_temperature_mae": 1.39,
+<<<<<<< Updated upstream
     "cv_bucket_accuracy": 0.2571,
     "insample_temperature_mae": 0.74,
     "insample_bucket_accuracy": 0.4524,
     "residual_std": 1.93
+=======
+    "cv_bucket_accuracy": 0.2531,
+    "insample_temperature_mae": 0.74,
+    "insample_bucket_accuracy": 0.4456,
+    "residual_std": 1.94
+>>>>>>> Stashed changes
   },
   "seasonal_performance": {
     "summer": {
@@ -64,12 +79,17 @@
     },
     "spring": {
       "days": 70,
+<<<<<<< Updated upstream
       "insample_mae": 0.76
+=======
+      "insample_mae": 0.75
+>>>>>>> Stashed changes
     }
   },
   "top_features": [
     {
       "name": "day_of_year_cos",
+<<<<<<< Updated upstream
       "importance": 0.2364
     },
     {
@@ -94,10 +114,37 @@
     },
     {
       "name": "nws_min",
+=======
+      "importance": 0.2464
+    },
+    {
+      "name": "accu_std",
+      "importance": 0.1733
+    },
+    {
+      "name": "accu_trend",
+      "importance": 0.1314
+    },
+    {
+      "name": "rolling_bias_21d",
+      "importance": 0.1231
+    },
+    {
+      "name": "nws_accu_mean_diff",
+      "importance": 0.069
+    },
+    {
+      "name": "nws_min",
+      "importance": 0.0433
+    },
+    {
+      "name": "nws_mean",
+>>>>>>> Stashed changes
       "importance": 0.0423
     },
     {
       "name": "accu_first",
+<<<<<<< Updated upstream
       "importance": 0.0411
     },
     {
@@ -107,6 +154,17 @@
     {
       "name": "nws_std",
       "importance": 0.0299
+=======
+      "importance": 0.0383
+    },
+    {
+      "name": "forecast_velocity",
+      "importance": 0.0356
+    },
+    {
+      "name": "nws_std",
+      "importance": 0.0302
+>>>>>>> Stashed changes
     }
   ],
   "hyperparameters": {
