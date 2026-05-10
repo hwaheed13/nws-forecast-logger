@@ -1,6 +1,5 @@
 {
-<<<<<<< Updated upstream
-  "trained_on": "2026-05-09T07:52:02.375830",
+  "trained_on": "2026-05-10T08:00:14.984354",
   "version": "v16_unified_residual",
   "design": "ONE model, ALL HRRR-anchored labeled rows, ALL features. Predicts (actual_high - HRRR) \u2014 the HRRR error. Inference: final = HRRR + v16_residual.",
   "training_pool": "every row where (actual_high AND mm_hrrr_max) are populated \u2014 multiyear historical + NWS-log + intraday snapshots",
@@ -9,13 +8,13 @@
   "inference": "final_prediction = mm_hrrr_max + v16_regressor.predict(features)",
   "model": "HistGradientBoostingRegressor \u2014 handles per-row missing features natively",
   "v16_regression": {
-    "cv_mae": 1.2538258446233932,
+    "cv_mae": 1.255657600435852,
     "cv_mae_target": "residual (actual_high - HRRR)",
-    "cv_bucket_accuracy": 0.493953488372093,
+    "cv_bucket_accuracy": 0.49767441860465117,
     "cv_bucket_target": "|HRRR + residual \u2212 actual| \u2264 1\u00b0F",
     "residual_std": 2.1902245786162715,
     "baseline_mae_hrrr_alone": 1.9350579150579148,
-    "improvement_vs_hrrr_alone": 0.6812320704345216,
+    "improvement_vs_hrrr_alone": 0.6794003146220629,
     "n_features": 186,
     "n_training_rows": 1295
   },
@@ -208,14 +207,4 @@
     "sea_breeze_risk_score"
   ],
   "top_feature_importances": []
-=======
-  "trained_on": "2026-05-09T11:22:42.236276",
-  "version": "v16",
-  "skipped": true,
-  "reason": "quality gate failed: cv_mae 1.2538 > 1.2520 (50% worse than v15 cv_mae=0.8347)",
-  "new_cv_mae": 1.2538258446233932,
-  "prior_version": "v15",
-  "prior_cv_mae": 0.8346597946063946,
-  "tolerance": 0.5
->>>>>>> Stashed changes
 }
