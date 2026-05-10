@@ -5965,29 +5965,50 @@ window._predTomorrow = predTomorrow;
         const actualHighF = actualRow ? Number(actualRow.actual_high) : null;
 
         if (hasML && ml.todayMLBucket && actualHighF != null && !isNaN(actualHighF)) {
-          // WIN/MISS attribution MUST use the canonical bucket (the one
-          // locked at 7am ET that represented the actual bet), not the
-          // latest live-updated bucket. Otherwise late-day model updates
-          // could "earn" fake WINs for predictions the user never bet on.
-          // ml_result_canonical in the database is computed from
-          // ml_bucket_canonical — the dashboard display now matches.
-          const attributionBucket = ml.todayMLBucketCanonical || ml.todayMLBucket;
-          const attributionMlF    = ml.todayMLFCanonical != null ? ml.todayMLFCanonical : ml.today;
+          // ── LIVE ATTRIBUTION (2026-05-10) ─────────────────────────────────
+          // Display uses LIVE evolved ml_bucket / ml_f (best representative
+          // call the model held during the day). Matches the hit-rate stat
+          // which already uses ml_result. Captures the moat — legitimate
+          // intraday self-corrections via PR #61 + cap (#59/#60) get
+          // credited. PR #51's canonical-only display was overcautious;
+          // the model's late-day updates are physics-bounded intelligence,
+          // not obs-chasing noise.
+          //
+          // Canonical (7am locked call) shown as a small secondary
+          // annotation when it differs, so users can see what a 7am bet
+          // would have done. Both ml_result and ml_result_canonical persist
+          // in the database for audit/analysis.
+          const attributionBucket = ml.todayMLBucket;
+          const attributionMlF    = ml.today;
           const result = _buildWinMissResult(attributionBucket, attributionMlF, actualHighF, ml.todayMarketSnapshot);
           const card = document.getElementById("ml-signal-today-card");
           if (card) card.style.borderLeftColor = result.borderColor;
-          const _canonicalDifferedNote = (
+          let _canonicalSecondaryNote = '';
+          if (
             ml.todayMLBucketCanonical &&
-            ml.todayMLBucket &&
-            ml.todayMLBucketCanonical !== ml.todayMLBucket
-          ) ? `<div style="font-size:11px;color:#9ca3af;margin-top:4px;font-style:italic;">
-              Late update: ${ml.todayMLBucket}${ml.today != null ? ` (${Number(ml.today).toFixed(1)}°F)` : ''} — informational only, bet attribution uses 7am canonical call above.
-             </div>` : '';
+            ml.todayMLBucketCanonical !== attributionBucket
+          ) {
+            try {
+              const _canonResult = _buildWinMissResult(
+                ml.todayMLBucketCanonical,
+                ml.todayMLFCanonical != null ? ml.todayMLFCanonical : null,
+                actualHighF,
+                ml.todayMarketSnapshot
+              );
+              _canonicalSecondaryNote = `<div style="font-size:11px;color:#6b7280;margin-top:6px;padding-top:6px;border-top:1px dashed var(--border-subtle);">
+                7am canonical: ${ml.todayMLBucketCanonical}${ml.todayMLFCanonical != null ? ` (${Number(ml.todayMLFCanonical).toFixed(1)}°F)` : ''} — would have ${_canonResult.resultBadgeHTML} · informational only
+               </div>`;
+            } catch {
+              _canonicalSecondaryNote = `<div style="font-size:11px;color:#9ca3af;margin-top:4px;font-style:italic;">
+                7am canonical: ${ml.todayMLBucketCanonical}${ml.todayMLFCanonical != null ? ` (${Number(ml.todayMLFCanonical).toFixed(1)}°F)` : ''} — informational
+               </div>`;
+            }
+          }
           el0.innerHTML = `
             <div style="font-size:32px;font-weight:800;line-height:1.1;color:var(--text-primary);">${result.bucketDisplay}</div>
             <div style="margin:6px 0 4px;">${result.resultBadgeHTML}</div>
             <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">ML: ${Number(attributionMlF).toFixed(1)}°F · ${result.resultDetailHTML}</div>
-            ${_canonicalDifferedNote}
+            ${_canonicalSecondaryNote}
           `;
         } else {
           // No bucket or no actual high yet — generic settled display
