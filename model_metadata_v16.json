@@ -1,4 +1,5 @@
 {
+<<<<<<< Updated upstream
   "trained_on": "2026-05-11T09:09:56.400186",
   "version": "v16_unified_residual",
   "design": "ONE model, ALL HRRR-anchored labeled rows, ALL features. Predicts (actual_high - HRRR) \u2014 the HRRR error. Inference: final = HRRR + v16_residual.",
@@ -207,4 +208,14 @@
     "sea_breeze_risk_score"
   ],
   "top_feature_importances": []
+=======
+  "trained_on": "2026-05-11T12:45:53.938244",
+  "version": "v16",
+  "skipped": true,
+  "reason": "quality gate failed: cv_mae 1.2538 > 1.2413 (50% worse than v15 cv_mae=0.8275)",
+  "new_cv_mae": 1.2538258446233932,
+  "prior_version": "v15",
+  "prior_cv_mae": 0.8275474608111679,
+  "tolerance": 0.5
+>>>>>>> Stashed changes
 }
