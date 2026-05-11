@@ -1,13 +1,9 @@
 {
-<<<<<<< Updated upstream
-  "trained_on": "2026-05-10T07:59:39.046991",
-=======
-  "trained_on": "2026-05-10T11:40:33.539213",
->>>>>>> Stashed changes
-  "num_days": 294,
+  "trained_on": "2026-05-11T09:09:09.508529",
+  "num_days": 295,
   "date_range": {
     "start": "2025-07-03",
-    "end": "2026-05-09"
+    "end": "2026-05-10"
   },
   "feature_columns": [
     "nws_first",
@@ -42,129 +38,75 @@
     "rolling_ml_error_7d",
     "has_accu_data"
   ],
-<<<<<<< Updated upstream
-  "residual_std": 1.929282423700165,
-=======
-  "residual_std": 1.9365105127367557,
->>>>>>> Stashed changes
+  "residual_std": 1.9099041517875879,
   "bucket_method": "gaussian_from_regression",
   "base_source": "accu_last (fallback: nws_last)",
   "model_type": "HistGradientBoostingRegressor",
   "model_performance": {
-    "cv_temperature_mae": 1.39,
-<<<<<<< Updated upstream
-    "cv_bucket_accuracy": 0.2571,
-    "insample_temperature_mae": 0.74,
-    "insample_bucket_accuracy": 0.4524,
-    "residual_std": 1.93
-=======
-    "cv_bucket_accuracy": 0.2531,
-    "insample_temperature_mae": 0.74,
-    "insample_bucket_accuracy": 0.4456,
-    "residual_std": 1.94
->>>>>>> Stashed changes
+    "cv_temperature_mae": 1.36,
+    "cv_bucket_accuracy": 0.2286,
+    "insample_temperature_mae": 0.75,
+    "insample_bucket_accuracy": 0.4644,
+    "residual_std": 1.91
   },
   "seasonal_performance": {
     "summer": {
       "days": 43,
-      "insample_mae": 1.08
+      "insample_mae": 1.09
     },
     "fall": {
       "days": 91,
-      "insample_mae": 0.66
+      "insample_mae": 0.68
     },
     "winter": {
       "days": 90,
-      "insample_mae": 0.66
+      "insample_mae": 0.65
     },
     "spring": {
-      "days": 70,
-<<<<<<< Updated upstream
-      "insample_mae": 0.76
-=======
-      "insample_mae": 0.75
->>>>>>> Stashed changes
+      "days": 71,
+      "insample_mae": 0.77
     }
   },
   "top_features": [
     {
       "name": "day_of_year_cos",
-<<<<<<< Updated upstream
-      "importance": 0.2364
+      "importance": 0.2491
     },
     {
       "name": "accu_std",
-      "importance": 0.157
-    },
-    {
-      "name": "accu_trend",
-      "importance": 0.129
+      "importance": 0.1693
     },
     {
       "name": "rolling_bias_21d",
-      "importance": 0.126
-    },
-    {
-      "name": "nws_accu_mean_diff",
-      "importance": 0.075
-    },
-    {
-      "name": "nws_mean",
-      "importance": 0.0431
-    },
-    {
-      "name": "nws_min",
-=======
-      "importance": 0.2464
-    },
-    {
-      "name": "accu_std",
-      "importance": 0.1733
+      "importance": 0.1381
     },
     {
       "name": "accu_trend",
-      "importance": 0.1314
-    },
-    {
-      "name": "rolling_bias_21d",
-      "importance": 0.1231
+      "importance": 0.1181
     },
     {
       "name": "nws_accu_mean_diff",
-      "importance": 0.069
-    },
-    {
-      "name": "nws_min",
-      "importance": 0.0433
+      "importance": 0.0752
     },
     {
       "name": "nws_mean",
->>>>>>> Stashed changes
-      "importance": 0.0423
+      "importance": 0.0611
+    },
+    {
+      "name": "nws_min",
+      "importance": 0.0505
     },
     {
       "name": "accu_first",
-<<<<<<< Updated upstream
-      "importance": 0.0411
-    },
-    {
-      "name": "forecast_velocity",
-      "importance": 0.0355
-    },
-    {
-      "name": "nws_std",
-      "importance": 0.0299
-=======
       "importance": 0.0383
     },
     {
       "name": "forecast_velocity",
-      "importance": 0.0356
+      "importance": 0.0345
     },
     {
-      "name": "nws_std",
-      "importance": 0.0302
->>>>>>> Stashed changes
+      "name": "accu_spread",
+      "importance": 0.0299
     }
   ],
   "hyperparameters": {

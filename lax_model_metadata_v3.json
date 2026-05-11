@@ -1,171 +1,88 @@
 {
-<<<<<<< Updated upstream
-  "trained_on": "2026-05-10T08:00:38.089192",
-  "version": "v3_unified_regression",
-  "num_days": 1588,
-  "num_forecast_days": 68,
-  "num_multiyear_days": 1520,
-=======
-  "trained_on": "2026-05-10T11:41:50.730984",
+  "trained_on": "2026-05-11T09:10:26.405672",
   "version": "v3_unified_regression",
   "num_days": 1589,
-  "num_forecast_days": 68,
-  "num_multiyear_days": 1521,
->>>>>>> Stashed changes
+  "num_forecast_days": 69,
+  "num_multiyear_days": 1520,
   "date_range": {
     "start": "2022-01-02",
     "end": "2026-05-09"
   },
   "performance": {
-<<<<<<< Updated upstream
     "cv_mae": 0.87,
-    "cv_bucket_accuracy_1f": 0.0882,
-    "residual_std": 6.15,
-    "per_fold_mae": [
-      1.01,
-      0.58,
-      0.5,
-      0.5,
-      1.78
-    ],
-    "per_fold_bucket_acc": [
-      0.0882
-=======
-    "cv_mae": 0.7,
-    "cv_bucket_accuracy_1f": 0.1029,
-    "residual_std": 2.43,
+    "cv_bucket_accuracy_1f": 0.087,
+    "residual_std": 6.12,
     "per_fold_mae": [
       1.0,
       0.58,
-      0.51,
       0.5,
-      0.93
+      0.5,
+      1.79
     ],
     "per_fold_bucket_acc": [
-      0.1029
->>>>>>> Stashed changes
+      0.087
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
-<<<<<<< Updated upstream
-      "importance": 1.5405
+      "importance": 1.5635
     },
     {
       "name": "prev_day_high",
-      "importance": 0.0183
+      "importance": 0.0158
     },
     {
       "name": "atm_morning_temp_6am",
-      "importance": 0.0076
+      "importance": 0.0092
     },
     {
       "name": "accu_last",
-      "importance": 0.0038
-    },
-    {
-      "name": "accu_post_9am_delta",
-      "importance": 0.0025
-    },
-    {
-      "name": "nws_last",
-      "importance": 0.0022
-    },
-    {
-      "name": "atm_temp_range",
-      "importance": 0.0021
-    },
-    {
-      "name": "accu_mean",
-      "importance": 0.0021
+      "importance": 0.0043
     },
     {
       "name": "nws_min",
-      "importance": 0.0019
+      "importance": 0.0024
+    },
+    {
+      "name": "accu_mean",
+      "importance": 0.0024
+    },
+    {
+      "name": "nws_last",
+      "importance": 0.0023
+    },
+    {
+      "name": "atm_temp_range",
+      "importance": 0.002
     },
     {
       "name": "atm_overnight_min",
-      "importance": 0.0018
+      "importance": 0.0019
     },
     {
-      "name": "day_of_year_cos",
-      "importance": 0.001
-    },
-    {
-      "name": "accu_min",
-      "importance": 0.0008
+      "name": "accu_post_9am_delta",
+      "importance": 0.0017
     },
     {
       "name": "nws_first",
-      "importance": 0.0007
+      "importance": 0.0008
     },
     {
-      "name": "accu_first",
-      "importance": 0.0006
+      "name": "day_of_year_cos",
+      "importance": 0.0007
     },
     {
       "name": "day_of_year_sin",
       "importance": 0.0005
-=======
-      "importance": 1.7581
-    },
-    {
-      "name": "intra_temp_noon",
-      "importance": 0.0043
-    },
-    {
-      "name": "atm_temp_range",
-      "importance": 0.0035
-    },
-    {
-      "name": "atm_dewpoint_mean",
-      "importance": 0.0014
-    },
-    {
-      "name": "prev_day_high",
-      "importance": 0.0011
-    },
-    {
-      "name": "atm_overnight_min",
-      "importance": 0.0007
-    },
-    {
-      "name": "atm_humidity_min",
-      "importance": 0.0007
-    },
-    {
-      "name": "accu_last",
-      "importance": 0.0006
-    },
-    {
-      "name": "intra_rise_from_overnight",
-      "importance": 0.0004
-    },
-    {
-      "name": "atm_pressure_change",
-      "importance": 0.0004
-    },
-    {
-      "name": "atm_pressure_mean",
-      "importance": 0.0004
     },
     {
       "name": "atm_wind_dir_sin",
       "importance": 0.0004
     },
     {
-      "name": "atm_wind_max",
+      "name": "accu_min",
       "importance": 0.0004
-    },
-    {
-      "name": "atm_925mb_temp_max",
-      "importance": 0.0004
-    },
-    {
-      "name": "intra_temp_9am",
-      "importance": 0.0003
->>>>>>> Stashed changes
     }
   ],
   "hyperparameters": {
