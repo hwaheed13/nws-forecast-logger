@@ -1,12 +1,19 @@
 {
+<<<<<<< Updated upstream
   "trained_on": "2026-05-12T08:23:08.686156",
   "version": "v4_observation_features",
   "num_days": 1591,
+=======
+  "trained_on": "2026-05-12T11:24:52.895818",
+  "version": "v4_observation_features",
+  "num_days": 19092,
+>>>>>>> Stashed changes
   "date_range": {
     "start": "2022-01-02",
     "end": "2026-05-11"
   },
   "v4_regression": {
+<<<<<<< Updated upstream
     "cv_mae": 1.15,
     "cv_bucket_accuracy": 0.3388,
     "residual_std": 1.62,
@@ -25,6 +32,26 @@
     "feature_cols_used": 134,
     "positive_rate": 0.087,
     "residual_std": 1.619
+=======
+    "cv_mae": 1.0,
+    "cv_bucket_accuracy": 0.3473,
+    "residual_std": 1.36,
+    "num_features": 130
+  },
+  "v4_classifier": {
+    "cv_bucket_accuracy": 0.2109,
+    "cv_log_loss": 0.4014,
+    "insample_bucket_accuracy": 0.2962,
+    "num_training_days": 19092,
+    "num_forecast_days": 3552,
+    "num_persistence_days": 15540,
+    "forecast_weight": 5.0,
+    "num_classification_rows": 161988,
+    "n_candidate_buckets": 7,
+    "feature_cols_used": 134,
+    "positive_rate": 0.087,
+    "residual_std": 1.365
+>>>>>>> Stashed changes
   },
   "observation_features": [
     "obs_latest_temp",
