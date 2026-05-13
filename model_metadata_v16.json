@@ -1,6 +1,5 @@
 {
-<<<<<<< Updated upstream
-  "trained_on": "2026-05-12T08:28:02.849260",
+  "trained_on": "2026-05-13T08:33:51.487334",
   "version": "v16_unified_residual",
   "design": "ONE model, ALL HRRR-anchored labeled rows, ALL features. Predicts (actual_high - HRRR) \u2014 the HRRR error. Inference: final = HRRR + v16_residual.",
   "training_pool": "every row where (actual_high AND mm_hrrr_max) are populated \u2014 multiyear historical + NWS-log + intraday snapshots",
@@ -208,14 +207,4 @@
     "sea_breeze_risk_score"
   ],
   "top_feature_importances": []
-=======
-  "trained_on": "2026-05-12T12:00:53.537126",
-  "version": "v16",
-  "skipped": true,
-  "reason": "quality gate failed: cv_mae 1.2538 > 1.2467 (50% worse than v15 cv_mae=0.8311)",
-  "new_cv_mae": 1.2538258446233932,
-  "prior_version": "v15",
-  "prior_cv_mae": 0.8311045011409288,
-  "tolerance": 0.5
->>>>>>> Stashed changes
 }
