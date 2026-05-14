@@ -1,26 +1,12 @@
 {
-<<<<<<< Updated upstream
-  "trained_on": "2026-05-13T08:30:43.195202",
+  "trained_on": "2026-05-14T08:23:54.699926",
   "version": "v15",
   "skipped": true,
-  "reason": "airtight gate failed: only 295 forecast rows have all of ['forecast_revision', 'yesterday_signed_miss', 'rolling_3day_bias'] populated (need \u2265500)",
+  "reason": "airtight gate failed: only 296 forecast rows have all of ['forecast_revision', 'yesterday_signed_miss', 'rolling_3day_bias'] populated (need \u2265500)",
   "key_feature_counts": {
-    "forecast_revision": 297,
-    "yesterday_signed_miss": 296,
-    "rolling_3day_bias": 295
-=======
-  "trained_on": "2026-05-13T12:17:17.026579",
-  "version": "v15_morning_autoreg",
-  "base_cascade": "HRRR > NBM > AccuWeather > NWS",
-  "new_features": "forecast_revision, cap_violation_925, yesterday_signed_miss, rolling_3day_bias, today_realized_error",
-  "motivation": "v14 fixed late-day overrides but didn't help the 7am canonical write (where the bet gets locked). v15 adds morning-applicable + autoregressive features that fire at canonical time: NWS revision direction, adiabatic ceiling violation, yesterday's signed miss, rolling 3-day bias, and cross-day realized HRRR error for tomorrow predictions.",
-  "v15_regression": {
-    "cv_mae": 0.8282587095040956,
-    "cv_bucket_accuracy": 0.37542372881355934,
-    "residual_std": 2.279856963414211,
-    "n_features": 184,
-    "n_training_rows": 3564
->>>>>>> Stashed changes
+    "forecast_revision": 298,
+    "yesterday_signed_miss": 297,
+    "rolling_3day_bias": 296
   },
   "min_rows_required": 500
 }
