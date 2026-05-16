@@ -1,31 +1,17 @@
 {
-<<<<<<< Updated upstream
-  "trained_on": "2026-05-14T08:23:01.397916",
+  "trained_on": "2026-05-16T07:54:25.511002",
   "version": "v7_hrrr_anchored_base",
   "base_cascade": "HRRR > NBM > AccuWeather > NWS",
   "v7_regression": {
-    "cv_mae": 1.1569893403160054,
-    "cv_bucket_accuracy": 0.3183673469387755,
-    "residual_std": 1.561148061417631,
+    "cv_mae": 1.1796330503715047,
+    "cv_bucket_accuracy": 0.28,
+    "residual_std": 1.604123408479058,
     "n_features": 149,
-    "n_training_rows": 298,
+    "n_training_rows": 300,
     "base_sources": {
-      "hrrr": 27,
-=======
-  "trained_on": "2026-05-14T11:42:19.976348",
-  "version": "v7_hrrr_anchored_base",
-  "base_cascade": "HRRR > NBM > AccuWeather > NWS",
-  "v7_regression": {
-    "cv_mae": 1.046848994363271,
-    "cv_bucket_accuracy": 0.3379194630872483,
-    "residual_std": 1.3915134608655495,
-    "n_features": 149,
-    "n_training_rows": 3576,
-    "base_sources": {
-      "hrrr": 324,
->>>>>>> Stashed changes
+      "hrrr": 29,
       "nbm": 0,
-      "accuweather": 3252,
+      "accuweather": 271,
       "nws": 0
     }
   },
