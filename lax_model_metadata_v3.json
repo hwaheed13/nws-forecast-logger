@@ -1,14 +1,23 @@
 {
+<<<<<<< Updated upstream
   "trained_on": "2026-05-18T09:27:35.754206",
   "version": "v3_unified_regression",
   "num_days": 1596,
   "num_forecast_days": 76,
   "num_multiyear_days": 1520,
+=======
+  "trained_on": "2026-05-18T13:00:55.042033",
+  "version": "v3_unified_regression",
+  "num_days": 1597,
+  "num_forecast_days": 76,
+  "num_multiyear_days": 1521,
+>>>>>>> Stashed changes
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-05-16"
+    "end": "2026-05-17"
   },
   "performance": {
+<<<<<<< Updated upstream
     "cv_mae": 0.88,
     "cv_bucket_accuracy_1f": 0.1053,
     "residual_std": 5.92,
@@ -21,11 +30,26 @@
     ],
     "per_fold_bucket_acc": [
       0.1053
+=======
+    "cv_mae": 0.71,
+    "cv_bucket_accuracy_1f": 0.1184,
+    "residual_std": 2.36,
+    "per_fold_mae": [
+      1.0,
+      0.59,
+      0.53,
+      0.47,
+      0.98
+    ],
+    "per_fold_bucket_acc": [
+      0.1184
+>>>>>>> Stashed changes
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
+<<<<<<< Updated upstream
       "importance": 1.5096
     },
     {
@@ -77,11 +101,68 @@
       "importance": 0.0006
     },
     {
+=======
+      "importance": 1.7574
+    },
+    {
+      "name": "intra_temp_noon",
+      "importance": 0.0031
+    },
+    {
+      "name": "atm_temp_range",
+      "importance": 0.0029
+    },
+    {
+      "name": "atm_dewpoint_mean",
+      "importance": 0.0014
+    },
+    {
+      "name": "atm_overnight_min",
+      "importance": 0.0009
+    },
+    {
+      "name": "atm_humidity_min",
+      "importance": 0.0008
+    },
+    {
+      "name": "accu_last",
+      "importance": 0.0007
+    },
+    {
+      "name": "prev_day_high",
+      "importance": 0.0007
+    },
+    {
+      "name": "intra_temp_9am",
+      "importance": 0.0007
+    },
+    {
+      "name": "intra_rise_from_overnight",
+      "importance": 0.0007
+    },
+    {
+      "name": "atm_wind_dir_sin",
+      "importance": 0.0006
+    },
+    {
+      "name": "atm_pressure_mean",
+      "importance": 0.0004
+    },
+    {
+>>>>>>> Stashed changes
       "name": "day_of_year_cos",
       "importance": 0.0004
     },
     {
+<<<<<<< Updated upstream
       "name": "accu_trend",
+=======
+      "name": "atm_pressure_change",
+      "importance": 0.0004
+    },
+    {
+      "name": "atm_925mb_temp_max",
+>>>>>>> Stashed changes
       "importance": 0.0003
     }
   ],
