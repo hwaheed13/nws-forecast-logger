@@ -1,64 +1,34 @@
 {
-<<<<<<< Updated upstream
-  "trained_on": "2026-05-17T08:17:19.396143",
-  "version": "v2_atmospheric_classifier",
-  "num_days": 1595,
-  "date_range": {
-    "start": "2022-01-02",
-    "end": "2026-05-15"
-=======
-  "trained_on": "2026-05-17T11:52:58.525035",
+  "trained_on": "2026-05-18T09:27:23.794019",
   "version": "v2_atmospheric_classifier",
   "num_days": 1596,
   "date_range": {
     "start": "2022-01-02",
     "end": "2026-05-16"
->>>>>>> Stashed changes
   },
   "v1_performance": {
-    "cv_mae": 2.25,
+    "cv_mae": 2.4,
     "cv_bucket_accuracy": 0.1167
   },
   "v2_regression": {
-<<<<<<< Updated upstream
-    "cv_mae": 2.26,
+    "cv_mae": 2.4,
     "cv_bucket_accuracy": 0.1,
-    "residual_std": 2.35,
+    "residual_std": 2.43,
     "num_features": 94
   },
   "v2_classifier": {
-    "cv_bucket_accuracy": 0.2211,
-    "cv_log_loss": 0.3833,
-    "insample_bucket_accuracy": 0.1736,
-    "num_training_days": 1595,
-    "num_forecast_days": 75,
+    "cv_bucket_accuracy": 0.1967,
+    "cv_log_loss": 0.3894,
+    "insample_bucket_accuracy": 0.1776,
+    "num_training_days": 1596,
+    "num_forecast_days": 76,
     "num_persistence_days": 1520,
     "forecast_weight": 5.0,
-    "num_classification_rows": 18808,
+    "num_classification_rows": 18815,
     "n_candidate_buckets": 7,
     "feature_cols_used": 98,
     "positive_rate": 0.0787,
-    "residual_std": 2.351
-=======
-    "cv_mae": 2.06,
-    "cv_bucket_accuracy": 0.05,
-    "residual_std": 2.05,
-    "num_features": 94
-  },
-  "v2_classifier": {
-    "cv_bucket_accuracy": 0.2024,
-    "cv_log_loss": 0.3843,
-    "insample_bucket_accuracy": 0.2402,
-    "num_training_days": 1596,
-    "num_forecast_days": 75,
-    "num_persistence_days": 1521,
-    "forecast_weight": 5.0,
-    "num_classification_rows": 18828,
-    "n_candidate_buckets": 7,
-    "feature_cols_used": 98,
-    "positive_rate": 0.0787,
-    "residual_std": 2.049
->>>>>>> Stashed changes
+    "residual_std": 2.43
   },
   "feature_columns_v2": [
     "nws_first",
