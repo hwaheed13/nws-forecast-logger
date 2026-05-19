@@ -1,25 +1,11 @@
 {
-<<<<<<< Updated upstream
-  "trained_on": "2026-05-18T09:24:04.678058",
+  "trained_on": "2026-05-19T09:04:32.514542",
   "version": "v14",
   "skipped": true,
-  "reason": "airtight gate failed: only 31 forecast rows have all of ['peak_to_hrrr_gap', 'late_obs_below_pred'] populated (need \u2265100)",
+  "reason": "airtight gate failed: only 32 forecast rows have all of ['peak_to_hrrr_gap', 'late_obs_below_pred'] populated (need \u2265100)",
   "key_feature_counts": {
-    "peak_to_hrrr_gap": 31,
-    "late_obs_below_pred": 31
-=======
-  "trained_on": "2026-05-18T12:53:39.364392",
-  "version": "v14_blind_spot_features",
-  "base_cascade": "HRRR > NBM > AccuWeather > NWS",
-  "new_features": "hours_to_heating_close, peak_to_hrrr_gap, late_obs_below_pred, late_falling_signal, mm_spread_late",
-  "motivation": "April 28, 2026: v13 predicted '67\u00b0 or more \u00b7 STRONG BET' at 3:36 PM with peak observed = 65\u00b0F and current = 62\u00b0F. Model had raw signals but no explicit interaction terms tying late-hour + observed-deficit. v14 adds 5 blind-spot interaction features so a single tree split captures the conjunction. late_obs_below_pred is the headline feature: (obs_latest_hour>=13) * max(0, mm_hrrr_max - obs_max_so_far).",
-  "v14_regression": {
-    "cv_mae": 0.7618416978218726,
-    "cv_bucket_accuracy": 0.3805405405405406,
-    "residual_std": 1.4001635105942392,
-    "n_features": 179,
-    "n_training_rows": 3624
->>>>>>> Stashed changes
+    "peak_to_hrrr_gap": 32,
+    "late_obs_below_pred": 32
   },
   "min_rows_required": 100
 }
