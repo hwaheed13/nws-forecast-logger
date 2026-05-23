@@ -3803,20 +3803,19 @@ def _compute_ml_prediction(
                 # TIER 1 (v7/v8/v16-residual): HRRR anchor + regressor residual.
                 _bias_raw = float(active_regressor.predict(X_v2)[0])
 
-                # ── RESIDUAL SIGNAL CAP (2026-05-23, data-backed) ────────────
-                # 14-day production audit (5/9-5/22): HRRR alone beats
-                # ML+residual 10/14 days. Mean ML error = +1.27°F (warm bias).
-                # Every day where |residual| > 2°F, the model was wrong.
-                # CV said +0.68 improvement; production delivered -0.53.
-                # The residual model adds noise beyond ±1.5°F, not signal.
+                # ── RESIDUAL SIGNAL CAP (2026-05-23, tightened to ±0.5°F) ────
+                # 14-day production audit (5/9-5/22) showed HRRR alone wins
+                # 10/14 days vs ML+residual. Mean ML error = +1.27°F warm.
+                # PR #67 tried ±1.5°F. Still allowed net noise.
+                # Tightening to ±0.5°F. Effect: model = HRRR + tiny
+                # calibration. If ML has micro-signal it can express it;
+                # if not, output ≈ HRRR. MAE should converge to ~HRRR.
                 #
-                # Cap residual to ±1.5°F. Keeps small calibrations (likely
-                # right) while eliminating catastrophic overshoots
-                # (5/19 +6°F, 5/16 +3.5°F, 5/17 +5.5°F).
-                # Projected MAE: 1.60 → ~1.25 (HRRR alone: 1.07).
-                # Still slightly worse than HRRR alone but uses the ML
-                # signal that exists. Revisit if MAE doesn't improve to ~HRRR.
-                RESIDUAL_CAP = 1.5
+                # Honest framing: 4-year × 186-feature setup hasn't earned
+                # the right to deviate from HRRR more than 0.5°F until
+                # production data shows ML beating HRRR consistently.
+                # Constraining until evidence justifies more.
+                RESIDUAL_CAP = 0.5
                 _bias = max(-RESIDUAL_CAP, min(RESIDUAL_CAP, _bias_raw))
                 _cap_fired = abs(_bias_raw) > RESIDUAL_CAP
 
