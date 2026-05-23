@@ -3801,10 +3801,25 @@ def _compute_ml_prediction(
 
             elif _use_hrrr_anchor and _hrrr_base is not None:
                 # TIER 1 (v7/v8/v16-residual): HRRR anchor + regressor residual.
-                # v7/v8 regressors trained on y_bias = actual - HRRR_max.
-                # v16 (post-PR #42) regressor trained on the same residual on
-                # the unified ALL-labeled-rows pool with the 184-feature superset.
-                _bias = float(active_regressor.predict(X_v2)[0])
+                _bias_raw = float(active_regressor.predict(X_v2)[0])
+
+                # ── RESIDUAL SIGNAL CAP (2026-05-23, data-backed) ────────────
+                # 14-day production audit (5/9-5/22): HRRR alone beats
+                # ML+residual 10/14 days. Mean ML error = +1.27°F (warm bias).
+                # Every day where |residual| > 2°F, the model was wrong.
+                # CV said +0.68 improvement; production delivered -0.53.
+                # The residual model adds noise beyond ±1.5°F, not signal.
+                #
+                # Cap residual to ±1.5°F. Keeps small calibrations (likely
+                # right) while eliminating catastrophic overshoots
+                # (5/19 +6°F, 5/16 +3.5°F, 5/17 +5.5°F).
+                # Projected MAE: 1.60 → ~1.25 (HRRR alone: 1.07).
+                # Still slightly worse than HRRR alone but uses the ML
+                # signal that exists. Revisit if MAE doesn't improve to ~HRRR.
+                RESIDUAL_CAP = 1.5
+                _bias = max(-RESIDUAL_CAP, min(RESIDUAL_CAP, _bias_raw))
+                _cap_fired = abs(_bias_raw) > RESIDUAL_CAP
+
                 v2_temp = _hrrr_base + _bias
                 _atm_note = (f" | atm={float(atm_pred_val):.1f}°F (delta={v2_temp - float(atm_pred_val):+.1f}°F)"
                              if has_atm else "")
@@ -3812,9 +3827,11 @@ def _compute_ml_prediction(
                 _stall_note = (f" | stall={_stall:+.1f}°F/hr" if _stall is not None
                                and not (isinstance(_stall, float) and math.isnan(_stall)) else "")
                 _arch_tag = " RESIDUAL" if use_v16 else ""
+                _cap_note = (f" 🚧 residual capped from {_bias_raw:+.1f} to {_bias:+.1f}"
+                             if _cap_fired else "")
                 print(f"   Center temp: {v2_temp:.1f}°F "
                       f"({active_version}{_arch_tag}: HRRR={_hrrr_base:.0f} + bias={_bias:+.1f})"
-                      f"{_stall_note}{_atm_note}")
+                      f"{_cap_note}{_stall_note}{_atm_note}")
 
             elif _use_hrrr_anchor and _nbm_base is not None:
                 # TIER 2 (v7/v8): NBM anchor + regressor bias correction
