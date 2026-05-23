@@ -7671,11 +7671,31 @@ stats.innerHTML = `
   <div class="stat-card">
     <div class="stat-label">
       ML Bucket Hit Rate
-      <span class="tip" tabindex="0" data-tip="% of days where the ML model's bucket pick was correct (${window.mlBucketStats?.total || 0} scored days)">i</span>
+      <span class="tip" tabindex="0" data-tip="% of days where ML bucket was correct (last 60d). Per-tier breakdown reveals which bet signals earn trust.">i</span>
     </div>
     <div class="stat-value" style="color:#7c3aed">${window.mlBucketStats?.rate != null ? window.mlBucketStats.rate + '%' : '–'}
       <span style="font-size:0.6em;color:var(--text-muted);font-weight:400;">${window.mlBucketStats?.total > 0 ? ` (${window.mlBucketStats.wins}/${window.mlBucketStats.total})` : ''}</span>
     </div>
+    ${(() => {
+      const byTier = window.mlBucketStats?.byTier || {};
+      const tierOrder = ['STRONG_BET', 'BET', 'HEDGE', 'LEAN', 'SKIP', 'UNKNOWN'];
+      const tierLabels = { STRONG_BET: '🔥 STRONG', BET: '✅ BET', HEDGE: '🛡️ HEDGE', LEAN: '📊 LEAN', SKIP: '⏭️ SKIP', UNKNOWN: '?' };
+      const tierColors = { STRONG_BET: '#dc2626', BET: '#16a34a', HEDGE: '#0891b2', LEAN: '#d97706', SKIP: '#6b7280', UNKNOWN: '#9ca3af' };
+      const rows = tierOrder
+        .filter(t => byTier[t] && byTier[t].total > 0)
+        .map(t => {
+          const x = byTier[t];
+          const colorStyle = x.rate >= 60 ? `color:${tierColors[t]};font-weight:700;` : x.rate >= 50 ? `color:${tierColors[t]};` : `color:#9ca3af;`;
+          return `<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;">
+            <span style="${colorStyle}">${tierLabels[t]}</span>
+            <span style="${colorStyle}">${x.rate}% (${x.wins}/${x.total})</span>
+          </div>`;
+        }).join('');
+      return rows ? `<div style="margin-top:8px;padding-top:6px;border-top:1px dashed var(--border-subtle);">
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;">Per Bet-Signal Tier</div>
+        ${rows}
+      </div>` : '';
+    })()}
   </div>
   ${daysWithActual.length < 30
     ? `<div class="limited-data-banner" style="margin-top:12px; grid-column: 1 / -1;">
@@ -7990,20 +8010,41 @@ async function loadMLBucket2Stats() {
   }
 }
 
-// Load ML bucket hit rate from Supabase (WIN/MISS scoring)
-window.mlBucketStats = { wins: 0, total: 0, rate: null };
+// Load ML bucket hit rate from Supabase, broken down by bet_signal tier.
+// Lets user see which signals (STRONG_BET / BET / LEAN / SKIP) actually
+// have edge. The "moat through bet selection" strategy: skip uncertain
+// days, bet hard on confident days. Per-tier hit rate reveals which tiers
+// are trustworthy.
+window.mlBucketStats = { wins: 0, total: 0, rate: null, byTier: {} };
 async function loadMLBucketStats() {
   try {
     const { data, error } = await supabase
       .from('prediction_logs')
-      .select('ml_result')
+      .select('ml_result, bet_signal, target_date')
       .eq('city', currentCity)
-      .not('ml_result', 'is', null);
+      .eq('lead_used', 'today_for_today')
+      .not('ml_result', 'is', null)
+      .gte('target_date', new Date(Date.now() - 60*24*60*60*1000).toISOString().slice(0,10));
     if (error || !data) return;
     const wins = data.filter(r => r.ml_result === 'WIN').length;
     const total = data.length;
-    window.mlBucketStats = { wins, total, rate: total > 0 ? Math.round(wins / total * 100) : null };
-    console.log(`ML bucket stats (${currentCity}): ${wins}/${total} = ${window.mlBucketStats.rate}%`);
+    const byTier = {};
+    for (const row of data) {
+      const tier = (row.bet_signal || 'UNKNOWN').toUpperCase();
+      if (!byTier[tier]) byTier[tier] = { wins: 0, total: 0 };
+      byTier[tier].total += 1;
+      if (row.ml_result === 'WIN') byTier[tier].wins += 1;
+    }
+    for (const tier in byTier) {
+      const t = byTier[tier];
+      t.rate = t.total > 0 ? Math.round(t.wins / t.total * 100) : null;
+    }
+    window.mlBucketStats = {
+      wins, total,
+      rate: total > 0 ? Math.round(wins / total * 100) : null,
+      byTier,
+    };
+    console.log(`ML bucket stats (${currentCity}, last 60d): ${wins}/${total} = ${window.mlBucketStats.rate}%`, "Per-tier:", byTier);
   } catch (e) {
     console.debug("loadMLBucketStats error:", e?.message);
   }
