@@ -4502,12 +4502,18 @@ function renderAtmSignals() {
   }
 
   const d = window._atmFeatures;
+  // Graceful degradation: if the whole feature fetch failed (Open-Meteo down,
+  // Vercel API hiccup, etc.), show a placeholder panel instead of hiding it.
+  // Users get visibility into what failed instead of wondering if the dashboard broke.
   if (!d) {
-    console.debug('[Atm-Signals] No data available yet');
-    panel.style.display = 'none';
+    console.debug('[Atm-Signals] No data — showing placeholder');
+    panel.style.display = 'block';
+    grid.innerHTML = `<div style="grid-column: 1 / -1; padding: 12px; font-size: 12px; color: var(--text-muted); text-align: center; background: var(--bg-secondary); border: 1px dashed var(--border-subtle); border-radius: 8px;">
+      ⚠️ Atmospheric data temporarily unavailable (upstream API issue). Will retry on next refresh. Other dashboard data unaffected.
+    </div>`;
+    if (ts) ts.textContent = '';
     return;
   }
-  // Stale guard: don't show data from a different city
   if (d.city && d.city !== currentCity) {
     console.debug(`[Atm-Signals] Data is for ${d.city}, current is ${currentCity}`);
     panel.style.display = 'none';
