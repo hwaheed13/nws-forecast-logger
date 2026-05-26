@@ -3800,37 +3800,42 @@ def _compute_ml_prediction(
                       f"({active_version} DIRECT: regressor output){_hrrr_note}{_nbm_note}{_atm_note}")
 
             elif _use_hrrr_anchor and _hrrr_base is not None:
-                # TIER 1 (v7/v8/v16-residual): HRRR anchor + regressor residual.
+                # TIER 1: HRRR + confidence-weighted KNN blend (2026-05-26).
+                # Backtested 588 days, leave-one-out:
+                #   HRRR alone MAE:  2.216°F
+                #   Blend MAE:       1.940°F  (+0.276°F improvement)
+                # KNN finds 20 most similar historical days from 4yr corpus.
+                # Tight neighbor variance → trust KNN. Spread → defer HRRR.
+                # See predictor_blend_research.py for the audit.
                 _bias_raw = float(active_regressor.predict(X_v2)[0])
+                _residual_pred = _hrrr_base + _bias_raw  # legacy logging only
 
-                # ── RESIDUAL SIGNAL CAP (2026-05-23, tightened to ±0.5°F) ────
-                # 14-day production audit (5/9-5/22) showed HRRR alone wins
-                # 10/14 days vs ML+residual. Mean ML error = +1.27°F warm.
-                # PR #67 tried ±1.5°F. Still allowed net noise.
-                # Tightening to ±0.5°F. Effect: model = HRRR + tiny
-                # calibration. If ML has micro-signal it can express it;
-                # if not, output ≈ HRRR. MAE should converge to ~HRRR.
-                #
-                # Honest framing: 4-year × 186-feature setup hasn't earned
-                # the right to deviate from HRRR more than 0.5°F until
-                # production data shows ML beating HRRR consistently.
-                # Constraining until evidence justifies more.
-                RESIDUAL_CAP = 0.5
-                _bias = max(-RESIDUAL_CAP, min(RESIDUAL_CAP, _bias_raw))
-                _cap_fired = abs(_bias_raw) > RESIDUAL_CAP
+                try:
+                    import predictor_blend as _pb
+                    _prefix = _nal._CITY_CFG.get("model_prefix", "")
+                    _blend_result = _pb.predict_blend(
+                        live_features=v2_features,
+                        hrrr_value=_hrrr_base,
+                        city_prefix=_prefix,
+                    )
+                except Exception as _blend_e:
+                    print(f"   ⚠️ Blend failed ({_blend_e}) — fallback to HRRR")
+                    _blend_result = None
 
-                v2_temp = _hrrr_base + _bias
-                _atm_note = (f" | atm={float(atm_pred_val):.1f}°F (delta={v2_temp - float(atm_pred_val):+.1f}°F)"
-                             if has_atm else "")
-                _stall = v2_features.get("obs_heating_rate_delta")
-                _stall_note = (f" | stall={_stall:+.1f}°F/hr" if _stall is not None
-                               and not (isinstance(_stall, float) and math.isnan(_stall)) else "")
-                _arch_tag = " RESIDUAL" if use_v16 else ""
-                _cap_note = (f" 🚧 residual capped from {_bias_raw:+.1f} to {_bias:+.1f}"
-                             if _cap_fired else "")
-                print(f"   Center temp: {v2_temp:.1f}°F "
-                      f"({active_version}{_arch_tag}: HRRR={_hrrr_base:.0f} + bias={_bias:+.1f})"
-                      f"{_cap_note}{_stall_note}{_atm_note}")
+                if _blend_result is not None:
+                    v2_temp = _blend_result["blend"]
+                    _knn_pred = _blend_result["knn_pred"]
+                    _knn_std = _blend_result["knn_std"]
+                    _w_knn = _blend_result["weight_knn"]
+                    print(f"   Center temp: {v2_temp:.1f}°F "
+                          f"({active_version} BLEND: HRRR={_hrrr_base:.1f} blend "
+                          f"w_knn={_w_knn:.2f} · KNN={_knn_pred:.1f}±{_knn_std:.1f}°F) "
+                          f"| legacy_residual={_residual_pred:.1f}")
+                else:
+                    v2_temp = _hrrr_base
+                    print(f"   Center temp: {v2_temp:.1f}°F "
+                          f"({active_version} HRRR-DIRECT: KNN blend unavailable, "
+                          f"legacy_residual would have been {_residual_pred:.1f})")
 
             elif _use_hrrr_anchor and _nbm_base is not None:
                 # TIER 2 (v7/v8): NBM anchor + regressor bias correction
