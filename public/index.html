@@ -4513,18 +4513,56 @@ function renderAtmSignals() {
     return;
   }
 
-  const d = window._atmFeatures;
-  // Graceful degradation: if the whole feature fetch failed (Open-Meteo down,
-  // Vercel API hiccup, etc.), show a placeholder panel instead of hiding it.
-  // Users get visibility into what failed instead of wondering if the dashboard broke.
+  let d = window._atmFeatures;
+  let _usingSnapshotFallback = false;
+  // When live /api/atm-features fails (Open-Meteo down etc.), fall back to
+  // last-known-good atm_snapshot from prediction_logs. Cards show real
+  // values from the most recent successful cycle with a "stale" indicator,
+  // instead of vanishing entirely.
   if (!d) {
-    console.debug('[Atm-Signals] No data — showing placeholder');
-    panel.style.display = 'block';
-    grid.innerHTML = `<div style="grid-column: 1 / -1; padding: 12px; font-size: 12px; color: var(--text-muted); text-align: center; background: var(--bg-secondary); border: 1px dashed var(--border-subtle); border-radius: 8px;">
-      ⚠️ Atmospheric data temporarily unavailable (upstream API issue). Will retry on next refresh. Other dashboard data unaffected.
-    </div>`;
-    if (ts) ts.textContent = '';
-    return;
+    const _snap = (window.mlPredictions || {}).todayAtmSnapshot || {};
+    const _hasSnapAtm = (
+      _snap.atm_bl_height_max != null ||
+      _snap.atm_cloud_cover_max != null ||
+      _snap.atm_925mb_temp_mean != null ||
+      _snap.atm_solar_radiation_peak != null
+    );
+    if (_hasSnapAtm) {
+      const blM = _snap.atm_bl_height_max;
+      const blCat = blM == null ? null
+                   : blM < 500  ? 'very-shallow'
+                   : blM < 1000 ? 'shallow'
+                   : blM > 2000 ? 'deep'
+                   : 'moderate';
+      d = {
+        city: currentCity,
+        peak_heating: {
+          bl_height_max_m:      _snap.atm_bl_height_max ?? null,
+          bl_category:          blCat,
+          cloud_cover_pct:      _snap.atm_cloud_cover_max ?? null,
+          solar_radiation_peak: _snap.atm_solar_radiation_peak ?? null,
+          t_925_max_f:          _snap.atm_925mb_temp_max ?? _snap.atm_925mb_temp_mean ?? null,
+          t_850_max_f:          _snap.atm_850mb_temp_max ?? _snap.atm_850mb_temp_mean ?? null,
+          dewpoint_min_f:       _snap.atm_dewpoint_mean ?? null,
+          precip_total_in:      _snap.atm_precip_total ?? null,
+        },
+        current: {
+          wind_mph:             _snap.atm_wind_mean ?? null,
+          wind_dir_card:        null,
+          sea_breeze:           false,
+        },
+      };
+      _usingSnapshotFallback = true;
+      console.debug('[Atm-Signals] Using snapshot fallback (live API failed)');
+    } else {
+      console.debug('[Atm-Signals] No data — showing placeholder');
+      panel.style.display = 'block';
+      grid.innerHTML = `<div style="grid-column: 1 / -1; padding: 12px; font-size: 12px; color: var(--text-muted); text-align: center; background: var(--bg-secondary); border: 1px dashed var(--border-subtle); border-radius: 8px;">
+        ⚠️ Atmospheric data temporarily unavailable (upstream API issue). Will retry on next refresh. Other dashboard data unaffected.
+      </div>`;
+      if (ts) ts.textContent = '';
+      return;
+    }
   }
   if (d.city && d.city !== currentCity) {
     console.debug(`[Atm-Signals] Data is for ${d.city}, current is ${currentCity}`);
@@ -4919,9 +4957,15 @@ function renderAtmSignals() {
     grid.insertAdjacentHTML('afterend', signalsRow);
   }
 
-  if (ts && d.fetchedAt) {
-    const t = new Date(d.fetchedAt).toLocaleTimeString('en-US', { timeZone: dispTZ, hour: 'numeric', minute: '2-digit' });
-    ts.textContent = `as of ${t}`;
+  if (ts) {
+    if (_usingSnapshotFallback) {
+      ts.textContent = '⚠️ Snapshot fallback — live atm API unavailable';
+      ts.style.color = '#d97706';
+    } else if (d.fetchedAt) {
+      const t = new Date(d.fetchedAt).toLocaleTimeString('en-US', { timeZone: dispTZ, hour: 'numeric', minute: '2-digit' });
+      ts.textContent = `as of ${t}`;
+      ts.style.color = '';
+    }
   }
   panel.style.display = '';
 }
