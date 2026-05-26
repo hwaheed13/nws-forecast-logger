@@ -4479,9 +4479,20 @@ async function fetchAtmFeatures() {
     const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
     if (!r.ok) {
       console.error(`[Atm-Features] Fetch failed: ${r.status} ${r.statusText}`);
+      // Don't bail silently — keep prior _atmFeatures if we had it, otherwise
+      // null. Call renderAtmSignals so the panel either shows the previous
+      // data (still in window._atmFeatures from a prior successful fetch) or
+      // shows the placeholder card (graceful degrade in renderAtmSignals).
+      renderAtmSignals();
       return;
     }
     const d = await r.json();
+    // Handle in-band error responses (e.g. {"error":"Open-Meteo 502"})
+    if (d && d.error) {
+      console.error(`[Atm-Features] Upstream error: ${d.error}`);
+      renderAtmSignals();  // shows placeholder if _atmFeatures is null
+      return;
+    }
     window._atmFeatures = d;
     console.debug(`[Atm-Features] Fetched for ${currentCity}:`, d);
     renderAtmSignals();
@@ -4489,6 +4500,7 @@ async function fetchAtmFeatures() {
     fetchFlipRisk();
   } catch (err) {
     console.error(`[Atm-Features] Error:`, err);
+    try { renderAtmSignals(); } catch {}
   }
 }
 
