@@ -1,14 +1,23 @@
 {
+<<<<<<< Updated upstream
   "trained_on": "2026-05-28T09:29:02.849768",
   "version": "v3_unified_regression",
   "num_days": 1606,
   "num_forecast_days": 86,
   "num_multiyear_days": 1520,
+=======
+  "trained_on": "2026-05-28T13:05:54.710188",
+  "version": "v3_unified_regression",
+  "num_days": 1607,
+  "num_forecast_days": 86,
+  "num_multiyear_days": 1521,
+>>>>>>> Stashed changes
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-05-26"
+    "end": "2026-05-27"
   },
   "performance": {
+<<<<<<< Updated upstream
     "cv_mae": 0.9,
     "cv_bucket_accuracy_1f": 0.093,
     "residual_std": 5.67,
@@ -21,11 +30,26 @@
     ],
     "per_fold_bucket_acc": [
       0.093
+=======
+    "cv_mae": 0.74,
+    "cv_bucket_accuracy_1f": 0.0814,
+    "residual_std": 2.27,
+    "per_fold_mae": [
+      0.97,
+      0.58,
+      0.53,
+      0.48,
+      1.13
+    ],
+    "per_fold_bucket_acc": [
+      0.0814
+>>>>>>> Stashed changes
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
+<<<<<<< Updated upstream
       "importance": 1.5026
     },
     {
@@ -75,14 +99,70 @@
     {
       "name": "nws_first",
       "importance": 0.0007
+=======
+      "importance": 1.7634
     },
     {
-      "name": "day_of_year_cos",
+      "name": "atm_temp_range",
+      "importance": 0.0031
+    },
+    {
+      "name": "intra_temp_noon",
+      "importance": 0.0029
+    },
+    {
+      "name": "accu_last",
+      "importance": 0.0015
+    },
+    {
+      "name": "atm_dewpoint_mean",
+      "importance": 0.0012
+    },
+    {
+      "name": "intra_temp_9am",
+      "importance": 0.001
+    },
+    {
+      "name": "atm_overnight_min",
       "importance": 0.0006
     },
     {
+      "name": "prev_day_high",
+      "importance": 0.0006
+>>>>>>> Stashed changes
+    },
+    {
+      "name": "day_of_year_cos",
+      "importance": 0.0005
+    },
+    {
+<<<<<<< Updated upstream
       "name": "nws_last",
       "importance": 0.0005
+=======
+      "name": "mm_icon_max",
+      "importance": 0.0005
+    },
+    {
+      "name": "atm_humidity_min",
+      "importance": 0.0005
+    },
+    {
+      "name": "intra_rise_from_overnight",
+      "importance": 0.0004
+    },
+    {
+      "name": "atm_wind_dir_sin",
+      "importance": 0.0004
+    },
+    {
+      "name": "atm_pressure_change",
+      "importance": 0.0004
+    },
+    {
+      "name": "atm_pressure_mean",
+      "importance": 0.0003
+>>>>>>> Stashed changes
     }
   ],
   "hyperparameters": {
