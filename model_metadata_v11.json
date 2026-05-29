@@ -1,28 +1,16 @@
 {
-<<<<<<< Updated upstream
-  "trained_on": "2026-05-28T09:25:17.289278",
-=======
-  "trained_on": "2026-05-28T12:47:39.269587",
->>>>>>> Stashed changes
+  "trained_on": "2026-05-29T09:24:03.953937",
   "version": "v11_model_vs_nws_divergence",
   "base_cascade": "HRRR > NBM > AccuWeather > NWS",
   "new_features": "mm_hrrr_vs_nws, mm_nbm_vs_nws, mm_mean_vs_nws",
   "motivation": "NWS is #11-16 accuracy; explicit model-vs-NWS divergence replaces implicit inference from separate mm_hrrr_max + nws_last columns",
-<<<<<<< Updated upstream
-  "n_divergence_rows": 41,
-=======
-  "n_divergence_rows": 492,
->>>>>>> Stashed changes
+  "n_divergence_rows": 42,
   "v11_regression": {
-    "cv_mae": 1.9209365025666567,
-    "cv_bucket_accuracy": 0.17784636488340194,
+    "cv_mae": 1.899241600626309,
+    "cv_bucket_accuracy": 0.1786008230452675,
     "residual_std": 6.965323985586506,
     "n_features": 168,
-<<<<<<< Updated upstream
-    "n_training_rows": 1607
-=======
-    "n_training_rows": 19284
->>>>>>> Stashed changes
+    "n_training_rows": 1608
   },
   "feature_columns_v11": [
     "nws_first",
