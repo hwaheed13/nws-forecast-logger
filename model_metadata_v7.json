@@ -1,4 +1,5 @@
 {
+<<<<<<< Updated upstream
   "trained_on": "2026-05-29T09:23:09.456863",
   "version": "v7_hrrr_anchored_base",
   "base_cascade": "HRRR > NBM > AccuWeather > NWS",
@@ -10,6 +11,19 @@
     "n_training_rows": 313,
     "base_sources": {
       "hrrr": 42,
+=======
+  "trained_on": "2026-05-29T12:37:29.768087",
+  "version": "v7_hrrr_anchored_base",
+  "base_cascade": "HRRR > NBM > AccuWeather > NWS",
+  "v7_regression": {
+    "cv_mae": 1.1945711004602497,
+    "cv_bucket_accuracy": 0.31884984025559104,
+    "residual_std": 1.640629368321035,
+    "n_features": 149,
+    "n_training_rows": 3756,
+    "base_sources": {
+      "hrrr": 504,
+>>>>>>> Stashed changes
       "nbm": 0,
       "accuweather": 271,
       "nws": 0
