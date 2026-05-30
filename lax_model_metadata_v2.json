@@ -1,9 +1,5 @@
 {
-<<<<<<< Updated upstream
-  "trained_on": "2026-05-29T09:27:35.096762",
-=======
-  "trained_on": "2026-05-29T13:05:47.037708",
->>>>>>> Stashed changes
+  "trained_on": "2026-05-30T08:25:36.555845",
   "version": "v2_atmospheric_classifier",
   "num_days": 1608,
   "date_range": {
@@ -11,49 +7,28 @@
     "end": "2026-05-28"
   },
   "v1_performance": {
-    "cv_mae": 2.16,
+    "cv_mae": 2.24,
     "cv_bucket_accuracy": 0.1429
   },
   "v2_regression": {
-<<<<<<< Updated upstream
-    "cv_mae": 2.16,
-    "cv_bucket_accuracy": 0.1571,
-    "residual_std": 2.3,
+    "cv_mae": 2.23,
+    "cv_bucket_accuracy": 0.1429,
+    "residual_std": 2.32,
     "num_features": 94
   },
   "v2_classifier": {
-    "cv_bucket_accuracy": 0.1952,
-    "cv_log_loss": 0.3897,
-    "insample_bucket_accuracy": 0.1696,
-    "num_training_days": 1607,
-    "num_forecast_days": 87,
+    "cv_bucket_accuracy": 0.1992,
+    "cv_log_loss": 0.3888,
+    "insample_bucket_accuracy": 0.1929,
+    "num_training_days": 1608,
+    "num_forecast_days": 88,
     "num_persistence_days": 1520,
     "forecast_weight": 5.0,
-    "num_classification_rows": 18892,
+    "num_classification_rows": 18899,
     "n_candidate_buckets": 7,
     "feature_cols_used": 98,
     "positive_rate": 0.079,
-    "residual_std": 2.302
-=======
-    "cv_mae": 2.0,
-    "cv_bucket_accuracy": 0.0857,
-    "residual_std": 1.94,
-    "num_features": 94
-  },
-  "v2_classifier": {
-    "cv_bucket_accuracy": 0.1904,
-    "cv_log_loss": 0.388,
-    "insample_bucket_accuracy": 0.2048,
-    "num_training_days": 1608,
-    "num_forecast_days": 87,
-    "num_persistence_days": 1521,
-    "forecast_weight": 5.0,
-    "num_classification_rows": 18912,
-    "n_candidate_buckets": 7,
-    "feature_cols_used": 98,
-    "positive_rate": 0.079,
-    "residual_std": 1.938
->>>>>>> Stashed changes
+    "residual_std": 2.317
   },
   "feature_columns_v2": [
     "nws_first",
