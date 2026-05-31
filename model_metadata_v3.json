@@ -1,5 +1,9 @@
 {
+<<<<<<< Updated upstream
   "trained_on": "2026-05-31T08:58:00.837888",
+=======
+  "trained_on": "2026-05-31T12:26:28.381546",
+>>>>>>> Stashed changes
   "version": "v3_unified_regression",
   "num_days": 1610,
   "num_forecast_days": 315,
@@ -9,23 +13,39 @@
     "end": "2026-05-30"
   },
   "performance": {
+<<<<<<< Updated upstream
     "cv_mae": 4.82,
     "cv_bucket_accuracy_1f": 0.02,
     "residual_std": 18.01,
+=======
+    "cv_mae": 0.85,
+    "cv_bucket_accuracy_1f": 0.1015,
+    "residual_std": 2.86,
+>>>>>>> Stashed changes
     "per_fold_mae": [
       0.56,
       0.4,
       0.32,
+<<<<<<< Updated upstream
       2.5,
       20.31
     ],
     "per_fold_bucket_acc": [
       0.0213,
       0.0187
+=======
+      0.98,
+      2.02
+    ],
+    "per_fold_bucket_acc": [
+      0.0426,
+      0.1604
+>>>>>>> Stashed changes
     ]
   },
   "top_features": [
     {
+<<<<<<< Updated upstream
       "name": "prev_day_high",
       "importance": 0.2681
     },
@@ -84,6 +104,66 @@
     {
       "name": "intra_temp_noon",
       "importance": 0.0007
+=======
+      "name": "atm_predicted_high",
+      "importance": 1.2871
+    },
+    {
+      "name": "intra_temp_3pm",
+      "importance": 0.0151
+    },
+    {
+      "name": "intra_temp_noon",
+      "importance": 0.0058
+    },
+    {
+      "name": "accu_last",
+      "importance": 0.0025
+    },
+    {
+      "name": "intra_temp_5pm",
+      "importance": 0.002
+    },
+    {
+      "name": "atm_dewpoint_mean",
+      "importance": 0.0008
+    },
+    {
+      "name": "intra_high_vs_noon",
+      "importance": 0.0004
+    },
+    {
+      "name": "atm_temp_range",
+      "importance": 0.0002
+    },
+    {
+      "name": "prev_day_high",
+      "importance": 0.0002
+    },
+    {
+      "name": "mm_mean",
+      "importance": 0.0002
+    },
+    {
+      "name": "atm_vs_forecast_diff",
+      "importance": 0.0002
+    },
+    {
+      "name": "atm_morning_temp_6am",
+      "importance": 0.0002
+    },
+    {
+      "name": "intra_heating_rate_pm",
+      "importance": 0.0001
+    },
+    {
+      "name": "accu_post_9am_delta",
+      "importance": 0.0001
+    },
+    {
+      "name": "accu_max",
+      "importance": 0.0001
+>>>>>>> Stashed changes
     }
   ],
   "hyperparameters": {
