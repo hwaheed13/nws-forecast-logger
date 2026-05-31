@@ -1,13 +1,9 @@
 {
-<<<<<<< Updated upstream
-  "trained_on": "2026-05-30T08:25:20.421721",
-=======
-  "trained_on": "2026-05-30T11:59:35.277955",
->>>>>>> Stashed changes
-  "num_days": 88,
+  "trained_on": "2026-05-31T08:58:24.062546",
+  "num_days": 89,
   "date_range": {
     "start": "2026-03-02",
-    "end": "2026-05-28"
+    "end": "2026-05-29"
   },
   "feature_columns": [
     "nws_first",
@@ -42,63 +38,63 @@
     "rolling_ml_error_7d",
     "has_accu_data"
   ],
-  "residual_std": 2.3238203336347762,
+  "residual_std": 2.1737136070130965,
   "bucket_method": "gaussian_from_regression",
   "base_source": "accu_last (fallback: nws_last)",
   "model_type": "HistGradientBoostingRegressor",
   "model_performance": {
-    "cv_temperature_mae": 2.24,
-    "cv_bucket_accuracy": 0.1429,
-    "insample_temperature_mae": 1.1,
-    "insample_bucket_accuracy": 0.2727,
-    "residual_std": 2.32
+    "cv_temperature_mae": 2.08,
+    "cv_bucket_accuracy": 0.1286,
+    "insample_temperature_mae": 1.05,
+    "insample_bucket_accuracy": 0.2584,
+    "residual_std": 2.17
   },
   "seasonal_performance": {
     "spring": {
-      "days": 88,
-      "insample_mae": 1.1
+      "days": 89,
+      "insample_mae": 1.05
     }
   },
   "top_features": [
     {
       "name": "day_of_year_cos",
-      "importance": 0.273
+      "importance": 0.2855
     },
     {
       "name": "accu_last",
-      "importance": 0.1664
+      "importance": 0.1488
     },
     {
       "name": "day_of_year_sin",
-      "importance": 0.0778
+      "importance": 0.0963
     },
     {
       "name": "nws_min",
-      "importance": 0.0653
-    },
-    {
-      "name": "nws_accu_mean_diff",
-      "importance": 0.0644
-    },
-    {
-      "name": "accu_first",
-      "importance": 0.0639
-    },
-    {
-      "name": "accu_std",
-      "importance": 0.06
-    },
-    {
-      "name": "rolling_bias_21d",
-      "importance": 0.0558
+      "importance": 0.0818
     },
     {
       "name": "nws_mean",
-      "importance": 0.0527
+      "importance": 0.0791
+    },
+    {
+      "name": "rolling_bias_21d",
+      "importance": 0.066
+    },
+    {
+      "name": "nws_accu_mean_diff",
+      "importance": 0.0605
+    },
+    {
+      "name": "accu_first",
+      "importance": 0.0539
     },
     {
       "name": "rolling_bias_7d",
-      "importance": 0.0519
+      "importance": 0.0488
+    },
+    {
+      "name": "accu_min",
+      "importance": 0.0369
     }
   ],
   "hyperparameters": {
