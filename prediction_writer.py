@@ -1625,13 +1625,28 @@ def _compute_physical_ceiling(features: dict) -> Optional[float]:
     else:
         rate_ceiling = 1.5
 
+    rate_falling = False
     if rate is not None:
         try:
             rate_f = float(rate)
             if rate_f < -0.5:
                 rate_ceiling = rate_ceiling * 0.5
+                rate_falling = True
         except (TypeError, ValueError):
             pass
+
+    # The linear-heating ceiling is only a VALID upper bound when live
+    # conditions are actually SUPPRESSING heat. On a clear, dry, rising
+    # morning the real ramp routinely exceeds 1.5°F/hr, so a ceiling built
+    # off the current (still-cool) temp wrongly clamps a correct hot-day
+    # forecast. 2026-06-06 NYC: model + HRRR/NWS/Accu all agreed ~91-94°F,
+    # this cap dragged the published prediction to 78°F every morning.
+    # Only bind the ceiling under genuine suppression — active precip (handled
+    # by the early return above), temps already falling, or heavy overcast.
+    # Otherwise return None so the model/HRRR speaks (no brute-force clamp).
+    heavy_overcast = cloud_pct is not None and cloud_pct >= 90
+    if not (rate_falling or heavy_overcast):
+        return None
 
     physical_ceiling = current_peak + (hours_remaining * rate_ceiling)
     return float(round(physical_ceiling, 1))
