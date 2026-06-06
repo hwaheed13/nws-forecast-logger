@@ -1,16 +1,21 @@
 {
+<<<<<<< Updated upstream
   "trained_on": "2026-06-06T08:31:58.533753",
+=======
+  "trained_on": "2026-06-06T12:06:26.725947",
+>>>>>>> Stashed changes
   "version": "v2_atmospheric_classifier",
-  "num_days": 1615,
+  "num_days": 1616,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-06-04"
+    "end": "2026-06-05"
   },
   "v1_performance": {
     "cv_mae": 2.02,
     "cv_bucket_accuracy": 0.1733
   },
   "v2_regression": {
+<<<<<<< Updated upstream
     "cv_mae": 2.02,
     "cv_bucket_accuracy": 0.1467,
     "residual_std": 2.14,
@@ -29,6 +34,26 @@
     "feature_cols_used": 98,
     "positive_rate": 0.0792,
     "residual_std": 2.143
+=======
+    "cv_mae": 1.8,
+    "cv_bucket_accuracy": 0.0933,
+    "residual_std": 1.85,
+    "num_features": 94
+  },
+  "v2_classifier": {
+    "cv_bucket_accuracy": 0.204,
+    "cv_log_loss": 0.3823,
+    "insample_bucket_accuracy": 0.2423,
+    "num_training_days": 1616,
+    "num_forecast_days": 95,
+    "num_persistence_days": 1521,
+    "forecast_weight": 5.0,
+    "num_classification_rows": 18968,
+    "n_candidate_buckets": 7,
+    "feature_cols_used": 98,
+    "positive_rate": 0.0792,
+    "residual_std": 1.854
+>>>>>>> Stashed changes
   },
   "feature_columns_v2": [
     "nws_first",

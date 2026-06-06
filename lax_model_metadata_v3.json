@@ -1,14 +1,23 @@
 {
+<<<<<<< Updated upstream
   "trained_on": "2026-06-06T08:32:10.760455",
   "version": "v3_unified_regression",
   "num_days": 1615,
   "num_forecast_days": 95,
   "num_multiyear_days": 1520,
+=======
+  "trained_on": "2026-06-06T12:06:39.462318",
+  "version": "v3_unified_regression",
+  "num_days": 1616,
+  "num_forecast_days": 95,
+  "num_multiyear_days": 1521,
+>>>>>>> Stashed changes
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-06-04"
+    "end": "2026-06-05"
   },
   "performance": {
+<<<<<<< Updated upstream
     "cv_mae": 0.91,
     "cv_bucket_accuracy_1f": 0.0842,
     "residual_std": 5.45,
@@ -21,11 +30,26 @@
     ],
     "per_fold_bucket_acc": [
       0.0842
+=======
+    "cv_mae": 0.74,
+    "cv_bucket_accuracy_1f": 0.0632,
+    "residual_std": 2.15,
+    "per_fold_mae": [
+      0.92,
+      0.57,
+      0.52,
+      0.48,
+      1.2
+    ],
+    "per_fold_bucket_acc": [
+      0.0632
+>>>>>>> Stashed changes
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
+<<<<<<< Updated upstream
       "importance": 1.5024
     },
     {
@@ -82,6 +106,64 @@
     },
     {
       "name": "nws_first",
+=======
+      "importance": 1.7805
+    },
+    {
+      "name": "atm_temp_range",
+      "importance": 0.0036
+    },
+    {
+      "name": "intra_temp_noon",
+      "importance": 0.0033
+    },
+    {
+      "name": "atm_dewpoint_mean",
+      "importance": 0.0017
+    },
+    {
+      "name": "accu_last",
+      "importance": 0.0015
+    },
+    {
+      "name": "intra_temp_9am",
+      "importance": 0.0009
+    },
+    {
+      "name": "atm_humidity_min",
+      "importance": 0.0007
+    },
+    {
+      "name": "prev_day_high",
+      "importance": 0.0006
+    },
+    {
+      "name": "atm_pressure_mean",
+      "importance": 0.0005
+    },
+    {
+      "name": "atm_overnight_min",
+      "importance": 0.0005
+    },
+    {
+      "name": "atm_pressure_change",
+      "importance": 0.0005
+    },
+    {
+      "name": "atm_humidity_mean",
+      "importance": 0.0004
+    },
+    {
+      "name": "mm_mean",
+      "importance": 0.0004
+    },
+    {
+      "name": "mm_ecmwf_gfs_diff",
+      "importance": 0.0004
+    },
+    {
+      "name": "intra_rise_from_overnight",
+>>>>>>> Stashed changes
       "importance": 0.0004
     }
   ],

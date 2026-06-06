@@ -1,5 +1,9 @@
 {
+<<<<<<< Updated upstream
   "trained_on": "2026-06-06T08:31:18.149686",
+=======
+  "trained_on": "2026-06-06T12:05:46.884490",
+>>>>>>> Stashed changes
   "version": "v3_unified_regression",
   "num_days": 1616,
   "num_forecast_days": 321,
@@ -9,23 +13,39 @@
     "end": "2026-06-05"
   },
   "performance": {
+<<<<<<< Updated upstream
     "cv_mae": 4.46,
     "cv_bucket_accuracy_1f": 0.0338,
     "residual_std": 17.35,
+=======
+    "cv_mae": 0.85,
+    "cv_bucket_accuracy_1f": 0.1277,
+    "residual_std": 2.84,
+>>>>>>> Stashed changes
     "per_fold_mae": [
       0.54,
       0.41,
       0.31,
+<<<<<<< Updated upstream
       2.61,
       18.45
     ],
     "per_fold_bucket_acc": [
       0.0192,
       0.0483
+=======
+      0.97,
+      2.03
+    ],
+    "per_fold_bucket_acc": [
+      0.0769,
+      0.1784
+>>>>>>> Stashed changes
     ]
   },
   "top_features": [
     {
+<<<<<<< Updated upstream
       "name": "prev_day_high",
       "importance": 0.2898
     },
@@ -52,6 +72,42 @@
     {
       "name": "is_winter",
       "importance": 0.0038
+=======
+      "name": "atm_predicted_high",
+      "importance": 1.2328
+    },
+    {
+      "name": "intra_temp_3pm",
+      "importance": 0.0194
+    },
+    {
+      "name": "intra_temp_noon",
+      "importance": 0.004
+    },
+    {
+      "name": "intra_temp_5pm",
+      "importance": 0.004
+    },
+    {
+      "name": "accu_last",
+      "importance": 0.0031
+    },
+    {
+      "name": "atm_dewpoint_mean",
+      "importance": 0.0007
+    },
+    {
+      "name": "intra_high_vs_noon",
+      "importance": 0.0003
+    },
+    {
+      "name": "atm_temp_range",
+      "importance": 0.0003
+    },
+    {
+      "name": "prev_day_high",
+      "importance": 0.0002
+>>>>>>> Stashed changes
     },
     {
       "name": "atm_vs_forecast_diff",
@@ -82,8 +138,29 @@
       "importance": 0.0009
     },
     {
+<<<<<<< Updated upstream
       "name": "accu_max",
       "importance": 0.0008
+=======
+      "name": "atm_morning_temp_6am",
+      "importance": 0.0002
+    },
+    {
+      "name": "accu_max",
+      "importance": 0.0001
+    },
+    {
+      "name": "accu_post_9am_delta",
+      "importance": 0.0001
+    },
+    {
+      "name": "mm_mean",
+      "importance": 0.0001
+    },
+    {
+      "name": "intra_heating_rate_pm",
+      "importance": 0.0001
+>>>>>>> Stashed changes
     }
   ],
   "hyperparameters": {
