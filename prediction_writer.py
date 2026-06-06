@@ -92,6 +92,40 @@ def _snap_loads(raw) -> dict:
             return {}
 
 
+def _load_metadata_json(path: str) -> dict:
+    """Load a model-metadata JSON file, tolerating committed git conflict
+    markers. The daily retrain has repeatedly committed metadata files with
+    unresolved <<<<<<< / ======= / >>>>>>> markers (from -X ours rebases /
+    stash pops), which made the JSON unparseable. When _load_v16_models
+    could not read it, v16 silently fell back to DIRECT mode — and since the
+    pkl is RESIDUAL-trained, DIRECT used the ~+2°F residual as the final
+    temperature, producing 2.5°F / -4°F predictions that knocked the whole
+    cascade down to v1. Strip conflict markers (keep the 'ours'/upper hunk)
+    before parsing so a stray marker can never take the moat offline again.
+    """
+    with open(path) as f:
+        raw = f.read()
+    try:
+        return json.loads(raw)
+    except Exception:
+        out, in_conflict, after_sep = [], False, False
+        for ln in raw.split("\n"):
+            s = ln.lstrip()
+            if s.startswith("<<<<<<<"):
+                in_conflict, after_sep = True, False
+                continue
+            if in_conflict and s.startswith("======="):
+                after_sep = True
+                continue
+            if in_conflict and s.startswith(">>>>>>>"):
+                in_conflict, after_sep = False, False
+                continue
+            if in_conflict and after_sep:
+                continue  # drop the 'theirs' hunk, keep 'ours'
+            out.append(ln)
+        return json.loads("\n".join(out))
+
+
 def _is_in_climo_day(obs_local, target_date_iso: str) -> bool:
     """Check if a local-tz observation falls within NWS's climo day for target.
 
@@ -846,11 +880,9 @@ def _load_v16_models():
         # MUST branch on this — adding HRRR to a direct-model output gives
         # +60°F predictions (the bug that motivated this guard).
         try:
-            import json as _json
             meta_path = f"{prefix}model_metadata_v16.json"
             if os.path.exists(meta_path):
-                with open(meta_path) as f:
-                    _meta = _json.load(f)
+                _meta = _load_metadata_json(meta_path)
                 _ver = (_meta.get("version") or "").lower()
                 _target = (_meta.get("target") or "").lower()
                 _is_residual = (
