@@ -2203,7 +2203,27 @@ def _fetch_atmospheric_features(target_date_iso: str) -> dict:
         lon = cfg.get("open_meteo_lon", -73.965)
         tz = cfg.get("timezone", "America/New_York")
         print(f"  🔍 Fetching atmospheric features for {target_date_iso} at ({lat}, {lon})")
-        features = get_atmospheric_features_live(lat, lon, target_date_iso, tz)
+        # Retry the live Open-Meteo fetch. HRRR/atm are forward forecasts
+        # (available ~48h out), so the model's anchor genuinely exists at the
+        # midnight cutover — a transient blip should not blind the model. Without
+        # this, one failed cycle returned {} and the cascade fabricated an
+        # outlier (the NWS 91 + bias -13 = 78 case) instead of running on real
+        # inputs. Let the model do the talking by guaranteeing it gets them.
+        features = {}
+        _last_err = None
+        for _attempt in range(1, 4):
+            try:
+                features = get_atmospheric_features_live(lat, lon, target_date_iso, tz)
+                if features:
+                    break
+            except Exception as _fe:
+                _last_err = _fe
+                print(f"  ⚠️ Open-Meteo attempt {_attempt}/3 failed: "
+                      f"{type(_fe).__name__}: {_fe}")
+            if _attempt < 3:
+                time.sleep(2 * _attempt)
+        if not features and _last_err is not None:
+            raise _last_err
         print(f"  ✅ Open-Meteo returned {len(features)} keys")
 
         # v6: fetch OKX radiosonde upper-air sounding (observed 925mb/850mb temps)
