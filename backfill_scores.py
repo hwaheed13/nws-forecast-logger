@@ -100,7 +100,7 @@ print("-" * 70)
 
 to_patch = []
 for r in rows:
-    actual = int(float(r["ml_actual_high"]))
+    actual = round(float(r["ml_actual_high"]))
     canonical = r["ml_bucket_canonical"]
     result_canonical = score_bucket(canonical, actual)
 

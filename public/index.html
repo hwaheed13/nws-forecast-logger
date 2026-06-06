@@ -7608,15 +7608,17 @@ async function displayTable() {
       if (Math.abs(hedgePred - actualHigh) <= 1.0) hedgeWithin1Count++;
 
       // Bucket hit: check Hedge prediction against actual Kalshi winning bucket
+      // Round prediction to nearest integer (NWS reports integers)
       const k = kalshiByDate[d];
       const bucket = k ? parseKalshiBucket(cleanKalshiLabel(k.label)) : null;
       if (bucket) {
         bucketDaysChecked++;
+        const rounded = Math.round(hedgePred);
         const inBucket = (bucket.max === Infinity)
-          ? hedgePred >= bucket.min
+          ? rounded >= bucket.min
           : (bucket.min === -Infinity)
-            ? hedgePred < bucket.max + 1
-            : hedgePred >= bucket.min && hedgePred < bucket.max + 1;
+            ? rounded <= bucket.max
+            : rounded >= bucket.min && rounded <= bucket.max;
         if (inBucket) bucketHitCount++;
       }
     }
@@ -7630,11 +7632,12 @@ async function displayTable() {
       const bucket2 = k2 ? parseKalshiBucket(cleanKalshiLabel(k2.label)) : null;
       if (bucket2) {
         accuBucketDaysChecked++;
+        const accuRounded = Math.round(accuPred);
         const accuInBucket = (bucket2.max === Infinity)
-          ? accuPred >= bucket2.min
+          ? accuRounded >= bucket2.min
           : (bucket2.min === -Infinity)
-            ? accuPred < bucket2.max + 1
-            : accuPred >= bucket2.min && accuPred < bucket2.max + 1;
+            ? accuRounded <= bucket2.max
+            : accuRounded >= bucket2.min && accuRounded <= bucket2.max;
         if (accuInBucket) accuBucketHitCount++;
       }
     }

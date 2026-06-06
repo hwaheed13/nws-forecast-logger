@@ -748,8 +748,8 @@ class NYCTemperatureModelTrainer:
             all_residuals.extend((y_actual.iloc[te].values - pred_temp).tolist())
 
             # Bucket accuracy: does floor(pred) == floor(actual)?
-            pred_buckets = [f"{int(p)}-{int(p)+1}" for p in pred_temp]
-            actual_buckets = [f"{int(a)}-{int(a)+1}" for a in y_actual.iloc[te]]
+            pred_buckets = [f"{round(p)}-{round(p)+1}" for p in pred_temp]
+            actual_buckets = [f"{round(a)}-{round(a)+1}" for a in y_actual.iloc[te]]
             correct = sum(1 for pb, ab in zip(pred_buckets, actual_buckets) if pb == ab)
             bucket_acc_scores.append(correct / len(actual_buckets))
 
@@ -808,7 +808,7 @@ class NYCTemperatureModelTrainer:
         insample_mae = float(mean_absolute_error(y, temp_pred_all))
 
         # In-sample bucket accuracy
-        pred_buckets = [f"{int(p)}-{int(p)+1}" for p in temp_pred_all]
+        pred_buckets = [f"{round(p)}-{round(p)+1}" for p in temp_pred_all]
         actual_buckets = self.features_df["winning_bucket"].tolist()
         insample_bucket_acc = sum(1 for p, a in zip(pred_buckets, actual_buckets) if p == a) / len(actual_buckets)
 
@@ -2029,8 +2029,8 @@ class NYCTemperatureModelTrainer:
                 mae_scores_v2.append(mean_absolute_error(y_actual_reg.iloc[te], pred_temp))
                 all_residuals_v2.extend((y_actual_reg.iloc[te].values - pred_temp).tolist())
 
-                pred_buckets = [f"{int(p)}-{int(p)+1}" for p in pred_temp]
-                actual_buckets = [f"{int(a)}-{int(a)+1}" for a in y_actual_reg.iloc[te]]
+                pred_buckets = [f"{round(p)}-{round(p)+1}" for p in pred_temp]
+                actual_buckets = [f"{round(a)}-{round(a)+1}" for a in y_actual_reg.iloc[te]]
                 correct = sum(1 for pb, ab in zip(pred_buckets, actual_buckets) if pb == ab)
                 bucket_acc_v2.append(correct / len(actual_buckets))
 
@@ -2404,8 +2404,8 @@ class NYCTemperatureModelTrainer:
                 mae_scores_v4.append(mean_absolute_error(y_actual_reg.iloc[te], pred_temp))
                 all_residuals_v4.extend((y_actual_reg.iloc[te].values - pred_temp).tolist())
 
-                pred_buckets = [f"{int(p)}-{int(p)+1}" for p in pred_temp]
-                actual_buckets = [f"{int(a)}-{int(a)+1}" for a in y_actual_reg.iloc[te]]
+                pred_buckets = [f"{round(p)}-{round(p)+1}" for p in pred_temp]
+                actual_buckets = [f"{round(a)}-{round(a)+1}" for a in y_actual_reg.iloc[te]]
                 correct = sum(1 for pb, ab in zip(pred_buckets, actual_buckets) if pb == ab)
                 bucket_acc_v4.append(correct / len(actual_buckets))
 
@@ -2586,8 +2586,8 @@ class NYCTemperatureModelTrainer:
             pred_temp = base.iloc[te].values + pred_bias
             mae_scores.append(mean_absolute_error(y_actual.iloc[te], pred_temp))
             all_residuals.extend((y_actual.iloc[te].values - pred_temp).tolist())
-            pred_buckets   = [f"{int(p)}-{int(p)+1}" for p in pred_temp]
-            actual_buckets = [f"{int(a)}-{int(a)+1}" for a in y_actual.iloc[te]]
+            pred_buckets   = [f"{round(p)}-{round(p)+1}" for p in pred_temp]
+            actual_buckets = [f"{round(a)}-{round(a)+1}" for a in y_actual.iloc[te]]
             correct = sum(1 for pb, ab in zip(pred_buckets, actual_buckets) if pb == ab)
             bucket_acc.append(correct / len(actual_buckets))
 
@@ -2744,8 +2744,8 @@ class NYCTemperatureModelTrainer:
             pred_temp = base.iloc[te].values + pred_bias
             mae_scores.append(mean_absolute_error(y_actual.iloc[te], pred_temp))
             all_residuals.extend((y_actual.iloc[te].values - pred_temp).tolist())
-            pred_buckets   = [f"{int(p)}-{int(p)+1}" for p in pred_temp]
-            actual_buckets = [f"{int(a)}-{int(a)+1}" for a in y_actual.iloc[te]]
+            pred_buckets   = [f"{round(p)}-{round(p)+1}" for p in pred_temp]
+            actual_buckets = [f"{round(a)}-{round(a)+1}" for a in y_actual.iloc[te]]
             correct = sum(1 for pb, ab in zip(pred_buckets, actual_buckets) if pb == ab)
             bucket_acc.append(correct / len(actual_buckets))
 
@@ -2926,8 +2926,8 @@ class NYCTemperatureModelTrainer:
             pred_temp = base.iloc[te].values + pred_bias
             mae_scores.append(mean_absolute_error(y_actual.iloc[te], pred_temp))
             all_residuals.extend((y_actual.iloc[te].values - pred_temp).tolist())
-            pred_buckets   = [f"{int(p)}-{int(p)+1}" for p in pred_temp]
-            actual_buckets = [f"{int(a)}-{int(a)+1}" for a in y_actual.iloc[te]]
+            pred_buckets   = [f"{round(p)}-{round(p)+1}" for p in pred_temp]
+            actual_buckets = [f"{round(a)}-{round(a)+1}" for a in y_actual.iloc[te]]
             correct = sum(1 for pb, ab in zip(pred_buckets, actual_buckets) if pb == ab)
             bucket_acc.append(correct / len(actual_buckets))
 
@@ -3098,8 +3098,8 @@ class NYCTemperatureModelTrainer:
             pred_temp = base.iloc[te].values + pred_bias
             mae_scores.append(mean_absolute_error(y_actual.iloc[te], pred_temp))
             all_residuals.extend((y_actual.iloc[te].values - pred_temp).tolist())
-            pred_buckets   = [f"{int(p)}-{int(p)+1}" for p in pred_temp]
-            actual_buckets = [f"{int(a)}-{int(a)+1}" for a in y_actual.iloc[te]]
+            pred_buckets   = [f"{round(p)}-{round(p)+1}" for p in pred_temp]
+            actual_buckets = [f"{round(a)}-{round(a)+1}" for a in y_actual.iloc[te]]
             correct = sum(1 for pb, ab in zip(pred_buckets, actual_buckets) if pb == ab)
             bucket_acc.append(correct / len(actual_buckets))
 
@@ -3263,8 +3263,8 @@ class NYCTemperatureModelTrainer:
             pred_temp = base.iloc[te].values + pred_bias
             mae_scores.append(mean_absolute_error(y_actual.iloc[te], pred_temp))
             all_residuals.extend((y_actual.iloc[te].values - pred_temp).tolist())
-            pred_buckets   = [f"{int(p)}-{int(p)+1}" for p in pred_temp]
-            actual_buckets = [f"{int(a)}-{int(a)+1}" for a in y_actual.iloc[te]]
+            pred_buckets   = [f"{round(p)}-{round(p)+1}" for p in pred_temp]
+            actual_buckets = [f"{round(a)}-{round(a)+1}" for a in y_actual.iloc[te]]
             correct = sum(1 for pb, ab in zip(pred_buckets, actual_buckets) if pb == ab)
             bucket_acc.append(correct / len(actual_buckets))
 

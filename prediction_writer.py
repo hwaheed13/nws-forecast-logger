@@ -1482,7 +1482,7 @@ def _apply_physical_floor(
     ml["ml_f"] = new_ml_f
 
     # Re-derive ml_bucket from new ml_f using the same internal label function
-    # ML uses.  temp_to_bucket_label uses floor: 75.9 → "75-76", 76.0 → "76-77".
+    # ML uses.  temp_to_bucket_label uses round: 75.9 → "76-77", 76.0 → "76-77".
     try:
         from model_config import temp_to_bucket_label
         new_bucket = temp_to_bucket_label(new_ml_f)
@@ -3789,6 +3789,22 @@ def _compute_ml_prediction(
             _v16_direct   = use_v16 and not _v16_residual
             _use_hrrr_anchor = (_v16_residual or use_v8 or use_v7) and active_regressor is not None
 
+            # Model-does-the-talking gate: an HRRR-anchored model with NO valid
+            # anchor (HRRR, NBM, and atm physics all missing) has no real input
+            # to predict from. Rather than fabricate a number off the NWS base —
+            # which produced the midnight-cutover 78°F outlier — abstain. Returning
+            # None makes the caller hold the last good model prediction ("ML
+            # recompute returned None — holding existing") until inputs are
+            # available again, instead of letting a fallback speak for the model.
+            # (v16 DIRECT is excluded: its regressor output is self-contained and
+            # does not depend on an external anchor.)
+            if (_use_hrrr_anchor and _hrrr_base is None
+                    and _nbm_base is None and not has_atm):
+                print(f"⏸️ No model anchor available (HRRR/NBM/atm all missing) "
+                      f"for {active_version} — abstaining (return None) so the "
+                      f"caller holds the last-good prediction. No fabrication.")
+                return None
+
             if _v16_direct and active_regressor is not None:
                 # v16 DIRECT (legacy pkl, target = actual_high):
                 # regressor output IS the final prediction. Do NOT add HRRR.
@@ -3864,8 +3880,12 @@ def _compute_ml_prediction(
                 print(f"   Center temp: {v2_temp:.1f}°F "
                       f"(atm_predicted_high — physics fallback [{active_version}]){_regression_note}")
 
-            elif active_regressor is not None:
-                # TIER 4: AccuWeather/NWS base + regressor bias (historical compat)
+            elif active_regressor is not None and not _use_hrrr_anchor:
+                # TIER 4: AccuWeather/NWS base + regressor bias (historical compat).
+                # ONLY for NWS/Accu-anchored regressors (v1/v2/v4/v5/v6) whose
+                # bias was trained as actual - (Accu|NWS). HRRR-anchored models
+                # (v7+) are excluded: their bias is HRRR-relative and adding it to
+                # an NWS base produces outliers — they fall through to TIER 5.
                 v2_bias = float(active_regressor.predict(X_v2)[0])
                 v2_temp = base + v2_bias
                 print(f"   Center temp: {v2_temp:.1f}°F "

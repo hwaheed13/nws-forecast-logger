@@ -399,7 +399,7 @@ class BucketClassifier:
         # Kalshi catch-all buckets (>=70) to accumulate spurious probability.
         # Dampen by distance from center_temp using residual_std from training.
         sigma = self.training_stats.get("residual_std", 2.0)
-        dists = np.array([abs(center_temp - (int(b.split("-")[0]) + 0.5)) for b in candidates])
+        dists = np.array([abs(center_temp - int(b.split("-")[0])) for b in candidates])
         damping = np.exp(-0.5 * (dists / sigma) ** 2)
         probas = probas * damping
 

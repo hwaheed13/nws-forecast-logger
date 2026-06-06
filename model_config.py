@@ -731,22 +731,26 @@ def norm_cdf(x, mu, sigma):
 def derive_bucket_probabilities(predicted_temp, residual_std, spread=8):
     """
     Derive Kalshi bucket probabilities from a Gaussian centered on predicted_temp.
-    Each bucket is a 1-degree range [low, low+1).
+    Bucket "N-(N+1)" represents P(NWS reports N) = P(N-0.5 <= X < N+0.5),
+    using half-integer boundaries so the bucket is centered on the integer
+    that NWS rounds to.
     """
     center = int(round(predicted_temp))
     buckets = {}
-    for low in range(center - spread, center + spread + 1):
-        high = low + 1
-        p = norm_cdf(high, predicted_temp, residual_std) - \
-            norm_cdf(low, predicted_temp, residual_std)
+    for n in range(center - spread, center + spread + 1):
+        p = norm_cdf(n + 0.5, predicted_temp, residual_std) - \
+            norm_cdf(n - 0.5, predicted_temp, residual_std)
         if p > 0.001:
-            buckets[f"{low}-{high}"] = round(p, 4)
+            buckets[f"{n}-{n + 1}"] = round(p, 4)
     return buckets
 
 
 def temp_to_bucket_label(temp_f: float) -> str:
-    """Convert temperature to Kalshi bucket label like '48-49'."""
-    low = int(math.floor(temp_f))
+    """Convert temperature to Kalshi bucket label like '48-49'.
+    Uses round() so 75.6 → NWS reports 76 → bucket '76-77'.
+    Safe for training (NWS actuals are integers, round(N)==floor(N) for ints).
+    """
+    low = int(round(temp_f))
     return f"{low}-{low + 1}"
 
 
