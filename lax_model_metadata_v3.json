@@ -1,88 +1,88 @@
 {
-  "trained_on": "2026-06-06T12:06:39.462318",
+  "trained_on": "2026-06-07T08:58:16.314424",
   "version": "v3_unified_regression",
   "num_days": 1616,
-  "num_forecast_days": 95,
-  "num_multiyear_days": 1521,
+  "num_forecast_days": 96,
+  "num_multiyear_days": 1520,
   "date_range": {
     "start": "2022-01-02",
     "end": "2026-06-05"
   },
   "performance": {
-    "cv_mae": 0.74,
-    "cv_bucket_accuracy_1f": 0.0632,
-    "residual_std": 2.15,
+    "cv_mae": 0.92,
+    "cv_bucket_accuracy_1f": 0.0833,
+    "residual_std": 5.42,
     "per_fold_mae": [
-      0.92,
+      0.95,
       0.57,
-      0.52,
+      0.51,
       0.48,
-      1.2
+      2.08
     ],
     "per_fold_bucket_acc": [
-      0.0632
+      0.0833
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 1.7805
-    },
-    {
-      "name": "atm_temp_range",
-      "importance": 0.0036
-    },
-    {
-      "name": "intra_temp_noon",
-      "importance": 0.0033
-    },
-    {
-      "name": "atm_dewpoint_mean",
-      "importance": 0.0017
-    },
-    {
-      "name": "accu_last",
-      "importance": 0.0015
-    },
-    {
-      "name": "intra_temp_9am",
-      "importance": 0.0009
-    },
-    {
-      "name": "atm_humidity_min",
-      "importance": 0.0007
+      "importance": 1.5052
     },
     {
       "name": "prev_day_high",
-      "importance": 0.0006
+      "importance": 0.0281
     },
     {
-      "name": "atm_pressure_mean",
-      "importance": 0.0005
+      "name": "accu_last",
+      "importance": 0.0054
+    },
+    {
+      "name": "atm_morning_temp_6am",
+      "importance": 0.0045
+    },
+    {
+      "name": "nws_min",
+      "importance": 0.0026
+    },
+    {
+      "name": "accu_post_9am_delta",
+      "importance": 0.0022
     },
     {
       "name": "atm_overnight_min",
-      "importance": 0.0005
+      "importance": 0.0022
     },
     {
-      "name": "atm_pressure_change",
-      "importance": 0.0005
+      "name": "accu_min",
+      "importance": 0.0019
     },
     {
-      "name": "atm_humidity_mean",
-      "importance": 0.0004
+      "name": "accu_trend",
+      "importance": 0.0017
     },
     {
-      "name": "mm_mean",
-      "importance": 0.0004
+      "name": "atm_temp_range",
+      "importance": 0.0016
     },
     {
-      "name": "mm_ecmwf_gfs_diff",
-      "importance": 0.0004
+      "name": "nws_trend",
+      "importance": 0.0009
     },
     {
-      "name": "intra_rise_from_overnight",
-      "importance": 0.0004
+      "name": "accu_mean",
+      "importance": 0.0009
+    },
+    {
+      "name": "day_of_year_cos",
+      "importance": 0.0008
+    },
+    {
+      "name": "nws_last",
+      "importance": 0.0007
+    },
+    {
+      "name": "nws_first",
+      "importance": 0.0006
     }
   ],
   "hyperparameters": {
