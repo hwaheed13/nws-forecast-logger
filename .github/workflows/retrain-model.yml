@@ -194,16 +194,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Pre-stage rebase: today (5/7) hit modify/delete pkl conflicts
-          # because main moved during the ~30 min training window. Pull
-          # with -X ours so binary-pkl conflicts resolve in our favor (we
-          # just produced fresh pkls, keep them).
-          git fetch origin main || true
-          git pull --rebase --autostash -X ours origin main 2>&1 || {
-            echo "Pre-stage rebase failed — continuing anyway, push may still work"
-            git rebase --abort 2>/dev/null || true
-          }
-
           # IMPORTANT: include *historical_intraday_snapshots.csv. Without it,
           # the lightweight nightly retrain (which skips backfill) checks out
           # main with no intraday CSV → features_df ~1500 rows instead of
@@ -215,18 +205,38 @@ jobs:
           # airtight gate skips a version and removes its stale pkl). Without
           # this, deletions made by train_models.py are invisible to commit.
           git add -u '*.pkl' '*model_metadata*.json' 2>/dev/null || true
+
           if git diff --cached --quiet; then
             echo "No model changes to commit"
-          else
-            git commit -m "Retrain ML models v1–v13 $(date +%Y-%m-%d)
-
-          Daily retrain: v1 v2 v4 v5 v6 v7 v8 v9 v10 v11 v12 v13.
-          v9-v12 training skipped automatically if not enough rows yet.
-          See model_metadata*.json for updated accuracy metrics."
-            for i in 1 2 3 4 5; do
-              git pull --rebase origin main && git push && break
-              echo "Push attempt $i failed, retrying in 10s..."
-              sleep 10
-              git rebase --abort 2>/dev/null || true
-            done
+            exit 0
           fi
+
+          # Commit BEFORE rebasing. The old flow ran
+          # `git pull --rebase --autostash` while the freshly-trained files were
+          # still UNCOMMITTED; main moves during the ~hours-long training window,
+          # so the autostash pop conflicted on the metadata JSON and committed
+          # git conflict markers (<<<<<<< / ======= / >>>>>>>) straight into
+          # model_metadata*.json. That broke v16 architecture detection in
+          # inference (json.load failed → v16 fell back to DIRECT → ~2°F
+          # predictions → the whole cascade dropped to v1). Committing first
+          # means there is nothing to autostash, so that pop can never happen.
+          git commit -m "Retrain ML models $(date +%Y-%m-%d)
+
+          Daily retrain. v9+ training skipped automatically if not enough rows yet.
+          See model_metadata*.json for updated accuracy metrics."
+
+          # Replay our commit onto the latest main, then push. `-X theirs` keeps
+          # OUR freshly-trained artifacts on any model-file conflict — in a
+          # rebase, 'theirs' is the commit being replayed (our work), 'ours' is
+          # upstream/main. Main's other advances (forecast-log commits, which we
+          # never stage) are preserved normally. No autostash → no marker pop.
+          for i in 1 2 3 4 5; do
+            git fetch origin main || true
+            if git rebase -X theirs origin/main && git push origin HEAD:main; then
+              echo "Pushed on attempt $i"
+              break
+            fi
+            echo "Push attempt $i failed, retrying in 10s..."
+            git rebase --abort 2>/dev/null || true
+            sleep 10
+          done
