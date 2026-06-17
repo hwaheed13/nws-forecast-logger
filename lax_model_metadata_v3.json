@@ -1,60 +1,60 @@
 {
-  "trained_on": "2026-06-16T10:55:32.192502",
+  "trained_on": "2026-06-17T10:06:29.249048",
   "version": "v3_unified_regression",
-  "num_days": 1625,
-  "num_forecast_days": 105,
+  "num_days": 1626,
+  "num_forecast_days": 106,
   "num_multiyear_days": 1520,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-06-14"
+    "end": "2026-06-15"
   },
   "performance": {
     "cv_mae": 0.96,
-    "cv_bucket_accuracy_1f": 0.0762,
-    "residual_std": 5.22,
+    "cv_bucket_accuracy_1f": 0.0755,
+    "residual_std": 5.2,
     "per_fold_mae": [
-      0.96,
-      0.58,
-      0.5,
+      0.95,
+      0.57,
+      0.51,
       0.48,
       2.27
     ],
     "per_fold_bucket_acc": [
-      0.0762
+      0.0755
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 1.4765
+      "importance": 1.4825
     },
     {
       "name": "prev_day_high",
-      "importance": 0.0303
+      "importance": 0.0289
     },
     {
       "name": "atm_morning_temp_6am",
-      "importance": 0.0077
-    },
-    {
-      "name": "accu_last",
-      "importance": 0.0049
+      "importance": 0.0085
     },
     {
       "name": "nws_min",
-      "importance": 0.0048
+      "importance": 0.0061
+    },
+    {
+      "name": "accu_last",
+      "importance": 0.0045
     },
     {
       "name": "atm_overnight_min",
-      "importance": 0.0029
+      "importance": 0.0031
     },
     {
       "name": "nws_last",
-      "importance": 0.0027
+      "importance": 0.0028
     },
     {
       "name": "atm_temp_range",
-      "importance": 0.0025
+      "importance": 0.0023
     },
     {
       "name": "accu_post_9am_delta",
@@ -62,11 +62,15 @@
     },
     {
       "name": "accu_mean",
-      "importance": 0.0015
+      "importance": 0.0019
     },
     {
       "name": "accu_trend",
       "importance": 0.0013
+    },
+    {
+      "name": "day_of_year_cos",
+      "importance": 0.001
     },
     {
       "name": "accu_min",
@@ -74,10 +78,6 @@
     },
     {
       "name": "nws_trend",
-      "importance": 0.0008
-    },
-    {
-      "name": "day_of_year_cos",
       "importance": 0.0008
     },
     {
