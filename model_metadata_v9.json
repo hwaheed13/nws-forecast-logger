@@ -1,16 +1,16 @@
 {
-  "trained_on": "2026-06-17T13:33:51.137848",
+  "trained_on": "2026-06-18T09:57:49.041490",
   "version": "v9_marine_cap_stations",
   "base_cascade": "HRRR > NBM > AccuWeather > NWS",
   "new_features": "KJFK/KLGA/KEWR/KTEB temps + coastal-vs-inland gradient + JFK-KNYC diff",
   "motivation": "April 12 2026: model flipped to 56-57 on marine cap day \u2014 station signals now wired in",
-  "n_kjfk_rows": 768,
+  "n_kjfk_rows": 65,
   "v9_regression": {
-    "cv_mae": 1.3218928024914756,
-    "cv_bucket_accuracy": 0.30301204819277106,
-    "residual_std": 1.8266662466964267,
+    "cv_mae": 1.2813410917749493,
+    "cv_bucket_accuracy": 0.2981818181818182,
+    "residual_std": 1.7718922456931383,
     "n_features": 160,
-    "n_training_rows": 3984
+    "n_training_rows": 333
   },
   "feature_columns_v9": [
     "nws_first",
