@@ -1,10 +1,12 @@
 {
-  "trained_on": "2026-07-01T13:04:54.069789",
+  "trained_on": "2026-07-02T08:57:40.829746",
   "version": "v13",
   "skipped": true,
-  "reason": "quality gate failed: cv_mae 0.9882 > 0.7965 (50% worse than v12 cv_mae=0.5310)",
-  "new_cv_mae": 0.9881954680916347,
-  "prior_version": "v12",
-  "prior_cv_mae": 0.5310003044209787,
-  "tolerance": 0.5
+  "reason": "airtight gate failed: only 74 forecast rows have all of ['entrainment_temp_diff', 'marine_containment', 'inland_strength'] populated (need \u2265100)",
+  "key_feature_counts": {
+    "entrainment_temp_diff": 75,
+    "marine_containment": 75,
+    "inland_strength": 75
+  },
+  "min_rows_required": 100
 }
