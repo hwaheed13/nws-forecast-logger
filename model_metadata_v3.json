@@ -1,89 +1,89 @@
 {
-  "trained_on": "2026-07-14T07:58:43.484081",
+  "trained_on": "2026-07-15T08:01:25.008418",
   "version": "v3_unified_regression",
-  "num_days": 1654,
-  "num_forecast_days": 359,
+  "num_days": 1655,
+  "num_forecast_days": 360,
   "num_multiyear_days": 1295,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-07-13"
+    "end": "2026-07-14"
   },
   "performance": {
-    "cv_mae": 3.48,
-    "cv_bucket_accuracy_1f": 0.0483,
-    "residual_std": 14.24,
+    "cv_mae": 3.5,
+    "cv_bucket_accuracy_1f": 0.039,
+    "residual_std": 14.32,
     "per_fold_mae": [
-      0.55,
+      0.53,
+      0.38,
       0.37,
-      0.35,
-      3.19,
-      12.92
+      3.22,
+      13.0
     ],
     "per_fold_bucket_acc": [
-      0.0238,
-      0.0727
+      0.0235,
+      0.0545
     ]
   },
   "top_features": [
     {
       "name": "prev_day_high",
-      "importance": 0.2814
+      "importance": 0.2941
     },
     {
       "name": "atm_predicted_high",
-      "importance": 0.1978
+      "importance": 0.1799
     },
     {
       "name": "accu_last",
-      "importance": 0.0348
+      "importance": 0.0352
     },
     {
       "name": "mm_mean",
-      "importance": 0.0189
+      "importance": 0.0187
     },
     {
       "name": "intra_temp_3pm",
-      "importance": 0.0119
-    },
-    {
-      "name": "day_of_year_cos",
-      "importance": 0.0045
+      "importance": 0.0121
     },
     {
       "name": "is_winter",
-      "importance": 0.0045
+      "importance": 0.0044
+    },
+    {
+      "name": "day_of_year_cos",
+      "importance": 0.0044
     },
     {
       "name": "atm_vs_forecast_diff",
-      "importance": 0.0015
-    },
-    {
-      "name": "atm_temp_range",
-      "importance": 0.001
+      "importance": 0.0018
     },
     {
       "name": "intra_temp_noon",
-      "importance": 0.001
+      "importance": 0.0014
     },
     {
-      "name": "nws_last",
-      "importance": 0.001
-    },
-    {
-      "name": "accu_mean",
-      "importance": 0.0009
+      "name": "atm_temp_range",
+      "importance": 0.0012
     },
     {
       "name": "intra_temp_5pm",
-      "importance": 0.0008
+      "importance": 0.001
     },
     {
       "name": "prev_day_temp_drop",
+      "importance": 0.0008
+    },
+    {
+      "name": "accu_mean",
       "importance": 0.0007
     },
     {
       "name": "atm_dewpoint_mean",
       "importance": 0.0007
+    },
+    {
+      "name": "mm_hrrr_max",
+      "importance": 0.0006
     }
   ],
   "hyperparameters": {
