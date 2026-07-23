@@ -1,80 +1,80 @@
 {
-  "trained_on": "2026-07-22T08:23:24.796516",
+  "trained_on": "2026-07-23T08:04:54.478261",
   "version": "v3_unified_regression",
-  "num_days": 1662,
-  "num_forecast_days": 367,
+  "num_days": 1663,
+  "num_forecast_days": 368,
   "num_multiyear_days": 1295,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-07-21"
+    "end": "2026-07-22"
   },
   "performance": {
-    "cv_mae": 3.54,
-    "cv_bucket_accuracy_1f": 0.0364,
-    "residual_std": 14.35,
+    "cv_mae": 3.57,
+    "cv_bucket_accuracy_1f": 0.0417,
+    "residual_std": 14.52,
     "per_fold_mae": [
       0.53,
       0.38,
       0.36,
-      3.35,
-      13.09
+      3.45,
+      13.1
     ],
     "per_fold_bucket_acc": [
-      0.0222,
-      0.0505
+      0.022,
+      0.0614
     ]
   },
   "top_features": [
     {
       "name": "prev_day_high",
-      "importance": 0.272
+      "importance": 0.2701
     },
     {
       "name": "atm_predicted_high",
-      "importance": 0.2262
+      "importance": 0.2216
     },
     {
       "name": "accu_last",
-      "importance": 0.0371
+      "importance": 0.0352
     },
     {
       "name": "mm_mean",
-      "importance": 0.0224
+      "importance": 0.0227
     },
     {
       "name": "intra_temp_3pm",
-      "importance": 0.013
+      "importance": 0.0137
     },
     {
       "name": "day_of_year_cos",
-      "importance": 0.0069
+      "importance": 0.0064
     },
     {
       "name": "is_winter",
-      "importance": 0.0046
-    },
-    {
-      "name": "atm_vs_forecast_diff",
-      "importance": 0.0014
+      "importance": 0.0042
     },
     {
       "name": "accu_mean",
-      "importance": 0.001
+      "importance": 0.0013
+    },
+    {
+      "name": "atm_vs_forecast_diff",
+      "importance": 0.0012
+    },
+    {
+      "name": "nws_last",
+      "importance": 0.0012
     },
     {
       "name": "atm_temp_range",
       "importance": 0.001
     },
     {
-      "name": "nws_last",
-      "importance": 0.0009
-    },
-    {
       "name": "prev_day_temp_drop",
       "importance": 0.0008
     },
     {
-      "name": "intra_temp_noon",
+      "name": "intra_temp_5pm",
       "importance": 0.0007
     },
     {
