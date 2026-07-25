@@ -1,12 +1,9 @@
 name: DSM Endpoint Comparison Test
 
+# Schedule removed 2026-07-25 audit: this diagnostic ran daily for months
+# uploading artifacts nobody consumed. Manual trigger kept for debugging
+# DSM endpoints when needed.
 on:
-  schedule:
-    # 4:15 PM ET daily
-    # EDT (Apr-Oct): 4:15 PM EDT = 20:15 UTC → cron: 15 20
-    # EST (Nov-Mar): 4:15 PM EST = 21:15 UTC → cron: 15 21
-    # Using 20:15 UTC for EDT (current); will need adjustment Nov 1
-    - cron: '15 20 * * *'
   workflow_dispatch:  # Allow manual trigger
 
 jobs:

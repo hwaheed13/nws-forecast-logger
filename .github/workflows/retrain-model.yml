@@ -2,18 +2,19 @@ name: Daily ML Model Retrain
 
 on:
   schedule:
-    # 1 AM ET (5 UTC during EDT, 6 UTC during EST) — just after midnight,
-    # so yesterday's data is fully scored. With ~4h runtime, finishes
-    # ~5 AM ET, before 7 AM ET canonical write. APIs (Open-Meteo, Synoptic,
-    # IEM ASOS, NWS) all run 24/7 with stable rate limits at this hour.
-    - cron: "0 5 * * *"
+    # 1:15 AM ET — 15 min AFTER the nightly lightweight retrain (05:00 UTC).
+    # Both workflows write the same .pkl/metadata files; they used to fire at
+    # the same hour and race on git push (the loser's models were silently
+    # discarded). Shared concurrency group below serializes them, and the
+    # :15 offset guarantees the fast nightly goes first so overnight D+1
+    # predictions get fresh models before this ~4-5h run finishes.
+    - cron: "15 5 * * *"
   workflow_dispatch:  # manual trigger
 
-# Concurrency lock — only one retrain at a time. Two ran simultaneously on
-# 5/5 (cron + manual dispatch overlap), the second hit massive metadata-file
-# rebase conflicts. cancel-in-progress=false: let in-flight finish, queue.
+# Shared group with nightly-lightweight-retrain.yml — only one model-writing
+# workflow at a time. cancel-in-progress=false: let in-flight finish, queue.
 concurrency:
-  group: retrain-model
+  group: model-training
   cancel-in-progress: false
 
 jobs:
@@ -53,6 +54,16 @@ jobs:
           echo "Backfilling atmospheric data through $YESTERDAY"
           python backfill_multiyear.py --all --end "$YESTERDAY"
 
+      # GROUND TRUTH (audit 2026-07-25): backfill_multiyear writes Open-Meteo
+      # GRID temps as actual_high — off by a MEAN of 2.1°F vs the official CLI
+      # highs the market settles on. Overwrite with the official values from
+      # the IEM CLI archive so every model trains against the real answer.
+      - name: Overwrite actual_high with official CLI highs (settle-source truth)
+        run: |
+          python backfill_official_actuals.py --city nyc
+          python backfill_official_actuals.py --city lax
+        continue-on-error: true
+
       - name: Backfill real NWS observation features (Supabase — recent 14 days)
         run: |
           python prediction_writer.py --city nyc backfill_obs
@@ -86,10 +97,14 @@ jobs:
 
       # 4yr multi-model history (GFS / ECMWF / NBM / ICON / GEM) for v11
       # divergence features anchored on HRRR (mm_hrrr_vs_gfs etc).
-      - name: Backfill 4yr multi-model forecast history (gates v11 model-vs-model)
+      # --include-hrrr fills mm_hrrr_max gaps (NaN-only — live captures kept).
+      # LAX launched Feb 2026 with NO historical HRRR, so v16 residual training
+      # skipped every night ("Only 27 HRRR-anchored rows") and LAX stayed on
+      # the legacy no-moat direct model from 2026-05-02.
+      - name: Backfill 4yr multi-model forecast history (gates v11 + v16 HRRR anchor)
         run: |
-          python backfill_multimodel_history.py --city nyc
-          python backfill_multimodel_history.py --city lax
+          python backfill_multimodel_history.py --city nyc --include-hrrr
+          python backfill_multimodel_history.py --city lax --include-hrrr
         continue-on-error: true
 
       - name: Backfill current-season atmospheric data (NWS-logged days)
@@ -166,10 +181,13 @@ jobs:
           python train_models.py --all --v15
         continue-on-error: true  # graceful skip until features accumulate
 
-      - name: Run v16 training (UNIFIED — one model, all 4yr labeled rows, all features, predicts actual_high directly)
+      # NOT continue-on-error: v16 is the production model (the moat). A crash
+      # here must fail the workflow and open an alert issue, not pass silently.
+      # Graceful data-driven skips (too few HRRR rows) exit 0 inside the
+      # trainer and still pass.
+      - name: Run v16 training (UNIFIED RESIDUAL — predicts actual_high − HRRR, the moat)
         run: |
           python train_models.py --all --v16
-        continue-on-error: true  # graceful skip if classifier training fails on sparse rows
 
       # POSTFLIGHT: fail loudly if any tracked feature regressed from
       # non-zero on main to zero in this run (the cli_date bug pattern).
@@ -240,3 +258,26 @@ jobs:
             git rebase --abort 2>/dev/null || true
             sleep 10
           done
+
+  notify-failure:
+    needs: retrain
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open/refresh failure issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `🚨 Workflow failed: ${context.workflow}`;
+            const body = `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\nFailed at: ${new Date().toISOString()}`;
+            const open = await github.rest.issues.listForRepo({
+              ...context.repo, state: 'open', labels: 'workflow-failure'
+            });
+            const existing = open.data.find(i => i.title === title);
+            if (existing) {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: existing.number, body });
+            } else {
+              await github.rest.issues.create({ ...context.repo, title, body, labels: ['workflow-failure'] });
+            }

@@ -1,2 +1,10 @@
 * text=auto
 *.csv text eol=lf
+
+# Append-only log CSVs: auto-resolve concurrent-append conflicts by keeping
+# BOTH sides' rows. Before this, logger.yml's conflict fallback picked one
+# side wholesale and silently dropped the other's freshly logged rows.
+nws_forecast_log.csv merge=union
+accuweather_log.csv merge=union
+lax_nws_forecast_log.csv merge=union
+lax_accuweather_log.csv merge=union

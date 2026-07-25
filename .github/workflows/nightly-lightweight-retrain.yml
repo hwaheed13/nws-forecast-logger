@@ -25,9 +25,14 @@ on:
 permissions:
   contents: write
 
+# Shared group with retrain-model.yml — the two retrains write the SAME
+# .pkl/metadata files and used to fire at the same hour, racing on git push
+# (loser's models were discarded). Shared group + no-cancel = they queue.
+# This one runs at :00, the heavy retrain at :15, so the fast nightly always
+# goes first and overnight D+1 predictions get fresh models.
 concurrency:
-  group: nightly-lightweight-retrain
-  cancel-in-progress: true
+  group: model-training
+  cancel-in-progress: false
 
 jobs:
   retrain-lightweight:
@@ -117,11 +122,23 @@ jobs:
       # heavy-derived counts and always fail. The heavy retrain (6am ET)
       # owns coverage and runs its own regression guard.
 
+      # Export the production predictions ledger — the git-tracked record of
+      # what the model ACTUALLY predicted each day (audit 2026-07-25: without
+      # this, production performance was unverifiable from the repo; the old
+      # snapshot logger silently died 2025-12-18). production_report.py reads
+      # these to measure the real moat vs NWS/AccuWeather.
+      - name: Export production predictions ledger (Supabase → git CSV)
+        run: |
+          python export_predictions_ledger.py --city nyc
+          python export_predictions_ledger.py --city lax
+        continue-on-error: true
+
       - name: Commit updated model files and heating windows
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add *.pkl *model_metadata*.json *coverage_report.json heating_windows.py 2>/dev/null || true
+          git add *.pkl *model_metadata*.json *coverage_report.json heating_windows.py \
+                  *predictions_ledger.csv 2>/dev/null || true
           # Stage deletions of tracked .pkl/metadata when the airtight gate
           # skips a version (see train_models.py _gate_and_filter_for_version).
           git add -u '*.pkl' '*model_metadata*.json' 2>/dev/null || true
@@ -136,7 +153,42 @@ jobs:
           Heating window updater: analyzes latest observation data and updates
           season-aware heating windows for NYC and LAX based on actual atmospheric
           patterns. Windows evolve as more data is collected."
-            git fetch origin main
-            git rebase origin/main || { echo "Rebase failed; aborting"; git rebase --abort || true; exit 0; }
-            git push origin HEAD:main || true
+            # -X theirs keeps OUR freshly-trained artifacts on model-file
+            # conflicts (in a rebase, 'theirs' = the commit being replayed =
+            # our work). Retry loop matches retrain-model.yml — the old
+            # single-shot `push || true` silently dropped the night's models
+            # whenever a forecast commit landed mid-rebase.
+            for i in 1 2 3 4 5; do
+              git fetch origin main || true
+              if git rebase -X theirs origin/main && git push origin HEAD:main; then
+                echo "Pushed on attempt $i"
+                break
+              fi
+              echo "Push attempt $i failed, retrying in 10s..."
+              git rebase --abort 2>/dev/null || true
+              sleep 10
+            done
           fi
+
+  notify-failure:
+    needs: retrain-lightweight
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open/refresh failure issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `🚨 Workflow failed: ${context.workflow}`;
+            const body = `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\nFailed at: ${new Date().toISOString()}`;
+            const open = await github.rest.issues.listForRepo({
+              ...context.repo, state: 'open', labels: 'workflow-failure'
+            });
+            const existing = open.data.find(i => i.title === title);
+            if (existing) {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: existing.number, body });
+            } else {
+              await github.rest.issues.create({ ...context.repo, title, body, labels: ['workflow-failure'] });
+            }
