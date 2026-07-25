@@ -1953,9 +1953,43 @@ class NYCTemperatureModelTrainer:
         if multiyear_df is not None:
             multiyear_features = self._build_multiyear_features(multiyear_df)
             if len(multiyear_features) > 0:
-                # Exclude multi-year dates that overlap with existing data
+                # Exclude multi-year dates that overlap with existing data —
+                # but FIRST use the overlapping rows to enrich the log-era
+                # feature rows (fill mm_* / atm_* / intra_* where NaN).
+                #
+                # AUDIT 2026-07-26: without this, log-era rows had no
+                # mm_hrrr_max (it lived only on the discarded multiyear twin),
+                # so v16's HRRR-anchored pool filter dropped EVERY log-era row.
+                # Measured result: nws_last coverage in the v16 training pool
+                # was 0/1295 — the model never trained on a single day of the
+                # collected NWS/AccuWeather forecast data.
                 if not self.features_df.empty:
                     existing_dates = set(self.features_df["target_date"].astype(str).tolist())
+                    _overlap = multiyear_features[
+                        multiyear_features["target_date"].isin(existing_dates)
+                    ]
+                    if len(_overlap):
+                        _fill_cols = [
+                            c for c in _overlap.columns
+                            if c.startswith(("mm_", "atm_", "intra_"))
+                        ]
+                        _aux = _overlap.set_index(
+                            _overlap["target_date"].astype(str))[_fill_cols]
+                        _fd_dates = self.features_df["target_date"].astype(str)
+                        _n_filled = 0
+                        for col in _fill_cols:
+                            if col not in self.features_df.columns:
+                                self.features_df[col] = np.nan
+                            mapped = _fd_dates.map(_aux[col])
+                            m = self.features_df[col].isna() & mapped.notna()
+                            if m.any():
+                                self.features_df.loc[m, col] = mapped[m]
+                                _n_filled += int(m.sum())
+                        _hrrr_ok = self.features_df["mm_hrrr_max"].notna().sum() \
+                            if "mm_hrrr_max" in self.features_df.columns else 0
+                        print(f"  Enriched log-era rows from multiyear archive: "
+                              f"{_n_filled} cells filled across {len(_fill_cols)} cols "
+                              f"({_hrrr_ok}/{len(self.features_df)} rows now have mm_hrrr_max)")
                     multiyear_features = multiyear_features[
                         ~multiyear_features["target_date"].isin(existing_dates)
                     ]

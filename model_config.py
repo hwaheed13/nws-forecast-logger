@@ -705,8 +705,16 @@ V16_INTERACTION_COLS = ["cap_with_clearing", "sea_breeze_risk_score"]
 #   KNYC capped at 72°F via sea breeze on 5/4 — inland TEB/CDW/SMQ
 #   DID hit 73-74°F as the warm-airmass signal predicted, but Central
 #   Park itself was suppressed).
-FEATURE_COLS_V16 = list(FEATURE_COLS_V15) + V16_INTERACTION_COLS
-FEATURE_COLS_V16_LAX = list(FEATURE_COLS_V15) + V16_INTERACTION_COLS  # same superset
+# Dedupe (order-preserving): the accumulated v15 superset carries 7 duplicate
+# names (mm_nbm_max, mm_gem_hrdps_max, obs_heating_rate_delta + 3 diffs),
+# discovered in the 2026-07 audit — the regressor was training on duplicate
+# columns. v16 saves its own feature-col pkl, so inference stays consistent.
+def _dedupe_cols(cols):
+    seen = set()
+    return [c for c in cols if not (c in seen or seen.add(c))]
+
+FEATURE_COLS_V16 = _dedupe_cols(list(FEATURE_COLS_V15) + V16_INTERACTION_COLS)
+FEATURE_COLS_V16_LAX = list(FEATURE_COLS_V16)  # same superset
 
 # Additional features added per-candidate-bucket during classification (4)
 BUCKET_POSITION_COLS = [
