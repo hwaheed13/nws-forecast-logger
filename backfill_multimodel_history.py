@@ -44,20 +44,26 @@ import pandas as pd
 
 HISTORICAL_FORECAST_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast"
 
+# Coordinates/timezone come from city_config — the single source of truth.
+# (A previous version hardcoded downtown LA 34.05,-118.24 for "lax", ~15mi
+# from KLAX airport and a different microclimate on marine-layer days.)
+from city_config import CITIES as _CITY_CFG
+
 CITIES = {
-    "nyc": {
-        "lat": 40.7834, "lon": -73.965, "tz": "America/New_York",
-        "csv": "multiyear_atmospheric.csv",
-    },
-    "lax": {
-        "lat": 34.0522, "lon": -118.2437, "tz": "America/Los_Angeles",
-        "csv": "lax_multiyear_atmospheric.csv",
-    },
+    key: {
+        "lat": cfg["open_meteo_lat"], "lon": cfg["open_meteo_lon"],
+        "tz": cfg["timezone"],
+        "csv": f"{cfg['model_prefix']}multiyear_atmospheric.csv",
+    }
+    for key, cfg in _CITY_CFG.items()
 }
 
 # Map open-meteo model id -> multiyear CSV column name.
-# NOTE: ncep_hrrr_conus already populated; we don't backfill it here (would
-# overwrite real prediction-time captures with retrofit forecasts).
+# NOTE: mm_hrrr_max is NOT here by default — live prediction-time captures
+# must never be overwritten. Pass --include-hrrr to fill it where NaN only
+# (needed for LAX, which launched Feb 2026 and has no 4yr HRRR history, so
+# the v16 residual model has no anchor and skips training entirely).
+HRRR_MODEL = {"ncep_hrrr_conus": "mm_hrrr_max"}
 MODELS = {
     "gfs_seamless":          "mm_gfs_max",
     "ecmwf_ifs025":          "mm_ecmwf_max",
@@ -162,19 +168,27 @@ def recompute_consensus(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def run(city: str, dry_run: bool = False, start_override: str | None = None) -> int:
+def run(city: str, dry_run: bool = False, start_override: str | None = None,
+        include_hrrr: bool = False) -> int:
     cfg = CITIES[city]
     csv_path = Path(cfg["csv"])
     if not csv_path.exists():
         print(f"❌ CSV not found: {csv_path}")
         return 1
 
+    models = dict(MODELS)
+    if include_hrrr:
+        # Fill-only-NaN semantics below make this safe: live prediction-time
+        # HRRR captures are never overwritten, only historical gaps filled.
+        models = {**HRRR_MODEL, **models}
+        print("⚓ --include-hrrr: filling mm_hrrr_max gaps from archived HRRR runs")
+
     df = pd.read_csv(csv_path)
     df["target_date"] = df["target_date"].astype(str).str[:10]
     print(f"Loaded {len(df)} rows from {csv_path}")
 
     # Ensure all target columns exist.
-    for col in MODELS.values():
+    for col in models.values():
         if col not in df.columns:
             df[col] = np.nan
         n = df[col].notna().sum()
@@ -190,7 +204,7 @@ def run(city: str, dry_run: bool = False, start_override: str | None = None) -> 
         start = start_override
     else:
         populated_dates = []
-        for col in MODELS.values():
+        for col in models.values():
             if col in df.columns and df[col].notna().any():
                 d = df.loc[df[col].notna(), "target_date"].max()
                 populated_dates.append(d)
@@ -205,10 +219,10 @@ def run(city: str, dry_run: bool = False, start_override: str | None = None) -> 
         start = "2022-03-23"
     print(f"\nIncremental fetch {cfg['lat']},{cfg['lon']} from {start} → {end} "
           f"(was {df['target_date'].min()} → {end} pre-incremental)")
-    print(f"Models: {list(MODELS.keys())}")
+    print(f"Models: {list(models.keys())}")
 
     fill_summary = {}
-    for model_id, col_name in MODELS.items():
+    for model_id, col_name in models.items():
         existing = df[col_name].notna().sum()
         if existing == len(df):
             print(f"\n[{col_name}] already 100% populated — skipping.")
@@ -232,7 +246,7 @@ def run(city: str, dry_run: bool = False, start_override: str | None = None) -> 
     df = recompute_consensus(df)
 
     print("\n📊 Final fill results:")
-    for col in list(MODELS.values()) + ["mm_mean", "mm_std", "mm_spread", "mm_ecmwf_gfs_diff", "mm_hrrr_max"]:
+    for col in list(models.values()) + ["mm_mean", "mm_std", "mm_spread", "mm_ecmwf_gfs_diff", "mm_hrrr_max"]:
         if col in df.columns:
             n = df[col].notna().sum()
             print(f"  {col}: {n}/{len(df)}")
@@ -256,5 +270,9 @@ if __name__ == "__main__":
     ap.add_argument("--start", default=None,
                     help="Override start date (YYYY-MM-DD); useful to refresh recent rows.")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--include-hrrr", action="store_true",
+                    help="Also fill mm_hrrr_max where NaN from archived HRRR runs "
+                         "(never overwrites live prediction-time captures).")
     args = ap.parse_args()
-    sys.exit(run(args.city, dry_run=args.dry_run, start_override=args.start))
+    sys.exit(run(args.city, dry_run=args.dry_run, start_override=args.start,
+                 include_hrrr=args.include_hrrr))

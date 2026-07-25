@@ -4758,12 +4758,33 @@ class NYCTemperatureModelTrainer:
         )
 
         from sklearn.model_selection import TimeSeriesSplit
-        tscv = TimeSeriesSplit(n_splits=5)
 
-        # CV on the RESIDUAL with TimeSeriesSplit (train < test chronologically,
+        # ── DATE-GROUPED time-series CV (2026-07-25 audit fix) ───────────────
+        # features_df contains multiple rows per target_date (intraday snapshot
+        # clones of the same day). Plain TimeSeriesSplit on ROW index lets one
+        # date straddle the train/test boundary — the model then "predicts" a
+        # day it partially trained on, and same-day rows share the exact same
+        # actual_high/HRRR, so the leak directly inflates CV MAE and the
+        # improvement_vs_hrrr_alone moat metric. Split on UNIQUE dates instead
+        # and map each date's rows wholly into one side.
+        _dates = train_df["target_date"].astype(str)
+        _uniq_dates = np.array(sorted(_dates.unique()))
+        _date_tscv = TimeSeriesSplit(n_splits=5)
+        cv_splits = []
+        for _tr_d, _te_d in _date_tscv.split(_uniq_dates):
+            _tr_set = set(_uniq_dates[_tr_d])
+            _te_set = set(_uniq_dates[_te_d])
+            cv_splits.append((
+                np.flatnonzero(_dates.isin(_tr_set).to_numpy()),
+                np.flatnonzero(_dates.isin(_te_set).to_numpy()),
+            ))
+        print(f"  CV: date-grouped TimeSeriesSplit — {len(_uniq_dates)} unique dates "
+              f"across {n_total} rows, 5 folds")
+
+        # CV on the RESIDUAL (train < test chronologically, whole dates only,
         # no future leakage, honest production-realistic MAE estimate).
         mae_scores = -cross_val_score(
-            v16_regressor, X, y_residual, cv=tscv, scoring="neg_mean_absolute_error"
+            v16_regressor, X, y_residual, cv=cv_splits, scoring="neg_mean_absolute_error"
         )
         # Bucket accuracy compares (HRRR + predicted_residual) to actual_high.
         hrrr_arr   = hrrr_anchor.to_numpy()
@@ -4773,7 +4794,7 @@ class NYCTemperatureModelTrainer:
             preds = est.predict(X_) + hrrr_arr[idx]
             return float(np.mean(np.abs(preds - actual_arr[idx]) <= 1))
         bucket_acc = cross_val_score(
-            v16_regressor, X, y_residual, cv=tscv, scoring=_bucket_score,
+            v16_regressor, X, y_residual, cv=cv_splits, scoring=_bucket_score,
         )
         residual_std = float(np.std(y_residual))
 
@@ -4855,6 +4876,7 @@ class NYCTemperatureModelTrainer:
             "inference": "final_prediction = mm_hrrr_max + v16_regressor.predict(features)",
             "model": "HistGradientBoostingRegressor — handles per-row missing features natively",
             "v16_regression": {
+                "cv_scheme": "date-grouped TimeSeriesSplit (5 folds, whole dates per side)",
                 "cv_mae": float(np.mean(mae_scores)),
                 "cv_mae_target": "residual (actual_high - HRRR)",
                 "cv_bucket_accuracy": float(np.mean(bucket_acc)),
