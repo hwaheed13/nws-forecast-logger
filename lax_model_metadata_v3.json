@@ -1,87 +1,87 @@
 {
-  "trained_on": "2026-07-24T08:17:47.053849",
+  "trained_on": "2026-07-25T07:49:42.619762",
   "version": "v3_unified_regression",
-  "num_days": 1663,
-  "num_forecast_days": 143,
+  "num_days": 1664,
+  "num_forecast_days": 144,
   "num_multiyear_days": 1520,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-07-22"
+    "end": "2026-07-23"
   },
   "performance": {
-    "cv_mae": 1.16,
-    "cv_bucket_accuracy_1f": 0.049,
-    "residual_std": 5.08,
+    "cv_mae": 1.17,
+    "cv_bucket_accuracy_1f": 0.0556,
+    "residual_std": 5.09,
     "per_fold_mae": [
       0.96,
-      0.6,
-      0.49,
-      0.48,
-      3.25
+      0.62,
+      0.5,
+      0.47,
+      3.32
     ],
     "per_fold_bucket_acc": [
-      0.049
+      0.0556
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 1.4119
+      "importance": 1.4175
     },
     {
       "name": "prev_day_high",
-      "importance": 0.0315
+      "importance": 0.0387
     },
     {
       "name": "accu_mean",
-      "importance": 0.0247
+      "importance": 0.0244
     },
     {
       "name": "atm_temp_range",
-      "importance": 0.0018
+      "importance": 0.0021
+    },
+    {
+      "name": "mm_icon_max",
+      "importance": 0.0019
     },
     {
       "name": "accu_last",
-      "importance": 0.0017
+      "importance": 0.0013
     },
     {
-      "name": "nws_min",
-      "importance": 0.0015
+      "name": "accu_post_9am_delta",
+      "importance": 0.0012
     },
     {
       "name": "day_of_year_cos",
       "importance": 0.0012
     },
     {
-      "name": "accu_post_9am_delta",
-      "importance": 0.0011
+      "name": "nws_min",
+      "importance": 0.0012
     },
     {
       "name": "rolling_bias_7d",
       "importance": 0.001
     },
     {
+      "name": "atm_vs_forecast_diff",
+      "importance": 0.0009
+    },
+    {
       "name": "atm_overnight_min",
-      "importance": 0.0008
+      "importance": 0.0007
     },
     {
       "name": "nws_accu_mean_diff",
-      "importance": 0.0008
+      "importance": 0.0007
     },
     {
       "name": "accu_count",
       "importance": 0.0007
     },
     {
-      "name": "mm_mean",
-      "importance": 0.0007
-    },
-    {
       "name": "prev_day_temp_drop",
-      "importance": 0.0006
-    },
-    {
-      "name": "mm_icon_max",
       "importance": 0.0006
     }
   ],
