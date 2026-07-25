@@ -36,6 +36,17 @@
   ~3 months ("Only 27 HRRR-anchored rows") and served the legacy no-moat
   direct model. `backfill_multimodel_history.py --include-hrrr` fills the
   anchor (NaN-only; never overwrites live captures).
+- Dropping log-era rows from the v16 pool (fixed 2026-07-26): the multiyear
+  twin of each log-era date was discarded as an "overlap duplicate," taking
+  mm_hrrr_max with it, so the HRRR-anchored pool filter dropped EVERY log-era
+  row — nws_last coverage in the pool was 0/1295 and the production model had
+  never trained on a single day of collected NWS/AccuWeather/obs data.
+  train_v2 now ENRICHES log-era rows from overlapping multiyear rows (fill
+  mm_*/atm_*/intra_* where NaN) before excluding them. Training logs print
+  "Enriched log-era rows…"; if pool nws_last coverage reads 0% again, this
+  regressed.
+- FEATURE_COLS_V16 carried 7 duplicate names (186 listed, 179 unique) until
+  2026-07-26 — the dedupe lives at the definition in model_config.py.
 
 **When debugging a prediction issue, always check:**
 1. Is metadata showing `v16_unified_residual` (post-PR #42) or `v16_unified` (legacy DIRECT)? Inference branches on this.
