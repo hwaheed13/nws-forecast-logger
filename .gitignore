@@ -36,3 +36,25 @@ model_metadata.json
 temp_model.pkl
 nws-forecast-logger/
 .venv/
+
+# === Python cruft (audit 2026-07-25) ===
+__pycache__/
+*.pyc
+*.pyo
+
+# The global *.csv rule above predates the tracked data CSVs (they are
+# force-tracked). The production predictions ledger MUST be committable by
+# the nightly workflow, so exempt it explicitly:
+!*predictions_ledger.csv
+
+# === Local/session artifacts — never commit ===
+.claude/worktrees/
+api.py.save
+*.save
+*.bak-*
+*.snapshot
+dsm_capture_log_*.txt
+dsm_run_report.md
+scheduled_task_runs/
+atm_snapshot_cache.json
+temp.csv
