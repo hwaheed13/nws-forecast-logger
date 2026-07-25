@@ -3997,6 +3997,27 @@ def _compute_ml_prediction(
             except Exception as _cap_e:
                 print(f"   ⚠️ Physical cap check skipped: {_cap_e}")
 
+            # LAST-RESORT SANITY CLAMP (post-PR #43 circuit breaker).
+            # The 122°F incident was a wiring bug (residual added to a direct
+            # prediction), not a modeling miss. The physical cap can't catch
+            # that class when its own inputs are garbage. If the prediction is
+            # >15°F away from every available reference forecast, the model is
+            # broken — snap to the closest reference and shout.
+            try:
+                _refs = [r for r in (features.get("nws_last"),
+                                     features.get("mm_hrrr_max"),
+                                     features.get("accu_last") if has_accu else None)
+                         if r is not None and not (isinstance(r, float) and r != r)]
+                if _refs and min(abs(v2_temp - float(r)) for r in _refs) > 15.0:
+                    _snap = min(_refs, key=lambda r: abs(v2_temp - float(r)))
+                    print(f"   🚨 SANITY CLAMP: ML predicted {v2_temp:.1f}°F but every "
+                          f"reference (NWS/HRRR/Accu) is >15°F away — snapping to "
+                          f"{float(_snap):.1f}°F. Inference wiring is likely broken; "
+                          f"check v16 metadata vs loaded pkl.")
+                    v2_temp = float(_snap)
+            except Exception as _sane_e:
+                print(f"   ⚠️ Sanity clamp check skipped: {_sane_e}")
+
             # v2 classifier bucket prediction
             # Use 15 candidates (±7) to cover full Kalshi range and handle
             # source disagreements (e.g., AccuWeather says 77, NWS says 88)
@@ -6561,28 +6582,65 @@ _ATM_SNAPSHOT_KEYS = (
 )
 
 
-def _score_bucket(ml_bucket: str, actual_int: int, kalshi_snapshot_raw) -> bool:
-    """Return True (WIN) if actual_int falls in ml_bucket."""
-    if kalshi_snapshot_raw:
+def _bucket_center_temp(ml_bucket: str) -> Optional[float]:
+    """Best-effort center temp implied by an ML bucket label.
+
+    Used only when an explicit center (ml_f / ml_f_canonical) isn't passed.
+    "86-87" → 86.5 ; "<=47" → 47 ; ">=70" → 70.
+    """
+    if not ml_bucket:
+        return None
+    try:
+        if "-" in ml_bucket and not ml_bucket.startswith(("<=", ">=")):
+            lo, hi = ml_bucket.split("-")
+            return (float(lo) + float(hi)) / 2.0
+        if ml_bucket.startswith("<="):
+            return float(ml_bucket[2:])
+        if ml_bucket.startswith(">="):
+            return float(ml_bucket[2:])
+    except (ValueError, TypeError):
+        return None
+    return None
+
+
+def _score_bucket(ml_bucket: str, actual_int: int, kalshi_snapshot_raw,
+                  ml_center: Optional[float] = None) -> bool:
+    """Return True (WIN) iff the actual high lands in the SAME Kalshi bucket
+    the model bet on.
+
+    A Kalshi bet is: "the predicted center temp picks one bucket; you win if
+    the settled high falls in that bucket." So scoring must mirror exactly how
+    the live dashboard chooses the bucket — `_find_kalshi_bucket_for_temp(ml_f)`
+    — and check whether the actual maps to that same bucket.
+
+    The old implementation derived the ML bucket from the label's LOW EDGE,
+    added a label-string shortcut, and OR'd two mapping attempts. That could
+    return a match even when the predicted center and the actual were many
+    degrees apart (e.g. 6/07: center 86.5°F, actual 81°F scored WIN). Using
+    the center temp on BOTH sides removes that whole class of false wins.
+
+    `ml_center` (ml_f_canonical or ml_f) is preferred; if absent we fall back
+    to the bucket label's implied midpoint.
+    """
+    center = ml_center if ml_center is not None else _bucket_center_temp(ml_bucket)
+
+    if kalshi_snapshot_raw and center is not None:
         try:
-            mkt = json.loads(kalshi_snapshot_raw) if isinstance(kalshi_snapshot_raw, str) else kalshi_snapshot_raw
-            actual_kalshi = _find_kalshi_bucket_for_temp(float(actual_int), mkt)
-            if "-" in ml_bucket:
-                ml_f_ref = float(ml_bucket.split("-")[0])
-            elif ml_bucket.startswith(">="):
-                ml_f_ref = float(ml_bucket[2:])
-            elif ml_bucket.startswith("<="):
-                ml_f_ref = float(ml_bucket[2:])
-            else:
-                ml_f_ref = None
-            ml_kalshi = _find_kalshi_bucket_for_temp(ml_f_ref, mkt) if ml_f_ref is not None else None
-            ml_pick = ml_bucket if ml_bucket in mkt else ml_kalshi
-            if actual_kalshi and ml_pick == actual_kalshi:
-                return True
-            return False
+            mkt = (json.loads(kalshi_snapshot_raw)
+                   if isinstance(kalshi_snapshot_raw, str) else kalshi_snapshot_raw)
+            if mkt:
+                actual_kalshi = _find_kalshi_bucket_for_temp(float(actual_int), mkt)
+                ml_kalshi = _find_kalshi_bucket_for_temp(float(center), mkt)
+                # Both must map into the live market structure; a WIN is strict
+                # same-bucket equality. If either fails to map (degenerate or
+                # partial snapshot), fall through to the direct range check
+                # below rather than risk a spurious match.
+                if actual_kalshi is not None and ml_kalshi is not None:
+                    return ml_kalshi == actual_kalshi
         except Exception:
             pass
-    # Fallback: direct bucket check (no Kalshi snapshot).
+
+    # Fallback: direct bucket check (no usable Kalshi snapshot).
     # Kalshi "68-69" covers both 68°F and 69°F — inclusive on both ends.
     if ml_bucket.startswith("<="):
         try: return actual_int <= int(ml_bucket[2:])
@@ -6670,64 +6728,18 @@ def score_yesterday_prediction(rows: list[dict], target_date_iso: Optional[str] 
         if fully_scored:
             return  # both latest and canonical scored with same actual — nothing to do
 
-        # Score against Kalshi's actual bucket structure (not ML's internal buckets)
+        # Score the LATEST prediction the same way the live dashboard chose its
+        # bucket: map the ML center temp (ml_f) into the Kalshi structure and
+        # check whether the settled high lands in that same bucket. Unified
+        # through _score_bucket so latest + canonical + backfill cannot diverge.
         ml_bucket = pred["ml_bucket"]
         actual_int = int(round(actual_high))
-        is_win = False
-
-        # Try to use Kalshi market snapshot for accurate bucket comparison
+        ml_f_val = _float_or_none(pred.get("ml_f"))
         kalshi_snapshot = pred.get("kalshi_market_snapshot")
-        if kalshi_snapshot:
-            try:
-                mkt = json.loads(kalshi_snapshot) if isinstance(kalshi_snapshot, str) else kalshi_snapshot
-                # Find which Kalshi bucket the actual falls in
-                actual_kalshi = _find_kalshi_bucket_for_temp(float(actual_int), mkt)
-                # Find which Kalshi bucket the ML's center temp falls in
-                ml_f_val = _float_or_none(pred.get("ml_f"))
-                ml_kalshi = _find_kalshi_bucket_for_temp(ml_f_val, mkt) if ml_f_val is not None else None
-                # Also check if the ML's picked bucket label matches a Kalshi bucket
-                ml_pick_kalshi = ml_bucket if ml_bucket in mkt else _find_kalshi_bucket_for_temp(
-                    float(ml_bucket.split("-")[0]) if "-" in ml_bucket else float(ml_bucket.replace("<=","").replace(">=","")),
-                    mkt
-                ) if ml_bucket else None
-
-                if actual_kalshi and (ml_kalshi == actual_kalshi or ml_pick_kalshi == actual_kalshi):
-                    is_win = True
-                    print(f"📊 Kalshi-aware scoring: actual {actual_int}°F → {actual_kalshi}, "
-                          f"ML pick → {ml_kalshi or ml_pick_kalshi} → WIN")
-                elif actual_kalshi:
-                    print(f"📊 Kalshi-aware scoring: actual {actual_int}°F → {actual_kalshi}, "
-                          f"ML pick → {ml_kalshi or ml_pick_kalshi} → MISS")
-                else:
-                    # Couldn't map actual to a Kalshi bucket — fall back to direct comparison
-                    kalshi_snapshot = None  # triggers fallback below
-            except Exception as e:
-                print(f"⚠️ Kalshi-aware scoring failed, using fallback: {e}")
-                kalshi_snapshot = None  # triggers fallback below
-
-        # Fallback: direct bucket check (when no Kalshi snapshot available).
-        # Kalshi "68-69" covers both 68°F and 69°F — inclusive on both ends.
-        if not kalshi_snapshot:
-            if ml_bucket.startswith("<="):
-                try:
-                    threshold = int(ml_bucket[2:])
-                    is_win = actual_int <= threshold
-                except ValueError:
-                    pass
-            elif ml_bucket.startswith(">="):
-                try:
-                    threshold = int(ml_bucket[2:])
-                    is_win = actual_int >= threshold
-                except ValueError:
-                    pass
-            elif "-" in ml_bucket:
-                parts = ml_bucket.split("-")
-                if len(parts) == 2:
-                    try:
-                        lo, hi = int(parts[0]), int(parts[1])
-                        is_win = lo <= actual_int <= hi
-                    except ValueError:
-                        pass
+        is_win = _score_bucket(ml_bucket, actual_int, kalshi_snapshot, ml_center=ml_f_val)
+        print(f"📊 Latest scoring: actual {actual_int}°F vs ML center "
+              f"{ml_f_val if ml_f_val is not None else ml_bucket} "
+              f"(bucket {ml_bucket}) → {'WIN' if is_win else 'MISS'}")
 
         result = "WIN" if is_win else "MISS"
 
@@ -6844,7 +6856,9 @@ def score_yesterday_prediction(rows: list[dict], target_date_iso: Optional[str] 
         if is_win:
             bucket_rank_hit = 1
         elif bucket_2:
-            # Check if bucket 2 was correct
+            # bucket_2 is always a real Kalshi bucket label (picked from the
+            # Kalshi-aligned probability list), so _score_bucket's label-midpoint
+            # fallback maps it to itself — no explicit ml_center needed here.
             b2_win = _score_bucket(bucket_2, actual_int, pred.get("kalshi_market_snapshot"))
             bucket_rank_hit = 2 if b2_win else 0
             if b2_win:
@@ -6861,17 +6875,22 @@ def score_yesterday_prediction(rows: list[dict], target_date_iso: Optional[str] 
                             "atm_snapshot": _snap_payload(_atm_snap)}
         canonical_bucket = pred.get("ml_bucket_canonical")
         ks_raw = pred.get("kalshi_market_snapshot")
-        if canonical_bucket and canonical_bucket != ml_bucket:
-            # Canonical differs from latest — score both and log
-            canon_win = _score_bucket(canonical_bucket, actual_int, ks_raw)
+        # Score the canonical (7am) prediction against its OWN center temp
+        # (ml_f_canonical), not the latest ml_f — otherwise a day where the
+        # forecast drifted intraday would score the canonical bucket using the
+        # wrong center and could flip the WIN/MISS (the source of the 6/07-style
+        # false WIN). Always score canonical explicitly when present.
+        ml_f_canon = _float_or_none(pred.get("ml_f_canonical"))
+        if canonical_bucket:
+            canon_win = _score_bucket(canonical_bucket, actual_int, ks_raw,
+                                      ml_center=ml_f_canon)
             canon_result = "WIN" if canon_win else "MISS"
             patch_data["ml_result_canonical"] = canon_result
-            flip_icon = "🔄" if canon_win != is_win else ("✅" if canon_win else "❌")
-            print(f"{flip_icon} Canonical vs Latest: '{canonical_bucket}' → {canon_result} | "
-                  f"'{ml_bucket}' → {result} (actual={actual_high}°F)")
-        elif canonical_bucket:
-            # Canonical = latest — same result
-            patch_data["ml_result_canonical"] = result
+            if canonical_bucket != ml_bucket:
+                flip_icon = "🔄" if canon_win != is_win else ("✅" if canon_win else "❌")
+                print(f"{flip_icon} Canonical vs Latest: '{canonical_bucket}' "
+                      f"(center {ml_f_canon}) → {canon_result} | "
+                      f"'{ml_bucket}' → {result} (actual={actual_high}°F)")
 
         # Update prediction_logs with result
         patch = json.dumps(patch_data).encode("utf-8")
@@ -6926,11 +6945,13 @@ def backfill_canonical_results() -> None:
             canonical = row.get("ml_bucket_canonical")
             actual    = _float_or_none(row.get("ml_actual_high"))
             ks_raw    = row.get("kalshi_market_snapshot")
+            ml_f_canon = _float_or_none(row.get("ml_f_canonical"))
             if not idem_key or not canonical or actual is None:
                 continue
 
             actual_int = int(round(actual))
-            canon_win  = _score_bucket(canonical, actual_int, ks_raw)
+            canon_win  = _score_bucket(canonical, actual_int, ks_raw,
+                                       ml_center=ml_f_canon)
             canon_result = "WIN" if canon_win else "MISS"
 
             patch = json.dumps({"ml_result_canonical": canon_result}).encode("utf-8")
