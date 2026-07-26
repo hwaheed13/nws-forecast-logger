@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-07-26T10:37:53.778911",
+  "trained_on": "2026-07-26T17:44:36.102836",
   "version": "v16_unified_residual",
   "design": "ONE model, ALL HRRR-anchored labeled rows, ALL features. Predicts (actual_high - HRRR) \u2014 the HRRR error. Inference: final = HRRR + v16_residual.",
   "training_pool": "every row where (actual_high AND mm_hrrr_max) are populated \u2014 multiyear historical + NWS-log + intraday snapshots",
@@ -9,13 +9,13 @@
   "model": "HistGradientBoostingRegressor \u2014 handles per-row missing features natively",
   "v16_regression": {
     "cv_scheme": "date-grouped TimeSeriesSplit (5 folds, whole dates per side)",
-    "cv_mae": 2.4549520080255327,
+    "cv_mae": 2.454846805887623,
     "cv_mae_target": "residual (actual_high - HRRR)",
     "cv_bucket_accuracy": 0.25131578947368427,
     "cv_bucket_target": "|HRRR + residual \u2212 actual| \u2264 1\u00b0F",
     "residual_std": 3.4742598417963966,
     "baseline_mae_hrrr_alone": 2.7768052516411377,
-    "improvement_vs_hrrr_alone": 0.32185324361560497,
+    "improvement_vs_hrrr_alone": 0.3219584457535145,
     "n_features": 179,
     "n_training_rows": 914
   },
