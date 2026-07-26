@@ -94,7 +94,12 @@ def main() -> int:
     # nightly export naturally picks up scored results patched onto old rows.
     dedup: dict[tuple, dict] = {}
     for r in rows:
-        k = (str(r.get("target_date")), str(r.get("is_canonical")))
+        d = str(r.get("target_date") or "")
+        # Skip bookkeeping sentinels (e.g. ensemble_weights rows at 9999-12-31)
+        # — the ledger is strictly one row per real settled/pending day.
+        if not d.startswith("20"):
+            continue
+        k = (d, str(r.get("is_canonical")))
         dedup[k] = r
 
     missing = [c for c in LEDGER_COLS if rows and c not in rows[-1]]

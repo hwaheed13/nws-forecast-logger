@@ -24,6 +24,12 @@ from model_config import (
     NWS_SEQUENCE_COLS, AMBIENT_OBS_COLS, SYNOPTIC_OBS_COLS, NYSM_OBS_COLS,
     derive_bucket_probabilities,
 )
+# Renovation Phase 2 (2026-07-26): bucket scoring moved VERBATIM to the
+# nwslogger package; these names keep every legacy call site working.
+# Behavior frozen by tests/test_golden_scoring.py.
+from nwslogger.score.settle import (
+    _find_kalshi_bucket_for_temp, _bucket_center_temp, _score_bucket,
+)
 
 MODEL_VERSION = os.environ.get("PREDICTION_MODEL_VERSION", "bcp_v1")
 
@@ -2450,53 +2456,6 @@ def _parse_kalshi_bucket(label: str) -> Optional[str]:
     m = re.search(r"(?:below|under|less\s+than|lower\s+than)\s*(\d+)°?", clean, re.IGNORECASE)
     if m:
         return f"<={m.group(1)}"
-
-    return None
-
-
-def _find_kalshi_bucket_for_temp(predicted_temp: float, kalshi_buckets: dict) -> Optional[str]:
-    """
-    Given a predicted temperature, find which Kalshi bucket contains it.
-
-    Kalshi buckets change daily. Structure is always:
-      - "<=X" (lower edge: X and below)
-      - "A-B" (range: covers integer temps A through B inclusive)
-      - ">=Y" (upper edge: Y and above)
-
-    The predicted_temp is rounded to nearest integer, then we find
-    which bucket that integer falls into.
-    """
-    temp_int = int(round(predicted_temp))
-
-    for label in kalshi_buckets:
-        # Upper edge: ">=70" means 70 and above
-        if label.startswith(">="):
-            try:
-                threshold = int(label[2:])
-                if temp_int >= threshold:
-                    return label
-            except ValueError:
-                continue
-
-        # Lower edge: "<=47" means 47 and below
-        elif label.startswith("<="):
-            try:
-                threshold = int(label[2:])
-                if temp_int <= threshold:
-                    return label
-            except ValueError:
-                continue
-
-        # Standard range: "68-69" means integer temps 68 and 69
-        elif "-" in label:
-            parts = label.split("-")
-            if len(parts) == 2:
-                try:
-                    lo, hi = int(parts[0]), int(parts[1])
-                    if lo <= temp_int <= hi:
-                        return label
-                except ValueError:
-                    continue
 
     return None
 
@@ -6636,82 +6595,6 @@ _ATM_SNAPSHOT_KEYS = (
     "scored_flip_history",          # list[str]: sequence of confirmed non-canonical buckets
     "scored_obs_inland_gradient",   # float: NNJ gradient at time of last obs update
 )
-
-
-def _bucket_center_temp(ml_bucket: str) -> Optional[float]:
-    """Best-effort center temp implied by an ML bucket label.
-
-    Used only when an explicit center (ml_f / ml_f_canonical) isn't passed.
-    "86-87" → 86.5 ; "<=47" → 47 ; ">=70" → 70.
-    """
-    if not ml_bucket:
-        return None
-    try:
-        if "-" in ml_bucket and not ml_bucket.startswith(("<=", ">=")):
-            lo, hi = ml_bucket.split("-")
-            return (float(lo) + float(hi)) / 2.0
-        if ml_bucket.startswith("<="):
-            return float(ml_bucket[2:])
-        if ml_bucket.startswith(">="):
-            return float(ml_bucket[2:])
-    except (ValueError, TypeError):
-        return None
-    return None
-
-
-def _score_bucket(ml_bucket: str, actual_int: int, kalshi_snapshot_raw,
-                  ml_center: Optional[float] = None) -> bool:
-    """Return True (WIN) iff the actual high lands in the SAME Kalshi bucket
-    the model bet on.
-
-    A Kalshi bet is: "the predicted center temp picks one bucket; you win if
-    the settled high falls in that bucket." So scoring must mirror exactly how
-    the live dashboard chooses the bucket — `_find_kalshi_bucket_for_temp(ml_f)`
-    — and check whether the actual maps to that same bucket.
-
-    The old implementation derived the ML bucket from the label's LOW EDGE,
-    added a label-string shortcut, and OR'd two mapping attempts. That could
-    return a match even when the predicted center and the actual were many
-    degrees apart (e.g. 6/07: center 86.5°F, actual 81°F scored WIN). Using
-    the center temp on BOTH sides removes that whole class of false wins.
-
-    `ml_center` (ml_f_canonical or ml_f) is preferred; if absent we fall back
-    to the bucket label's implied midpoint.
-    """
-    center = ml_center if ml_center is not None else _bucket_center_temp(ml_bucket)
-
-    if kalshi_snapshot_raw and center is not None:
-        try:
-            mkt = (json.loads(kalshi_snapshot_raw)
-                   if isinstance(kalshi_snapshot_raw, str) else kalshi_snapshot_raw)
-            if mkt:
-                actual_kalshi = _find_kalshi_bucket_for_temp(float(actual_int), mkt)
-                ml_kalshi = _find_kalshi_bucket_for_temp(float(center), mkt)
-                # Both must map into the live market structure; a WIN is strict
-                # same-bucket equality. If either fails to map (degenerate or
-                # partial snapshot), fall through to the direct range check
-                # below rather than risk a spurious match.
-                if actual_kalshi is not None and ml_kalshi is not None:
-                    return ml_kalshi == actual_kalshi
-        except Exception:
-            pass
-
-    # Fallback: direct bucket check (no usable Kalshi snapshot).
-    # Kalshi "68-69" covers both 68°F and 69°F — inclusive on both ends.
-    if ml_bucket.startswith("<="):
-        try: return actual_int <= int(ml_bucket[2:])
-        except ValueError: return False
-    elif ml_bucket.startswith(">="):
-        try: return actual_int >= int(ml_bucket[2:])
-        except ValueError: return False
-    elif "-" in ml_bucket:
-        parts = ml_bucket.split("-")
-        if len(parts) == 2:
-            try:
-                lo, hi = int(parts[0]), int(parts[1])
-                return lo <= actual_int <= hi
-            except ValueError: pass
-    return False
 
 
 def score_yesterday_prediction(rows: list[dict], target_date_iso: Optional[str] = None) -> None:

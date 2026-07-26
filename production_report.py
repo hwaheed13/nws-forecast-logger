@@ -24,22 +24,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from city_config import CITIES, get_city_config
-
-
-def load_official_actuals(nws_csv: str) -> dict[str, float]:
-    out: dict[str, float] = {}
-    p = Path(nws_csv)
-    if not p.exists():
-        return out
-    with p.open() as f:
-        for r in csv.DictReader(f):
-            if r.get("forecast_or_actual") == "actual" and r.get("actual_high"):
-                d = r.get("cli_date") or r.get("target_date")
-                try:
-                    out[str(d)] = float(r["actual_high"])
-                except (ValueError, TypeError):
-                    pass
-    return out
+from nwslogger.data.truth import load_official_actuals
 
 
 def load_day_before_forecasts(csv_path: str, date_col: str, ts_col: str,

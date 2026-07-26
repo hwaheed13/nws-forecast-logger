@@ -41,41 +41,7 @@ import numpy as np
 import pandas as pd
 
 from city_config import get_city_config
-
-IEM_CLI_URL = "https://mesonet.agron.iastate.edu/json/cli.py?station={station}&year={year}"
-
-
-def _get(url: str, retries: int = 3) -> dict:
-    last_exc = None
-    for i in range(retries):
-        try:
-            req = urllib.request.Request(url, headers={"Accept": "application/json"})
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                return json.loads(resp.read().decode("utf-8"))
-        except Exception as e:
-            last_exc = e
-            time.sleep(2 * (i + 1))
-    raise RuntimeError(f"GET failed after {retries} tries: {url}") from last_exc
-
-
-def fetch_official_highs(station: str, years: list[int]) -> dict[str, float]:
-    """Return {date_iso: official_high_F} from the IEM CLI archive."""
-    highs: dict[str, float] = {}
-    for year in years:
-        data = _get(IEM_CLI_URL.format(station=station, year=year))
-        rows = data.get("results", [])
-        n = 0
-        for r in rows:
-            d, h = r.get("valid"), r.get("high")
-            if d and h is not None and h != "M":
-                try:
-                    highs[str(d)] = float(h)
-                    n += 1
-                except (ValueError, TypeError):
-                    pass
-        print(f"  {station} {year}: {n} official CLI highs")
-        time.sleep(1)  # be polite
-    return highs
+from nwslogger.data.truth import fetch_official_highs
 
 
 def main() -> int:
