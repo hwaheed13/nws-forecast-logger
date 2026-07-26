@@ -1,49 +1,53 @@
 {
-  "trained_on": "2026-07-25T12:39:26.710077",
+  "trained_on": "2026-07-26T08:29:08.261730",
   "version": "v3_unified_regression",
-  "num_days": 1665,
-  "num_forecast_days": 370,
+  "num_days": 1666,
+  "num_forecast_days": 371,
   "num_multiyear_days": 1295,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-07-24"
+    "end": "2026-07-25"
   },
   "performance": {
-    "cv_mae": 1.1,
-    "cv_bucket_accuracy_1f": 0.3163,
-    "residual_std": 1.78,
+    "cv_mae": 1.09,
+    "cv_bucket_accuracy_1f": 0.3001,
+    "residual_std": 1.79,
     "per_fold_mae": [
-      1.13,
-      1.05,
-      0.88,
+      1.12,
       1.02,
-      1.4
+      0.89,
+      1.01,
+      1.42
     ],
     "per_fold_bucket_acc": [
-      0.3763,
-      0.2563
+      0.3511,
+      0.2491
     ]
   },
   "top_features": [
     {
       "name": "mm_mean",
-      "importance": 0.3451
+      "importance": 0.3429
     },
     {
       "name": "atm_predicted_high",
-      "importance": 0.2836
+      "importance": 0.2865
     },
     {
       "name": "mm_hrrr_max",
-      "importance": 0.0716
+      "importance": 0.0715
+    },
+    {
+      "name": "atm_dewpoint_mean",
+      "importance": 0.0003
     },
     {
       "name": "mm_gem_max",
       "importance": 0.0003
     },
     {
-      "name": "atm_dewpoint_mean",
-      "importance": 0.0003
+      "name": "mm_icon_max",
+      "importance": 0.0002
     },
     {
       "name": "day_of_year_sin",
@@ -51,10 +55,6 @@
     },
     {
       "name": "atm_wind_dir_cos",
-      "importance": 0.0002
-    },
-    {
-      "name": "mm_icon_max",
       "importance": 0.0002
     },
     {
@@ -66,6 +66,10 @@
       "importance": 0.0001
     },
     {
+      "name": "accu_post_9am_delta",
+      "importance": 0.0001
+    },
+    {
       "name": "mm_gem_hrdps_max",
       "importance": 0.0001
     },
@@ -74,15 +78,11 @@
       "importance": 0.0001
     },
     {
-      "name": "accu_post_9am_delta",
+      "name": "atm_925mb_temp_mean",
       "importance": 0.0001
     },
     {
       "name": "atm_temp_range",
-      "importance": 0.0001
-    },
-    {
-      "name": "day_of_year_cos",
       "importance": 0.0001
     }
   ],
