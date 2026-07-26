@@ -52,7 +52,13 @@ FEATURE_WEIGHTS = {
 }
 
 K_NEIGHBORS = 20
-BLEND_SCALE = 10.0
+# Re-validated 2026-07-26 against OFFICIAL actuals (646-day leave-one-out,
+# predictor_blend_research.py): KNN alone is much weaker than HRRR (2.17 vs
+# 1.35 MAE), so KNN weight must stay low. Blend MAE by scale: 5→1.238,
+# 6→1.237 (best, +0.11°F vs HRRR), 8→1.279, 10→1.375 (WORSE than HRRR
+# alone — the old 10.0, tuned on pre-audit wrong actuals, was subtracting
+# value in production: w_knn ran 0.44-0.66 on days that wanted ≤0.25).
+BLEND_SCALE = 6.0
 MIN_KNN_WEIGHT = 0.10
 MIN_REQUIRED_FEATURES = 5  # need at least this many populated test features
 

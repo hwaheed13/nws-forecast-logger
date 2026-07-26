@@ -43,6 +43,11 @@ import numpy as np
 import pandas as pd
 
 HISTORICAL_FORECAST_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast"
+# Previous Runs API — archives what each model PREDICTED at earlier lead times.
+# temperature_2m_previous_day1 = the value the run from ~24h earlier forecast
+# for that hour. Daily max of it = the day-before HRRR high forecast, i.e. the
+# same lead the canonical night-before prediction anchors on at inference.
+PREVIOUS_RUNS_URL = "https://previous-runs-api.open-meteo.com/v1/forecast"
 
 # Coordinates/timezone come from city_config — the single source of truth.
 # (A previous version hardcoded downtown LA 34.05,-118.24 for "lax", ~15mi
@@ -128,6 +133,48 @@ def fetch_model_daily(lat: float, lon: float, start: str, end: str, tz: str,
         return pd.DataFrame(columns=["date", "value"])
     out = pd.concat(frames, ignore_index=True).drop_duplicates(subset=["date"])
     return out
+
+
+def fetch_hrrr_d1_daily(lat: float, lon: float, start: str, end: str,
+                        tz: str) -> pd.DataFrame:
+    """Daily max of the day-before HRRR run (previous-runs API, hourly →
+    grouped by local calendar day). Coverage starts ~2024; earlier dates
+    return all-null and are simply skipped."""
+    d0 = datetime.strptime(start, "%Y-%m-%d").date()
+    d1 = datetime.strptime(end, "%Y-%m-%d").date()
+    daily_max: dict[str, float] = {}
+    cursor = d0
+    while cursor <= d1:
+        window_end = min(cursor + timedelta(days=CHUNK_DAYS - 1), d1)
+        params = {
+            "latitude": lat, "longitude": lon,
+            "start_date": cursor.isoformat(), "end_date": window_end.isoformat(),
+            "hourly": "temperature_2m_previous_day1",
+            "models": "ncep_hrrr_conus",
+            "temperature_unit": "fahrenheit",
+            "timezone": tz,
+        }
+        qs = urllib.parse.urlencode(params)
+        try:
+            data = _get(f"{PREVIOUS_RUNS_URL}?{qs}")
+            hourly = data.get("hourly", {}) or {}
+            times = hourly.get("time", []) or []
+            vals = hourly.get("temperature_2m_previous_day1", []) or []
+            for t, v in zip(times, vals):
+                if v is None:
+                    continue
+                day = t[:10]
+                if day not in daily_max or v > daily_max[day]:
+                    daily_max[day] = v
+        except Exception as e:
+            print(f"     ⚠️ hrrr_d1 {cursor}→{window_end} failed: {e}")
+        cursor = window_end + timedelta(days=1)
+        time.sleep(1.0)
+    if not daily_max:
+        return pd.DataFrame(columns=["date", "value"])
+    return pd.DataFrame(
+        {"date": sorted(daily_max), "value": [daily_max[d] for d in sorted(daily_max)]}
+    )
 
 
 def recompute_consensus(df: pd.DataFrame) -> pd.DataFrame:
@@ -241,6 +288,34 @@ def run(city: str, dry_run: bool = False, start_override: str | None = None,
         after = df[col_name].notna().sum()
         fill_summary[col_name] = after - before
         print(f"  filled {after - before} ({after}/{len(df)} total)")
+
+    if include_hrrr:
+        col = "mm_hrrr_max_d1"
+        if col not in df.columns:
+            df[col] = np.nan
+        if df[col].notna().sum() < len(df):
+            # Incremental like the models above: resume from last populated
+            # d1 date (with 7-day overlap), full range on first run.
+            if df[col].notna().any():
+                d1_start_dt = datetime.strptime(
+                    df.loc[df[col].notna(), "target_date"].max(), "%Y-%m-%d"
+                ).date() - timedelta(days=7)
+                d1_start = max("2022-03-23", d1_start_dt.isoformat())
+            else:
+                d1_start = max("2022-03-23", df["target_date"].min())
+            print(f"\n[{col}] fetching day-before-lead HRRR (previous-runs API) "
+                  f"{d1_start} → {end}…")
+            daily = fetch_hrrr_d1_daily(cfg["lat"], cfg["lon"], d1_start, end, cfg["tz"])
+            if daily.empty:
+                print(f"  ⚠️ no d1 data — skipping.")
+            else:
+                merged = df.merge(daily, left_on="target_date", right_on="date",
+                                  how="left", suffixes=("", "_fetch"))
+                before = df[col].notna().sum()
+                mask = df[col].isna() & merged["value"].notna()
+                df.loc[mask, col] = merged.loc[mask, "value"]
+                print(f"  filled {df[col].notna().sum() - before} "
+                      f"({df[col].notna().sum()}/{len(df)} total)")
 
     print("\n📊 Recomputing consensus features (mm_mean / mm_std / mm_spread / mm_ecmwf_gfs_diff)…")
     df = recompute_consensus(df)

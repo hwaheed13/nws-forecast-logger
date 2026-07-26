@@ -753,6 +753,53 @@ def derive_bucket_probabilities(predicted_temp, residual_std, spread=8):
     return buckets
 
 
+def quantile_bucket_probs(temp_quantiles: dict, spread: int = 8) -> dict:
+    """
+    Turn predicted temperature quantiles into bucket probabilities via a
+    piecewise-linear CDF. Replaces the Gaussian assumption of
+    derive_bucket_probabilities with the model's own (possibly skewed)
+    predictive distribution — cap-break days have fat warm tails, sea-breeze
+    days fat cold tails, and a symmetric Gaussian mis-prices both.
+
+    temp_quantiles: {q: temp_f} e.g. {0.05: 71.2, 0.5: 74.0, 0.95: 76.1}
+    Returns {bucket_label: prob} with 'N-(N+1)' = P(settle rounds to N),
+    same convention as derive_bucket_probabilities.
+    """
+    if not temp_quantiles:
+        return {}
+    pts = sorted(temp_quantiles.items())          # [(q, t)] by quantile
+    # Enforce monotone temps (quantile crossing happens on sparse features).
+    temps = []
+    for _, t in pts:
+        temps.append(t if not temps else max(t, temps[-1]))
+    qs = [q for q, _ in pts]
+    # Tail extension: linear ramp to 0/1 a bit beyond the extreme quantiles.
+    lo_t, hi_t = temps[0] - 2.5, temps[-1] + 2.5
+    xs = [lo_t] + temps + [hi_t]
+    ys = [0.0] + qs + [1.0]
+
+    def cdf(x: float) -> float:
+        if x <= xs[0]:
+            return 0.0
+        if x >= xs[-1]:
+            return 1.0
+        for i in range(1, len(xs)):
+            if x <= xs[i]:
+                x0, x1, y0, y1 = xs[i - 1], xs[i], ys[i - 1], ys[i]
+                return y0 if x1 == x0 else y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+        return 1.0
+
+    # Median-centered candidate window, same shape as derive_bucket_probabilities.
+    median = temps[len(temps) // 2] if 0.5 not in temp_quantiles else temp_quantiles[0.5]
+    center = int(round(median))
+    buckets = {}
+    for n in range(center - spread, center + spread + 1):
+        p = cdf(n + 0.5) - cdf(n - 0.5)
+        if p > 0.001:
+            buckets[f"{n}-{n + 1}"] = round(p, 4)
+    return buckets
+
+
 def temp_to_bucket_label(temp_f: float) -> str:
     """Convert temperature to Kalshi bucket label like '48-49'.
     Uses round() so 75.6 → NWS reports 76 → bucket '76-77'.

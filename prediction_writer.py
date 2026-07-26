@@ -913,11 +913,31 @@ def _load_v16_models():
         except Exception as e:
             print(f"⚠️ v16 feature cols load error: {e}")
 
+        # Quantile head (2026-07-26): residual quantile regressors for
+        # calibrated bucket probabilities. Optional — absent pkl means the
+        # Gaussian-dampened classifier keeps doing the bucket probs.
+        _ML_MODEL_CACHE[f"{prefix}v16_quantiles"] = None
+        try:
+            if os.path.exists(f"{prefix}bcp_v16_quantiles.pkl"):
+                with open(f"{prefix}bcp_v16_quantiles.pkl", "rb") as f:
+                    _ML_MODEL_CACHE[f"{prefix}v16_quantiles"] = pickle.load(f)
+                print(f"✅ Loaded v16 quantile head (prefix='{prefix}')")
+        except Exception as e:
+            print(f"⚠️ v16 quantile head load error: {e}")
+
     return (
         _ML_MODEL_CACHE.get(cache_key),
         _ML_MODEL_CACHE.get(f"{prefix}v16_classifier"),
         _ML_MODEL_CACHE.get(f"{prefix}v16_feature_cols"),
     )
+
+
+def _v16_quantiles():
+    """Return the loaded v16 quantile pack ({'quantiles', 'models'}) or None.
+    _load_v16_models() must have been called first (it populates the cache)."""
+    import nws_auto_logger as _nal
+    prefix = _nal._CITY_CFG.get("model_prefix", "")
+    return _ML_MODEL_CACHE.get(f"{prefix}v16_quantiles")
 
 
 def _v16_is_residual() -> bool:
@@ -4018,16 +4038,52 @@ def _compute_ml_prediction(
             except Exception as _sane_e:
                 print(f"   ⚠️ Sanity clamp check skipped: {_sane_e}")
 
-            # v2 classifier bucket prediction
-            # Use 15 candidates (±7) to cover full Kalshi range and handle
-            # source disagreements (e.g., AccuWeather says 77, NWS says 88)
-            bucket_probs = active_classifier.predict_bucket_probs(
-                features=v2_features,
-                center_temp=v2_temp,
-                accu_last=features.get("accu_last") if has_accu else None,
-                nws_last=features.get("nws_last"),
-                n_candidates=15,
-            )
+            # Bucket probabilities — quantile head first (2026-07-26), then
+            # classifier fallback. The quantile head predicts the residual
+            # distribution (anchor + q). The point prediction (v2_temp, e.g.
+            # the HRRR+KNN blend) stays authoritative: we SHIFT the predicted
+            # distribution so its median sits on v2_temp and take only its
+            # SHAPE — skewed tails on cap-break / sea-breeze days that the
+            # Gaussian-dampened classifier can't express.
+            bucket_probs = None
+            _qpack = _v16_quantiles() if use_v16 else None
+            if _qpack and _v16_residual and _hrrr_base is not None:
+                try:
+                    from model_config import quantile_bucket_probs as _qbp
+                    _conf = _qpack.get("conformal_offsets", {}) or {}
+                    _tq = {
+                        float(q): (float(_hrrr_base) + float(est.predict(X_v2)[0])
+                                   + float(_conf.get(q, 0.0)))
+                        for q, est in _qpack["models"].items()
+                    }
+                    _med = _tq.get(0.5, sorted(_tq.values())[len(_tq) // 2])
+                    _shift = float(v2_temp) - _med
+                    _probs_map = _qbp({q: t + _shift for q, t in _tq.items()})
+                    if _probs_map:
+                        bucket_probs = [
+                            {"bucket": b, "probability": p}
+                            for b, p in sorted(_probs_map.items(), key=lambda kv: -kv[1])
+                        ]
+                        print(f"   📊 Bucket probs: v16 quantile head "
+                              f"(q10={_tq.get(0.1, float('nan')) + _shift:.1f} "
+                              f"q50={float(v2_temp):.1f} "
+                              f"q90={_tq.get(0.9, float('nan')) + _shift:.1f}, "
+                              f"median shift {_shift:+.1f}°F)")
+                except Exception as _q_e:
+                    print(f"   ⚠️ Quantile bucket probs failed: {_q_e} — classifier fallback")
+                    bucket_probs = None
+
+            if not bucket_probs:
+                # v2 classifier bucket prediction
+                # Use 15 candidates (±7) to cover full Kalshi range and handle
+                # source disagreements (e.g., AccuWeather says 77, NWS says 88)
+                bucket_probs = active_classifier.predict_bucket_probs(
+                    features=v2_features,
+                    center_temp=v2_temp,
+                    accu_last=features.get("accu_last") if has_accu else None,
+                    nws_last=features.get("nws_last"),
+                    n_candidates=15,
+                )
 
             if bucket_probs:
                 v2_best = bucket_probs[0]

@@ -1008,6 +1008,11 @@ class NYCTemperatureModelTrainer:
             # mm_hrrr_vs_gfs / mm_hrrr_vs_ecmwf from 4yr CSV history.
             features["mm_gfs_max"]   = row.get("mm_gfs_max",   np.nan)
             features["mm_ecmwf_max"] = row.get("mm_ecmwf_max", np.nan)
+            # Day-before-lead HRRR (previous-runs API) — v16's residual anchor.
+            # Same explicit pull-through pattern: not in MULTIMODEL_COLS so
+            # v2-v10 feature counts stay stable. Not a model FEATURE either —
+            # it's the training-time anchor (target = actual − anchor).
+            features["mm_hrrr_max_d1"] = row.get("mm_hrrr_max_d1", np.nan)
 
             # MOS — NaN for historical (not available in archive)
             for col in MOS_COLS:
@@ -4769,7 +4774,40 @@ class NYCTemperatureModelTrainer:
         # alignment of helper arrays (hrrr_arr, actual_arr) below.
         train_df = train_df.sort_values("target_date").reset_index(drop=True)
         X            = train_df[FEATURE_COLS_V16]
-        hrrr_anchor  = train_df["mm_hrrr_max"].astype(float)
+        # ── ANCHOR-LEAD ALIGNMENT (2026-07-26) ───────────────────────────────
+        # Prefer mm_hrrr_max_d1 — the DAY-BEFORE HRRR run's forecast (previous-
+        # runs API) — over mm_hrrr_max, which for archive rows is a near-zero-
+        # lead hindcast. The canonical night-before prediction anchors on a
+        # ~day-before HRRR at inference; training the residual against the same
+        # lead means the learned corrections transfer 1:1. d1 coverage starts
+        # ~2024; earlier rows fall back to the hindcast anchor.
+        _hrrr_cur = pd.to_numeric(train_df["mm_hrrr_max"], errors="coerce")
+        if "mm_hrrr_max_d1" in train_df.columns:
+            _hrrr_d1 = pd.to_numeric(train_df["mm_hrrr_max_d1"], errors="coerce")
+        else:
+            _hrrr_d1 = pd.Series(np.nan, index=train_df.index)
+        n_d1 = int(_hrrr_d1.notna().sum())
+        # DO NOT mix anchors in one target. The 2026-07-26 experiment showed a
+        # mixed pool (d1 where available, hindcast elsewhere) is UNLEARNABLE —
+        # the model can't tell which error it's predicting per row and CV came
+        # out NEGATIVE (-0.26°F vs anchor). On the homogeneous d1-only pool the
+        # moat was the best yet measured (+0.32°F NYC / +0.14°F LAX), and d1 is
+        # the honest lead: production's canonical call corrects a day-before
+        # HRRR. So: restrict to the d1 subset when it's big enough; otherwise
+        # fall back to a PURE hindcast anchor (cold-start cities).
+        if n_d1 >= 300:
+            keep = _hrrr_d1.notna().to_numpy()
+            train_df = train_df[keep].reset_index(drop=True)
+            X = train_df[FEATURE_COLS_V16]
+            hrrr_anchor = pd.to_numeric(train_df["mm_hrrr_max_d1"], errors="coerce")
+            _anchor_desc = f"mm_hrrr_max_d1 only (day-before HRRR run, {len(train_df)} rows)"
+            n_total = len(train_df)
+            print(f"  Anchor: day-before HRRR (d1) — pool restricted to "
+                  f"{n_total} d1-anchored rows (homogeneous target)")
+        else:
+            hrrr_anchor = _hrrr_cur
+            _anchor_desc = f"mm_hrrr_max hindcast (d1 coverage only {n_d1} rows)"
+            print(f"  Anchor: hindcast HRRR — d1 coverage too thin ({n_d1} rows)")
         y_actual     = train_df["actual_high"].astype(float)
         y_residual   = y_actual - hrrr_anchor
 
@@ -4859,6 +4897,83 @@ class NYCTemperatureModelTrainer:
             print(f"  (couldn't extract importances: {e})")
             fi_pairs = []
 
+        # ── QUANTILE HEAD (2026-07-26): calibrated bucket probabilities ──────
+        # The betting edge is probability calibration, not point MAE. Train
+        # quantile regressors on the SAME residual target; inference converts
+        # (anchor + residual quantiles) into bucket probs via a piecewise-
+        # linear CDF (model_config.quantile_bucket_probs) — capturing skewed
+        # regimes (cap-break warm tails, sea-breeze cold tails) that the
+        # Gaussian classifier smooths over. Calibration is validated on the
+        # LAST date-grouped fold (train strictly earlier dates).
+        from model_config import quantile_bucket_probs
+        Q_LEVELS = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95]
+        _q_params = dict(loss="quantile", max_iter=400, learning_rate=0.05,
+                         max_depth=3, min_samples_leaf=25, l2_regularization=1.5,
+                         early_stopping=True, validation_fraction=0.15,
+                         n_iter_no_change=15, random_state=42)
+        q_meta = {}
+        try:
+            tr_idx, te_idx = cv_splits[-1]
+            _hold_preds = {}
+            for q in Q_LEVELS:
+                est_q = HistGradientBoostingRegressor(quantile=q, **_q_params)
+                est_q.fit(X.iloc[tr_idx], y_residual.iloc[tr_idx])
+                _hold_preds[q] = est_q.predict(X.iloc[te_idx])
+            y_te = y_residual.iloc[te_idx].to_numpy()
+            coverage = {q: float(np.mean(y_te <= _hold_preds[q])) for q in Q_LEVELS}
+            # Conformal offsets (CQR-lite): the raw quantiles are miscalibrated
+            # under regime drift (e.g. 2026 summer warm bias made q10 fire at
+            # 28%). delta_q = the q-quantile of holdout errors (y − pred_q) is
+            # exactly the shift that makes holdout coverage hit its nominal
+            # level. Inference adds these to the raw quantile predictions.
+            conformal = {q: float(np.quantile(y_te - _hold_preds[q], q))
+                         for q in Q_LEVELS}
+            coverage_adj = {q: float(np.mean(y_te <= _hold_preds[q] + conformal[q]))
+                            for q in Q_LEVELS}
+            # Argmax-bucket accuracy on the holdout vs the actual settle int.
+            anchor_te = hrrr_anchor.iloc[te_idx].to_numpy()
+            actual_te = y_actual.iloc[te_idx].to_numpy()
+            hits = w1_hits = 0
+            for i in range(len(te_idx)):
+                probs = quantile_bucket_probs(
+                    {q: float(anchor_te[i] + _hold_preds[q][i]) for q in Q_LEVELS})
+                if not probs:
+                    continue
+                top_n = int(max(probs, key=probs.get).split("-")[0])
+                actual_n = int(round(actual_te[i]))
+                hits += top_n == actual_n
+                w1_hits += abs(top_n - actual_n) <= 1
+            n_te = len(te_idx)
+            q_meta = {
+                "quantiles": Q_LEVELS,
+                "holdout_n": n_te,
+                "holdout_coverage_raw": {str(q): round(coverage[q], 3) for q in Q_LEVELS},
+                "holdout_coverage_conformal": {str(q): round(coverage_adj[q], 3) for q in Q_LEVELS},
+                "conformal_offsets": {str(q): round(conformal[q], 3) for q in Q_LEVELS},
+                "holdout_bucket_argmax_acc": round(hits / n_te, 4) if n_te else None,
+                "holdout_bucket_within1_acc": round(w1_hits / n_te, 4) if n_te else None,
+            }
+            print(f"\n  Quantile head (holdout = last fold, n={n_te}):")
+            print(f"    raw coverage       q10={coverage[0.1]:.2f} q50={coverage[0.5]:.2f} "
+                  f"q90={coverage[0.9]:.2f}  (target 0.10/0.50/0.90)")
+            print(f"    conformal coverage q10={coverage_adj[0.1]:.2f} q50={coverage_adj[0.5]:.2f} "
+                  f"q90={coverage_adj[0.9]:.2f}  (offsets applied at inference)")
+            print(f"    bucket argmax acc: {hits / n_te:.1%}  within-1: {w1_hits / n_te:.1%}")
+
+            # Refit each quantile on ALL rows for the production pkl.
+            q_models = {}
+            for q in Q_LEVELS:
+                est_q = HistGradientBoostingRegressor(quantile=q, **_q_params)
+                est_q.fit(X, y_residual)
+                q_models[q] = est_q
+            with open(f"{prefix}bcp_v16_quantiles.pkl", "wb") as f:
+                pickle.dump({"quantiles": Q_LEVELS, "models": q_models,
+                             "conformal_offsets": conformal,
+                             "target": "residual (actual_high - anchor)"}, f)
+            print(f"  ✅ Saved quantile head: {prefix}bcp_v16_quantiles.pkl")
+        except Exception as e:
+            print(f"  ⚠️ Quantile head training failed (non-fatal): {e}")
+
         # Bucket classifier — same target (actual_high), trained on the
         # same unified pool. It still expects a "reference forecast" to
         # bucket against; pass nws_last where available, else persistence.
@@ -4905,8 +5020,8 @@ class NYCTemperatureModelTrainer:
                 "every row where (actual_high AND mm_hrrr_max) are populated — "
                 "multiyear historical + NWS-log + intraday snapshots"
             ),
-            "anchor": "mm_hrrr_max (HRRR — #1 accuracy short-range model)",
-            "target": "actual_high - mm_hrrr_max (HRRR error)",
+            "anchor": _anchor_desc,
+            "target": "actual_high - hrrr_anchor (HRRR error at inference lead)",
             "inference": "final_prediction = mm_hrrr_max + v16_regressor.predict(features)",
             "model": "HistGradientBoostingRegressor — handles per-row missing features natively",
             "v16_regression": {
@@ -4922,6 +5037,7 @@ class NYCTemperatureModelTrainer:
                 "n_training_rows": n_total,
             },
             "feature_columns_v16": list(FEATURE_COLS_V16),
+            "v16_quantiles": q_meta,
             "top_feature_importances": [
                 {"feature": n, "importance": float(i)} for n, i in fi_pairs
             ],

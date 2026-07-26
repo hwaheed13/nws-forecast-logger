@@ -8,8 +8,18 @@
 - A model that just outputs HRRR has zero moat (anyone has HRRR). A model that learns HRRR's *systematic errors* over 4 years and corrects them has the moat.
 
 **Concretely for v16 (unified residual, both cities as of 2026-07-25):**
-- Target: `actual_high − HRRR_max` (residual). Forces model to learn HRRR's errors, not regurgitate it.
-- Inference: `final = HRRR + v16_residual_prediction`.
+- Target: `actual_high − hrrr_anchor` (residual). Forces model to learn HRRR's errors, not regurgitate it.
+- **Anchor (2026-07-26): `mm_hrrr_max_d1` — the DAY-BEFORE HRRR run** (Open-Meteo
+  previous-runs API, backfilled by `backfill_multimodel_history.py --include-hrrr`,
+  coverage 2024-01-19→now). The pool is RESTRICTED to d1-anchored rows when ≥300
+  exist. **NEVER mix anchors in one target**: a mixed d1/hindcast pool is
+  unlearnable (measured −0.26°F vs anchor); the homogeneous d1 pool gives the
+  best honest moat yet (+0.32°F NYC / +0.14°F LAX). d1 is also the honest lead —
+  production's canonical call corrects a day-before HRRR, not a hindcast.
+- Inference: `final = HRRR + v16_residual_prediction` (point). Bucket probs come
+  from the **quantile head** (`*bcp_v16_quantiles.pkl`: 11 residual quantile
+  regressors + conformal offsets, holdout-calibrated) — distribution SHAPE is
+  shifted so its median sits on the production center; classifier is fallback.
 - CV estimate of moat: `improvement_vs_hrrr_alone` in `model_metadata_v16.json`.
 - **PRODUCTION measurement of moat: `python production_report.py`** — compares the
   nightly-exported `predictions_ledger.csv` (what the model actually predicted)
@@ -47,6 +57,13 @@
   regressed.
 - FEATURE_COLS_V16 carried 7 duplicate names (186 listed, 179 unique) until
   2026-07-26 — the dedupe lives at the definition in model_config.py.
+- Mixing residual anchors (d1 + hindcast) in one training target — see the
+  anchor section above. Also: `mm_hrrr_max_d1` must be explicitly pulled
+  through in `_build_multiyear_features` (it is NOT in MULTIMODEL_COLS); if
+  training logs say "d1 on 0/N rows" that pull-through regressed.
+- Trusting the "latest" WIN/MISS as skill: the latest prediction converges to
+  the observed max intraday. The CANONICAL (first-of-day) result is the real
+  scoreboard; production_report.py uses canonical.
 
 **When debugging a prediction issue, always check:**
 1. Is metadata showing `v16_unified_residual` (post-PR #42) or `v16_unified` (legacy DIRECT)? Inference branches on this.
