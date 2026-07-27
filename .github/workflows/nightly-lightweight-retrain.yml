@@ -83,27 +83,16 @@ jobs:
 
       # Lightweight: only re-run train_models.py — no backfill.
       # HistGradientBoosting handles NaN natively so new/missing rows are fine.
-      - name: Retrain v1–v8 (core models)
+      #
+      # RENOVATION PHASE 3A (2026-07-26): v4–v15 legacy cascade no longer
+      # retrained (see retrain-model.yml for the full rationale). `--v16`
+      # trains v2+v3 internally (multiyear merge + enrichment + atm
+      # predictor); `--all` alone trains v1 for the legacy Render API.
+      # v16 NOT continue-on-error: a crash must alert, not pass silently.
+      - name: Retrain production models (v1 + v2/v3 + v16)
         run: |
           python train_models.py --all
-          python train_models.py --all --v2
-          python train_models.py --all --v4
-          python train_models.py --all --v5
-          python train_models.py --all --v6
-          python train_models.py --all --v7
-          python train_models.py --all --v8
-
-      - name: Retrain v9–v16 (cascade through v15 + v16 unified — skip if insufficient rows)
-        run: |
-          python train_models.py --all --v9
-          python train_models.py --all --v10
-          python train_models.py --all --v11
-          python train_models.py --all --v12
-          python train_models.py --all --v13
-          python train_models.py --all --v14
-          python train_models.py --all --v15
           python train_models.py --all --v16
-        continue-on-error: true
 
       # Restore coverage_report.json from main snapshot. Lightweight retrain
       # produces a reduced view (no backfill) — we do NOT want it overwriting

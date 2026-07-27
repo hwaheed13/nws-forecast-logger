@@ -136,57 +136,23 @@ jobs:
           rm -f coverage_report.json lax_coverage_report.json
           echo "Coverage reports reset for fresh accumulation."
 
-      - name: Run model training (v1 + v2 + v4 + v5 + v6 + v7 + v8)
+      # RENOVATION PHASE 3A (2026-07-26): the v4–v15 legacy cascade is no
+      # longer retrained. Production runs v16 only; the stale v4–v15 pkls
+      # remain committed as emergency fallbacks until Phase 3B replaces the
+      # inference cascade, then they get deleted. This cut nightly training
+      # from ~4.5h to well under 1h.
+      #
+      # `--v16` internally trains v2+v3 first — that path does the multiyear
+      # merge + log-era enrichment v16's pool depends on, and refreshes the
+      # v2 atm predictor used as inference TIER 3. `--all` (no version flag)
+      # trains v1 (temp_model.pkl), still served by the legacy Render api.py.
+      #
+      # Coverage note: the v11/v13/v14/v15 feature counts in
+      # coverage_report.json are recorded by the _compute_* feature methods,
+      # which v16 training itself calls — the regression guard keeps working.
+      - name: Run model training (v1 + v2/v3 + v16 — the production set)
         run: |
           python train_models.py --all
-          python train_models.py --all --v2
-          python train_models.py --all --v4
-          python train_models.py --all --v5
-          python train_models.py --all --v6
-          python train_models.py --all --v7
-          python train_models.py --all --v8
-
-      - name: Run v9 training (named station features — skips if <30 rows have KJFK data)
-        run: |
-          python train_models.py --all --v9
-        continue-on-error: true  # graceful skip until enough v9 rows are populated
-
-      - name: Run v10 training (MANH 5-min Mesonet — skips if <30 rows have MANH data)
-        run: |
-          python train_models.py --all --v10
-        continue-on-error: true  # graceful skip until enough v10 rows are populated
-
-      - name: Run v11 training (model-vs-NWS divergence — runs whenever v9 has data)
-        run: |
-          python train_models.py --all --v11
-        continue-on-error: true
-
-      - name: Run v12 training (KCDW + KSMQ deep inland gradient — skips if <14 rows have KSMQ)
-        run: |
-          python train_models.py --all --v12
-        continue-on-error: true  # graceful skip until backfill populates enough KSMQ rows
-
-      - name: Run v13 training (BL safeguard features — entrainment + marine + inland strength)
-        run: |
-          python train_models.py --all --v13
-        continue-on-error: true  # graceful skip until BL features accumulate
-
-      - name: Run v14 training (blind-spot interactions — late_obs_below_pred + peak_to_hrrr_gap)
-        run: |
-          python train_models.py --all --v14
-        continue-on-error: true  # graceful skip until blind-spot features accumulate
-
-      - name: Run v15 training (morning + autoreg — forecast_revision, cap_violation_925, autoreg bias)
-        run: |
-          python train_models.py --all --v15
-        continue-on-error: true  # graceful skip until features accumulate
-
-      # NOT continue-on-error: v16 is the production model (the moat). A crash
-      # here must fail the workflow and open an alert issue, not pass silently.
-      # Graceful data-driven skips (too few HRRR rows) exit 0 inside the
-      # trainer and still pass.
-      - name: Run v16 training (UNIFIED RESIDUAL — predicts actual_high − HRRR, the moat)
-        run: |
           python train_models.py --all --v16
 
       # POSTFLIGHT: fail loudly if any tracked feature regressed from
