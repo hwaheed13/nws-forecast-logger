@@ -1,41 +1,41 @@
 {
-  "trained_on": "2026-07-29T07:38:29.399704",
+  "trained_on": "2026-07-30T07:29:52.552114",
   "version": "v3_unified_regression",
-  "num_days": 1669,
-  "num_forecast_days": 374,
+  "num_days": 1670,
+  "num_forecast_days": 375,
   "num_multiyear_days": 1295,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-07-28"
+    "end": "2026-07-29"
   },
   "performance": {
     "cv_mae": 1.11,
-    "cv_bucket_accuracy_1f": 0.299,
-    "residual_std": 1.84,
+    "cv_bucket_accuracy_1f": 0.3128,
+    "residual_std": 1.83,
     "per_fold_mae": [
-      1.14,
-      1.06,
-      0.89,
-      1.03,
-      1.45
+      1.13,
+      1.02,
+      0.9,
+      1.04,
+      1.46
     ],
     "per_fold_bucket_acc": [
-      0.375,
-      0.223
+      0.3918,
+      0.2338
     ]
   },
   "top_features": [
     {
       "name": "mm_mean",
-      "importance": 0.4042
+      "importance": 0.3866
     },
     {
       "name": "atm_predicted_high",
-      "importance": 0.2418
+      "importance": 0.238
     },
     {
       "name": "mm_hrrr_max",
-      "importance": 0.0672
+      "importance": 0.0707
     },
     {
       "name": "atm_dewpoint_mean",
@@ -54,19 +54,23 @@
       "importance": 0.0002
     },
     {
+      "name": "atm_wind_dir_sin",
+      "importance": 0.0002
+    },
+    {
       "name": "mm_icon_max",
       "importance": 0.0002
     },
     {
-      "name": "atm_wind_dir_sin",
-      "importance": 0.0002
+      "name": "accu_post_9am_delta",
+      "importance": 0.0001
     },
     {
       "name": "atm_925mb_temp_max",
       "importance": 0.0001
     },
     {
-      "name": "accu_post_9am_delta",
+      "name": "atm_925mb_temp_mean",
       "importance": 0.0001
     },
     {
@@ -74,15 +78,11 @@
       "importance": 0.0001
     },
     {
-      "name": "atm_temp_range",
-      "importance": 0.0001
-    },
-    {
       "name": "mm_gem_hrdps_max",
       "importance": 0.0001
     },
     {
-      "name": "atm_925mb_temp_mean",
+      "name": "atm_temp_range",
       "importance": 0.0001
     }
   ],
