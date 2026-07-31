@@ -8897,7 +8897,12 @@ def write_today_for_tomorrow(tomorrow_iso: Optional[str] = None) -> None:
         "snapshot_hour": snapshot_hour,  # Archive D+1 snapshots at 3-hour intervals
         "lead_used": "today_for_tomorrow",
         "model_name": _active_ver,
-        "prediction_value": bcp_tm if bcp_tm is not None else (ml["ml_f"] if ml else None),
+        # ML-first (fixed 2026-07-31): this is the TOMORROW CARD headline.
+        # It used to prefer bcp_tm (= latest NWS + all-time avg bias), which
+        # overrode the entire v16/blend/quantile pipeline whenever NWS data
+        # existed — 2026-07-30 LAX evening: ML said 75.2°F, card showed 82.9°F.
+        # bcp_tm is now only the no-ML fallback.
+        "prediction_value": (ml["ml_f"] if ml and ml.get("ml_f") is not None else bcp_tm),
         "nws_d1": nws_latest_tm,
         "accuweather": accu_latest_tm,
         "bias_applied": avg_bias_all,
