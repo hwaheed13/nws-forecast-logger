@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-08-03T08:22:48.917204",
+  "trained_on": "2026-08-03T08:48:27.104713",
   "version": "v3_unified_regression",
   "num_days": 1674,
   "num_forecast_days": 379,
@@ -9,49 +9,41 @@
     "end": "2026-08-02"
   },
   "performance": {
-    "cv_mae": 1.1,
-    "cv_bucket_accuracy_1f": 0.3004,
-    "residual_std": 1.71,
+    "cv_mae": 1.11,
+    "cv_bucket_accuracy_1f": 0.2736,
+    "residual_std": 1.75,
     "per_fold_mae": [
       1.15,
       1.02,
       0.92,
       1.0,
-      1.41
+      1.47
     ],
     "per_fold_bucket_acc": [
-      0.4,
-      0.2007
+      0.35,
+      0.1971
     ]
   },
   "top_features": [
     {
       "name": "mm_mean",
-      "importance": 0.3617
+      "importance": 0.4803
     },
     {
       "name": "atm_predicted_high",
-      "importance": 0.3414
+      "importance": 0.2532
     },
     {
       "name": "mm_hrrr_max",
-      "importance": 0.04
+      "importance": 0.0376
     },
     {
       "name": "mm_gem_max",
-      "importance": 0.0003
-    },
-    {
-      "name": "mm_icon_max",
-      "importance": 0.0003
-    },
-    {
-      "name": "atm_dewpoint_mean",
-      "importance": 0.0003
+      "importance": 0.0004
     },
     {
       "name": "day_of_year_sin",
-      "importance": 0.0002
+      "importance": 0.0003
     },
     {
       "name": "atm_wind_dir_cos",
@@ -59,14 +51,18 @@
     },
     {
       "name": "atm_wind_dir_sin",
-      "importance": 0.0001
-    },
-    {
-      "name": "atm_925mb_temp_mean",
-      "importance": 0.0001
+      "importance": 0.0002
     },
     {
       "name": "mm_nbm_max",
+      "importance": 0.0002
+    },
+    {
+      "name": "atm_dewpoint_mean",
+      "importance": 0.0002
+    },
+    {
+      "name": "mm_icon_max",
       "importance": 0.0001
     },
     {
@@ -74,15 +70,19 @@
       "importance": 0.0001
     },
     {
-      "name": "intra_heating_rate_pm",
+      "name": "atm_925mb_temp_max",
       "importance": 0.0001
     },
     {
-      "name": "atm_pressure_mean",
+      "name": "atm_925mb_temp_mean",
       "importance": 0.0001
     },
     {
-      "name": "accu_last",
+      "name": "accu_post_9am_delta",
+      "importance": 0.0001
+    },
+    {
+      "name": "mm_gem_hrdps_max",
       "importance": 0.0001
     }
   ],
