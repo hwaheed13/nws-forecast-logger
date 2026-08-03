@@ -1,55 +1,55 @@
 {
-  "trained_on": "2026-08-02T07:50:59.223291",
+  "trained_on": "2026-08-03T08:23:43.841551",
   "version": "v3_unified_regression",
   "num_days": 1673,
-  "num_forecast_days": 152,
-  "num_multiyear_days": 1521,
+  "num_forecast_days": 153,
+  "num_multiyear_days": 1520,
   "date_range": {
     "start": "2022-01-02",
     "end": "2026-08-01"
   },
   "performance": {
     "cv_mae": 1.01,
-    "cv_bucket_accuracy_1f": 0.3026,
-    "residual_std": 1.21,
+    "cv_bucket_accuracy_1f": 0.2745,
+    "residual_std": 1.23,
     "per_fold_mae": [
-      1.57,
-      0.93,
+      1.61,
+      0.92,
       0.87,
-      0.72,
+      0.7,
       0.96
     ],
     "per_fold_bucket_acc": [
-      0.3026
+      0.2745
     ]
   },
   "top_features": [
     {
       "name": "mm_hrrr_max",
-      "importance": 0.6646
+      "importance": 0.5714
     },
     {
       "name": "atm_predicted_high",
-      "importance": 0.4413
+      "importance": 0.4866
     },
     {
       "name": "mm_mean",
-      "importance": 0.0041
+      "importance": 0.0036
     },
     {
       "name": "atm_overnight_min",
-      "importance": 0.0027
+      "importance": 0.0021
     },
     {
       "name": "mm_icon_max",
-      "importance": 0.0014
-    },
-    {
-      "name": "atm_wind_dir_sin",
-      "importance": 0.0008
+      "importance": 0.0011
     },
     {
       "name": "day_of_year_sin",
+      "importance": 0.0009
+    },
+    {
+      "name": "mm_gem_max",
       "importance": 0.0007
     },
     {
@@ -57,32 +57,32 @@
       "importance": 0.0006
     },
     {
-      "name": "mm_gem_max",
+      "name": "atm_wind_dir_cos",
       "importance": 0.0006
     },
     {
-      "name": "atm_bl_height_max",
+      "name": "atm_pressure_mean",
+      "importance": 0.0006
+    },
+    {
+      "name": "mm_ecmwf_gfs_diff",
       "importance": 0.0006
     },
     {
       "name": "atm_temp_range",
-      "importance": 0.0006
+      "importance": 0.0005
+    },
+    {
+      "name": "atm_wind_dir_sin",
+      "importance": 0.0005
     },
     {
       "name": "day_of_year_cos",
       "importance": 0.0005
     },
     {
-      "name": "atm_wind_dir_cos",
-      "importance": 0.0004
-    },
-    {
-      "name": "atm_pressure_change",
-      "importance": 0.0004
-    },
-    {
-      "name": "mm_std",
-      "importance": 0.0003
+      "name": "atm_wind_mean",
+      "importance": 0.0005
     }
   ],
   "hyperparameters": {
