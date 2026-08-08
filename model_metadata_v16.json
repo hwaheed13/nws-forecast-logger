@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-08-07T06:24:25.661510",
+  "trained_on": "2026-08-08T05:36:58.103766",
   "version": "v16_unified_residual",
   "design": "ONE model, ALL HRRR-anchored labeled rows, ALL features. Predicts (actual_high - HRRR) \u2014 the HRRR error. Inference: final = HRRR + v16_residual.",
   "training_pool": "every row where (actual_high AND mm_hrrr_max) are populated \u2014 multiyear historical + NWS-log + intraday snapshots",
@@ -9,13 +9,13 @@
   "model": "HistGradientBoostingRegressor \u2014 handles per-row missing features natively",
   "v16_regression": {
     "cv_scheme": "date-grouped TimeSeriesSplit (5 folds, whole dates per side)",
-    "cv_mae": 2.469833287357697,
+    "cv_mae": 2.4683126561636937,
     "cv_mae_target": "residual (actual_high - HRRR)",
-    "cv_bucket_accuracy": 0.2567741935483871,
+    "cv_bucket_accuracy": 0.24387096774193545,
     "cv_bucket_target": "|HRRR + residual \u2212 actual| \u2264 1\u00b0F",
     "residual_std": 3.460400176583898,
     "baseline_mae_hrrr_alone": 2.758324382384533,
-    "improvement_vs_hrrr_alone": 0.2884910950268358,
+    "improvement_vs_hrrr_alone": 0.29001172622083926,
     "n_features": 179,
     "n_training_rows": 931
   },
@@ -216,17 +216,17 @@
     ],
     "holdout_n": 155,
     "holdout_coverage_raw": {
-      "0.05": 0.219,
-      "0.1": 0.284,
-      "0.2": 0.465,
-      "0.3": 0.471,
-      "0.4": 0.574,
-      "0.5": 0.619,
-      "0.6": 0.677,
-      "0.7": 0.742,
-      "0.8": 0.852,
-      "0.9": 0.948,
-      "0.95": 0.974
+      "0.05": 0.232,
+      "0.1": 0.316,
+      "0.2": 0.406,
+      "0.3": 0.477,
+      "0.4": 0.568,
+      "0.5": 0.613,
+      "0.6": 0.632,
+      "0.7": 0.723,
+      "0.8": 0.839,
+      "0.9": 0.903,
+      "0.95": 0.961
     },
     "holdout_coverage_conformal": {
       "0.05": 0.052,
@@ -242,20 +242,20 @@
       "0.95": 0.948
     },
     "conformal_offsets": {
-      "0.05": -2.222,
-      "0.1": -1.968,
-      "0.2": -1.982,
-      "0.3": -1.051,
-      "0.4": -1.689,
-      "0.5": -0.91,
-      "0.6": -0.735,
-      "0.7": -0.228,
-      "0.8": -0.881,
-      "0.9": -1.018,
-      "0.95": -1.634
+      "0.05": -2.163,
+      "0.1": -2.381,
+      "0.2": -1.63,
+      "0.3": -1.279,
+      "0.4": -1.436,
+      "0.5": -1.061,
+      "0.6": -0.374,
+      "0.7": -0.144,
+      "0.8": -0.653,
+      "0.9": -0.039,
+      "0.95": -0.521
     },
-    "holdout_bucket_argmax_acc": 0.1355,
-    "holdout_bucket_within1_acc": 0.3742
+    "holdout_bucket_argmax_acc": 0.1161,
+    "holdout_bucket_within1_acc": 0.3419
   },
   "top_feature_importances": []
 }
