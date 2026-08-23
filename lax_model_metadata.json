@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-08-22T05:47:39.397890",
+  "trained_on": "2026-08-23T05:22:25.258032",
   "num_days": 173,
   "date_range": {
     "start": "2026-03-02",
@@ -38,15 +38,15 @@
     "rolling_ml_error_7d",
     "has_accu_data"
   ],
-  "residual_std": 1.8687934488241018,
+  "residual_std": 1.873172595894097,
   "bucket_method": "gaussian_from_regression",
   "base_source": "accu_last (fallback: nws_last)",
   "model_type": "HistGradientBoostingRegressor",
   "model_performance": {
-    "cv_temperature_mae": 1.52,
-    "cv_bucket_accuracy": 0.2286,
+    "cv_temperature_mae": 1.53,
+    "cv_bucket_accuracy": 0.2071,
     "insample_temperature_mae": 0.85,
-    "insample_bucket_accuracy": 0.4393,
+    "insample_bucket_accuracy": 0.4798,
     "residual_std": 1.87
   },
   "seasonal_performance": {
@@ -56,49 +56,49 @@
     },
     "spring": {
       "days": 91,
-      "insample_mae": 1.02
+      "insample_mae": 1.04
     }
   },
   "top_features": [
     {
       "name": "accu_std",
-      "importance": 0.2687
+      "importance": 0.2579
     },
     {
       "name": "day_of_year_cos",
-      "importance": 0.2488
+      "importance": 0.2309
     },
     {
       "name": "accu_last",
-      "importance": 0.1692
+      "importance": 0.1532
     },
     {
       "name": "day_of_year_sin",
-      "importance": 0.1442
+      "importance": 0.1468
     },
     {
       "name": "nws_mean",
-      "importance": 0.1186
+      "importance": 0.1236
     },
     {
       "name": "rolling_bias_21d",
-      "importance": 0.0671
-    },
-    {
-      "name": "accu_mean",
-      "importance": 0.0656
+      "importance": 0.0678
     },
     {
       "name": "nws_accu_mean_diff",
-      "importance": 0.0575
+      "importance": 0.0616
+    },
+    {
+      "name": "accu_mean",
+      "importance": 0.0573
     },
     {
       "name": "accu_trend",
-      "importance": 0.0442
+      "importance": 0.048
     },
     {
       "name": "nws_accu_spread",
-      "importance": 0.0389
+      "importance": 0.0391
     }
   ],
   "hyperparameters": {

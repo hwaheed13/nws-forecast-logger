@@ -1,53 +1,49 @@
 {
-  "trained_on": "2026-08-22T05:47:15.639354",
+  "trained_on": "2026-08-23T05:22:02.781921",
   "version": "v3_unified_regression",
-  "num_days": 1693,
-  "num_forecast_days": 398,
+  "num_days": 1694,
+  "num_forecast_days": 399,
   "num_multiyear_days": 1295,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-08-21"
+    "end": "2026-08-22"
   },
   "performance": {
-    "cv_mae": 1.11,
-    "cv_bucket_accuracy_1f": 0.2887,
-    "residual_std": 1.75,
+    "cv_mae": 1.1,
+    "cv_bucket_accuracy_1f": 0.2862,
+    "residual_std": 1.72,
     "per_fold_mae": [
-      1.1,
-      1.08,
-      0.91,
+      1.14,
+      1.03,
+      0.92,
       0.98,
-      1.49
+      1.46
     ],
     "per_fold_bucket_acc": [
-      0.3362,
-      0.2411
+      0.3419,
+      0.2305
     ]
   },
   "top_features": [
     {
-      "name": "mm_mean",
-      "importance": 0.3964
+      "name": "atm_predicted_high",
+      "importance": 0.3716
     },
     {
-      "name": "atm_predicted_high",
-      "importance": 0.3184
+      "name": "mm_mean",
+      "importance": 0.3057
     },
     {
       "name": "mm_hrrr_max",
-      "importance": 0.0382
+      "importance": 0.0461
     },
     {
       "name": "mm_gem_max",
       "importance": 0.0004
     },
     {
-      "name": "atm_925mb_temp_max",
-      "importance": 0.0002
-    },
-    {
-      "name": "mm_nbm_max",
-      "importance": 0.0002
+      "name": "atm_dewpoint_mean",
+      "importance": 0.0003
     },
     {
       "name": "day_of_year_sin",
@@ -62,20 +58,16 @@
       "importance": 0.0002
     },
     {
+      "name": "mm_nbm_max",
+      "importance": 0.0002
+    },
+    {
       "name": "atm_wind_dir_sin",
       "importance": 0.0002
     },
     {
-      "name": "accu_last",
-      "importance": 0.0002
-    },
-    {
-      "name": "atm_dewpoint_mean",
-      "importance": 0.0001
-    },
-    {
       "name": "accu_post_9am_delta",
-      "importance": 0.0001
+      "importance": 0.0002
     },
     {
       "name": "atm_temp_range",
@@ -83,6 +75,14 @@
     },
     {
       "name": "intra_heating_rate_pm",
+      "importance": 0.0001
+    },
+    {
+      "name": "atm_925mb_temp_max",
+      "importance": 0.0001
+    },
+    {
+      "name": "atm_925mb_temp_mean",
       "importance": 0.0001
     }
   ],
