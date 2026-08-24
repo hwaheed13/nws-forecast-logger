@@ -1,37 +1,37 @@
 {
-  "trained_on": "2026-08-23T05:49:58.699867",
+  "trained_on": "2026-08-24T05:31:54.168734",
   "version": "v3_unified_regression",
-  "num_days": 1694,
-  "num_forecast_days": 399,
+  "num_days": 1695,
+  "num_forecast_days": 400,
   "num_multiyear_days": 1295,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-08-22"
+    "end": "2026-08-23"
   },
   "performance": {
     "cv_mae": 1.11,
-    "cv_bucket_accuracy_1f": 0.2734,
+    "cv_bucket_accuracy_1f": 0.2968,
     "residual_std": 1.75,
     "per_fold_mae": [
-      1.14,
-      1.03,
+      1.13,
+      1.04,
       0.92,
-      0.98,
-      1.51
+      0.97,
+      1.48
     ],
     "per_fold_bucket_acc": [
-      0.3162,
-      0.2305
+      0.3559,
+      0.2376
     ]
   },
   "top_features": [
     {
       "name": "mm_mean",
-      "importance": 0.5065
+      "importance": 0.4304
     },
     {
       "name": "atm_predicted_high",
-      "importance": 0.2419
+      "importance": 0.3056
     },
     {
       "name": "mm_hrrr_max",
@@ -50,11 +50,11 @@
       "importance": 0.0002
     },
     {
-      "name": "atm_wind_dir_cos",
+      "name": "mm_icon_max",
       "importance": 0.0002
     },
     {
-      "name": "mm_icon_max",
+      "name": "atm_wind_dir_cos",
       "importance": 0.0002
     },
     {
@@ -67,14 +67,6 @@
     },
     {
       "name": "accu_last",
-      "importance": 0.0002
-    },
-    {
-      "name": "mm_gem_hrdps_max",
-      "importance": 0.0002
-    },
-    {
-      "name": "mm_nbm_max",
       "importance": 0.0001
     },
     {
@@ -83,6 +75,14 @@
     },
     {
       "name": "atm_temp_range",
+      "importance": 0.0001
+    },
+    {
+      "name": "mm_nbm_max",
+      "importance": 0.0001
+    },
+    {
+      "name": "mm_gem_hrdps_max",
       "importance": 0.0001
     }
   ],
