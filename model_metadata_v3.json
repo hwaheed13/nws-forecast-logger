@@ -1,44 +1,48 @@
 {
-  "trained_on": "2026-08-26T05:55:02.759286",
+  "trained_on": "2026-08-27T16:01:42.942764",
   "version": "v3_unified_regression",
-  "num_days": 1697,
-  "num_forecast_days": 402,
+  "num_days": 1698,
+  "num_forecast_days": 403,
   "num_multiyear_days": 1295,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-08-25"
+    "end": "2026-08-26"
   },
   "performance": {
-    "cv_mae": 1.12,
-    "cv_bucket_accuracy_1f": 0.2773,
+    "cv_mae": 1.11,
+    "cv_bucket_accuracy_1f": 0.3035,
     "residual_std": 1.77,
     "per_fold_mae": [
-      1.1,
-      1.07,
-      0.93,
+      1.08,
+      1.05,
+      0.95,
       0.97,
-      1.54
+      1.5
     ],
     "per_fold_bucket_acc": [
       0.3667,
-      0.1879
+      0.2403
     ]
   },
   "top_features": [
     {
-      "name": "mm_mean",
-      "importance": 0.4634
+      "name": "atm_predicted_high",
+      "importance": 0.3529
     },
     {
-      "name": "atm_predicted_high",
-      "importance": 0.2669
+      "name": "mm_mean",
+      "importance": 0.3435
     },
     {
       "name": "mm_hrrr_max",
-      "importance": 0.0341
+      "importance": 0.0401
     },
     {
       "name": "mm_gem_max",
+      "importance": 0.0004
+    },
+    {
+      "name": "atm_dewpoint_mean",
       "importance": 0.0003
     },
     {
@@ -55,22 +59,6 @@
     },
     {
       "name": "atm_wind_dir_cos",
-      "importance": 0.0002
-    },
-    {
-      "name": "atm_wind_dir_sin",
-      "importance": 0.0002
-    },
-    {
-      "name": "atm_dewpoint_mean",
-      "importance": 0.0002
-    },
-    {
-      "name": "mm_nbm_max",
-      "importance": 0.0002
-    },
-    {
-      "name": "atm_temp_range",
       "importance": 0.0001
     },
     {
@@ -78,11 +66,23 @@
       "importance": 0.0001
     },
     {
+      "name": "atm_wind_dir_sin",
+      "importance": 0.0001
+    },
+    {
+      "name": "mm_icon_max",
+      "importance": 0.0001
+    },
+    {
       "name": "accu_post_9am_delta",
       "importance": 0.0001
     },
     {
-      "name": "intra_heating_rate_pm",
+      "name": "prev_day_high",
+      "importance": 0.0001
+    },
+    {
+      "name": "atm_temp_range",
       "importance": 0.0001
     }
   ],
