@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-08-27T16:01:27.523286",
+  "trained_on": "2026-08-27T16:35:42.100408",
   "num_days": 403,
   "date_range": {
     "start": "2025-07-03",
@@ -46,17 +46,17 @@
     "cv_temperature_mae": 1.2,
     "cv_bucket_accuracy": 0.3522,
     "insample_temperature_mae": 0.73,
-    "insample_bucket_accuracy": 0.4988,
+    "insample_bucket_accuracy": 0.5037,
     "residual_std": 1.83
   },
   "seasonal_performance": {
     "summer": {
       "days": 130,
-      "insample_mae": 0.71
+      "insample_mae": 0.72
     },
     "fall": {
       "days": 91,
-      "insample_mae": 0.71
+      "insample_mae": 0.7
     },
     "winter": {
       "days": 90,
@@ -70,43 +70,43 @@
   "top_features": [
     {
       "name": "day_of_year_cos",
-      "importance": 0.2074
+      "importance": 0.2125
     },
     {
       "name": "rolling_bias_21d",
-      "importance": 0.1399
+      "importance": 0.1332
     },
     {
       "name": "accu_trend",
-      "importance": 0.1111
+      "importance": 0.1112
     },
     {
       "name": "accu_std",
-      "importance": 0.1102
+      "importance": 0.1101
     },
     {
       "name": "accu_spread",
-      "importance": 0.0976
+      "importance": 0.0985
     },
     {
       "name": "nws_mean",
-      "importance": 0.0375
+      "importance": 0.0433
     },
     {
       "name": "nws_min",
-      "importance": 0.0314
-    },
-    {
-      "name": "nws_accu_mean_diff",
-      "importance": 0.0263
+      "importance": 0.032
     },
     {
       "name": "forecast_acceleration",
-      "importance": 0.0261
+      "importance": 0.0308
     },
     {
       "name": "accu_first",
-      "importance": 0.0256
+      "importance": 0.0239
+    },
+    {
+      "name": "nws_accu_mean_diff",
+      "importance": 0.0236
     }
   ],
   "hyperparameters": {
