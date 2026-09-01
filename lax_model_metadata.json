@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-08-31T11:42:36.693430",
+  "trained_on": "2026-09-01T09:42:07.208815",
   "num_days": 182,
   "date_range": {
     "start": "2026-03-02",
@@ -38,16 +38,16 @@
     "rolling_ml_error_7d",
     "has_accu_data"
   ],
-  "residual_std": 1.8083007898096333,
+  "residual_std": 1.8044231006214644,
   "bucket_method": "gaussian_from_regression",
   "base_source": "accu_last (fallback: nws_last)",
   "model_type": "HistGradientBoostingRegressor",
   "model_performance": {
     "cv_temperature_mae": 1.52,
     "cv_bucket_accuracy": 0.2067,
-    "insample_temperature_mae": 0.86,
-    "insample_bucket_accuracy": 0.478,
-    "residual_std": 1.81
+    "insample_temperature_mae": 0.85,
+    "insample_bucket_accuracy": 0.4615,
+    "residual_std": 1.8
   },
   "seasonal_performance": {
     "summer": {
@@ -56,49 +56,49 @@
     },
     "spring": {
       "days": 91,
-      "insample_mae": 1.04
+      "insample_mae": 1.03
     }
   },
   "top_features": [
     {
       "name": "day_of_year_cos",
-      "importance": 0.2672
+      "importance": 0.2689
     },
     {
       "name": "accu_std",
-      "importance": 0.2445
+      "importance": 0.2316
     },
     {
       "name": "day_of_year_sin",
-      "importance": 0.1625
+      "importance": 0.1546
     },
     {
       "name": "nws_mean",
-      "importance": 0.1338
-    },
-    {
-      "name": "nws_accu_mean_diff",
-      "importance": 0.0792
+      "importance": 0.1376
     },
     {
       "name": "accu_last",
-      "importance": 0.0767
+      "importance": 0.0826
     },
     {
-      "name": "accu_trend",
-      "importance": 0.0626
+      "name": "nws_accu_mean_diff",
+      "importance": 0.0787
     },
     {
       "name": "accu_count",
-      "importance": 0.0535
+      "importance": 0.0614
+    },
+    {
+      "name": "accu_trend",
+      "importance": 0.0579
     },
     {
       "name": "rolling_bias_21d",
-      "importance": 0.0521
+      "importance": 0.0538
     },
     {
       "name": "rolling_ml_error_7d",
-      "importance": 0.0318
+      "importance": 0.0329
     }
   ],
   "hyperparameters": {
