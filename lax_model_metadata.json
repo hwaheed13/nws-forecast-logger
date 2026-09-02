@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-09-01T10:11:28.199951",
+  "trained_on": "2026-09-02T09:13:30.624361",
   "num_days": 183,
   "date_range": {
     "start": "2026-03-02",
@@ -38,21 +38,21 @@
     "rolling_ml_error_7d",
     "has_accu_data"
   ],
-  "residual_std": 1.7845654215427793,
+  "residual_std": 1.793138264437282,
   "bucket_method": "gaussian_from_regression",
   "base_source": "accu_last (fallback: nws_last)",
   "model_type": "HistGradientBoostingRegressor",
   "model_performance": {
-    "cv_temperature_mae": 1.5,
-    "cv_bucket_accuracy": 0.2,
+    "cv_temperature_mae": 1.52,
+    "cv_bucket_accuracy": 0.2067,
     "insample_temperature_mae": 0.86,
-    "insample_bucket_accuracy": 0.459,
-    "residual_std": 1.78
+    "insample_bucket_accuracy": 0.4536,
+    "residual_std": 1.79
   },
   "seasonal_performance": {
     "summer": {
       "days": 92,
-      "insample_mae": 0.69
+      "insample_mae": 0.68
     },
     "spring": {
       "days": 91,
@@ -62,43 +62,43 @@
   "top_features": [
     {
       "name": "day_of_year_cos",
-      "importance": 0.3186
+      "importance": 0.3108
     },
     {
       "name": "accu_std",
-      "importance": 0.2189
-    },
-    {
-      "name": "nws_mean",
-      "importance": 0.1346
+      "importance": 0.2245
     },
     {
       "name": "day_of_year_sin",
-      "importance": 0.1201
+      "importance": 0.1279
+    },
+    {
+      "name": "nws_mean",
+      "importance": 0.1188
     },
     {
       "name": "accu_last",
-      "importance": 0.1167
+      "importance": 0.1032
     },
     {
       "name": "nws_accu_mean_diff",
-      "importance": 0.075
-    },
-    {
-      "name": "rolling_bias_21d",
-      "importance": 0.0579
-    },
-    {
-      "name": "accu_count",
-      "importance": 0.0578
+      "importance": 0.0723
     },
     {
       "name": "accu_trend",
-      "importance": 0.0577
+      "importance": 0.0568
+    },
+    {
+      "name": "accu_count",
+      "importance": 0.0542
     },
     {
       "name": "rolling_ml_error_7d",
-      "importance": 0.0348
+      "importance": 0.0519
+    },
+    {
+      "name": "rolling_bias_21d",
+      "importance": 0.0479
     }
   ],
   "hyperparameters": {
