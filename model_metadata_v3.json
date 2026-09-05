@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-09-05T08:44:20.137243",
+  "trained_on": "2026-09-05T09:08:18.199439",
   "version": "v3_unified_regression",
   "num_days": 1707,
   "num_forecast_days": 412,
@@ -10,32 +10,32 @@
   },
   "performance": {
     "cv_mae": 1.12,
-    "cv_bucket_accuracy_1f": 0.3105,
-    "residual_std": 1.76,
+    "cv_bucket_accuracy_1f": 0.2818,
+    "residual_std": 1.74,
     "per_fold_mae": [
       1.14,
       1.07,
       0.88,
       0.98,
-      1.51
+      1.52
     ],
     "per_fold_bucket_acc": [
-      0.4062,
-      0.2148
+      0.3594,
+      0.2042
     ]
   },
   "top_features": [
     {
       "name": "mm_mean",
-      "importance": 0.405
+      "importance": 0.4478
     },
     {
       "name": "atm_predicted_high",
-      "importance": 0.3058
+      "importance": 0.2913
     },
     {
       "name": "mm_hrrr_max",
-      "importance": 0.0395
+      "importance": 0.0347
     },
     {
       "name": "atm_dewpoint_mean",
@@ -46,15 +46,11 @@
       "importance": 0.0003
     },
     {
-      "name": "mm_icon_max",
-      "importance": 0.0002
-    },
-    {
       "name": "day_of_year_sin",
       "importance": 0.0002
     },
     {
-      "name": "atm_wind_dir_sin",
+      "name": "accu_last",
       "importance": 0.0002
     },
     {
@@ -62,11 +58,23 @@
       "importance": 0.0002
     },
     {
+      "name": "mm_nbm_max",
+      "importance": 0.0002
+    },
+    {
+      "name": "atm_wind_dir_sin",
+      "importance": 0.0002
+    },
+    {
       "name": "accu_post_9am_delta",
       "importance": 0.0002
     },
     {
-      "name": "mm_nbm_max",
+      "name": "atm_wind_dir_cos",
+      "importance": 0.0002
+    },
+    {
+      "name": "mm_icon_max",
       "importance": 0.0002
     },
     {
@@ -74,15 +82,7 @@
       "importance": 0.0001
     },
     {
-      "name": "atm_wind_dir_cos",
-      "importance": 0.0001
-    },
-    {
-      "name": "atm_925mb_temp_mean",
-      "importance": 0.0001
-    },
-    {
-      "name": "accu_last",
+      "name": "mm_gem_hrdps_max",
       "importance": 0.0001
     }
   ],
