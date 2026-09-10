@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-09-10T09:18:50.607440",
+  "trained_on": "2026-09-10T09:47:59.178418",
   "version": "v3_unified_regression",
   "num_days": 1712,
   "num_forecast_days": 417,
@@ -10,51 +10,51 @@
   },
   "performance": {
     "cv_mae": 1.11,
-    "cv_bucket_accuracy_1f": 0.3043,
-    "residual_std": 1.75,
+    "cv_bucket_accuracy_1f": 0.3055,
+    "residual_std": 1.71,
     "per_fold_mae": [
       1.14,
       1.05,
       0.87,
       0.97,
-      1.52
+      1.49
     ],
     "per_fold_bucket_acc": [
-      0.4015,
-      0.207
+      0.3864,
+      0.2246
     ]
   },
   "top_features": [
     {
       "name": "mm_mean",
-      "importance": 0.3764
+      "importance": 0.4431
     },
     {
       "name": "atm_predicted_high",
-      "importance": 0.3311
+      "importance": 0.2571
     },
     {
       "name": "mm_hrrr_max",
-      "importance": 0.0372
+      "importance": 0.0436
     },
     {
       "name": "mm_gem_max",
       "importance": 0.0003
     },
     {
-      "name": "day_of_year_sin",
-      "importance": 0.0002
-    },
-    {
-      "name": "mm_icon_max",
-      "importance": 0.0002
+      "name": "accu_last",
+      "importance": 0.0003
     },
     {
       "name": "atm_dewpoint_mean",
-      "importance": 0.0002
+      "importance": 0.0003
     },
     {
-      "name": "atm_wind_dir_sin",
+      "name": "day_of_year_sin",
+      "importance": 0.0003
+    },
+    {
+      "name": "atm_925mb_temp_max",
       "importance": 0.0002
     },
     {
@@ -66,11 +66,7 @@
       "importance": 0.0002
     },
     {
-      "name": "accu_last",
-      "importance": 0.0002
-    },
-    {
-      "name": "atm_925mb_temp_max",
+      "name": "atm_wind_dir_sin",
       "importance": 0.0002
     },
     {
@@ -78,11 +74,15 @@
       "importance": 0.0001
     },
     {
-      "name": "prev_day_high",
+      "name": "mm_icon_max",
       "importance": 0.0001
     },
     {
       "name": "mm_gem_hrdps_max",
+      "importance": 0.0001
+    },
+    {
+      "name": "atm_temp_range",
       "importance": 0.0001
     }
   ],
