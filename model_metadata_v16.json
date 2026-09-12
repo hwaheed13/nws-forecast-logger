@@ -1,23 +1,23 @@
 {
-  "trained_on": "2026-09-12T08:58:20.111575",
+  "trained_on": "2026-09-12T09:24:08.232857",
   "version": "v16_unified_residual",
   "design": "ONE model, ALL HRRR-anchored labeled rows, ALL features. Predicts (actual_high - HRRR) \u2014 the HRRR error. Inference: final = HRRR + v16_residual.",
   "training_pool": "every row where (actual_high AND mm_hrrr_max) are populated \u2014 multiyear historical + NWS-log + intraday snapshots",
-  "anchor": "mm_hrrr_max_d1 only (day-before HRRR run, 966 rows)",
+  "anchor": "mm_hrrr_max_d1 only (day-before HRRR run, 967 rows)",
   "target": "actual_high - hrrr_anchor (HRRR error at inference lead)",
   "inference": "final_prediction = mm_hrrr_max + v16_regressor.predict(features)",
   "model": "HistGradientBoostingRegressor \u2014 handles per-row missing features natively",
   "v16_regression": {
     "cv_scheme": "date-grouped TimeSeriesSplit (5 folds, whole dates per side)",
-    "cv_mae": 2.4364052403316037,
+    "cv_mae": 2.40091115022397,
     "cv_mae_target": "residual (actual_high - HRRR)",
-    "cv_bucket_accuracy": 0.253416149068323,
+    "cv_bucket_accuracy": 0.2720496894409938,
     "cv_bucket_target": "|HRRR + residual \u2212 actual| \u2264 1\u00b0F",
-    "residual_std": 3.471834490566103,
-    "baseline_mae_hrrr_alone": 2.7609730848861282,
-    "improvement_vs_hrrr_alone": 0.3245678445545246,
+    "residual_std": 3.4717040287504197,
+    "baseline_mae_hrrr_alone": 2.7609100310237853,
+    "improvement_vs_hrrr_alone": 0.35999888079981535,
     "n_features": 179,
-    "n_training_rows": 966
+    "n_training_rows": 967
   },
   "feature_columns_v16": [
     "nws_first",
@@ -216,17 +216,17 @@
     ],
     "holdout_n": 161,
     "holdout_coverage_raw": {
-      "0.05": 0.224,
-      "0.1": 0.292,
-      "0.2": 0.379,
-      "0.3": 0.491,
-      "0.4": 0.634,
-      "0.5": 0.665,
-      "0.6": 0.702,
+      "0.05": 0.23,
+      "0.1": 0.311,
+      "0.2": 0.416,
+      "0.3": 0.516,
+      "0.4": 0.702,
+      "0.5": 0.696,
+      "0.6": 0.739,
       "0.7": 0.832,
-      "0.8": 0.888,
-      "0.9": 0.944,
-      "0.95": 0.969
+      "0.8": 0.913,
+      "0.9": 0.963,
+      "0.95": 0.988
     },
     "holdout_coverage_conformal": {
       "0.05": 0.056,
@@ -242,20 +242,20 @@
       "0.95": 0.95
     },
     "conformal_offsets": {
-      "0.05": -2.29,
-      "0.1": -1.935,
-      "0.2": -1.159,
-      "0.3": -1.294,
-      "0.4": -1.41,
-      "0.5": -1.196,
-      "0.6": -0.839,
-      "0.7": -0.939,
-      "0.8": -0.891,
-      "0.9": -0.53,
-      "0.95": -1.458
+      "0.05": -1.887,
+      "0.1": -1.562,
+      "0.2": -1.378,
+      "0.3": -1.358,
+      "0.4": -1.995,
+      "0.5": -1.331,
+      "0.6": -0.97,
+      "0.7": -1.112,
+      "0.8": -1.573,
+      "0.9": -1.694,
+      "0.95": -1.996
     },
-    "holdout_bucket_argmax_acc": 0.1304,
-    "holdout_bucket_within1_acc": 0.3478
+    "holdout_bucket_argmax_acc": 0.118,
+    "holdout_bucket_within1_acc": 0.323
   },
   "top_feature_importances": []
 }
