@@ -1,41 +1,41 @@
 {
-  "trained_on": "2026-09-16T10:01:04.113161",
+  "trained_on": "2026-09-17T09:45:50.266632",
   "version": "v3_unified_regression",
-  "num_days": 1718,
-  "num_forecast_days": 423,
+  "num_days": 1719,
+  "num_forecast_days": 424,
   "num_multiyear_days": 1295,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-09-15"
+    "end": "2026-09-16"
   },
   "performance": {
     "cv_mae": 1.11,
-    "cv_bucket_accuracy_1f": 0.2744,
-    "residual_std": 1.69,
+    "cv_bucket_accuracy_1f": 0.2862,
+    "residual_std": 1.72,
     "per_fold_mae": [
-      1.12,
-      1.09,
-      0.84,
-      0.99,
-      1.51
+      1.13,
+      1.08,
+      0.85,
+      1.0,
+      1.49
     ],
     "per_fold_bucket_acc": [
-      0.3285,
-      0.2203
+      0.3696,
+      0.2028
     ]
   },
   "top_features": [
     {
       "name": "mm_mean",
-      "importance": 0.519
+      "importance": 0.3902
     },
     {
       "name": "atm_predicted_high",
-      "importance": 0.2344
+      "importance": 0.3332
     },
     {
       "name": "mm_hrrr_max",
-      "importance": 0.0282
+      "importance": 0.0331
     },
     {
       "name": "mm_gem_max",
@@ -54,7 +54,11 @@
       "importance": 0.0002
     },
     {
-      "name": "atm_925mb_temp_max",
+      "name": "atm_dewpoint_mean",
+      "importance": 0.0002
+    },
+    {
+      "name": "mm_icon_max",
       "importance": 0.0002
     },
     {
@@ -66,23 +70,19 @@
       "importance": 0.0002
     },
     {
-      "name": "atm_dewpoint_mean",
-      "importance": 0.0002
-    },
-    {
       "name": "atm_wind_dir_sin",
       "importance": 0.0002
     },
     {
-      "name": "mm_icon_max",
-      "importance": 0.0001
+      "name": "mm_gem_hrdps_max",
+      "importance": 0.0002
     },
     {
       "name": "atm_925mb_temp_mean",
       "importance": 0.0001
     },
     {
-      "name": "mm_gem_hrdps_max",
+      "name": "atm_925mb_temp_max",
       "importance": 0.0001
     }
   ],
