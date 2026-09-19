@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-09-18T09:50:12.381220",
+  "trained_on": "2026-09-19T09:07:02.538866",
   "num_days": 200,
   "date_range": {
     "start": "2026-03-02",
@@ -38,25 +38,25 @@
     "rolling_ml_error_7d",
     "has_accu_data"
   ],
-  "residual_std": 1.9391819111477888,
+  "residual_std": 1.9369678386766755,
   "bucket_method": "gaussian_from_regression",
   "base_source": "accu_last (fallback: nws_last)",
   "model_type": "HistGradientBoostingRegressor",
   "model_performance": {
     "cv_temperature_mae": 1.61,
-    "cv_bucket_accuracy": 0.2061,
-    "insample_temperature_mae": 0.88,
-    "insample_bucket_accuracy": 0.46,
+    "cv_bucket_accuracy": 0.1879,
+    "insample_temperature_mae": 0.87,
+    "insample_bucket_accuracy": 0.465,
     "residual_std": 1.94
   },
   "seasonal_performance": {
     "summer": {
       "days": 92,
-      "insample_mae": 0.73
+      "insample_mae": 0.72
     },
     "fall": {
       "days": 17,
-      "insample_mae": 0.89
+      "insample_mae": 0.9
     },
     "spring": {
       "days": 91,
@@ -66,43 +66,43 @@
   "top_features": [
     {
       "name": "day_of_year_cos",
-      "importance": 0.2785
+      "importance": 0.2839
     },
     {
       "name": "nws_accu_mean_diff",
-      "importance": 0.15
+      "importance": 0.1489
     },
     {
       "name": "accu_last",
-      "importance": 0.1204
+      "importance": 0.1106
     },
     {
       "name": "accu_std",
-      "importance": 0.1038
+      "importance": 0.1027
     },
     {
       "name": "accu_trend",
-      "importance": 0.0944
+      "importance": 0.0958
     },
     {
       "name": "nws_mean",
-      "importance": 0.0835
+      "importance": 0.0935
     },
     {
       "name": "accu_count",
-      "importance": 0.0557
+      "importance": 0.0554
     },
     {
       "name": "accu_mean",
-      "importance": 0.0526
+      "importance": 0.0471
     },
     {
       "name": "day_of_year_sin",
-      "importance": 0.0395
+      "importance": 0.0404
     },
     {
       "name": "nws_accu_spread",
-      "importance": 0.0336
+      "importance": 0.0332
     }
   ],
   "hyperparameters": {
