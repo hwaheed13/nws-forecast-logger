@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-09-23T09:40:56.092676",
+  "trained_on": "2026-09-23T10:04:03.069753",
   "version": "v3_unified_regression",
   "num_days": 1725,
   "num_forecast_days": 430,
@@ -9,52 +9,56 @@
     "end": "2026-09-22"
   },
   "performance": {
-    "cv_mae": 1.13,
-    "cv_bucket_accuracy_1f": 0.2863,
-    "residual_std": 1.77,
+    "cv_mae": 1.12,
+    "cv_bucket_accuracy_1f": 0.2724,
+    "residual_std": 1.7,
     "per_fold_mae": [
-      1.13,
       1.11,
-      0.87,
+      1.1,
+      0.88,
       1.0,
-      1.54
+      1.5
     ],
     "per_fold_bucket_acc": [
-      0.3636,
-      0.2091
+      0.3427,
+      0.2021
     ]
   },
   "top_features": [
     {
       "name": "mm_mean",
-      "importance": 0.4177
+      "importance": 0.4754
     },
     {
       "name": "atm_predicted_high",
-      "importance": 0.3025
+      "importance": 0.2504
     },
     {
       "name": "mm_hrrr_max",
-      "importance": 0.0332
+      "importance": 0.0363
+    },
+    {
+      "name": "accu_last",
+      "importance": 0.0003
     },
     {
       "name": "mm_gem_max",
       "importance": 0.0003
     },
     {
-      "name": "atm_dewpoint_mean",
-      "importance": 0.0002
-    },
-    {
       "name": "day_of_year_sin",
-      "importance": 0.0002
-    },
-    {
-      "name": "accu_last",
-      "importance": 0.0002
+      "importance": 0.0003
     },
     {
       "name": "mm_icon_max",
+      "importance": 0.0002
+    },
+    {
+      "name": "mm_nbm_max",
+      "importance": 0.0002
+    },
+    {
+      "name": "atm_dewpoint_mean",
       "importance": 0.0002
     },
     {
@@ -62,7 +66,7 @@
       "importance": 0.0002
     },
     {
-      "name": "atm_925mb_temp_max",
+      "name": "atm_925mb_temp_mean",
       "importance": 0.0002
     },
     {
@@ -70,19 +74,15 @@
       "importance": 0.0002
     },
     {
-      "name": "atm_wind_dir_sin",
+      "name": "atm_925mb_temp_max",
       "importance": 0.0002
     },
     {
-      "name": "atm_925mb_temp_mean",
+      "name": "atm_wind_dir_sin",
       "importance": 0.0001
     },
     {
-      "name": "mm_nbm_max",
-      "importance": 0.0001
-    },
-    {
-      "name": "intra_late_heating",
+      "name": "intra_heating_rate_pm",
       "importance": 0.0001
     }
   ],
