@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-09-24T09:39:25.113060",
+  "trained_on": "2026-09-24T10:03:35.933505",
   "version": "v3_unified_regression",
   "num_days": 1726,
   "num_forecast_days": 431,
@@ -10,40 +10,48 @@
   },
   "performance": {
     "cv_mae": 1.11,
-    "cv_bucket_accuracy_1f": 0.2851,
-    "residual_std": 1.74,
+    "cv_bucket_accuracy_1f": 0.2816,
+    "residual_std": 1.71,
     "per_fold_mae": [
       1.07,
       1.09,
       0.88,
-      1.01,
+      1.0,
       1.51
     ],
     "per_fold_bucket_acc": [
-      0.3333,
-      0.2369
+      0.3403,
+      0.223
     ]
   },
   "top_features": [
     {
       "name": "mm_mean",
-      "importance": 0.3618
+      "importance": 0.485
     },
     {
       "name": "atm_predicted_high",
-      "importance": 0.3356
+      "importance": 0.2493
     },
     {
       "name": "mm_hrrr_max",
-      "importance": 0.0429
+      "importance": 0.0382
     },
     {
       "name": "mm_gem_max",
       "importance": 0.0003
     },
     {
+      "name": "accu_last",
+      "importance": 0.0003
+    },
+    {
       "name": "day_of_year_sin",
       "importance": 0.0003
+    },
+    {
+      "name": "mm_nbm_max",
+      "importance": 0.0002
     },
     {
       "name": "mm_icon_max",
@@ -54,11 +62,7 @@
       "importance": 0.0002
     },
     {
-      "name": "accu_last",
-      "importance": 0.0002
-    },
-    {
-      "name": "atm_925mb_temp_mean",
+      "name": "atm_wind_dir_cos",
       "importance": 0.0002
     },
     {
@@ -70,15 +74,11 @@
       "importance": 0.0002
     },
     {
+      "name": "atm_925mb_temp_mean",
+      "importance": 0.0002
+    },
+    {
       "name": "mm_gem_hrdps_max",
-      "importance": 0.0002
-    },
-    {
-      "name": "atm_wind_dir_cos",
-      "importance": 0.0002
-    },
-    {
-      "name": "mm_nbm_max",
       "importance": 0.0001
     },
     {
