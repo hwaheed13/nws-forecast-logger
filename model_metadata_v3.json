@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-09-27T10:18:53.139078",
+  "trained_on": "2026-09-27T10:40:04.811848",
   "version": "v3_unified_regression",
   "num_days": 1729,
   "num_forecast_days": 434,
@@ -10,55 +10,39 @@
   },
   "performance": {
     "cv_mae": 1.12,
-    "cv_bucket_accuracy_1f": 0.2959,
-    "residual_std": 1.81,
+    "cv_bucket_accuracy_1f": 0.2805,
+    "residual_std": 1.69,
     "per_fold_mae": [
-      1.12,
       1.11,
-      0.84,
-      0.99,
-      1.55
+      1.1,
+      0.88,
+      1.0,
+      1.5
     ],
     "per_fold_bucket_acc": [
-      0.3836,
-      0.2083
+      0.363,
+      0.1979
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 0.4378
+      "importance": 0.359
     },
     {
       "name": "mm_mean",
-      "importance": 0.2586
+      "importance": 0.3514
     },
     {
       "name": "mm_hrrr_max",
-      "importance": 0.0567
-    },
-    {
-      "name": "day_of_year_sin",
-      "importance": 0.0002
-    },
-    {
-      "name": "accu_post_9am_delta",
-      "importance": 0.0002
+      "importance": 0.0528
     },
     {
       "name": "accu_last",
-      "importance": 0.0002
+      "importance": 0.0003
     },
     {
-      "name": "atm_dewpoint_mean",
-      "importance": 0.0002
-    },
-    {
-      "name": "mm_gem_max",
-      "importance": 0.0002
-    },
-    {
-      "name": "mm_icon_max",
+      "name": "day_of_year_sin",
       "importance": 0.0002
     },
     {
@@ -66,15 +50,31 @@
       "importance": 0.0002
     },
     {
+      "name": "mm_nbm_max",
+      "importance": 0.0002
+    },
+    {
+      "name": "accu_post_9am_delta",
+      "importance": 0.0002
+    },
+    {
       "name": "atm_wind_dir_sin",
       "importance": 0.0002
     },
     {
-      "name": "mm_nbm_max",
-      "importance": 0.0001
+      "name": "mm_gem_max",
+      "importance": 0.0002
     },
     {
       "name": "atm_wind_dir_cos",
+      "importance": 0.0002
+    },
+    {
+      "name": "mm_icon_max",
+      "importance": 0.0002
+    },
+    {
+      "name": "atm_dewpoint_mean",
       "importance": 0.0001
     },
     {
@@ -82,7 +82,7 @@
       "importance": 0.0001
     },
     {
-      "name": "atm_vs_forecast_diff",
+      "name": "prev_day_high",
       "importance": 0.0001
     }
   ],
