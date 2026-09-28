@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-09-28T11:21:58.905579",
+  "trained_on": "2026-09-28T11:47:08.675409",
   "version": "v3_unified_regression",
   "num_days": 1730,
   "num_forecast_days": 435,
@@ -9,40 +9,40 @@
     "end": "2026-09-27"
   },
   "performance": {
-    "cv_mae": 1.13,
-    "cv_bucket_accuracy_1f": 0.2981,
-    "residual_std": 1.78,
+    "cv_mae": 1.12,
+    "cv_bucket_accuracy_1f": 0.2895,
+    "residual_std": 1.7,
     "per_fold_mae": [
       1.13,
       1.11,
       0.85,
-      0.99,
-      1.55
+      1.0,
+      1.52
     ],
     "per_fold_bucket_acc": [
-      0.381,
-      0.2153
+      0.3741,
+      0.2049
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 0.4019
+      "importance": 0.3501
     },
     {
       "name": "mm_mean",
-      "importance": 0.2979
+      "importance": 0.3092
     },
     {
       "name": "mm_hrrr_max",
-      "importance": 0.046
+      "importance": 0.065
+    },
+    {
+      "name": "accu_last",
+      "importance": 0.0003
     },
     {
       "name": "day_of_year_sin",
-      "importance": 0.0002
-    },
-    {
-      "name": "atm_dewpoint_mean",
       "importance": 0.0002
     },
     {
@@ -50,15 +50,15 @@
       "importance": 0.0002
     },
     {
-      "name": "accu_last",
+      "name": "mm_icon_max",
+      "importance": 0.0002
+    },
+    {
+      "name": "mm_nbm_max",
       "importance": 0.0002
     },
     {
       "name": "accu_post_9am_delta",
-      "importance": 0.0002
-    },
-    {
-      "name": "mm_icon_max",
       "importance": 0.0002
     },
     {
@@ -70,19 +70,19 @@
       "importance": 0.0002
     },
     {
-      "name": "mm_nbm_max",
-      "importance": 0.0001
+      "name": "atm_dewpoint_mean",
+      "importance": 0.0002
     },
     {
       "name": "atm_wind_dir_cos",
       "importance": 0.0001
     },
     {
-      "name": "prev_day_high",
+      "name": "mm_gem_hrdps_max",
       "importance": 0.0001
     },
     {
-      "name": "atm_925mb_temp_mean",
+      "name": "atm_temp_range",
       "importance": 0.0001
     }
   ],
