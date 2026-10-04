@@ -1,44 +1,48 @@
 {
-  "trained_on": "2026-10-03T10:30:05.354004",
+  "trained_on": "2026-10-04T10:50:24.795383",
   "version": "v3_unified_regression",
-  "num_days": 1735,
-  "num_forecast_days": 440,
+  "num_days": 1736,
+  "num_forecast_days": 441,
   "num_multiyear_days": 1295,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-10-02"
+    "end": "2026-10-03"
   },
   "performance": {
     "cv_mae": 1.1,
-    "cv_bucket_accuracy_1f": 0.279,
-    "residual_std": 1.64,
+    "cv_bucket_accuracy_1f": 0.3006,
+    "residual_std": 1.67,
     "per_fold_mae": [
-      1.13,
       1.08,
-      0.85,
+      1.09,
+      0.91,
       1.0,
-      1.45
+      1.44
     ],
     "per_fold_bucket_acc": [
-      0.3642,
-      0.1938
+      0.3487,
+      0.2526
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 0.3571
+      "importance": 0.4112
     },
     {
       "name": "mm_mean",
-      "importance": 0.2811
+      "importance": 0.2639
     },
     {
       "name": "mm_hrrr_max",
-      "importance": 0.0765
+      "importance": 0.0534
     },
     {
-      "name": "mm_nbm_max",
+      "name": "day_of_year_sin",
+      "importance": 0.0003
+    },
+    {
+      "name": "accu_post_9am_delta",
       "importance": 0.0002
     },
     {
@@ -46,7 +50,7 @@
       "importance": 0.0002
     },
     {
-      "name": "day_of_year_sin",
+      "name": "atm_925mb_temp_max",
       "importance": 0.0002
     },
     {
@@ -54,15 +58,7 @@
       "importance": 0.0002
     },
     {
-      "name": "accu_last",
-      "importance": 0.0002
-    },
-    {
-      "name": "accu_post_9am_delta",
-      "importance": 0.0002
-    },
-    {
-      "name": "atm_925mb_temp_max",
+      "name": "atm_dewpoint_mean",
       "importance": 0.0002
     },
     {
@@ -70,7 +66,7 @@
       "importance": 0.0002
     },
     {
-      "name": "atm_dewpoint_mean",
+      "name": "mm_nbm_max",
       "importance": 0.0001
     },
     {
@@ -79,6 +75,10 @@
     },
     {
       "name": "mm_gem_hrdps_max",
+      "importance": 0.0001
+    },
+    {
+      "name": "accu_last",
       "importance": 0.0001
     },
     {
