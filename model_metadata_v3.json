@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-10-07T11:27:30.681944",
+  "trained_on": "2026-10-07T11:54:06.384305",
   "version": "v3_unified_regression",
   "num_days": 1739,
   "num_forecast_days": 444,
@@ -9,40 +9,48 @@
     "end": "2026-10-06"
   },
   "performance": {
-    "cv_mae": 1.11,
-    "cv_bucket_accuracy_1f": 0.3045,
-    "residual_std": 1.77,
+    "cv_mae": 1.1,
+    "cv_bucket_accuracy_1f": 0.2847,
+    "residual_std": 1.65,
     "per_fold_mae": [
       1.12,
       1.07,
       0.87,
-      1.0,
-      1.49
+      1.02,
+      1.44
     ],
     "per_fold_bucket_acc": [
-      0.3806,
-      0.2284
+      0.3548,
+      0.2145
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 0.3918
+      "importance": 0.3769
     },
     {
       "name": "mm_mean",
-      "importance": 0.2729
+      "importance": 0.3448
     },
     {
       "name": "mm_hrrr_max",
-      "importance": 0.05
+      "importance": 0.0387
     },
     {
-      "name": "mm_icon_max",
+      "name": "day_of_year_sin",
       "importance": 0.0003
     },
     {
       "name": "accu_post_9am_delta",
+      "importance": 0.0003
+    },
+    {
+      "name": "mm_nbm_max",
+      "importance": 0.0002
+    },
+    {
+      "name": "mm_icon_max",
       "importance": 0.0002
     },
     {
@@ -50,7 +58,7 @@
       "importance": 0.0002
     },
     {
-      "name": "day_of_year_sin",
+      "name": "atm_wind_dir_sin",
       "importance": 0.0002
     },
     {
@@ -62,19 +70,7 @@
       "importance": 0.0001
     },
     {
-      "name": "atm_wind_dir_sin",
-      "importance": 0.0001
-    },
-    {
-      "name": "mm_nbm_max",
-      "importance": 0.0001
-    },
-    {
       "name": "atm_wind_dir_cos",
-      "importance": 0.0001
-    },
-    {
-      "name": "atm_vs_forecast_diff",
       "importance": 0.0001
     },
     {
@@ -82,7 +78,11 @@
       "importance": 0.0001
     },
     {
-      "name": "mm_gem_hrdps_max",
+      "name": "intra_heating_rate_pm",
+      "importance": 0.0001
+    },
+    {
+      "name": "prev_day_high",
       "importance": 0.0001
     }
   ],
