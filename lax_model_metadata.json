@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-10-07T11:54:30.400219",
+  "trained_on": "2026-10-08T11:42:54.262040",
   "num_days": 219,
   "date_range": {
     "start": "2026-03-02",
@@ -45,64 +45,64 @@
   "model_performance": {
     "cv_temperature_mae": 1.62,
     "cv_bucket_accuracy": 0.2056,
-    "insample_temperature_mae": 0.92,
-    "insample_bucket_accuracy": 0.4155,
+    "insample_temperature_mae": 0.91,
+    "insample_bucket_accuracy": 0.411,
     "residual_std": 2.09
   },
   "seasonal_performance": {
     "summer": {
       "days": 92,
-      "insample_mae": 0.74
+      "insample_mae": 0.75
     },
     "fall": {
       "days": 36,
-      "insample_mae": 0.9
+      "insample_mae": 0.89
     },
     "spring": {
       "days": 91,
-      "insample_mae": 1.1
+      "insample_mae": 1.09
     }
   },
   "top_features": [
     {
       "name": "day_of_year_cos",
-      "importance": 0.2343
-    },
-    {
-      "name": "accu_last",
-      "importance": 0.1715
+      "importance": 0.231
     },
     {
       "name": "nws_mean",
-      "importance": 0.1707
+      "importance": 0.1723
+    },
+    {
+      "name": "accu_last",
+      "importance": 0.1663
     },
     {
       "name": "nws_accu_mean_diff",
-      "importance": 0.13
-    },
-    {
-      "name": "accu_mean",
-      "importance": 0.1222
+      "importance": 0.1286
     },
     {
       "name": "accu_trend",
-      "importance": 0.12
+      "importance": 0.1177
     },
     {
-      "name": "accu_first",
-      "importance": 0.0362
-    },
-    {
-      "name": "rolling_bias_21d",
-      "importance": 0.0357
+      "name": "accu_mean",
+      "importance": 0.1082
     },
     {
       "name": "accu_std",
-      "importance": 0.0343
+      "importance": 0.038
+    },
+    {
+      "name": "rolling_bias_21d",
+      "importance": 0.0377
     },
     {
       "name": "nws_accu_spread",
-      "importance": 0.0312
+      "importance": 0.0349
+    },
+    {
+      "name": "accu_max",
+      "importance": 0.0333
     }
   ],
   "hyperparameters": {
