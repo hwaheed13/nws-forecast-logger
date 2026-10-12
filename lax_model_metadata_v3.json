@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-10-11T11:31:17.463769",
+  "trained_on": "2026-10-12T12:38:09.237633",
   "version": "v3_unified_regression",
   "num_days": 1743,
   "num_forecast_days": 223,
@@ -9,55 +9,51 @@
     "end": "2026-10-10"
   },
   "performance": {
-    "cv_mae": 1.04,
-    "cv_bucket_accuracy_1f": 0.3094,
-    "residual_std": 1.49,
+    "cv_mae": 1.07,
+    "cv_bucket_accuracy_1f": 0.2915,
+    "residual_std": 1.51,
     "per_fold_mae": [
-      1.73,
-      0.86,
-      0.9,
-      0.73,
-      0.99
+      1.77,
+      0.88,
+      0.88,
+      0.76,
+      1.06
     ],
     "per_fold_bucket_acc": [
-      0.3094
+      0.2915
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 0.5657
+      "importance": 0.5772
     },
     {
       "name": "mm_hrrr_max",
-      "importance": 0.5253
+      "importance": 0.4991
     },
     {
       "name": "mm_mean",
-      "importance": 0.0025
-    },
-    {
-      "name": "mm_icon_max",
-      "importance": 0.0022
+      "importance": 0.0031
     },
     {
       "name": "atm_overnight_min",
-      "importance": 0.0019
+      "importance": 0.0022
     },
     {
-      "name": "prev_day_high",
-      "importance": 0.0006
+      "name": "mm_icon_max",
+      "importance": 0.0017
     },
     {
       "name": "day_of_year_sin",
-      "importance": 0.0005
+      "importance": 0.0006
     },
     {
-      "name": "atm_wind_dir_sin",
-      "importance": 0.0005
+      "name": "atm_temp_range",
+      "importance": 0.0006
     },
     {
-      "name": "atm_wind_dir_cos",
+      "name": "mm_gem_max",
       "importance": 0.0005
     },
     {
@@ -65,24 +61,28 @@
       "importance": 0.0005
     },
     {
+      "name": "atm_wind_dir_cos",
+      "importance": 0.0004
+    },
+    {
       "name": "atm_pressure_change",
       "importance": 0.0004
     },
     {
-      "name": "mm_std",
+      "name": "prev_day_high",
       "importance": 0.0004
     },
     {
-      "name": "mm_ecmwf_gfs_diff",
-      "importance": 0.0003
+      "name": "atm_wind_mean",
+      "importance": 0.0004
     },
     {
-      "name": "atm_925mb_temp_mean",
-      "importance": 0.0003
+      "name": "atm_bl_height_max",
+      "importance": 0.0004
     },
     {
-      "name": "mm_gem_max",
-      "importance": 0.0003
+      "name": "atm_wind_dir_sin",
+      "importance": 0.0004
     }
   ],
   "hyperparameters": {
