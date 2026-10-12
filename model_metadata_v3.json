@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-10-12T12:37:13.844843",
+  "trained_on": "2026-10-12T13:15:34.046561",
   "version": "v3_unified_regression",
   "num_days": 1744,
   "num_forecast_days": 449,
@@ -10,51 +10,47 @@
   },
   "performance": {
     "cv_mae": 1.12,
-    "cv_bucket_accuracy_1f": 0.2882,
-    "residual_std": 1.77,
+    "cv_bucket_accuracy_1f": 0.2667,
+    "residual_std": 1.65,
     "per_fold_mae": [
       1.12,
       1.11,
       0.88,
-      1.01,
-      1.51
+      1.02,
+      1.48
     ],
     "per_fold_bucket_acc": [
-      0.3522,
-      0.2241
+      0.3333,
+      0.2
     ]
   },
   "top_features": [
     {
-      "name": "atm_predicted_high",
-      "importance": 0.3746
+      "name": "mm_mean",
+      "importance": 0.38
     },
     {
-      "name": "mm_mean",
-      "importance": 0.3418
+      "name": "atm_predicted_high",
+      "importance": 0.3142
     },
     {
       "name": "mm_hrrr_max",
-      "importance": 0.0366
+      "importance": 0.0458
     },
     {
-      "name": "atm_dewpoint_mean",
+      "name": "atm_925mb_temp_max",
       "importance": 0.0003
     },
     {
       "name": "accu_post_9am_delta",
-      "importance": 0.0003
+      "importance": 0.0002
     },
     {
-      "name": "atm_925mb_temp_max",
+      "name": "mm_nbm_max",
       "importance": 0.0002
     },
     {
       "name": "day_of_year_sin",
-      "importance": 0.0002
-    },
-    {
-      "name": "mm_icon_max",
       "importance": 0.0002
     },
     {
@@ -66,15 +62,19 @@
       "importance": 0.0002
     },
     {
-      "name": "atm_wind_dir_cos",
+      "name": "accu_last",
       "importance": 0.0002
     },
     {
-      "name": "mm_gem_hrdps_max",
-      "importance": 0.0001
+      "name": "atm_dewpoint_mean",
+      "importance": 0.0002
     },
     {
-      "name": "mm_nbm_max",
+      "name": "mm_icon_max",
+      "importance": 0.0002
+    },
+    {
+      "name": "atm_wind_dir_cos",
       "importance": 0.0001
     },
     {
@@ -82,7 +82,7 @@
       "importance": 0.0001
     },
     {
-      "name": "atm_vs_forecast_diff",
+      "name": "atm_temp_range",
       "importance": 0.0001
     }
   ],
