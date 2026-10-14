@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-10-14T09:51:38.217925",
+  "trained_on": "2026-10-14T10:14:39.372065",
   "version": "v3_unified_regression",
   "num_days": 1746,
   "num_forecast_days": 451,
@@ -9,44 +9,52 @@
     "end": "2026-10-13"
   },
   "performance": {
-    "cv_mae": 1.11,
-    "cv_bucket_accuracy_1f": 0.295,
-    "residual_std": 1.67,
+    "cv_mae": 1.1,
+    "cv_bucket_accuracy_1f": 0.2584,
+    "residual_std": 1.66,
     "per_fold_mae": [
-      1.08,
-      1.08,
-      0.89,
+      1.1,
+      1.06,
+      0.87,
       1.02,
-      1.46
+      1.47
     ],
     "per_fold_bucket_acc": [
-      0.3563,
-      0.2337
+      0.3312,
+      0.1856
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 0.4435
+      "importance": 0.443
     },
     {
       "name": "mm_mean",
-      "importance": 0.2867
+      "importance": 0.2811
     },
     {
       "name": "mm_hrrr_max",
-      "importance": 0.0402
-    },
-    {
-      "name": "mm_gem_max",
-      "importance": 0.0003
+      "importance": 0.0449
     },
     {
       "name": "atm_925mb_temp_max",
-      "importance": 0.0002
+      "importance": 0.0003
+    },
+    {
+      "name": "day_of_year_sin",
+      "importance": 0.0003
+    },
+    {
+      "name": "mm_nbm_max",
+      "importance": 0.0003
     },
     {
       "name": "accu_post_9am_delta",
+      "importance": 0.0002
+    },
+    {
+      "name": "mm_gem_max",
       "importance": 0.0002
     },
     {
@@ -54,35 +62,27 @@
       "importance": 0.0002
     },
     {
-      "name": "day_of_year_sin",
-      "importance": 0.0002
-    },
-    {
-      "name": "mm_icon_max",
-      "importance": 0.0002
-    },
-    {
       "name": "atm_wind_dir_sin",
       "importance": 0.0002
     },
     {
+      "name": "accu_last",
+      "importance": 0.0002
+    },
+    {
       "name": "atm_wind_dir_cos",
-      "importance": 0.0001
+      "importance": 0.0002
     },
     {
-      "name": "atm_temp_range",
-      "importance": 0.0001
-    },
-    {
-      "name": "mm_nbm_max",
-      "importance": 0.0001
-    },
-    {
-      "name": "atm_vs_forecast_diff",
+      "name": "mm_icon_max",
       "importance": 0.0001
     },
     {
       "name": "prev_day_high",
+      "importance": 0.0001
+    },
+    {
+      "name": "atm_temp_range",
       "importance": 0.0001
     }
   ],
