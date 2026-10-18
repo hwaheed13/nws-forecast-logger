@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-10-17T09:25:28.152150",
+  "trained_on": "2026-10-18T09:16:21.428417",
   "num_days": 229,
   "date_range": {
     "start": "2026-03-02",
@@ -38,15 +38,15 @@
     "rolling_ml_error_7d",
     "has_accu_data"
   ],
-  "residual_std": 2.058661337759052,
+  "residual_std": 2.0572064037137494,
   "bucket_method": "gaussian_from_regression",
   "base_source": "accu_last (fallback: nws_last)",
   "model_type": "HistGradientBoostingRegressor",
   "model_performance": {
     "cv_temperature_mae": 1.67,
-    "cv_bucket_accuracy": 0.1789,
+    "cv_bucket_accuracy": 0.1737,
     "insample_temperature_mae": 0.9,
-    "insample_bucket_accuracy": 0.3799,
+    "insample_bucket_accuracy": 0.3843,
     "residual_std": 2.06
   },
   "seasonal_performance": {
@@ -56,7 +56,7 @@
     },
     "fall": {
       "days": 46,
-      "insample_mae": 0.86
+      "insample_mae": 0.85
     },
     "spring": {
       "days": 91,
@@ -66,43 +66,43 @@
   "top_features": [
     {
       "name": "accu_last",
-      "importance": 0.147
+      "importance": 0.1496
     },
     {
       "name": "day_of_year_cos",
-      "importance": 0.1456
+      "importance": 0.1444
     },
     {
       "name": "accu_trend",
-      "importance": 0.1338
+      "importance": 0.1386
     },
     {
       "name": "nws_mean",
-      "importance": 0.1269
+      "importance": 0.1179
     },
     {
       "name": "month",
-      "importance": 0.081
+      "importance": 0.0823
     },
     {
       "name": "nws_accu_mean_diff",
-      "importance": 0.0765
-    },
-    {
-      "name": "nws_max",
-      "importance": 0.071
+      "importance": 0.0766
     },
     {
       "name": "accu_std",
-      "importance": 0.0667
+      "importance": 0.0705
+    },
+    {
+      "name": "nws_max",
+      "importance": 0.065
     },
     {
       "name": "accu_mean",
-      "importance": 0.047
+      "importance": 0.0551
     },
     {
       "name": "day_of_year_sin",
-      "importance": 0.0414
+      "importance": 0.045
     }
   ],
   "hyperparameters": {
