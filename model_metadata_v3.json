@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-10-21T09:45:59.465874",
+  "trained_on": "2026-10-21T10:12:37.870708",
   "version": "v3_unified_regression",
   "num_days": 1753,
   "num_forecast_days": 458,
@@ -10,35 +10,39 @@
   },
   "performance": {
     "cv_mae": 1.11,
-    "cv_bucket_accuracy_1f": 0.2933,
-    "residual_std": 1.67,
+    "cv_bucket_accuracy_1f": 0.2924,
+    "residual_std": 1.64,
     "per_fold_mae": [
       1.1,
       1.1,
       0.91,
-      1.03,
+      1.02,
       1.43
     ],
     "per_fold_bucket_acc": [
-      0.3434,
-      0.2432
+      0.3554,
+      0.2295
     ]
   },
   "top_features": [
     {
-      "name": "atm_predicted_high",
-      "importance": 0.4188
+      "name": "mm_mean",
+      "importance": 0.3809
     },
     {
-      "name": "mm_mean",
-      "importance": 0.3059
+      "name": "atm_predicted_high",
+      "importance": 0.3439
     },
     {
       "name": "mm_hrrr_max",
-      "importance": 0.0401
+      "importance": 0.0433
     },
     {
       "name": "day_of_year_sin",
+      "importance": 0.0003
+    },
+    {
+      "name": "atm_925mb_temp_max",
       "importance": 0.0003
     },
     {
@@ -50,11 +54,19 @@
       "importance": 0.0002
     },
     {
-      "name": "mm_icon_max",
+      "name": "atm_wind_dir_sin",
       "importance": 0.0002
     },
     {
-      "name": "atm_925mb_temp_max",
+      "name": "mm_nbm_max",
+      "importance": 0.0002
+    },
+    {
+      "name": "accu_last",
+      "importance": 0.0002
+    },
+    {
+      "name": "atm_wind_dir_cos",
       "importance": 0.0002
     },
     {
@@ -62,23 +74,11 @@
       "importance": 0.0002
     },
     {
-      "name": "atm_wind_dir_sin",
-      "importance": 0.0002
-    },
-    {
-      "name": "mm_nbm_max",
+      "name": "mm_icon_max",
       "importance": 0.0001
     },
     {
-      "name": "mm_gem_hrdps_max",
-      "importance": 0.0001
-    },
-    {
-      "name": "atm_925mb_temp_mean",
-      "importance": 0.0001
-    },
-    {
-      "name": "atm_wind_dir_cos",
+      "name": "prev_day_high",
       "importance": 0.0001
     },
     {
