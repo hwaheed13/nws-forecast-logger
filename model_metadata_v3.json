@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-10-24T09:14:34.314758",
+  "trained_on": "2026-10-24T09:37:09.974294",
   "version": "v3_unified_regression",
   "num_days": 1756,
   "num_forecast_days": 461,
@@ -10,47 +10,39 @@
   },
   "performance": {
     "cv_mae": 1.12,
-    "cv_bucket_accuracy_1f": 0.302,
-    "residual_std": 1.81,
+    "cv_bucket_accuracy_1f": 0.2647,
+    "residual_std": 1.64,
     "per_fold_mae": [
       1.13,
       1.12,
       0.87,
       1.02,
-      1.48
+      1.45
     ],
     "per_fold_bucket_acc": [
-      0.3609,
-      0.2432
+      0.3136,
+      0.2158
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 0.3606
+      "importance": 0.4336
     },
     {
       "name": "mm_mean",
-      "importance": 0.3431
+      "importance": 0.2755
     },
     {
       "name": "mm_hrrr_max",
-      "importance": 0.0391
-    },
-    {
-      "name": "atm_dewpoint_mean",
-      "importance": 0.0002
-    },
-    {
-      "name": "day_of_year_sin",
-      "importance": 0.0002
-    },
-    {
-      "name": "accu_post_9am_delta",
-      "importance": 0.0002
+      "importance": 0.0444
     },
     {
       "name": "atm_925mb_temp_max",
+      "importance": 0.0003
+    },
+    {
+      "name": "day_of_year_sin",
       "importance": 0.0002
     },
     {
@@ -58,11 +50,7 @@
       "importance": 0.0002
     },
     {
-      "name": "mm_icon_max",
-      "importance": 0.0002
-    },
-    {
-      "name": "atm_wind_dir_sin",
+      "name": "accu_post_9am_delta",
       "importance": 0.0002
     },
     {
@@ -70,15 +58,27 @@
       "importance": 0.0002
     },
     {
+      "name": "accu_last",
+      "importance": 0.0002
+    },
+    {
+      "name": "atm_wind_dir_sin",
+      "importance": 0.0002
+    },
+    {
+      "name": "mm_icon_max",
+      "importance": 0.0002
+    },
+    {
       "name": "atm_wind_dir_cos",
       "importance": 0.0002
     },
     {
-      "name": "mm_gem_hrdps_max",
+      "name": "atm_dewpoint_mean",
       "importance": 0.0001
     },
     {
-      "name": "accu_last",
+      "name": "intra_heating_rate_pm",
       "importance": 0.0001
     },
     {
