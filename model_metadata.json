@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-10-25T09:30:52.636940",
+  "trained_on": "2026-10-25T09:54:27.451377",
   "num_days": 462,
   "date_range": {
     "start": "2025-07-03",
@@ -38,16 +38,16 @@
     "rolling_ml_error_7d",
     "has_accu_data"
   ],
-  "residual_std": 1.5855850167952485,
+  "residual_std": 1.5827840247355132,
   "bucket_method": "gaussian_from_regression",
   "base_source": "accu_last (fallback: nws_last)",
   "model_type": "HistGradientBoostingRegressor",
   "model_performance": {
     "cv_temperature_mae": 1.01,
-    "cv_bucket_accuracy": 0.3922,
+    "cv_bucket_accuracy": 0.3896,
     "insample_temperature_mae": 0.71,
     "insample_bucket_accuracy": 0.5065,
-    "residual_std": 1.59
+    "residual_std": 1.58
   },
   "seasonal_performance": {
     "summer": {
@@ -70,7 +70,7 @@
   "top_features": [
     {
       "name": "day_of_year_cos",
-      "importance": 0.2025
+      "importance": 0.2024
     },
     {
       "name": "accu_spread",

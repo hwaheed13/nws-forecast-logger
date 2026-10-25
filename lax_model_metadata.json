@@ -1,9 +1,9 @@
 {
-  "trained_on": "2026-10-25T09:31:47.657854",
-  "num_days": 235,
+  "trained_on": "2026-10-25T09:55:16.398345",
+  "num_days": 236,
   "date_range": {
     "start": "2026-03-02",
-    "end": "2026-10-23"
+    "end": "2026-10-24"
   },
   "feature_columns": [
     "nws_first",
@@ -38,63 +38,63 @@
     "rolling_ml_error_7d",
     "has_accu_data"
   ],
-  "residual_std": 2.3263028485500095,
+  "residual_std": 2.3092007530952308,
   "bucket_method": "gaussian_from_regression",
   "base_source": "accu_last (fallback: nws_last)",
   "model_type": "HistGradientBoostingRegressor",
   "model_performance": {
     "cv_temperature_mae": 2.0,
     "cv_bucket_accuracy": 0.1795,
-    "insample_temperature_mae": 0.95,
-    "insample_bucket_accuracy": 0.383,
-    "residual_std": 2.33
+    "insample_temperature_mae": 0.96,
+    "insample_bucket_accuracy": 0.3814,
+    "residual_std": 2.31
   },
   "seasonal_performance": {
     "summer": {
       "days": 92,
-      "insample_mae": 0.73
+      "insample_mae": 0.74
     },
     "fall": {
-      "days": 52,
-      "insample_mae": 1.04
+      "days": 53,
+      "insample_mae": 1.06
     },
     "spring": {
       "days": 91,
-      "insample_mae": 1.12
+      "insample_mae": 1.13
     }
   },
   "top_features": [
     {
-      "name": "accu_last",
-      "importance": 0.1679
-    },
-    {
       "name": "accu_trend",
-      "importance": 0.1567
+      "importance": 0.1694
     },
     {
       "name": "nws_mean",
-      "importance": 0.1424
+      "importance": 0.1555
     },
     {
-      "name": "month",
-      "importance": 0.1183
+      "name": "accu_last",
+      "importance": 0.1544
     },
     {
       "name": "accu_std",
-      "importance": 0.0949
+      "importance": 0.1157
+    },
+    {
+      "name": "month",
+      "importance": 0.1113
     },
     {
       "name": "nws_accu_mean_diff",
-      "importance": 0.078
+      "importance": 0.0709
     },
     {
       "name": "day_of_year_cos",
-      "importance": 0.061
+      "importance": 0.0638
     },
     {
       "name": "accu_mean",
-      "importance": 0.0603
+      "importance": 0.0552
     },
     {
       "name": "nws_max",
@@ -102,7 +102,7 @@
     },
     {
       "name": "day_of_year_sin",
-      "importance": 0.0386
+      "importance": 0.037
     }
   ],
   "hyperparameters": {
