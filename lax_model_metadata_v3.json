@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-10-31T11:02:10.181822",
+  "trained_on": "2026-11-01T11:37:04.847146",
   "version": "v3_unified_regression",
   "num_days": 1763,
   "num_forecast_days": 242,
@@ -10,39 +10,39 @@
   },
   "performance": {
     "cv_mae": 1.06,
-    "cv_bucket_accuracy_1f": 0.3306,
+    "cv_bucket_accuracy_1f": 0.314,
     "residual_std": 1.47,
     "per_fold_mae": [
-      1.72,
+      1.69,
       0.89,
-      0.91,
-      0.75,
-      1.01
+      0.89,
+      0.74,
+      1.07
     ],
     "per_fold_bucket_acc": [
-      0.3306
+      0.314
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 0.5772
+      "importance": 0.5796
     },
     {
       "name": "mm_hrrr_max",
-      "importance": 0.5016
+      "importance": 0.4742
     },
     {
       "name": "mm_mean",
-      "importance": 0.0031
-    },
-    {
-      "name": "atm_overnight_min",
-      "importance": 0.0017
+      "importance": 0.0027
     },
     {
       "name": "mm_icon_max",
-      "importance": 0.0013
+      "importance": 0.0016
+    },
+    {
+      "name": "atm_overnight_min",
+      "importance": 0.0016
     },
     {
       "name": "day_of_year_sin",
@@ -50,14 +50,10 @@
     },
     {
       "name": "mm_gem_max",
-      "importance": 0.0005
+      "importance": 0.0004
     },
     {
-      "name": "atm_wind_dir_cos",
-      "importance": 0.0005
-    },
-    {
-      "name": "atm_bl_height_max",
+      "name": "atm_temp_range",
       "importance": 0.0004
     },
     {
@@ -65,15 +61,19 @@
       "importance": 0.0004
     },
     {
-      "name": "atm_cloud_cover_mean",
+      "name": "prev_day_high",
       "importance": 0.0004
     },
     {
-      "name": "atm_temp_range",
-      "importance": 0.0003
+      "name": "atm_wind_dir_sin",
+      "importance": 0.0004
     },
     {
-      "name": "atm_wind_dir_sin",
+      "name": "atm_wind_dir_cos",
+      "importance": 0.0004
+    },
+    {
+      "name": "atm_wind_mean",
       "importance": 0.0003
     },
     {
@@ -81,7 +81,7 @@
       "importance": 0.0003
     },
     {
-      "name": "mm_std",
+      "name": "intra_temp_9am",
       "importance": 0.0003
     }
   ],
