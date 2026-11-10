@@ -1,60 +1,60 @@
 {
-  "trained_on": "2026-11-09T13:59:47.923839",
+  "trained_on": "2026-11-10T13:10:04.777927",
   "version": "v3_unified_regression",
-  "num_days": 1772,
-  "num_forecast_days": 477,
+  "num_days": 1773,
+  "num_forecast_days": 478,
   "num_multiyear_days": 1295,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-11-08"
+    "end": "2026-11-09"
   },
   "performance": {
-    "cv_mae": 1.16,
-    "cv_bucket_accuracy_1f": 0.2631,
-    "residual_std": 1.7,
+    "cv_mae": 1.13,
+    "cv_bucket_accuracy_1f": 0.284,
+    "residual_std": 1.86,
     "per_fold_mae": [
-      1.12,
-      1.12,
-      0.89,
-      1.09,
-      1.6
+      1.07,
+      1.11,
+      0.9,
+      1.04,
+      1.54
     ],
     "per_fold_bucket_acc": [
-      0.3297,
-      0.1966
+      0.3443,
+      0.2237
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 0.4677
+      "importance": 0.3789
     },
     {
       "name": "mm_mean",
-      "importance": 0.2838
+      "importance": 0.3596
     },
     {
       "name": "mm_hrrr_max",
-      "importance": 0.0364
+      "importance": 0.044
     },
     {
-      "name": "accu_last",
-      "importance": 0.0004
+      "name": "mm_gem_max",
+      "importance": 0.0002
     },
     {
       "name": "atm_925mb_temp_max",
-      "importance": 0.0003
+      "importance": 0.0002
     },
     {
       "name": "accu_post_9am_delta",
-      "importance": 0.0003
-    },
-    {
-      "name": "mm_nbm_max",
       "importance": 0.0002
     },
     {
       "name": "day_of_year_sin",
+      "importance": 0.0002
+    },
+    {
+      "name": "accu_last",
       "importance": 0.0002
     },
     {
@@ -66,23 +66,23 @@
       "importance": 0.0002
     },
     {
-      "name": "mm_gem_max",
-      "importance": 0.0002
-    },
-    {
-      "name": "mm_icon_max",
-      "importance": 0.0002
-    },
-    {
       "name": "atm_wind_dir_cos",
-      "importance": 0.0001
+      "importance": 0.0002
     },
     {
-      "name": "intra_heating_rate_pm",
+      "name": "mm_nbm_max",
       "importance": 0.0001
     },
     {
       "name": "mm_gem_hrdps_max",
+      "importance": 0.0001
+    },
+    {
+      "name": "mm_icon_max",
+      "importance": 0.0001
+    },
+    {
+      "name": "prev_day_high",
       "importance": 0.0001
     }
   ],
