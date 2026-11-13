@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-11-12T13:52:40.270118",
+  "trained_on": "2026-11-13T12:45:32.485804",
   "num_days": 254,
   "date_range": {
     "start": "2026-03-02",
@@ -38,21 +38,21 @@
     "rolling_ml_error_7d",
     "has_accu_data"
   ],
-  "residual_std": 2.1026261971731386,
+  "residual_std": 2.105303161529656,
   "bucket_method": "gaussian_from_regression",
   "base_source": "accu_last (fallback: nws_last)",
   "model_type": "HistGradientBoostingRegressor",
   "model_performance": {
     "cv_temperature_mae": 1.66,
-    "cv_bucket_accuracy": 0.219,
+    "cv_bucket_accuracy": 0.2143,
     "insample_temperature_mae": 0.96,
-    "insample_bucket_accuracy": 0.374,
-    "residual_std": 2.1
+    "insample_bucket_accuracy": 0.3858,
+    "residual_std": 2.11
   },
   "seasonal_performance": {
     "summer": {
       "days": 92,
-      "insample_mae": 0.77
+      "insample_mae": 0.76
     },
     "fall": {
       "days": 71,
@@ -66,43 +66,43 @@
   "top_features": [
     {
       "name": "accu_trend",
-      "importance": 0.1907
-    },
-    {
-      "name": "accu_std",
-      "importance": 0.1388
+      "importance": 0.1931
     },
     {
       "name": "month",
-      "importance": 0.131
+      "importance": 0.1403
+    },
+    {
+      "name": "accu_std",
+      "importance": 0.1315
     },
     {
       "name": "nws_mean",
-      "importance": 0.101
+      "importance": 0.0981
     },
     {
       "name": "accu_last",
-      "importance": 0.0956
+      "importance": 0.0971
     },
     {
       "name": "nws_accu_mean_diff",
-      "importance": 0.0656
+      "importance": 0.0651
     },
     {
       "name": "day_of_year_cos",
-      "importance": 0.0634
+      "importance": 0.0587
     },
     {
       "name": "day_of_year_sin",
-      "importance": 0.0417
+      "importance": 0.0428
     },
     {
       "name": "accu_mean",
-      "importance": 0.0378
+      "importance": 0.0391
     },
     {
       "name": "accu_spread",
-      "importance": 0.03
+      "importance": 0.0264
     }
   ],
   "hyperparameters": {
