@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-11-14T12:17:19.436607",
+  "trained_on": "2026-11-15T12:23:42.153384",
   "num_days": 256,
   "date_range": {
     "start": "2026-03-02",
@@ -38,7 +38,7 @@
     "rolling_ml_error_7d",
     "has_accu_data"
   ],
-  "residual_std": 2.0839153833625996,
+  "residual_std": 2.083013137604183,
   "bucket_method": "gaussian_from_regression",
   "base_source": "accu_last (fallback: nws_last)",
   "model_type": "HistGradientBoostingRegressor",
@@ -46,7 +46,7 @@
     "cv_temperature_mae": 1.85,
     "cv_bucket_accuracy": 0.181,
     "insample_temperature_mae": 0.96,
-    "insample_bucket_accuracy": 0.3828,
+    "insample_bucket_accuracy": 0.3711,
     "residual_std": 2.08
   },
   "seasonal_performance": {
@@ -66,43 +66,43 @@
   "top_features": [
     {
       "name": "accu_trend",
-      "importance": 0.1768
+      "importance": 0.1751
     },
     {
       "name": "month",
-      "importance": 0.1485
+      "importance": 0.1514
     },
     {
       "name": "accu_std",
-      "importance": 0.1444
+      "importance": 0.1387
     },
     {
       "name": "accu_last",
-      "importance": 0.1064
+      "importance": 0.1077
     },
     {
       "name": "nws_mean",
-      "importance": 0.1021
+      "importance": 0.1002
     },
     {
       "name": "nws_accu_mean_diff",
-      "importance": 0.0695
+      "importance": 0.0674
     },
     {
       "name": "day_of_year_cos",
-      "importance": 0.0513
+      "importance": 0.0568
     },
     {
       "name": "day_of_year_sin",
-      "importance": 0.0407
+      "importance": 0.0416
     },
     {
       "name": "accu_mean",
-      "importance": 0.0367
+      "importance": 0.0385
     },
     {
       "name": "accu_spread",
-      "importance": 0.0269
+      "importance": 0.0267
     }
   ],
   "hyperparameters": {
