@@ -1,40 +1,40 @@
 {
-  "trained_on": "2026-11-16T13:17:01.946047",
+  "trained_on": "2026-11-16T13:42:48.318576",
   "version": "v3_unified_regression",
-  "num_days": 1778,
-  "num_forecast_days": 257,
+  "num_days": 1779,
+  "num_forecast_days": 258,
   "num_multiyear_days": 1521,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-11-14"
+    "end": "2026-11-15"
   },
   "performance": {
-    "cv_mae": 1.07,
-    "cv_bucket_accuracy_1f": 0.2996,
-    "residual_std": 1.43,
+    "cv_mae": 1.05,
+    "cv_bucket_accuracy_1f": 0.3256,
+    "residual_std": 1.41,
     "per_fold_mae": [
-      1.75,
-      0.91,
+      1.69,
       0.9,
-      0.77,
-      1.04
+      0.88,
+      0.76,
+      1.0
     ],
     "per_fold_bucket_acc": [
-      0.2996
+      0.3256
     ]
   },
   "top_features": [
     {
       "name": "atm_predicted_high",
-      "importance": 0.599
+      "importance": 0.5949
     },
     {
       "name": "mm_hrrr_max",
-      "importance": 0.4737
+      "importance": 0.4998
     },
     {
       "name": "mm_mean",
-      "importance": 0.0032
+      "importance": 0.0028
     },
     {
       "name": "mm_icon_max",
@@ -42,38 +42,34 @@
     },
     {
       "name": "atm_overnight_min",
-      "importance": 0.0016
+      "importance": 0.0011
+    },
+    {
+      "name": "mm_gem_max",
+      "importance": 0.0005
     },
     {
       "name": "day_of_year_sin",
-      "importance": 0.0007
+      "importance": 0.0005
     },
     {
-      "name": "day_of_year_cos",
+      "name": "atm_morning_temp_6am",
       "importance": 0.0004
     },
     {
-      "name": "atm_cloud_cover_mean",
+      "name": "atm_pressure_change",
       "importance": 0.0004
-    },
-    {
-      "name": "mm_ecmwf_gfs_diff",
-      "importance": 0.0004
-    },
-    {
-      "name": "intra_temp_9am",
-      "importance": 0.0004
-    },
-    {
-      "name": "atm_wind_dir_cos",
-      "importance": 0.0003
     },
     {
       "name": "prev_day_high",
+      "importance": 0.0004
+    },
+    {
+      "name": "day_of_year_cos",
       "importance": 0.0003
     },
     {
-      "name": "mm_std",
+      "name": "intra_temp_5pm",
       "importance": 0.0003
     },
     {
@@ -81,7 +77,11 @@
       "importance": 0.0003
     },
     {
-      "name": "mm_gem_max",
+      "name": "atm_wind_dir_sin",
+      "importance": 0.0003
+    },
+    {
+      "name": "mm_std",
       "importance": 0.0003
     }
   ],
