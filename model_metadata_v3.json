@@ -1,56 +1,60 @@
 {
-  "trained_on": "2026-11-16T13:42:03.530131",
+  "trained_on": "2026-11-17T14:01:24.939085",
   "version": "v3_unified_regression",
-  "num_days": 1779,
-  "num_forecast_days": 484,
+  "num_days": 1780,
+  "num_forecast_days": 485,
   "num_multiyear_days": 1295,
   "date_range": {
     "start": "2022-01-02",
-    "end": "2026-11-15"
+    "end": "2026-11-16"
   },
   "performance": {
-    "cv_mae": 1.15,
-    "cv_bucket_accuracy_1f": 0.2544,
-    "residual_std": 1.68,
+    "cv_mae": 1.12,
+    "cv_bucket_accuracy_1f": 0.2967,
+    "residual_std": 1.88,
     "per_fold_mae": [
+      1.1,
+      1.08,
+      0.92,
       1.05,
-      1.1,
-      0.9,
-      1.1,
-      1.59
+      1.45
     ],
     "per_fold_bucket_acc": [
-      0.3298,
-      0.1791
+      0.3333,
+      0.2601
     ]
   },
   "top_features": [
     {
-      "name": "atm_predicted_high",
-      "importance": 0.477
+      "name": "mm_mean",
+      "importance": 0.3914
     },
     {
-      "name": "mm_mean",
-      "importance": 0.2846
+      "name": "atm_predicted_high",
+      "importance": 0.3625
     },
     {
       "name": "mm_hrrr_max",
-      "importance": 0.0339
-    },
-    {
-      "name": "accu_last",
-      "importance": 0.0004
+      "importance": 0.041
     },
     {
       "name": "atm_925mb_temp_max",
       "importance": 0.0003
     },
     {
-      "name": "accu_post_9am_delta",
+      "name": "atm_dewpoint_mean",
       "importance": 0.0003
     },
     {
+      "name": "accu_post_9am_delta",
+      "importance": 0.0002
+    },
+    {
       "name": "day_of_year_sin",
+      "importance": 0.0002
+    },
+    {
+      "name": "mm_icon_max",
       "importance": 0.0002
     },
     {
@@ -62,7 +66,11 @@
       "importance": 0.0002
     },
     {
-      "name": "atm_dewpoint_mean",
+      "name": "accu_last",
+      "importance": 0.0002
+    },
+    {
+      "name": "mm_gem_hrdps_max",
       "importance": 0.0002
     },
     {
@@ -74,15 +82,7 @@
       "importance": 0.0001
     },
     {
-      "name": "mm_gem_hrdps_max",
-      "importance": 0.0001
-    },
-    {
-      "name": "mm_icon_max",
-      "importance": 0.0001
-    },
-    {
-      "name": "atm_humidity_min",
+      "name": "atm_vs_forecast_diff",
       "importance": 0.0001
     }
   ],
