@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-11-21T13:33:42.684187",
+  "trained_on": "2026-11-22T12:57:51.223295",
   "num_days": 263,
   "date_range": {
     "start": "2026-03-02",
@@ -38,16 +38,16 @@
     "rolling_ml_error_7d",
     "has_accu_data"
   ],
-  "residual_std": 2.119799526487358,
+  "residual_std": 2.114589925117092,
   "bucket_method": "gaussian_from_regression",
   "base_source": "accu_last (fallback: nws_last)",
   "model_type": "HistGradientBoostingRegressor",
   "model_performance": {
     "cv_temperature_mae": 1.73,
-    "cv_bucket_accuracy": 0.186,
-    "insample_temperature_mae": 0.95,
-    "insample_bucket_accuracy": 0.3802,
-    "residual_std": 2.12
+    "cv_bucket_accuracy": 0.1907,
+    "insample_temperature_mae": 0.94,
+    "insample_bucket_accuracy": 0.3916,
+    "residual_std": 2.11
   },
   "seasonal_performance": {
     "summer": {
@@ -60,49 +60,49 @@
     },
     "spring": {
       "days": 91,
-      "insample_mae": 1.19
+      "insample_mae": 1.17
     }
   },
   "top_features": [
     {
       "name": "accu_trend",
-      "importance": 0.1836
+      "importance": 0.1759
     },
     {
       "name": "month",
-      "importance": 0.1443
+      "importance": 0.1421
     },
     {
       "name": "accu_std",
-      "importance": 0.1179
+      "importance": 0.1222
     },
     {
       "name": "accu_last",
-      "importance": 0.1068
+      "importance": 0.109
     },
     {
       "name": "nws_accu_mean_diff",
-      "importance": 0.0732
+      "importance": 0.071
     },
     {
       "name": "accu_mean",
-      "importance": 0.0468
-    },
-    {
-      "name": "day_of_year_cos",
-      "importance": 0.0437
+      "importance": 0.0604
     },
     {
       "name": "nws_mean",
-      "importance": 0.0394
+      "importance": 0.0591
     },
     {
-      "name": "nws_last",
-      "importance": 0.0377
+      "name": "day_of_year_cos",
+      "importance": 0.0413
     },
     {
       "name": "day_of_year_sin",
-      "importance": 0.0366
+      "importance": 0.0383
+    },
+    {
+      "name": "nws_last",
+      "importance": 0.0299
     }
   ],
   "hyperparameters": {
