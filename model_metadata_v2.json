@@ -1,5 +1,5 @@
 {
-  "trained_on": "2026-11-27T14:31:49.783750",
+  "trained_on": "2026-11-27T15:07:05.700511",
   "version": "v2_atmospheric_classifier",
   "num_days": 1790,
   "date_range": {
@@ -7,19 +7,19 @@
     "end": "2026-11-26"
   },
   "v1_performance": {
-    "cv_mae": 1.18,
+    "cv_mae": 1.17,
     "cv_bucket_accuracy": 0.378
   },
   "v2_regression": {
-    "cv_mae": 1.0,
-    "cv_bucket_accuracy": 0.3854,
-    "residual_std": 1.51,
+    "cv_mae": 0.97,
+    "cv_bucket_accuracy": 0.3878,
+    "residual_std": 1.44,
     "num_features": 94
   },
   "v2_classifier": {
-    "cv_bucket_accuracy": 0.2295,
-    "cv_log_loss": 0.421,
-    "insample_bucket_accuracy": 0.2639,
+    "cv_bucket_accuracy": 0.2821,
+    "cv_log_loss": 0.4108,
+    "insample_bucket_accuracy": 0.2476,
     "num_training_days": 1790,
     "num_forecast_days": 495,
     "num_persistence_days": 1295,
@@ -28,7 +28,7 @@
     "n_candidate_buckets": 7,
     "feature_cols_used": 98,
     "positive_rate": 0.0927,
-    "residual_std": 1.507
+    "residual_std": 1.435
   },
   "feature_columns_v2": [
     "nws_first",
